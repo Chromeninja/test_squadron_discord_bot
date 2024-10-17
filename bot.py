@@ -18,6 +18,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Channel ID where the bot sends verification message (replace with actual channel ID)
 VERIFICATION_CHANNEL_ID = 1294734078356099147  # Replace with the channel ID
 
+#Update Roles
+ROLE_ID = 1295070914345570417
+
 class HandleModal(Modal):
     def __init__(self):
         super().__init__(title="Enter Your Star Citizen Handle")
@@ -29,6 +32,7 @@ class HandleModal(Modal):
     async def on_submit(self, interaction: discord.Interaction):
         # Handle submission logic
         star_citizen_handle = self.handle.value
+        role = interaction.guild.get_role(ROLE_ID)
 
         if is_valid_rsi_handle(star_citizen_handle):
 
@@ -40,6 +44,12 @@ class HandleModal(Modal):
                 await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
             except discord.Forbidden:
                 await interaction.response.send_message("I don't have permission to change your nickname.", ephemeral=True)
+
+            try:
+                await member.add_roles(role)
+                await interaction.followup.send(f"You have been assigned the {role.name} role!", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.followup.send("I don't have permission to assign roles.", ephemeral=True)
 
 
 class VerificationView(View):
@@ -70,17 +80,12 @@ async def on_member_join(member):
 
 def is_valid_rsi_handle(user_handle):
 
-     print(f"Code is good to here for {user_handle}!")
-     return True
+    url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
+    org_data = RSIVerify.scrape_rsi_organizations(url)
+    verify_data = RSIVerify.search_organization(org_data,"TEST Squadron - Best Squardon!")
+    return verify_data
 
-    # """
-    # Check if the RSI handle is valid by querying the RSI website or API.
-    # """
-    # user = RSIVerify.User(user_handle=user_handle).execute()
-    # print(user.get("profile", {}).get("handle", "not available"))
-    # if not user:
-    #     return False
-    # return user.get("profile", {}).get("handle", "not available")
+
 
 
 
