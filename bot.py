@@ -19,7 +19,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 VERIFICATION_CHANNEL_ID = 1294734078356099147  # Replace with the channel ID
 
 #Update Roles
-ROLE_ID = 1295070914345570417
+NoneMember_ROLE_ID = 1296654331222954025
+Main_ROLE_ID = 1296654035998474451
+Affiliate_ROLE_ID = 1295070914345570417
 
 class HandleModal(Modal):
     def __init__(self):
@@ -32,24 +34,28 @@ class HandleModal(Modal):
     async def on_submit(self, interaction: discord.Interaction):
         # Handle submission logic
         star_citizen_handle = self.handle.value
-        role = interaction.guild.get_role(ROLE_ID)
+        verify_value = is_valid_rsi_handle(star_citizen_handle)
 
-        if is_valid_rsi_handle(star_citizen_handle):
+        member = interaction.user
 
-            member = interaction.user
+        if verify_value == 1:
+            role = interaction.guild.get_role(Main_ROLE_ID)
+            await member.edit(nick=star_citizen_handle)
+            await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
+        elif verify_value == 2:
+            role = interaction.guild.get_role(Affiliate_ROLE_ID)
+            await member.edit(nick=star_citizen_handle)
+            await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
+        else:
+            role = interaction.guild.get_role(NoneMember_ROLE_ID)
+            await member.edit(nick="KickMe")
+            await interaction.response.send_message(f"Your nickname has been updated to Kickme!", ephemeral=True)        
 
-            # Update the member's nickname with the Star Citizen Handle
-            try:
-                await member.edit(nick=star_citizen_handle)
-                await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
-            except discord.Forbidden:
-                await interaction.response.send_message("I don't have permission to change your nickname.", ephemeral=True)
 
-            try:
-                await member.add_roles(role)
-                await interaction.followup.send(f"You have been assigned the {role.name} role!", ephemeral=True)
-            except discord.Forbidden:
-                await interaction.followup.send("I don't have permission to assign roles.", ephemeral=True)
+        await member.add_roles(role)
+        await interaction.followup.send(f"You have been assigned the {role.name} role!", ephemeral=True)
+
+
 
 
 class VerificationView(View):
@@ -84,10 +90,6 @@ def is_valid_rsi_handle(user_handle):
     org_data = RSIVerify.scrape_rsi_organizations(url)
     verify_data = RSIVerify.search_organization(org_data,"TEST Squadron - Best Squardon!")
     return verify_data
-
-
-
-
 
 # Replace with your bot token
 bot.run(TOKEN)
