@@ -3,7 +3,9 @@ from discord.ext import commands
 from discord.ui import Button, View, Modal
 import os
 from dotenv import load_dotenv
-import RSIVerify                                            
+import RSIVerify  
+import GenDailyToken as GT   
+import RSIBioVerify                                     
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -25,9 +27,10 @@ Affiliate_ROLE_ID = 1295070914345570417
 
 class HandleModal(Modal):
     def __init__(self):
-        super().__init__(title="Enter Your Star Citizen Handle")
+        dtoken = GT.generate_daily_token()
+        super().__init__(title=f"First, change Star Citizen bio to {dtoken}")
         # Create a TextInput for the modal
-        self.handle = discord.ui.TextInput(label="Star Citizen Handle", placeholder="Enter your handle here")
+        self.handle = discord.ui.TextInput(label="Verify", placeholder="Enter your Star Citizen handle here")
         # Add the TextInput to the modal
         self.add_item(self.handle)
 
@@ -35,14 +38,15 @@ class HandleModal(Modal):
         # Handle submission logic
         star_citizen_handle = self.handle.value
         verify_value = is_valid_rsi_handle(star_citizen_handle)
+        tokenverify_value = is_valid_rsi_bio(star_citizen_handle)
 
         member = interaction.user
 
-        if verify_value == 1:
+        if verify_value == 1 and tokenverify_value == 1:
             role = interaction.guild.get_role(Main_ROLE_ID)
             await member.edit(nick=star_citizen_handle)
             await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
-        elif verify_value == 2:
+        elif verify_value == 2 and tokenverify_value == 1:
             role = interaction.guild.get_role(Affiliate_ROLE_ID)
             await member.edit(nick=star_citizen_handle)
             await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
@@ -90,6 +94,13 @@ def is_valid_rsi_handle(user_handle):
     org_data = RSIVerify.scrape_rsi_organizations(url)
     verify_data = RSIVerify.search_organization(org_data,"TEST Squadron - Best Squardon!")
     return verify_data
+
+def is_valid_rsi_bio(user_handle):
+
+    url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
+    biotoken = RSIBioVerify.extract_bio(url)
+    tokenverify = RSIBioVerify.verifytoken(biotoken)
+    return tokenverify
 
 # Replace with your bot token
 bot.run(TOKEN)
