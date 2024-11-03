@@ -19,11 +19,11 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-VERIFICATION_CHANNEL_ID = 1294734078356099147  
+VERIFICATION_CHANNEL_ID = 1301647270889914429  
 
-NoneMember_ROLE_ID = 1296654331222954025
-Main_ROLE_ID = 1296654035998474451
-Affiliate_ROLE_ID = 1295070914345570417
+NoneMember_ROLE_ID = 1301648113483907132
+Main_ROLE_ID = 1179505821760114689
+Affiliate_ROLE_ID = 1179618003604750447
 
 class HandleModal(Modal):
     def __init__(self):
@@ -110,6 +110,5 @@ def is_valid_rsi_bio(user_handle):
     biotoken = RSIBioVerify.extract_bio(url)
     tokenverify = RSIBioVerify.verifytoken(biotoken)
     return tokenverify
-
 
 bot.run(TOKEN)
