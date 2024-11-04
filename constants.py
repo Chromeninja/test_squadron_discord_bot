@@ -56,6 +56,3 @@ def search_organization(json_string, target_org):
 
     # If not found
     return 0
-
-
-
