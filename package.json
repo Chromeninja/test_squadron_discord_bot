@@ -1,0 +1,16 @@
+{
+  "name": "test_squadron_discord_bot",
+  "version": "1.0.0",
+  "description": "A Discord bot for managing TEST Squadron community functions and features like custom voice channels, verification, and community engagement tools",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  }
+}
