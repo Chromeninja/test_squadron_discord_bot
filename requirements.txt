@@ -1,0 +1,6 @@
+discord.py
+python-dotenv
+requests
+aiohttp
+beautifulsoup4
+PyNaCl
