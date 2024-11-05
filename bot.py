@@ -112,95 +112,95 @@ class HandleModal(Modal, title="Verification"):
     rsi_handle = TextInput(label="RSI Handle", placeholder="Enter your Star Citizen handle here")
 
     async def on_submit(self, interaction: discord.Interaction):
-    member = interaction.user
-    rsi_handle_value = self.rsi_handle.value.strip()
+        member = interaction.user
+        rsi_handle_value = self.rsi_handle.value.strip()
 
-    # Check if the user has an active token
-    user_token_info = token_store.get(member.id)
-    if not user_token_info:
-        await interaction.response.send_message(
-            "No active token found. Please click 'Get Token' to receive a new token.", ephemeral=True)
-        return
-
-    valid, message = validate_token(member.id, user_token_info['token'])
-    if not valid:
-        await interaction.response.send_message(message, ephemeral=True)
-        return
-
-    # Defer the response as verification may take some time
-    await interaction.response.defer(ephemeral=True)
-
-    token = user_token_info['token']
-
-    # Perform RSI verification
-    verify_value = await is_valid_rsi_handle(rsi_handle_value)
-    token_verify = await is_valid_rsi_bio(rsi_handle_value, token)
-
-    # Handle attempts
-    attempts = user_attempts.get(member.id, 0) + 1
-    user_attempts[member.id] = attempts
-
-    if not verify_value or not token_verify:
-        # Verification failed
-        if attempts >= MAX_ATTEMPTS:
-            user_cooldowns[member.id] = time.time() + COOLDOWN_TIME
-            user_attempts[member.id] = 0  # Reset attempts after cooldown is set
-            await interaction.followup.send(
-                f"You have reached the maximum number of attempts. Please try again after {COOLDOWN_TIME // 60} minutes.",
-                ephemeral=True)
+        # Check if the user has an active token
+        user_token_info = token_store.get(member.id)
+        if not user_token_info:
+            await interaction.response.send_message(
+                "No active token found. Please click 'Get Token' to receive a new token.", ephemeral=True)
             return
+
+        valid, message = validate_token(member.id, user_token_info['token'])
+        if not valid:
+            await interaction.response.send_message(message, ephemeral=True)
+            return
+
+        # Defer the response as verification may take some time
+        await interaction.response.defer(ephemeral=True)
+
+        token = user_token_info['token']
+
+        # Perform RSI verification
+        verify_value = await is_valid_rsi_handle(rsi_handle_value)
+        token_verify = await is_valid_rsi_bio(rsi_handle_value, token)
+
+        # Handle attempts
+        attempts = user_attempts.get(member.id, 0) + 1
+        user_attempts[member.id] = attempts
+
+        if not verify_value or not token_verify:
+            # Verification failed
+            if attempts >= MAX_ATTEMPTS:
+                user_cooldowns[member.id] = time.time() + COOLDOWN_TIME
+                user_attempts[member.id] = 0  # Reset attempts after cooldown is set
+                await interaction.followup.send(
+                    f"You have reached the maximum number of attempts. Please try again after {COOLDOWN_TIME // 60} minutes.",
+                    ephemeral=True)
+                return
+            else:
+                error_message = "Verification failed due to the following reasons:\n"
+                if not verify_value:
+                    error_message += "- Could not verify RSI organization membership.\n"
+                if not token_verify:
+                    error_message += "- Token not found or does not match in RSI bio.\n"
+                error_message += f"You have {MAX_ATTEMPTS - attempts} attempts remaining before cooldown."
+                await interaction.followup.send(error_message, ephemeral=True)
+                return
+
+        # Verification successful
+        assigned_role_type = await assign_roles(member, verify_value, rsi_handle_value)
+        clear_token(member.id)
+        user_attempts.pop(member.id, None)  # Reset attempts on success
+
+        # Set daily cooldown
+        user_daily_cooldowns[member.id] = time.time() + 86400  # 24 hours in seconds
+
+        # Send customized success message based on role
+        if assigned_role_type == 'main':
+            success_message = (
+                "🎉 **Verification Successful!** 🎉\n\n"
+                "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
+                "We're thrilled to have you with us."
+            )
+        elif assigned_role_type == 'affiliate':
+            success_message = (
+                "🎉 **Verification Successful!** 🎉\n\n"
+                "Thanks for being an affiliate of **TEST Squadron - Best Squardon!** "
+                "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
+                "**Instructions:**\n"
+                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+                "1️⃣ Click on **Set as Main** next to **TEST**."
+            )
+        elif assigned_role_type == 'non_member':
+            success_message = (
+                "🎉 **Verification Successful!** 🎉\n\n"
+                "Welcome! It looks like you're not a member of **TEST Squadron - Best Squardon!** "
+                "Join us to be part of the adventure!\n\n"
+                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
+            )
         else:
-            error_message = "Verification failed due to the following reasons:\n"
-            if not verify_value:
-                error_message += "- Could not verify RSI organization membership.\n"
-            if not token_verify:
-                error_message += "- Token not found or does not match in RSI bio.\n"
-            error_message += f"You have {MAX_ATTEMPTS - attempts} attempts remaining before cooldown."
-            await interaction.followup.send(error_message, ephemeral=True)
-            return
+            success_message = (
+                "🎉 **Verification Successful!** 🎉\n\n"
+                "Welcome to the server! You can verify again after 24 hours if needed."
+            )
 
-    # Verification successful
-    assigned_role_type = await assign_roles(member, verify_value, rsi_handle_value)
-    clear_token(member.id)
-    user_attempts.pop(member.id, None)  # Reset attempts on success
-
-    # Set daily cooldown
-    user_daily_cooldowns[member.id] = time.time() + 86400  # 24 hours in seconds
-
-    # Send customized success message based on role
-    if assigned_role_type == 'main':
-        success_message = (
-            "🎉 **Verification Successful!** 🎉\n\n"
-            "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
-            "We're thrilled to have you with us. Be sure to check out the events section at the top for lastest events. o7"
+        await interaction.followup.send(
+            success_message,
+            ephemeral=True
         )
-    elif assigned_role_type == 'affiliate':
-        success_message = (
-            "🎉 **Verification Successful!** 🎉\n\n"
-            "Thanks for being an affiliate of **TEST Squadron - Best Squardon!** "
-            "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
-            "**Instructions:**\n"
-            ":point_right: [Change Your Main Org](<https://robertsspaceindustries.com/account/organization>)\n"
-            "1️⃣ Click on **Set as Main** next to **TEST**."
-        )
-    elif assigned_role_type == 'non_member':
-        success_message = (
-            "🎉 **Verification Successful!** 🎉\n\n"
-            "Welcome! It looks like you're not a member of **TEST Squadron - Best Squardon!** "
-            "Join us to be part of the adventure!\n\n"
-            "🔗 [Join TEST Squadron](<https://robertsspaceindustries.com/orgs/TEST>)\n"
-            "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
-        )
-    else:
-        success_message = (
-            "🎉 **Verification Successful!** 🎉\n\n"
-            "Welcome to the server! You can verify again after 24 hours if needed."
-        )
-
-    await interaction.followup.send(
-        success_message,
-        ephemeral=True
-    )
 
 async def assign_roles(member, verify_value, rsi_handle_value):
     guild = member.guild
