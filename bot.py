@@ -85,7 +85,7 @@ class VerificationView(View):
             f"Hello! :wave:\n\n"
             f"Use this token for verification: `{token}`\n\n"
             f"**Instructions:**\n"
-            f":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+            f":one: Go to your [RSI account profile](<https://robertsspaceindustries.com/account/profile>).\n"
             f":two: Add the token to your **Short Bio** field.\n"
             f":three: Scroll down and click **Apply All Changes**.\n"
             f":four: Return here and click the 'Verify' button below.\n\n"
@@ -172,7 +172,7 @@ class HandleModal(Modal, title="Verification"):
         success_message = (
             "🎉 **Verification Successful!** 🎉\n\n"
             "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
-            "We're thrilled to have you with us."
+            "We're thrilled to have you with us. Be sure to check out the events section at the top for lastest events. o7"
         )
     elif assigned_role_type == 'affiliate':
         success_message = (
@@ -180,7 +180,7 @@ class HandleModal(Modal, title="Verification"):
             "Thanks for being an affiliate of **TEST Squadron - Best Squardon!** "
             "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
             "**Instructions:**\n"
-            ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+            ":point_right: [Change Your Main Org](<https://robertsspaceindustries.com/account/organization>)\n"
             "1️⃣ Click on **Set as Main** next to **TEST**."
         )
     elif assigned_role_type == 'non_member':
@@ -188,7 +188,7 @@ class HandleModal(Modal, title="Verification"):
             "🎉 **Verification Successful!** 🎉\n\n"
             "Welcome! It looks like you're not a member of **TEST Squadron - Best Squardon!** "
             "Join us to be part of the adventure!\n\n"
-            "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+            "🔗 [Join TEST Squadron](<https://robertsspaceindustries.com/orgs/TEST>)\n"
             "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
         )
     else:
