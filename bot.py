@@ -28,11 +28,11 @@ intents.message_content = True  # Needed for receiving messages
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Constants (replace with your actual IDs)
-VERIFICATION_CHANNEL_ID = 1301647270889914429  # Replace with your verification channel ID
-BOT_VERIFIED_ROLE_ID = 987654321098765432      # Replace with your BotVerified role ID
-MAIN_ROLE_ID = 1179505821760114689             # Replace with your Main role ID
-AFFILIATE_ROLE_ID = 1179618003604750447        # Replace with your Affiliate role ID
-NON_MEMBER_ROLE_ID = 1301648113483907132       # Replace with your NonMember role ID
+VERIFICATION_CHANNEL_ID = int(os.getenv('VERIFICATION_CHANNEL_ID'))
+BOT_VERIFIED_ROLE_ID = int(os.getenv('BOT_VERIFIED_ROLE_ID'))
+MAIN_ROLE_ID = int(os.getenv('MAIN_ROLE_ID'))
+AFFILIATE_ROLE_ID = int(os.getenv('AFFILIATE_ROLE_ID'))
+NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
 
 # Configurable parameters
 MAX_ATTEMPTS = 3
@@ -282,9 +282,23 @@ async def on_ready():
         await clear_verification_channel(channel)
         logging.info("Cleared messages in the verification channel.")
 
-        # Send the static verification message
+        # Create the embed with yellow color
+        embed = discord.Embed(
+            title="📡 Account Verification",
+            description=(
+                "Welcome! To get started, please **click the 'Get Token' button below**.\n\n"
+                "After obtaining your token, verify your RSI / Star Citizen account by using the provided buttons.\n\n"
+                "If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)."
+            ),
+            color=0xFFBB00  # Yellow color in hexadecimal
+        )
+        embed.set_thumbnail(url="https://robertsspaceindustries.com/static/images/logo.png")  # Example thumbnail
+
+        # Initialize the verification view with buttons
         view = VerificationView()
-        await channel.send("Welcome! Please verify yourself by clicking the buttons below.", view=view)
+
+        # Send the embed with the interactive view to the channel
+        await channel.send(embed=embed, view=view)
         logging.info("Sent verification message in channel.")
 
     except Exception as e:
