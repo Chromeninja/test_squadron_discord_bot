@@ -4,7 +4,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 import json
 
-TEST_ORG_NAME = "TEST Squadron - Best Squadron!"  # Update with the correct organization name
+TEST_ORG_NAME = "TEST Squadron - Best Squardon!"  # Update with the correct organization name
 
 async def fetch_html(url):
     async with aiohttp.ClientSession() as session:
@@ -31,6 +31,7 @@ def parse_rsi_organizations(html_content):
             main_org_name = "Main organization not found"
     else:
         main_org_name = "Main organization not found"
+    print(f"Main organization parsed: {main_org_name}")
 
     # Find all affiliate organizations
     affiliates_section = soup.find_all('div', class_='box-content org affiliation visibility-V')
@@ -41,6 +42,7 @@ def parse_rsi_organizations(html_content):
         for link in affiliate_links:
             affiliate_name = link.get_text(strip=True)
             affiliates.append(affiliate_name)
+    print(f"Affiliates parsed: {affiliates}")
 
     # Prepare the result as a JSON string
     result = {
@@ -68,8 +70,8 @@ def search_organization(json_string, target_org):
 async def is_valid_rsi_bio(user_handle, token):
     url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
     html_content = await fetch_html(url)
-    biotoken = extract_bio(html_content)
-    return biotoken == token
+    bio_text = extract_bio(html_content)
+    return token in bio_text
 
 def extract_bio(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -79,4 +81,5 @@ def extract_bio(html_content):
         bio = bio_text
     else:
         bio = ""
+    print(f"Bio extracted: {bio}")
     return bio
