@@ -104,7 +104,7 @@ class VerificationView(View):
             description=(
                 "Use the **4-digit PIN** below for verification.\n\n"
                 "**Instructions:**\n"
-                ":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+                ":one: Login to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
                 ":two: Add the PIN to your **Short Bio** field.\n"
                 ":three: Scroll down and click **Apply All Changes**.\n"
                 ":four: Return here and click the 'Verify' button below.\n\n"
@@ -117,7 +117,7 @@ class VerificationView(View):
         # Add the token in a separate field with a colored code block to make it stand out
         embed.add_field(
             name="🔑 Your Verification PIN",
-            value=f"```diff\n+ {token}\n```",
+            value=f"```diff\n+ {token}\n```\n*On mobile, hold to copy*",
             inline=False
         )
 
