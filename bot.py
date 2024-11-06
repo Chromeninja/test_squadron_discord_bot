@@ -76,15 +76,18 @@ class VerificationView(View):
             # Calculate time until the earliest attempt expires
             earliest_attempt = attempts[0]
             wait_time = RATE_LIMIT_WINDOW - (current_time - earliest_attempt)
-            hours, remainder = divmod(int(wait_time), 3600)
-            minutes, _ = divmod(remainder, 60)
+            wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp when cooldown ends
 
-            # Create and send cooldown embed
+            # Create and send enhanced cooldown embed with dynamic countdown
             description = (
                 f"You have reached the maximum number of verification attempts.\n"
-                f"Please try again in {hours} hours and {minutes} minutes."
+                f"Please try again <t:{wait_until}:R>."
             )
-            embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+            embed = discord.Embed(
+                title="⏰ Cooldown Active",
+                description=description,
+                color=0xFFA500  # Orange color
+            )
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
@@ -105,7 +108,7 @@ class VerificationView(View):
                 ":two: Add the PIN to your **Short Bio** field.\n"
                 ":three: Scroll down and click **Apply All Changes**.\n"
                 ":four: Return here and click the 'Verify' button below.\n\n"
-                f":information_source: *Note: The PIN expires in 15 minutes (<t:{expires_unix}:R>).*"
+                f":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
             ),
             color=0x00FF00  # Green color
         )
@@ -114,7 +117,7 @@ class VerificationView(View):
         # Add the token in a separate field with a colored code block to make it stand out
         embed.add_field(
             name="🔑 Your Verification PIN",
-            value=f"```diff\n{token}\n```",
+            value=f"```diff\n+ {token}\n```",
             inline=False
         )
 
@@ -135,15 +138,18 @@ class VerificationView(View):
             # Calculate time until the earliest attempt expires
             earliest_attempt = attempts[0]
             wait_time = RATE_LIMIT_WINDOW - (current_time - earliest_attempt)
-            hours, remainder = divmod(int(wait_time), 3600)
-            minutes, _ = divmod(remainder, 60)
+            wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp when cooldown ends
 
-            # Create and send cooldown embed
+            # Create and send enhanced cooldown embed with dynamic countdown
             description = (
                 f"You have reached the maximum number of verification attempts.\n"
-                f"Please try again in {hours} hours and {minutes} minutes."
+                f"Please try again <t:{wait_until}:R>."
             )
-            embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+            embed = discord.Embed(
+                title="⏰ Cooldown Active",
+                description=description,
+                color=0xFFA500  # Orange color
+            )
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
@@ -201,14 +207,27 @@ class HandleModal(Modal, title="Verification"):
             # Verification failed
             if len(attempts) >= MAX_ATTEMPTS:
                 # User has exceeded max attempts
-                wait_time = RATE_LIMIT_WINDOW - (time.time() - attempts[0])
-                hours, remainder = divmod(int(wait_time), 3600)
-                minutes, _ = divmod(remainder, 60)
+
+                # Define earliest_attempt
+                earliest_attempt = attempts[0]
+
+                # Calculate time until the earliest attempt expires
+                wait_time = RATE_LIMIT_WINDOW - (time.time() - earliest_attempt)
+                wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp
+
+                # Create the cooldown description with dynamic countdown
                 description = (
-                    f"You have reached the maximum number of attempts.\n"
-                    f"Please try again after {hours} hours and {minutes} minutes."
+                    f"You have reached the maximum number of verification attempts.\n"
+                    f"Please try again <t:{wait_until}:R>."
                 )
-                embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+
+                # Create and send the enhanced cooldown embed
+                embed = discord.Embed(
+                    title="⏰ Cooldown Active",
+                    description=description,
+                    color=0xFFA500  # Orange color
+                )
+
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             else:
@@ -282,7 +301,8 @@ async def assign_roles(member, verify_value, rsi_handle_value):
 
     # Remove conflicting roles
     roles_to_remove = [role for role in [main_role, affiliate_role, non_member_role] if role]
-    await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
+    if roles_to_remove:
+        await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
 
     # Assign roles based on verification outcome
     roles_to_add = []
