@@ -9,13 +9,14 @@ TOKEN_EXPIRATION_TIME = 15 * 60  # 15 minutes in seconds
 
 def generate_token(user_id):
     # Generate a secure random token
-    token = secrets.token_hex(5)  # Generates a 10-character hex string
+    token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
     expires_at = time.time() + TOKEN_EXPIRATION_TIME
     token_store[user_id] = {'token': token, 'expires_at': expires_at}
     return token
 
 def validate_token(user_id, token):
-    # Check if the token exists and is valid
+    # Ensure token is treated as a string
+    token = str(token).zfill(4)
     user_token_info = token_store.get(user_id)
     if not user_token_info:
         return False, "No token found for this user. Please generate a new token."

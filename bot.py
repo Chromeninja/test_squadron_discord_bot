@@ -9,7 +9,14 @@ from dotenv import load_dotenv
 import asyncio
 import time
 
-# Import our new modules
+# Import helper functions for embeds
+from helpers import (
+    create_cooldown_embed,
+    create_error_embed,
+    create_success_embed
+)
+
+# Import our existing modules
 from token_manager import generate_token, validate_token, clear_token, token_store
 from verification import is_valid_rsi_handle, is_valid_rsi_bio
 
@@ -36,72 +43,100 @@ NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
 
 # Configurable parameters
 MAX_ATTEMPTS = 3
-COOLDOWN_TIME = 30 * 60  # 30 minutes in seconds
+RATE_LIMIT_WINDOW = 3 * 60 * 60  # 3 hours in seconds
 
-# In-memory storage for tracking user attempts, cooldowns, and daily verifications
-user_attempts = {}
-user_cooldowns = {}
-user_daily_cooldowns = {}
+# In-memory storage for tracking user verification attempts
+user_verification_attempts = {}
 
 class VerificationView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Add buttons
+        # Add "Get Token" button
         self.get_token_button = Button(label="Get Token", style=discord.ButtonStyle.success)
         self.get_token_button.callback = self.get_token_button_callback
         self.add_item(self.get_token_button)
 
+        # Add "Verify" button
         self.verify_button = Button(label="Verify", style=discord.ButtonStyle.primary)
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
 
     async def get_token_button_callback(self, interaction: discord.Interaction):
         member = interaction.user
-
-        # Check for daily cooldown
         current_time = time.time()
-        daily_cooldown = user_daily_cooldowns.get(member.id, 0)
-        if current_time < daily_cooldown:
-            remaining = int(daily_cooldown - current_time)
-            hours, remainder = divmod(remaining, 3600)
+
+        # Initialize the user's attempt list if not present
+        attempts = user_verification_attempts.get(member.id, [])
+
+        # Remove attempts that are outside the RATE_LIMIT_WINDOW
+        attempts = [timestamp for timestamp in attempts if current_time - timestamp < RATE_LIMIT_WINDOW]
+        user_verification_attempts[member.id] = attempts  # Update after cleanup
+
+        if len(attempts) >= MAX_ATTEMPTS:
+            # Calculate time until the earliest attempt expires
+            earliest_attempt = attempts[0]
+            wait_time = RATE_LIMIT_WINDOW - (current_time - earliest_attempt)
+            hours, remainder = divmod(int(wait_time), 3600)
             minutes, _ = divmod(remainder, 60)
-            await interaction.response.send_message(
-                f"You can verify again in {hours} hours and {minutes} minutes.", ephemeral=True)
+
+            # Create and send cooldown embed
+            description = (
+                f"You have reached the maximum number of verification attempts.\n"
+                f"Please try again in {hours} hours and {minutes} minutes."
+            )
+            embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Check for cooldown from failed attempts
-        if member.id in user_cooldowns and current_time < user_cooldowns[member.id]:
-            remaining = int(user_cooldowns[member.id] - current_time)
-            minutes, seconds = divmod(remaining, 60)
-            await interaction.response.send_message(
-                f"You are on cooldown. Please try again in {minutes} minutes and {seconds} seconds.", ephemeral=True)
-            return
-
-        # Generate token and send via ephemeral message
+        # Proceed to generate and send token
         token = generate_token(member.id)
+        user_verification_attempts.setdefault(member.id, []).append(current_time)  # Log this attempt
 
-        # Send the token directly in an ephemeral message with updated instructions
-        await interaction.response.send_message(
-            f"Hello! :wave:\n\n"
-            f"Use this token for verification: `{token}`\n\n"
-            f"**Instructions:**\n"
-            f":one: Go to your [RSI account profile](<https://robertsspaceindustries.com/account/profile>).\n"
-            f":two: Add the token to your **Short Bio** field.\n"
-            f":three: Scroll down and click **Apply All Changes**.\n"
-            f":four: Return here and click the 'Verify' button below.\n\n"
-            f":information_source: *Note: The token expires in 15 minutes.*",
-            ephemeral=True
+        # Create and send token embed
+        embed = discord.Embed(
+            title="📡 Account Verification",
+            description=(
+                f"Use this **4-digit PIN** for verification: `**{token}**`\n\n"
+                f"**Instructions:**\n"
+                f":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+                f":two: Add the PIN to your **Short Bio** field.\n"
+                f":three: Scroll down and click **Apply All Changes**.\n"
+                f":four: Return here and click the 'Verify' button below.\n\n"
+                f":information_source: *Note: The PIN expires in 15 minutes.*"
+            ),
+            color=0x00FF00  # Green color
         )
+        embed.set_thumbnail(url="https://robertsspaceindustries.com/static/images/logo.png")  # Example thumbnail
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def verify_button_callback(self, interaction: discord.Interaction):
         member = interaction.user
+        current_time = time.time()
 
-        # Check for cooldown
-        if member.id in user_cooldowns and time.time() < user_cooldowns[member.id]:
-            remaining = int(user_cooldowns[member.id] - time.time())
-            minutes, seconds = divmod(remaining, 60)
-            await interaction.response.send_message(
-                f"You are on cooldown. Please try again in {minutes} minutes and {seconds} seconds.", ephemeral=True)
+        # Initialize the user's attempt list if not present
+        attempts = user_verification_attempts.get(member.id, [])
+
+        # Remove attempts that are outside the RATE_LIMIT_WINDOW
+        attempts = [timestamp for timestamp in attempts if current_time - timestamp < RATE_LIMIT_WINDOW]
+        user_verification_attempts[member.id] = attempts  # Update after cleanup
+
+        if len(attempts) >= MAX_ATTEMPTS:
+            # Calculate time until the earliest attempt expires
+            earliest_attempt = attempts[0]
+            wait_time = RATE_LIMIT_WINDOW - (current_time - earliest_attempt)
+            hours, remainder = divmod(int(wait_time), 3600)
+            minutes, _ = divmod(remainder, 60)
+
+            # Create and send cooldown embed
+            description = (
+                f"You have reached the maximum number of verification attempts.\n"
+                f"Please try again in {hours} hours and {minutes} minutes."
+            )
+            embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         # Show the modal to get RSI handle
@@ -109,22 +144,26 @@ class VerificationView(View):
         await interaction.response.send_modal(modal)
 
 class HandleModal(Modal, title="Verification"):
-    rsi_handle = TextInput(label="RSI Handle", placeholder="Enter your Star Citizen handle here")
+    rsi_handle = TextInput(label="RSI Handle", placeholder="Enter your Star Citizen handle here", max_length=32)
 
     async def on_submit(self, interaction: discord.Interaction):
         member = interaction.user
-        rsi_handle_value = self.rsi_handle.value.strip()
+        rsi_handle_input = self.rsi_handle.value.strip()
+
+        # Normalize the RSI handle to lowercase for case-insensitive handling
+        rsi_handle_value = rsi_handle_input.lower()
 
         # Check if the user has an active token
         user_token_info = token_store.get(member.id)
         if not user_token_info:
-            await interaction.response.send_message(
-                "No active token found. Please click 'Get Token' to receive a new token.", ephemeral=True)
+            embed = create_error_embed("No active token found. Please click 'Get Token' to receive a new token.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         valid, message = validate_token(member.id, user_token_info['token'])
         if not valid:
-            await interaction.response.send_message(message, ephemeral=True)
+            embed = create_error_embed(message)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         # Defer the response as verification may take some time
@@ -132,73 +171,79 @@ class HandleModal(Modal, title="Verification"):
 
         token = user_token_info['token']
 
-        # Perform RSI verification
+        # Perform RSI verification with normalized handle
         verify_value = await is_valid_rsi_handle(rsi_handle_value)
         token_verify = await is_valid_rsi_bio(rsi_handle_value, token)
 
         # Handle attempts
-        attempts = user_attempts.get(member.id, 0) + 1
-        user_attempts[member.id] = attempts
+        attempts = user_verification_attempts.get(member.id, [])
+        # Remove outdated attempts
+        attempts = [timestamp for timestamp in attempts if time.time() - timestamp < RATE_LIMIT_WINDOW]
+        attempts.append(time.time())
+        user_verification_attempts[member.id] = attempts
 
         if not verify_value or not token_verify:
             # Verification failed
-            if attempts >= MAX_ATTEMPTS:
-                user_cooldowns[member.id] = time.time() + COOLDOWN_TIME
-                user_attempts[member.id] = 0  # Reset attempts after cooldown is set
-                await interaction.followup.send(
-                    f"You have reached the maximum number of attempts. Please try again after {COOLDOWN_TIME // 60} minutes.",
-                    ephemeral=True)
+            if len(attempts) >= MAX_ATTEMPTS:
+                # User has exceeded max attempts
+                wait_time = RATE_LIMIT_WINDOW - (time.time() - attempts[0])
+                hours, remainder = divmod(int(wait_time), 3600)
+                minutes, _ = divmod(remainder, 60)
+                description = (
+                    f"You have reached the maximum number of attempts.\n"
+                    f"Please try again after {hours} hours and {minutes} minutes."
+                )
+                embed = create_cooldown_embed(description, unit="hours" if hours > 0 else "minutes")
+                await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             else:
-                error_message = "Verification failed due to the following reasons:\n"
+                # Prepare error details
+                error_details = []
                 if not verify_value:
-                    error_message += "- Could not verify RSI organization membership.\n"
+                    error_details.append("- Could not verify RSI organization membership.")
                 if not token_verify:
-                    error_message += "- Token not found or does not match in RSI bio.\n"
-                error_message += f"You have {MAX_ATTEMPTS - attempts} attempts remaining before cooldown."
-                await interaction.followup.send(error_message, ephemeral=True)
+                    error_details.append("- Token not found or does not match in RSI bio.")
+                error_details.append(f"You have {MAX_ATTEMPTS - len(attempts)} attempts remaining before cooldown.")
+                error_message = "\n".join(error_details)
+                embed = create_error_embed(error_message)
+                await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
         # Verification successful
         assigned_role_type = await assign_roles(member, verify_value, rsi_handle_value)
         clear_token(member.id)
-        user_attempts.pop(member.id, None)  # Reset attempts on success
-
-        # Set daily cooldown
-        user_daily_cooldowns[member.id] = time.time() + 86400  # 24 hours in seconds
+        user_verification_attempts.pop(member.id, None)  # Reset attempts on success
 
         # Send customized success message based on role
         if assigned_role_type == 'main':
-            success_message = (
-                "🎉 **Verification Successful!** 🎉\n\n"
-                "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
+            description = (
+                "Thank you for being a main member of **TEST Squadron - Best Squadron!** "
                 "We're thrilled to have you with us."
             )
         elif assigned_role_type == 'affiliate':
-            success_message = (
-                "🎉 **Verification Successful!** 🎉\n\n"
-                "Thanks for being an affiliate of **TEST Squadron - Best Squardon!** "
+            description = (
+                "Thanks for being an affiliate of **TEST Squadron - Best Squadron!** "
                 "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
                 "1️⃣ Click on **Set as Main** next to **TEST**."
             )
         elif assigned_role_type == 'non_member':
-            success_message = (
-                "🎉 **Verification Successful!** 🎉\n\n"
-                "Welcome! It looks like you're not a member of **TEST Squadron - Best Squardon!** "
+            description = (
+                "Welcome! It looks like you're not a member of **TEST Squadron - Best Squadron!** "
                 "Join us to be part of the adventure!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
             )
         else:
-            success_message = (
-                "🎉 **Verification Successful!** 🎉\n\n"
-                "Welcome to the server! You can verify again after 24 hours if needed."
+            description = (
+                "Welcome to the server! You can verify again after 3 hours if needed."
             )
 
+        embed = create_success_embed(description)
+
         await interaction.followup.send(
-            success_message,
+            embed=embed,
             ephemeral=True
         )
 
