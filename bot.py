@@ -91,23 +91,32 @@ class VerificationView(View):
 
         # Proceed to generate and send token
         token = generate_token(member.id)
+        expires_at = token_store[member.id]['expires_at']
+        expires_unix = int(expires_at)
         user_verification_attempts.setdefault(member.id, []).append(current_time)  # Log this attempt
 
         # Create and send token embed
         embed = discord.Embed(
             title="📡 Account Verification",
             description=(
-                f"Use this **4-digit PIN** for verification: `{token}`\n\n"
-                f"**Instructions:**\n"
-                f":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
-                f":two: Add the PIN to your **Short Bio** field.\n"
-                f":three: Scroll down and click **Apply All Changes**.\n"
-                f":four: Return here and click the 'Verify' button below.\n\n"
-                f":information_source: *Note: The PIN expires in 15 minutes.*"
+                "Use the **4-digit PIN** below for verification.\n\n"
+                "**Instructions:**\n"
+                ":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+                ":two: Add the PIN to your **Short Bio** field.\n"
+                ":three: Scroll down and click **Apply All Changes**.\n"
+                ":four: Return here and click the 'Verify' button below.\n\n"
+                f":information_source: *Note: The PIN expires in 15 minutes (<t:{expires_unix}:R>).*"
             ),
             color=0x00FF00  # Green color
         )
         embed.set_thumbnail(url="https://robertsspaceindustries.com/static/images/logo.png")  # Example thumbnail
+
+        # Add the token in a separate field with a colored code block to make it stand out
+        embed.add_field(
+            name="🔑 Your Verification PIN",
+            value=f"```diff\n{token}\n```",
+            inline=False
+        )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -144,7 +153,11 @@ class VerificationView(View):
         await interaction.response.send_modal(modal)
 
 class HandleModal(Modal, title="Verification"):
-    rsi_handle = TextInput(label="RSI Handle", placeholder="Enter your Star Citizen handle here", max_length=32)
+    rsi_handle = TextInput(
+        label="RSI Handle",
+        placeholder="Enter your Star Citizen handle here",
+        max_length=32
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
         member = interaction.user
@@ -156,7 +169,9 @@ class HandleModal(Modal, title="Verification"):
         # Check if the user has an active token
         user_token_info = token_store.get(member.id)
         if not user_token_info:
-            embed = create_error_embed("No active token found. Please click 'Get Token' to receive a new token.")
+            embed = create_error_embed(
+                "No active token found. Please click 'Get Token' to receive a new token."
+            )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
@@ -197,7 +212,7 @@ class HandleModal(Modal, title="Verification"):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             else:
-                # Prepare error details
+                # Prepare error details with enhanced instructions
                 error_details = []
                 if not verify_value:
                     error_details.append("- Could not verify RSI organization membership.")
@@ -206,7 +221,7 @@ class HandleModal(Modal, title="Verification"):
                 # Add additional instructions and link
                 error_details.append(
                     "- Please ensure your RSI Handle is correct and check the spelling.\n"
-                    "- You can find your RSI Handle on your [RSI Account Settings](<https://robertsspaceindustries.com/account/settings>) page, next to the handle field."
+                    "- You can find your RSI Handle on your [RSI Account Settings](https://robertsspaceindustries.com/account/settings) page, next to the handle field."
                 )
                 error_details.append(f"You have {MAX_ATTEMPTS - len(attempts)} attempts remaining before cooldown.")
                 error_message = "\n".join(error_details)
@@ -230,14 +245,14 @@ class HandleModal(Modal, title="Verification"):
                 "Thanks for being an affiliate of **TEST Squadron - Best Squadron!** "
                 "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
                 "**Instructions:**\n"
-                ":point_right: [Change Your Main Org](<https://robertsspaceindustries.com/account/organization>)\n"
+                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
                 "1️⃣ Click on **Set as Main** next to **TEST**."
             )
         elif assigned_role_type == 'non_member':
             description = (
                 "Welcome! It looks like you're not a member of **TEST Squadron - Best Squadron!** "
                 "Join us to be part of the adventure!\n\n"
-                "🔗 [Join TEST Squadron](<https://robertsspaceindustries.com/orgs/TEST>)\n"
+                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
             )
         else:
@@ -338,7 +353,7 @@ async def on_ready():
             description=(
                 "Welcome! To get started, please **click the 'Get Token' button below**.\n\n"
                 "After obtaining your token, verify your RSI / Star Citizen account by using the provided buttons.\n\n"
-                "If you don't have an account, feel free to [enlist here](<https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G>)."
+                "If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)."
             ),
             color=0xFFBB00  # Yellow color in hexadecimal
         )
