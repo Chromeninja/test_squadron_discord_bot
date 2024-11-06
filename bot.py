@@ -97,7 +97,7 @@ class VerificationView(View):
         embed = discord.Embed(
             title="📡 Account Verification",
             description=(
-                f"Use this **4-digit PIN** for verification: `**{token}**`\n\n"
+                f"Use this **4-digit PIN** for verification: `{token}`\n\n"
                 f"**Instructions:**\n"
                 f":one: Go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
                 f":two: Add the PIN to your **Short Bio** field.\n"
@@ -203,6 +203,11 @@ class HandleModal(Modal, title="Verification"):
                     error_details.append("- Could not verify RSI organization membership.")
                 if not token_verify:
                     error_details.append("- Token not found or does not match in RSI bio.")
+                # Add additional instructions and link
+                error_details.append(
+                    "- Please ensure your RSI Handle is correct and check the spelling.\n"
+                    "- You can find your RSI Handle on your [RSI Account Settings](<https://robertsspaceindustries.com/account/settings>) page, next to the handle field."
+                )
                 error_details.append(f"You have {MAX_ATTEMPTS - len(attempts)} attempts remaining before cooldown.")
                 error_message = "\n".join(error_details)
                 embed = create_error_embed(error_message)
@@ -225,14 +230,14 @@ class HandleModal(Modal, title="Verification"):
                 "Thanks for being an affiliate of **TEST Squadron - Best Squadron!** "
                 "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
                 "**Instructions:**\n"
-                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+                ":point_right: [Change Your Main Org](<https://robertsspaceindustries.com/account/organization>)\n"
                 "1️⃣ Click on **Set as Main** next to **TEST**."
             )
         elif assigned_role_type == 'non_member':
             description = (
                 "Welcome! It looks like you're not a member of **TEST Squadron - Best Squadron!** "
                 "Join us to be part of the adventure!\n\n"
-                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+                "🔗 [Join TEST Squadron](<https://robertsspaceindustries.com/orgs/TEST>)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
             )
         else:
@@ -333,7 +338,7 @@ async def on_ready():
             description=(
                 "Welcome! To get started, please **click the 'Get Token' button below**.\n\n"
                 "After obtaining your token, verify your RSI / Star Citizen account by using the provided buttons.\n\n"
-                "If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)."
+                "If you don't have an account, feel free to [enlist here](<https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G>)."
             ),
             color=0xFFBB00  # Yellow color in hexadecimal
         )
