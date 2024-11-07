@@ -24,7 +24,7 @@ class ConfigLoader:
         """
         if not cls._config:
             try:
-                with open(config_path, 'r') as file:
+                with open(config_path, 'r', encoding='utf-8') as file:
                     cls._config = yaml.safe_load(file)
                 logging.info("Configuration loaded successfully.")
             except FileNotFoundError:
@@ -32,6 +32,9 @@ class ConfigLoader:
                 raise
             except yaml.YAMLError as e:
                 logging.error(f"Error parsing the configuration file: {e}")
+                raise
+            except UnicodeDecodeError as e:
+                logging.error(f"Encoding error while reading the configuration file: {e}")
                 raise
         return cls._config
 

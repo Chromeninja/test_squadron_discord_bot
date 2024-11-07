@@ -28,7 +28,6 @@ config = ConfigLoader.load_config()
 
 # Load sensitive information from .env
 TOKEN = os.getenv('DISCORD_TOKEN')
-PREFIX = config['bot']['prefix']
 
 # Access configuration values
 PREFIX = config['bot']['prefix']
@@ -37,6 +36,16 @@ BOT_VERIFIED_ROLE_ID = int(os.getenv('BOT_VERIFIED_ROLE_ID'))
 MAIN_ROLE_ID = int(os.getenv('MAIN_ROLE_ID'))
 AFFILIATE_ROLE_ID = int(os.getenv('AFFILIATE_ROLE_ID'))
 NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
+
+if not TOKEN:
+    logging.critical("DISCORD_TOKEN not found in environment variables.")
+    raise ValueError("DISCORD_TOKEN not set.")
+
+required_env_vars = ['VERIFICATION_CHANNEL_ID', 'BOT_VERIFIED_ROLE_ID', 'MAIN_ROLE_ID', 'AFFILIATE_ROLE_ID', 'NON_MEMBER_ROLE_ID']
+for var in required_env_vars:
+    if not os.getenv(var):
+        logging.critical(f"{var} not found in environment variables.")
+        raise ValueError(f"{var} not set.")
 
 # Initialize bot intents
 intents = discord.Intents.default()
