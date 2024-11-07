@@ -4,7 +4,16 @@ rate_limits:
   max_attempts: 3
   window_seconds: 10800  # 3 hours
 organization:
-  name: "TEST Squadron - Best Squardon!"
+  name: "TEST Squadron - Best Squardon!" 
+
+channels:
+  verification_channel_id: 1301647270889914429  # Replace with your verification channel ID
+
+roles:
+  bot_verified_role_id: 1301647923268030474     # Replace with your BotVerified role ID
+  main_role_id: 1179505821760114689            # Replace with your Main role ID
+  affiliate_role_id: 1179618003604750447       # Replace with your Affiliate role ID
+  non_member_role_id: 1301648113483907132      # Replace with your Non-Member role ID
 
 embeds:
   verification:

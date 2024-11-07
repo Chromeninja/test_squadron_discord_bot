@@ -5,7 +5,17 @@ import logging
 from typing import List, Optional
 
 async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[discord.Role]]:
-    """Retrieve roles from the guild based on a list of role IDs."""
+    """
+    Retrieve roles from the guild based on a list of role IDs.
+
+    Args:
+        guild (discord.Guild): The guild from which to retrieve roles.
+        role_ids (List[int]): A list of role IDs to fetch.
+
+    Returns:
+        List[Optional[discord.Role]]: A list of roles corresponding to the provided IDs. 
+                                      None if a role is not found.
+    """
     roles = []
     for role_id in role_ids:
         role = guild.get_role(role_id)
@@ -39,36 +49,47 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
     roles = await get_roles(guild, role_ids)
     bot_verified_role, main_role, affiliate_role, non_member_role = roles
 
-    # Remove conflicting roles
-    roles_to_remove = [role for role in [main_role, affiliate_role, non_member_role] if role in member.roles]
-    if roles_to_remove:
-        try:
-            await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
-            logging.info(f"Removed roles: {[role.name for role in roles_to_remove]} from user {member}.")
-        except Exception as e:
-            logging.exception(f"Failed to remove roles from user {member}: {e}")
-
-    # Assign roles based on verification outcome
+    # Initialize lists for roles to add and remove
     roles_to_add = []
-    assigned_role_type = None  # To keep track of the role type assigned
+    roles_to_remove = []
+    assigned_role_type = 'unknown'
 
+    # Always add BOT_VERIFIED_ROLE_ID if not already present
     if bot_verified_role and bot_verified_role not in member.roles:
         roles_to_add.append(bot_verified_role)
 
+    # Determine which specific role to assign based on verify_value
     if verify_value == 1 and main_role:
         roles_to_add.append(main_role)
         assigned_role_type = 'main'
     elif verify_value == 2 and affiliate_role:
         roles_to_add.append(affiliate_role)
         assigned_role_type = 'affiliate'
-    elif non_member_role:
+    elif verify_value == 0 and non_member_role:
         roles_to_add.append(non_member_role)
         assigned_role_type = 'non_member'
 
+    # Identify conflicting roles to remove
+    conflicting_roles = [main_role, affiliate_role, non_member_role]
+    for role in conflicting_roles:
+        if role and role in member.roles and role not in roles_to_add:
+            roles_to_remove.append(role)
+
+    # Remove conflicting roles
+    if roles_to_remove:
+        try:
+            await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
+            removed_role_names = [role.name for role in roles_to_remove]
+            logging.info(f"Removed roles: {removed_role_names} from user {member}.")
+        except Exception as e:
+            logging.exception(f"Failed to remove roles from user {member}: {e}")
+
+    # Add the necessary roles
     if roles_to_add:
         try:
             await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
-            logging.info(f"Assigned roles: {[role.name for role in roles_to_add]} to user {member}.")
+            added_role_names = [role.name for role in roles_to_add]
+            logging.info(f"Assigned roles: {added_role_names} to user {member}.")
         except Exception as e:
             logging.exception(f"Failed to assign roles to user {member}: {e}")
             assigned_role_type = 'unknown'

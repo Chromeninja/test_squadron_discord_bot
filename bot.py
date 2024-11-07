@@ -3,7 +3,6 @@
 import discord
 from discord.ext import commands
 import os
-import yaml
 import logging
 from dotenv import load_dotenv
 import asyncio
@@ -29,23 +28,43 @@ config = ConfigLoader.load_config()
 # Load sensitive information from .env
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Access configuration values
+# Access configuration values from config.yaml
 PREFIX = config['bot']['prefix']
-VERIFICATION_CHANNEL_ID = int(os.getenv('VERIFICATION_CHANNEL_ID'))
-BOT_VERIFIED_ROLE_ID = int(os.getenv('BOT_VERIFIED_ROLE_ID'))
-MAIN_ROLE_ID = int(os.getenv('MAIN_ROLE_ID'))
-AFFILIATE_ROLE_ID = int(os.getenv('AFFILIATE_ROLE_ID'))
-NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
+VERIFICATION_CHANNEL_ID = config['channels']['verification_channel_id']
+BOT_VERIFIED_ROLE_ID = config['roles']['bot_verified_role_id']
+MAIN_ROLE_ID = config['roles']['main_role_id']
+AFFILIATE_ROLE_ID = config['roles']['affiliate_role_id']
+NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
 
 if not TOKEN:
     logging.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
-required_env_vars = ['VERIFICATION_CHANNEL_ID', 'BOT_VERIFIED_ROLE_ID', 'MAIN_ROLE_ID', 'AFFILIATE_ROLE_ID', 'NON_MEMBER_ROLE_ID']
-for var in required_env_vars:
-    if not os.getenv(var):
-        logging.critical(f"{var} not found in environment variables.")
-        raise ValueError(f"{var} not set.")
+# Define required configuration variables
+required_channels = [
+    'VERIFICATION_CHANNEL_ID'
+]
+
+required_roles = [
+    'BOT_VERIFIED_ROLE_ID',
+    'MAIN_ROLE_ID',
+    'AFFILIATE_ROLE_ID',
+    'NON_MEMBER_ROLE_ID'
+]
+
+# Validate required channels
+for var in required_channels:
+    key = var.lower()
+    if not config['channels'].get(key):
+        logging.critical(f"{var} not found in configuration file.")
+        raise ValueError(f"{var} not set in configuration.")
+
+# Validate required roles
+for var in required_roles:
+    key = var.lower()
+    if not config['roles'].get(key):
+        logging.critical(f"{var} not found in configuration file.")
+        raise ValueError(f"{var} not set in configuration.")
 
 # Initialize bot intents
 intents = discord.Intents.default()
@@ -61,13 +80,13 @@ class MyBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         """
         Initializes the MyBot instance with specific role and channel IDs.
-        
+
         Args:
             *args: Variable length argument list.
             **kwargs: Arbitrary keyword arguments.
         """
         super().__init__(*args, **kwargs)
-        
+
         # Pass role and channel IDs to the bot for use in cogs
         self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
         self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
