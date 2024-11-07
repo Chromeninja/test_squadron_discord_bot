@@ -168,6 +168,7 @@ cython_debug/
 config.json
 bot_secret.json
 bot.log
+all_code.txt
 
 # Node.js dependencies
 node_modules/

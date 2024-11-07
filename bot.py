@@ -13,9 +13,6 @@ load_dotenv()
 
 from config.config_loader import ConfigLoader  # Import the ConfigLoader
 
-# Load environment variables
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
