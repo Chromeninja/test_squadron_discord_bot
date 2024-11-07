@@ -12,7 +12,7 @@ config = ConfigLoader.load_config()
 
 TEST_ORG_NAME = config['organization']['name']
 
-async def is_valid_rsi_handle(user_handle):
+async def is_valid_rsi_handle(user_handle: str) -> int:
     """
     Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
 
@@ -30,7 +30,7 @@ async def is_valid_rsi_handle(user_handle):
     verify_data = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
     return verify_data
 
-def parse_rsi_organizations(html_content):
+def parse_rsi_organizations(html_content: str) -> str:
     """
     Parses the RSI organizations from the provided HTML content.
 
@@ -73,7 +73,7 @@ def parse_rsi_organizations(html_content):
 
     return json.dumps(result, indent=4)
 
-def search_organization_case_insensitive(json_string, target_org):
+def search_organization_case_insensitive(json_string: str, target_org: str) -> int:
     """
     Searches for the target organization in the provided organization data in a case-insensitive manner.
 
@@ -106,7 +106,7 @@ def search_organization_case_insensitive(json_string, target_org):
     # If not found
     return 0
 
-async def is_valid_rsi_bio(user_handle, token):
+async def is_valid_rsi_bio(user_handle: str, token: str) -> bool:
     """
     Validates the token by checking if it exists in the user's RSI bio.
 
@@ -124,7 +124,7 @@ async def is_valid_rsi_bio(user_handle, token):
     bio_text = extract_bio(html_content)
     return token in bio_text
 
-def extract_bio(html_content):
+def extract_bio(html_content: str) -> str:
     """
     Extracts the bio text from the user's RSI profile page.
 

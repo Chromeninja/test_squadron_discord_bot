@@ -2,7 +2,7 @@
 
 import discord
 
-def create_embed(title, description, color=0x00FF00, thumbnail_url=None):
+def create_embed(title: str, description: str, color: int = 0x00FF00, thumbnail_url: str = None) -> discord.Embed:
     """
     Creates a Discord embed with the given parameters.
 
@@ -20,7 +20,7 @@ def create_embed(title, description, color=0x00FF00, thumbnail_url=None):
         embed.set_thumbnail(url=thumbnail_url)
     return embed
 
-def create_error_embed(message):
+def create_error_embed(message: str) -> discord.Embed:
     """
     Creates an error embed.
 
@@ -34,7 +34,7 @@ def create_error_embed(message):
     description = message
     return create_embed(title, description, color=0xFF0000)  # Red color
 
-def create_success_embed(message):
+def create_success_embed(message: str) -> discord.Embed:
     """
     Creates a success embed.
 

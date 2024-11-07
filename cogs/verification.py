@@ -21,7 +21,7 @@ from verification.rsi_verification import (
     is_valid_rsi_handle,
     is_valid_rsi_bio
 )
-
+from helpers.role_helper import get_roles
 from config.config_loader import ConfigLoader  # Import the ConfigLoader
 
 # Load configuration using ConfigLoader
@@ -34,13 +34,25 @@ RATE_LIMIT_WINDOW = config['rate_limits']['window_seconds']
 user_verification_attempts = {}
 
 class VerificationCog(commands.Cog):
+    """
+    Cog to handle user verification within the Discord server.
+    """
     def __init__(self, bot):
+        """
+        Initializes the VerificationCog with the bot instance.
+
+        Args:
+            bot (commands.Bot): The bot instance.
+        """
         self.bot = bot
         self.verification_channel_id = bot.VERIFICATION_CHANNEL_ID
         # Create a background task for sending the verification message
         self.bot.loop.create_task(self.send_verification_message())
 
     async def send_verification_message(self):
+        """
+        Sends the initial verification message to the verification channel.
+        """
         logging.info("Starting to send verification message...")
         await self.bot.wait_until_ready()
         channel = self.bot.get_channel(self.verification_channel_id)
@@ -79,6 +91,12 @@ class VerificationCog(commands.Cog):
             logging.exception(f"Failed to send verification message: {e}")
 
     async def clear_verification_channel(self, channel):
+        """
+        Clears all messages from the specified verification channel.
+
+        Args:
+            channel (discord.TextChannel): The channel to clear messages from.
+        """
         logging.info("Attempting to clear verification channel messages...")
         try:
             # Fetch all messages in the channel
@@ -109,7 +127,16 @@ class VerificationCog(commands.Cog):
             logging.exception(f"Failed to delete messages: {e}")
 
 class VerificationView(View):
+    """
+    View containing interactive buttons for the verification process.
+    """
     def __init__(self, bot):
+        """
+        Initializes the VerificationView with buttons.
+
+        Args:
+            bot (commands.Bot): The bot instance.
+        """
         super().__init__(timeout=None)
         self.bot = bot
         # Add "Get Token" button
@@ -123,6 +150,12 @@ class VerificationView(View):
         self.add_item(self.verify_button)
 
     async def get_token_button_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the "Get Token" button. Generates and sends a verification token to the user.
+
+        Args:
+            interaction (discord.Interaction): The interaction triggered by the button click.
+        """
         logging.info(f"'Get Token' button clicked by user {interaction.user} (ID: {interaction.user.id})")
         member = interaction.user
         current_time = time.time()
@@ -190,6 +223,12 @@ class VerificationView(View):
             logging.exception(f"Failed to send verification PIN to user {member}: {e}")
 
     async def verify_button_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the "Verify" button. Initiates the verification modal.
+
+        Args:
+            interaction (discord.Interaction): The interaction triggered by the button click.
+        """
         logging.info(f"'Verify' button clicked by user {interaction.user} (ID: {interaction.user.id})")
         member = interaction.user
         current_time = time.time()
@@ -227,6 +266,9 @@ class VerificationView(View):
         logging.info(f"Displayed verification modal to user {member}.")
 
 class HandleModal(Modal, title="Verification"):
+    """
+    Modal to collect the user's RSI handle for verification.
+    """
     rsi_handle = TextInput(
         label="RSI Handle",
         placeholder="Enter your Star Citizen handle here",
@@ -234,10 +276,22 @@ class HandleModal(Modal, title="Verification"):
     )
 
     def __init__(self, bot):
+        """
+        Initializes the HandleModal with the bot instance.
+
+        Args:
+            bot (commands.Bot): The bot instance.
+        """
         super().__init__()
         self.bot = bot
 
     async def on_submit(self, interaction: discord.Interaction):
+        """
+        Handles the submission of the verification modal.
+
+        Args:
+            interaction (discord.Interaction): The interaction triggered by the modal submission.
+        """
         logging.info(f"Verification modal submitted by user {interaction.user} (ID: {interaction.user.id})")
         member = interaction.user
         rsi_handle_input = self.rsi_handle.value.strip()
@@ -365,9 +419,19 @@ class HandleModal(Modal, title="Verification"):
         except Exception as e:
             logging.exception(f"Failed to send verification success message to user {member}: {e}")
 
-from helpers.role_helper import get_roles  # Import the role helper
-
 async def assign_roles(member, verify_value, rsi_handle_value, bot):
+    """
+    Assigns roles to the member based on their verification status.
+
+    Args:
+        member (discord.Member): The member to assign roles to.
+        verify_value (int): Verification status (1: main, 2: affiliate, 0: non-member).
+        rsi_handle_value (str): The RSI handle of the user.
+        bot (commands.Bot): The bot instance.
+
+    Returns:
+        str: The type of role assigned ('main', 'affiliate', 'non_member', or 'unknown').
+    """
     guild = member.guild
     role_ids = [
         bot.BOT_VERIFIED_ROLE_ID,
@@ -377,12 +441,6 @@ async def assign_roles(member, verify_value, rsi_handle_value, bot):
     ]
     roles = await get_roles(guild, role_ids)
     bot_verified_role, main_role, affiliate_role, non_member_role = roles
-
-    # Log the retrieved roles
-    logging.info(f"Bot Verified Role: {bot_verified_role}")
-    logging.info(f"Main Role: {main_role}")
-    logging.info(f"Affiliate Role: {affiliate_role}")
-    logging.info(f"Non-Member Role: {non_member_role}")
 
     # Remove conflicting roles
     roles_to_remove = [role for role in [main_role, affiliate_role, non_member_role] if role in member.roles]
@@ -440,4 +498,10 @@ async def assign_roles(member, verify_value, rsi_handle_value, bot):
     return assigned_role_type
 
 async def setup(bot):
+    """
+    Asynchronous setup function to add the VerificationCog to the bot.
+
+    Args:
+        bot (commands.Bot): The bot instance.
+    """
     await bot.add_cog(VerificationCog(bot))

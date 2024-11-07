@@ -3,9 +3,13 @@
 import discord
 from discord.ext import commands
 import os
+import yaml
 import logging
 from dotenv import load_dotenv
 import asyncio
+
+# Load environment variables
+load_dotenv()
 
 from config.config_loader import ConfigLoader  # Import the ConfigLoader
 
@@ -25,6 +29,10 @@ logging.basicConfig(
 # Load configuration using ConfigLoader
 config = ConfigLoader.load_config()
 
+# Load sensitive information from .env
+TOKEN = os.getenv('DISCORD_TOKEN')
+PREFIX = config['bot']['prefix']
+
 # Access configuration values
 PREFIX = config['bot']['prefix']
 VERIFICATION_CHANNEL_ID = int(os.getenv('VERIFICATION_CHANNEL_ID'))
@@ -32,6 +40,11 @@ BOT_VERIFIED_ROLE_ID = int(os.getenv('BOT_VERIFIED_ROLE_ID'))
 MAIN_ROLE_ID = int(os.getenv('MAIN_ROLE_ID'))
 AFFILIATE_ROLE_ID = int(os.getenv('AFFILIATE_ROLE_ID'))
 NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
+
+# Initialize bot intents
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True  # Needed for receiving messages
 
 initial_extensions = ['cogs.verification']
 

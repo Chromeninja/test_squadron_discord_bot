@@ -2,13 +2,14 @@
 
 import secrets
 import time
+from typing import Optional, Tuple
 
 # Token storage: {user_id: {'token': '1234', 'expires_at': 1637100000}}
 token_store = {}
 
 TOKEN_EXPIRATION_TIME = 15 * 60  # 15 minutes in seconds
 
-def generate_token(user_id):
+def generate_token(user_id: int) -> str:
     """
     Generates a secure random 4-digit token for the user.
 
@@ -23,7 +24,7 @@ def generate_token(user_id):
     token_store[user_id] = {'token': token, 'expires_at': expires_at}
     return token
 
-def validate_token(user_id, token):
+def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
     """
     Validates the provided token for the user.
 
@@ -32,7 +33,7 @@ def validate_token(user_id, token):
         token (str): The token to validate.
 
     Returns:
-        tuple: (bool, str) indicating if the token is valid and an accompanying message.
+        Tuple[bool, str]: Indicates if the token is valid and an accompanying message.
     """
     token = str(token).zfill(4)
     user_token_info = token_store.get(user_id)
@@ -45,7 +46,7 @@ def validate_token(user_id, token):
         return False, "Invalid token provided."
     return True, "Token is valid."
 
-def clear_token(user_id):
+def clear_token(user_id: int):
     """
     Clears the token for the user after successful verification or expiration.
 
