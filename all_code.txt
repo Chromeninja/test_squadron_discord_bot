@@ -1,0 +1,1124 @@
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\.gitignore ===
+
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#pdm.lock
+#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
+#   in version control.
+#   https://pdm.fming.dev/latest/usage/project/#working-with-version-control
+.pdm.toml
+.pdm-python
+.pdm-build/
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
+
+# Environment variables
+.env
+
+# Discord bot files (if needed)
+config.json
+bot_secret.json
+bot.log
+
+# Node.js dependencies
+node_modules/
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\bot.py ===
+
+
+# bot.py
+
+import discord
+from discord.ext import commands
+import os
+import yaml
+import logging
+from dotenv import load_dotenv
+import asyncio
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# Load configuration from config.yaml
+with open("config/config.yaml", 'r') as file:
+    config = yaml.safe_load(file)
+
+# Load sensitive information from .env
+TOKEN = os.getenv('DISCORD_TOKEN')
+PREFIX = config['bot']['prefix']
+
+VERIFICATION_CHANNEL_ID = int(os.getenv('VERIFICATION_CHANNEL_ID'))
+BOT_VERIFIED_ROLE_ID = int(os.getenv('BOT_VERIFIED_ROLE_ID'))
+MAIN_ROLE_ID = int(os.getenv('MAIN_ROLE_ID'))
+AFFILIATE_ROLE_ID = int(os.getenv('AFFILIATE_ROLE_ID'))
+NON_MEMBER_ROLE_ID = int(os.getenv('NON_MEMBER_ROLE_ID'))
+
+# Initialize bot intents
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True  # Needed for receiving messages
+
+initial_extensions = ['cogs.verification']
+
+class MyBot(commands.Bot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Pass role and channel IDs to the bot for use in cogs
+        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
+        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
+        self.MAIN_ROLE_ID = MAIN_ROLE_ID
+        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
+        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
+
+    async def setup_hook(self):
+        # Asynchronously load all extensions (cogs)
+        for extension in initial_extensions:
+            try:
+                await self.load_extension(extension)
+                logging.info(f"Loaded extension: {extension}")
+            except Exception as e:
+                logging.error(f"Failed to load extension {extension}: {e}")
+
+bot = MyBot(command_prefix=PREFIX, intents=intents)
+
+# Event: on_ready
+@bot.event
+async def on_ready():
+    logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    logging.info("Bot is ready and online!")
+
+bot.run(TOKEN)
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\README.md ===
+
+
+# TEST Squadron Discord Verification Bot
+
+Hey TEST Devs!
+
+Welcome to the Discord Verification Bot repository. This bot helps manage user verification within our Discord server by ensuring that only verified members can access certain channels and features. Here's a quick rundown of what this bot does and how to use it.
+
+## 🚀 Features
+
+- **Token-Based Verification:** Users receive a unique token to verify their membership.
+- **Role Assignment:** Automatically assigns roles based on verification status.
+- **Cooldown System:** Limits verification attempts to prevent spam (once a day).
+- **Automatic Cleanup:** Clears old messages in the verification channel on startup to keep things tidy.
+- **Error Handling:** Gracefully handles permission issues and role hierarchy constraints.
+
+## 📋 Contents
+
+- `bot.py` - The main bot script.
+- `verification.py` - Handles RSI verification logic.
+- `token_manager.py` - Manages token generation and validation.
+- `README.txt` - This documentation file.
+- `SETUP.txt` - Instructions to set up the bot locally.
+- `TROUBLESHOOTING.txt` - Common issues and how to fix them.
+
+## 🛠️ Getting Started
+
+Check out the `SETUP.txt` for step-by-step setup instructions.
+
+## 🤝 Contributing
+
+Since this is a private repo for our dev team, feel free to fork and make changes as needed. Just make sure to test thoroughly before deploying to the live server!
+
+## 📞 Support
+
+If you run into any issues or have questions, check out the `TROUBLESHOOTING.txt` or reach out to [Your Name] on Discord.
+
+Happy Coding! 🎉
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\requirements.txt ===
+
+
+discord.py==2.3.1
+PyYAML==6.0
+python-dotenv==1.0.0
+aiohttp==3.8.4
+beautifulsoup4==4.12.2
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\SETUP.txt ===
+
+
+# Setup Guide for TEST Squadron Discord Verification Bot
+
+Hey team!
+
+Ready to get the Discord Verification Bot up and running on your local machine? Follow these steps to set things up.
+
+## 📝 Prerequisites
+
+Before you start, make sure you have the following installed:
+
+- **Python 3.8+**: [Download Python](https://www.python.org/downloads/)
+- **Git**: [Download Git](https://git-scm.com/downloads)
+- **Discord Bot Token**: Make sure you've created a bot on the Discord Developer Portal and have your token handy.
+
+## 📦 Cloning the Repository
+
+1. Open your terminal or command prompt.
+2. Clone the repo:git clone https://github.com/yourusername/test-squadron-discord-bot.git
+3. Navigate into the project directory: cd test-squadron-discord-bot
+
+
+## 🔧 Setting Up the Environment
+
+1. **Create a Virtual Environment** (optional but recommended):python -m venv venv
+2. **Activate the Virtual Environment**:
+  venv\Scripts\activate
+3. **Install Dependencies**:pip install -r requirements.txt
+
+## 🗝️ Configuring Environment Variables
+
+1. **Create a `.env` File** in the root directory: touch .env
+2. **Add the Following Variables** to `.env`:
+DISCORD_TOKEN=your_discord_bot_token_here
+VERIFICATION_CHANNEL_ID=your_verification_channel_id
+BOT_VERIFIED_ROLE_ID=your_bot_verified_role_id MAIN_ROLE_ID=your_main_role_id
+AFFILIATE_ROLE_ID=your_affiliate_role_id NON_MEMBER_ROLE_ID=your_non_member_role_id
+- Replace each placeholder with your actual IDs.
+
+## 🏃 Running the Bot
+
+1. **Ensure Your Virtual Environment is Active**:source venv/bin/activate # macOS/Linux venv\Scripts\activate # Windows
+2. **Start the Bot**: python bot.py
+3. **Verify It's Working**:
+
+- Go to your Discord server.
+- Navigate to the verification channel.
+- You should see the verification message with the "Get Token" and "Verify" buttons.
+
+## 🎉 You're All Set!
+
+The bot should now be running locally. If you encounter any issues, check out the `TROUBLESHOOTING.txt` for common problems and solutions.
+
+Happy Testing! 🚀
+
+
+
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\cogs\verification.py ===
+
+
+# cogs/verification.py
+
+import discord
+from discord.ext import commands
+from discord.ui import Button, View, Modal, TextInput
+import time
+import logging
+import asyncio
+
+from helpers.embeds import (
+    create_error_embed,
+    create_success_embed
+)
+from helpers.token_manager import (
+    generate_token,
+    validate_token,
+    clear_token,
+    token_store
+)
+from verification.rsi_verification import (
+    is_valid_rsi_handle,
+    is_valid_rsi_bio
+)
+
+# Load configuration
+import yaml
+with open("config/config.yaml", 'r') as file:
+    config = yaml.safe_load(file)
+
+MAX_ATTEMPTS = config['rate_limits']['max_attempts']
+RATE_LIMIT_WINDOW = config['rate_limits']['window_seconds']
+
+# In-memory storage for tracking user verification attempts
+user_verification_attempts = {}
+
+class VerificationCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.verification_channel_id = bot.VERIFICATION_CHANNEL_ID
+        # Create a background task for sending the verification message
+        self.bot.loop.create_task(self.send_verification_message())
+
+    async def send_verification_message(self):
+        logging.info("Starting to send verification message...")
+        await self.bot.wait_until_ready()
+        channel = self.bot.get_channel(self.verification_channel_id)
+        if channel is None:
+            logging.error(f"Could not find the channel with ID {self.verification_channel_id}.")
+            return
+        else:
+            logging.info(f"Found verification channel: {channel.name} (ID: {self.verification_channel_id})")
+
+        # Clear all messages in the verification channel
+        logging.info("Clearing messages in the verification channel...")
+        await self.clear_verification_channel(channel)
+        logging.info("Cleared messages in the verification channel.")
+
+        # Create the embed with yellow color
+        embed = discord.Embed(
+            title="📡 Account Verification",
+            description=(
+                "Welcome! To get started, please **click the 'Get Token' button below**.\n\n"
+                "After obtaining your token, verify your RSI / Star Citizen account by using the provided buttons.\n\n"
+                "If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)."
+            ),
+            color=0xFFBB00  # Yellow color in hexadecimal
+        )
+        embed.set_thumbnail(url="https://robertsspaceindustries.com/static/images/logo.png")  # Example thumbnail
+
+        # Initialize the verification view with buttons
+        view = VerificationView(self.bot)
+
+        # Send the embed with the interactive view to the channel
+        try:
+            logging.info("Attempting to send the verification embed...")
+            await channel.send(embed=embed, view=view)
+            logging.info("Sent verification message in channel.")
+        except Exception as e:
+            logging.exception(f"Failed to send verification message: {e}")
+
+    async def clear_verification_channel(self, channel):
+        logging.info("Attempting to clear verification channel messages...")
+        try:
+            # Fetch all messages in the channel
+            messages = []
+            async for message in channel.history(limit=None):
+                messages.append(message)
+
+            # Bulk delete messages if possible (only messages younger than 14 days)
+            if messages:
+                try:
+                    await channel.delete_messages(messages)
+                    logging.info(f"Deleted {len(messages)} messages in the verification channel.")
+                except discord.HTTPException as e:
+                    logging.warning(f"Bulk delete failed: {e}. Attempting individual deletions.")
+
+                    # Fallback to deleting messages individually
+                    for message in messages:
+                        try:
+                            await message.delete()
+                            await asyncio.sleep(1)  # Add delay to prevent rate limits
+                        except Exception as ex:
+                            logging.exception(f"Failed to delete message {message.id}: {ex}")
+            else:
+                logging.info("No messages to delete in the verification channel.")
+        except discord.Forbidden:
+            logging.error("Bot lacks permission to delete messages in the verification channel.")
+        except discord.HTTPException as e:
+            logging.exception(f"Failed to delete messages: {e}")
+
+class VerificationView(View):
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+        # Add "Get Token" button
+        self.get_token_button = Button(label="Get Token", style=discord.ButtonStyle.success)
+        self.get_token_button.callback = self.get_token_button_callback
+        self.add_item(self.get_token_button)
+
+        # Add "Verify" button
+        self.verify_button = Button(label="Verify", style=discord.ButtonStyle.primary)
+        self.verify_button.callback = self.verify_button_callback
+        self.add_item(self.verify_button)
+
+    async def get_token_button_callback(self, interaction: discord.Interaction):
+        logging.info(f"'Get Token' button clicked by user {interaction.user} (ID: {interaction.user.id})")
+        member = interaction.user
+        current_time = time.time()
+
+        # Initialize the user's attempt list if not present
+        attempts = user_verification_attempts.get(member.id, [])
+
+        # Remove attempts that are outside the RATE_LIMIT_WINDOW
+        attempts = [timestamp for timestamp in attempts if current_time - timestamp < RATE_LIMIT_WINDOW]
+        user_verification_attempts[member.id] = attempts  # Update after cleanup
+
+        if len(attempts) >= MAX_ATTEMPTS:
+            # Calculate time until the earliest attempt expires
+            earliest_attempt = attempts[0]
+            wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp when cooldown ends
+
+            # Create and send cooldown embed
+            description = (
+                f"You have reached the maximum number of verification attempts.\n"
+                f"Please try again <t:{wait_until}:R>."
+            )
+            embed = discord.Embed(
+                title="⏰ Cooldown Active",
+                description=description,
+                color=0xFFA500  # Orange color
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.info(f"User {member} reached max verification attempts.")
+            return
+
+        # Proceed to generate and send token
+        token = generate_token(member.id)
+        expires_at = token_store[member.id]['expires_at']
+        expires_unix = int(expires_at)
+        user_verification_attempts.setdefault(member.id, []).append(current_time)  # Log this attempt
+
+        # Create and send token embed
+        embed = discord.Embed(
+            title="📡 Account Verification",
+            description=(
+                "Use the **4-digit PIN** below for verification.\n\n"
+                "**Instructions:**\n"
+                ":one: Login to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+                ":two: Add the PIN to your **Short Bio** field.\n"
+                ":three: Scroll down and click **Apply All Changes**.\n"
+                ":four: Return here and click the 'Verify' button below.\n\n"
+                f":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
+            ),
+            color=0x00FF00  # Green color
+        )
+        embed.set_thumbnail(url="https://robertsspaceindustries.com/static/images/logo.png")  # Example thumbnail
+
+        # Add the token in a separate field with a colored code block to make it stand out
+        embed.add_field(
+            name="🔑 Your Verification PIN",
+            value=f"```diff\n+ {token}\n```\n*On mobile, hold to copy*",
+            inline=False
+        )
+
+        try:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.info(f"Sent verification PIN to user {member} (ID: {member.id}).")
+        except Exception as e:
+            logging.exception(f"Failed to send verification PIN to user {member}: {e}")
+
+    async def verify_button_callback(self, interaction: discord.Interaction):
+        logging.info(f"'Verify' button clicked by user {interaction.user} (ID: {interaction.user.id})")
+        member = interaction.user
+        current_time = time.time()
+
+        # Initialize the user's attempt list if not present
+        attempts = user_verification_attempts.get(member.id, [])
+
+        # Remove attempts that are outside the RATE_LIMIT_WINDOW
+        attempts = [timestamp for timestamp in attempts if current_time - timestamp < RATE_LIMIT_WINDOW]
+        user_verification_attempts[member.id] = attempts  # Update after cleanup
+
+        if len(attempts) >= MAX_ATTEMPTS:
+            # Calculate time until the earliest attempt expires
+            earliest_attempt = attempts[0]
+            wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp when cooldown ends
+
+            # Create and send cooldown embed
+            description = (
+                f"You have reached the maximum number of verification attempts.\n"
+                f"Please try again <t:{wait_until}:R>."
+            )
+            embed = discord.Embed(
+                title="⏰ Cooldown Active",
+                description=description,
+                color=0xFFA500  # Orange color
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.info(f"User {member} reached max verification attempts.")
+            return
+
+        # Show the modal to get RSI handle
+        modal = HandleModal(self.bot)
+        await interaction.response.send_modal(modal)
+        logging.info(f"Displayed verification modal to user {member}.")
+
+class HandleModal(Modal, title="Verification"):
+    rsi_handle = TextInput(
+        label="RSI Handle",
+        placeholder="Enter your Star Citizen handle here",
+        max_length=32
+    )
+
+    def __init__(self, bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        logging.info(f"Verification modal submitted by user {interaction.user} (ID: {interaction.user.id})")
+        member = interaction.user
+        rsi_handle_input = self.rsi_handle.value.strip()
+
+        # Normalize the RSI handle to lowercase for case-insensitive handling
+        rsi_handle_value = rsi_handle_input.lower()
+
+        # Check if the user has an active token
+        user_token_info = token_store.get(member.id)
+        if not user_token_info:
+            embed = create_error_embed(
+                "No active token found. Please click 'Get Token' to receive a new token."
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.warning(f"User {member} attempted verification without a token.")
+            return
+
+        valid, message = validate_token(member.id, user_token_info['token'])
+        if not valid:
+            embed = create_error_embed(message)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.warning(f"User {member} provided an invalid or expired token.")
+            return
+
+        # Defer the response as verification may take some time
+        await interaction.response.defer(ephemeral=True)
+        logging.info(f"Deferred response for user {member} during verification.")
+
+        token = user_token_info['token']
+
+        # Perform RSI verification with normalized handle
+        verify_value = await is_valid_rsi_handle(rsi_handle_value)
+        token_verify = await is_valid_rsi_bio(rsi_handle_value, token)
+
+        # Handle attempts
+        attempts = user_verification_attempts.get(member.id, [])
+        # Remove outdated attempts
+        attempts = [timestamp for timestamp in attempts if time.time() - timestamp < RATE_LIMIT_WINDOW]
+        attempts.append(time.time())
+        user_verification_attempts[member.id] = attempts
+
+        if not verify_value or not token_verify:
+            # Verification failed
+            if len(attempts) >= MAX_ATTEMPTS:
+                # User has exceeded max attempts
+                earliest_attempt = attempts[0]
+                wait_until = int(earliest_attempt + RATE_LIMIT_WINDOW)  # UNIX timestamp
+
+                # Create the cooldown description with dynamic countdown
+                description = (
+                    f"You have reached the maximum number of verification attempts.\n"
+                    f"Please try again <t:{wait_until}:R>."
+                )
+
+                # Create and send the enhanced cooldown embed
+                embed = discord.Embed(
+                    title="⏰ Cooldown Active",
+                    description=description,
+                    color=0xFFA500  # Orange color
+                )
+
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                logging.info(f"User {member} exceeded verification attempts. Cooldown enforced.")
+                return
+            else:
+                # Prepare error details with enhanced instructions
+                error_details = []
+                if not verify_value:
+                    error_details.append("- Could not verify RSI organization membership.")
+                if not token_verify:
+                    error_details.append("- Token not found or does not match in RSI bio.")
+                # Add additional instructions and link
+                error_details.append(
+                    "- Please ensure your RSI Handle is correct and check the spelling.\n"
+                    "- You can find your RSI Handle on your [RSI Account Settings](https://robertsspaceindustries.com/account/settings) page, next to the handle field."
+                )
+                remaining_attempts = MAX_ATTEMPTS - len(attempts)
+                if remaining_attempts > 0:
+                    error_details.append(f"You have {remaining_attempts} attempt(s) remaining before cooldown.")
+                error_message = "\n".join(error_details)
+                embed = create_error_embed(error_message)
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                logging.info(f"User {member} failed verification. Remaining attempts: {remaining_attempts}.")
+                return
+
+        # Verification successful
+        assigned_role_type = await assign_roles(member, verify_value, rsi_handle_value, self.bot)
+        clear_token(member.id)
+        user_verification_attempts.pop(member.id, None)  # Reset attempts on success
+
+        # Send customized success message based on role
+        if assigned_role_type == 'main':
+            description = (
+                "Thank you for being a main member of **TEST Squadron - Best Squadron!** "
+                "We're thrilled to have you with us."
+            )
+        elif assigned_role_type == 'affiliate':
+            description = (
+                "Thanks for being an affiliate of **TEST Squadron - Best Squadron!** "
+                "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
+                "**Instructions:**\n"
+                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+                "1️⃣ Click on **Set as Main** next to **TEST**."
+            )
+        elif assigned_role_type == 'non_member':
+            description = (
+                "Welcome! It looks like you're not a member of **TEST Squadron - Best Squadron!** "
+                "Join us to be part of the adventure!\n\n"
+                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
+            )
+        else:
+            description = (
+                "Welcome to the server! You can verify again after 3 hours if needed."
+            )
+
+        embed = create_success_embed(description)
+
+        try:
+            await interaction.followup.send(
+                embed=embed,
+                ephemeral=True
+            )
+            logging.info(f"User {member} successfully verified and roles assigned as '{assigned_role_type}'.")
+        except Exception as e:
+            logging.exception(f"Failed to send verification success message to user {member}: {e}")
+
+async def assign_roles(member, verify_value, rsi_handle_value, bot):
+    guild = member.guild
+    bot_verified_role = guild.get_role(bot.BOT_VERIFIED_ROLE_ID)
+    main_role = guild.get_role(bot.MAIN_ROLE_ID)
+    affiliate_role = guild.get_role(bot.AFFILIATE_ROLE_ID)
+    non_member_role = guild.get_role(bot.NON_MEMBER_ROLE_ID)
+
+    # Log the retrieved roles
+    logging.info(f"Bot Verified Role: {bot_verified_role}")
+    logging.info(f"Main Role: {main_role}")
+    logging.info(f"Affiliate Role: {affiliate_role}")
+    logging.info(f"Non-Member Role: {non_member_role}")
+
+    # Remove conflicting roles
+    roles_to_remove = [role for role in [main_role, affiliate_role, non_member_role] if role in member.roles]
+    if roles_to_remove:
+        try:
+            await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
+            logging.info(f"Removed roles: {[role.name for role in roles_to_remove]} from user {member}.")
+        except Exception as e:
+            logging.exception(f"Failed to remove roles from user {member}: {e}")
+
+    # Assign roles based on verification outcome
+    roles_to_add = []
+    assigned_role_type = None  # To keep track of the role type assigned
+
+    if bot_verified_role and bot_verified_role not in member.roles:
+        roles_to_add.append(bot_verified_role)
+
+    if verify_value == 1 and main_role:
+        roles_to_add.append(main_role)
+        assigned_role_type = 'main'
+    elif verify_value == 2 and affiliate_role:
+        roles_to_add.append(affiliate_role)
+        assigned_role_type = 'affiliate'
+    elif non_member_role:
+        roles_to_add.append(non_member_role)
+        assigned_role_type = 'non_member'
+
+    if roles_to_add:
+        try:
+            await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
+            logging.info(f"Assigned roles: {[role.name for role in roles_to_add]} to user {member}.")
+        except Exception as e:
+            logging.exception(f"Failed to assign roles to user {member}: {e}")
+            assigned_role_type = 'unknown'
+    else:
+        logging.error("No valid roles to add.")
+        assigned_role_type = 'unknown'
+
+    # Check role hierarchy before attempting to change nickname
+    bot_top_role = guild.me.top_role
+    member_top_role = member.top_role
+
+    if bot_top_role > member_top_role:
+        # Bot's role is higher; attempt to change nickname
+        try:
+            await member.edit(nick=rsi_handle_value[:32])
+            logging.info(f"Nickname changed to {rsi_handle_value[:32]} for user {member}.")
+        except discord.Forbidden:
+            logging.warning("Bot lacks permission to change this member's nickname due to role hierarchy.")
+        except Exception as e:
+            logging.exception(f"Unexpected error when changing nickname for user {member}: {e}")
+    else:
+        logging.warning("Cannot change nickname due to role hierarchy.")
+
+    return assigned_role_type
+
+async def setup(bot):
+    await bot.add_cog(VerificationCog(bot))
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\cogs\__init__.py ===
+
+
+# cogs/__init__.py
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\config\config.yaml ===
+
+
+bot:
+  prefix: "!"
+rate_limits:
+  max_attempts: 3
+  window_seconds: 10800  # 3 hours
+organization:
+  name: "TEST Squadron - Best Squadron!"
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\data\__init__.py ===
+
+
+# data/__init__.py
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\helpers\embeds.py ===
+
+
+# helpers/embeds.py
+
+import discord
+
+def create_embed(title, description, color=0x00FF00, thumbnail_url=None):
+    """
+    Creates a Discord embed with the given parameters.
+
+    Args:
+        title (str): The title of the embed.
+        description (str): The description/content of the embed.
+        color (int, optional): The color of the embed in hexadecimal. Defaults to green.
+        thumbnail_url (str, optional): URL of the thumbnail image. Defaults to None.
+
+    Returns:
+        discord.Embed: The created embed object.
+    """
+    embed = discord.Embed(title=title, description=description, color=color)
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    return embed
+
+def create_error_embed(message):
+    """
+    Creates an error embed.
+
+    Args:
+        message (str): The error message to display.
+
+    Returns:
+        discord.Embed: The created error embed.
+    """
+    title = "❌ Verification Failed"
+    description = message
+    return create_embed(title, description, color=0xFF0000)  # Red color
+
+def create_success_embed(message):
+    """
+    Creates a success embed.
+
+    Args:
+        message (str): The success message to display.
+
+    Returns:
+        discord.Embed: The created success embed.
+    """
+    title = "🎉 Verification Successful!"
+    description = message
+    return create_embed(title, description, color=0x00FF00)  # Green color
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\helpers\token_manager.py ===
+
+
+# helpers/token_manager.py
+
+import secrets
+import time
+
+# Token storage: {user_id: {'token': '1234', 'expires_at': 1637100000}}
+token_store = {}
+
+TOKEN_EXPIRATION_TIME = 15 * 60  # 15 minutes in seconds
+
+def generate_token(user_id):
+    """
+    Generates a secure random 4-digit token for the user.
+
+    Args:
+        user_id (int): The Discord user ID.
+
+    Returns:
+        str: A zero-padded 4-digit token.
+    """
+    token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
+    expires_at = time.time() + TOKEN_EXPIRATION_TIME
+    token_store[user_id] = {'token': token, 'expires_at': expires_at}
+    return token
+
+def validate_token(user_id, token):
+    """
+    Validates the provided token for the user.
+
+    Args:
+        user_id (int): The Discord user ID.
+        token (str): The token to validate.
+
+    Returns:
+        tuple: (bool, str) indicating if the token is valid and an accompanying message.
+    """
+    token = str(token).zfill(4)
+    user_token_info = token_store.get(user_id)
+    if not user_token_info:
+        return False, "No token found for this user. Please generate a new token."
+    if time.time() > user_token_info['expires_at']:
+        del token_store[user_id]
+        return False, "Your token has expired. Please generate a new token."
+    if user_token_info['token'] != token:
+        return False, "Invalid token provided."
+    return True, "Token is valid."
+
+def clear_token(user_id):
+    """
+    Clears the token for the user after successful verification or expiration.
+
+    Args:
+        user_id (int): The Discord user ID.
+    """
+    if user_id in token_store:
+        del token_store[user_id]
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\helpers\__init__.py ===
+
+
+# helpers/__init__.py
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\verification\rsi_verification.py ===
+
+
+# verification/rsi_verification.py
+
+import aiohttp
+from bs4 import BeautifulSoup
+import json
+import logging
+
+# Load configuration
+import yaml
+with open("config/config.yaml", 'r') as file:
+    config = yaml.safe_load(file)
+
+TEST_ORG_NAME = config['organization']['name']
+
+async def fetch_html(url):
+    """Fetches HTML content from a given URL asynchronously."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logging.error(f"Failed to fetch {url}: Status {response.status}")
+                    return ""
+                return await response.text()
+    except Exception as e:
+        logging.exception(f"Exception occurred while fetching {url}: {e}")
+        return ""
+
+async def is_valid_rsi_handle(user_handle):
+    """
+    Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
+
+    Args:
+        user_handle (str): The RSI handle of the user.
+
+    Returns:
+        int: 1 if main organization, 2 if affiliate, 0 otherwise.
+    """
+    url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
+    html_content = await fetch_html(url)
+    if not html_content:
+        return 0
+    org_data = parse_rsi_organizations(html_content)
+    verify_data = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
+    return verify_data
+
+def parse_rsi_organizations(html_content):
+    """
+    Parses the RSI organizations from the provided HTML content.
+
+    Args:
+        html_content (str): The HTML content of the RSI organizations page.
+
+    Returns:
+        str: JSON-formatted string containing the main organization and its affiliates.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Find the main organization
+    main_org_div = soup.find('div', class_='box-content org main visibility-V')
+    if main_org_div:
+        main_org_name_tag = main_org_div.find('a', class_='value')
+        if main_org_name_tag:
+            main_org_name = main_org_name_tag.get_text(strip=True)
+        else:
+            main_org_name = "Main organization not found"
+    else:
+        main_org_name = "Main organization not found"
+    logging.info(f"Main organization parsed: {main_org_name}")
+
+    # Find all affiliate organizations
+    affiliates_section = soup.find_all('div', class_='box-content org affiliation visibility-V')
+    affiliates = []
+
+    for section in affiliates_section:
+        affiliate_links = section.find_all('a', class_='value')
+        for link in affiliate_links:
+            affiliate_name = link.get_text(strip=True)
+            affiliates.append(affiliate_name)
+    logging.info(f"Affiliates parsed: {affiliates}")
+
+    # Prepare the result as a JSON string
+    result = {
+        'main_organization': main_org_name,
+        'affiliates': affiliates
+    }
+
+    return json.dumps(result, indent=4)
+
+def search_organization_case_insensitive(json_string, target_org):
+    """
+    Searches for the target organization in the provided organization data in a case-insensitive manner.
+
+    Args:
+        json_string (str): JSON-formatted string containing organization data.
+        target_org (str): The name of the organization to search for.
+
+    Returns:
+        int: 1 if main organization, 2 if affiliate, 0 otherwise.
+    """
+    # Parse the JSON string into a Python dictionary
+    try:
+        org_data = json.loads(json_string)
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decode error: {e}")
+        return 0
+
+    # Normalize target organization for case-insensitive comparison
+    target_org_lower = target_org.lower()
+
+    # Check if the target organization is the main organization (case-insensitive)
+    if org_data.get('main_organization', '').lower() == target_org_lower:
+        return 1
+
+    # Check if the target organization is in the affiliates (case-insensitive)
+    affiliates_lower = [affiliate.lower() for affiliate in org_data.get('affiliates', [])]
+    if target_org_lower in affiliates_lower:
+        return 2
+
+    # If not found
+    return 0
+
+async def is_valid_rsi_bio(user_handle, token):
+    """
+    Validates the token by checking if it exists in the user's RSI bio.
+
+    Args:
+        user_handle (str): The RSI handle of the user.
+        token (str): The verification token (4-digit PIN).
+
+    Returns:
+        bool: True if the token is found in the bio, False otherwise.
+    """
+    url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
+    html_content = await fetch_html(url)
+    if not html_content:
+        return False
+    bio_text = extract_bio(html_content)
+    return token in bio_text
+
+def extract_bio(html_content):
+    """
+    Extracts the bio text from the user's RSI profile page.
+
+    Args:
+        html_content (str): The HTML content of the RSI profile page.
+
+    Returns:
+        str: The bio text of the user.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    bio_div = soup.find("div", class_="entry bio")
+    if bio_div:
+        bio_text = bio_div.find("div", class_="value").get_text(strip=True)
+        bio = bio_text
+    else:
+        bio = ""
+    logging.info(f"Bio extracted: {bio}")
+    return bio
+
+
+=== C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\verification\__init__.py ===
+
+
+# verification/__init__.py

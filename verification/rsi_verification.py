@@ -1,30 +1,31 @@
-# verification.py
+# verification/rsi_verification.py
 
-import aiohttp
-from bs4 import BeautifulSoup
 import json
+import logging
+from bs4 import BeautifulSoup
 
-# Define your test organization name here
-TEST_ORG_NAME = "TEST Squadron - Best Squardon!"  # Update with the correct organization name
+from config.config_loader import ConfigLoader  # Import the ConfigLoader
+from helpers.http_helper import fetch_html  # Import the correct fetch_html
 
-async def fetch_html(url):
-    """Fetches HTML content from a given URL asynchronously."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            return await response.text()
+# Load configuration using ConfigLoader
+config = ConfigLoader.load_config()
+
+TEST_ORG_NAME = config['organization']['name']
 
 async def is_valid_rsi_handle(user_handle):
     """
     Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
-    
+
     Args:
         user_handle (str): The RSI handle of the user.
-        
+
     Returns:
         int: 1 if main organization, 2 if affiliate, 0 otherwise.
     """
     url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
     html_content = await fetch_html(url)
+    if not html_content:
+        return 0
     org_data = parse_rsi_organizations(html_content)
     verify_data = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
     return verify_data
@@ -32,10 +33,10 @@ async def is_valid_rsi_handle(user_handle):
 def parse_rsi_organizations(html_content):
     """
     Parses the RSI organizations from the provided HTML content.
-    
+
     Args:
         html_content (str): The HTML content of the RSI organizations page.
-        
+
     Returns:
         str: JSON-formatted string containing the main organization and its affiliates.
     """
@@ -51,7 +52,7 @@ def parse_rsi_organizations(html_content):
             main_org_name = "Main organization not found"
     else:
         main_org_name = "Main organization not found"
-    print(f"Main organization parsed: {main_org_name}")
+    logging.info(f"Main organization parsed: {main_org_name}")
 
     # Find all affiliate organizations
     affiliates_section = soup.find_all('div', class_='box-content org affiliation visibility-V')
@@ -62,7 +63,7 @@ def parse_rsi_organizations(html_content):
         for link in affiliate_links:
             affiliate_name = link.get_text(strip=True)
             affiliates.append(affiliate_name)
-    print(f"Affiliates parsed: {affiliates}")
+    logging.info(f"Affiliates parsed: {affiliates}")
 
     # Prepare the result as a JSON string
     result = {
@@ -72,83 +73,64 @@ def parse_rsi_organizations(html_content):
 
     return json.dumps(result, indent=4)
 
-def search_organization(json_string, target_org):
-    """
-    Searches for the target organization in the provided organization data.
-    
-    Args:
-        json_string (str): JSON-formatted string containing organization data.
-        target_org (str): The name of the organization to search for.
-        
-    Returns:
-        int: 1 if main organization, 2 if affiliate, 0 otherwise.
-    """
-    # Parse the JSON string into a Python dictionary
-    org_data = json.loads(json_string)
-
-    # Check if the target organization is the main organization
-    if org_data.get('main_organization') == target_org:
-        return 1
-
-    # Check if the target organization is in the affiliates
-    if target_org in org_data.get('affiliates', []):
-        return 2
-
-    # If not found
-    return 0
-
 def search_organization_case_insensitive(json_string, target_org):
     """
     Searches for the target organization in the provided organization data in a case-insensitive manner.
-    
+
     Args:
         json_string (str): JSON-formatted string containing organization data.
         target_org (str): The name of the organization to search for.
-        
+
     Returns:
         int: 1 if main organization, 2 if affiliate, 0 otherwise.
     """
     # Parse the JSON string into a Python dictionary
-    org_data = json.loads(json_string)
-    
+    try:
+        org_data = json.loads(json_string)
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decode error: {e}")
+        return 0
+
     # Normalize target organization for case-insensitive comparison
     target_org_lower = target_org.lower()
-    
+
     # Check if the target organization is the main organization (case-insensitive)
     if org_data.get('main_organization', '').lower() == target_org_lower:
         return 1
-    
+
     # Check if the target organization is in the affiliates (case-insensitive)
     affiliates_lower = [affiliate.lower() for affiliate in org_data.get('affiliates', [])]
     if target_org_lower in affiliates_lower:
         return 2
-    
+
     # If not found
     return 0
 
 async def is_valid_rsi_bio(user_handle, token):
     """
     Validates the token by checking if it exists in the user's RSI bio.
-    
+
     Args:
         user_handle (str): The RSI handle of the user.
         token (str): The verification token (4-digit PIN).
-        
+
     Returns:
         bool: True if the token is found in the bio, False otherwise.
     """
     url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
     html_content = await fetch_html(url)
+    if not html_content:
+        return False
     bio_text = extract_bio(html_content)
     return token in bio_text
 
 def extract_bio(html_content):
     """
     Extracts the bio text from the user's RSI profile page.
-    
+
     Args:
         html_content (str): The HTML content of the RSI profile page.
-        
+
     Returns:
         str: The bio text of the user.
     """
@@ -159,5 +141,5 @@ def extract_bio(html_content):
         bio = bio_text
     else:
         bio = ""
-    print(f"Bio extracted: {bio}")
+    logging.info(f"Bio extracted: {bio}")
     return bio

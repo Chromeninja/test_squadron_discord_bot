@@ -1,0 +1,7 @@
+bot:
+  prefix: "!"
+rate_limits:
+  max_attempts: 3
+  window_seconds: 10800  # 3 hours
+organization:
+  name: "TEST Squadron - Best Squardon!"

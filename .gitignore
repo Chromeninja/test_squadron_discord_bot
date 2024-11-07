@@ -167,6 +167,7 @@ cython_debug/
 # Discord bot files (if needed)
 config.json
 bot_secret.json
+bot.log
 
 # Node.js dependencies
 node_modules/
