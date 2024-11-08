@@ -1,0 +1,42 @@
+# TEST Squadron Discord Verification Bot - Command List
+
+## 🔧 **Bot Admins Only**
+
+1. **/restart**
+   - **Description:** Restart the bot.
+   - **Usage:** Only users with the Bot Admin role can execute this command.
+
+2. **/reset-all**
+   - **Description:** Reset verification timers for all members.
+   - **Usage:** Only users with the Bot Admin role can execute this command.
+
+3. **/reload-config**
+   - **Description:** Reload the bot's configuration.
+   - **Usage:** Only users with the Bot Admin role can execute this command.
+
+4. **/shutdown**
+   - **Description:** Shutdown the bot.
+   - **Usage:** Only users with the Bot Admin role can execute this command.
+
+---
+
+## 🔧 **Bot Admins and Lead Moderators**
+
+1. **/reset-user**
+   - **Description:** Reset verification timer for a specific user.
+   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
+
+2. **/status**
+   - **Description:** Check the status and uptime of the bot.
+   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
+
+3. **/view-logs**
+   - **Description:** View recent bot logs.
+   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
+
+---
+
+## 💡 **Additional Information**
+
+- **Ephemeral Responses:** All command responses are set to be ephemeral, meaning only the user who invoked the command can see the response.
+- **Error Handling:** If a user lacks the necessary permissions, the bot will inform them with an appropriate message.
