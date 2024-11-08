@@ -1,8 +1,8 @@
 bot:
   prefix: "!"
 rate_limits:
-  max_attempts: 3
-  window_seconds: 10800  # 3 hours
+  max_attempts: 5
+  window_seconds: 1800  # 3 hours
 organization:
   name: "TEST Squadron - Best Squardon!" 
 
@@ -14,6 +14,10 @@ roles:
   main_role_id: 1179505821760114689            # Replace with your Main role ID
   affiliate_role_id: 1179618003604750447       # Replace with your Affiliate role ID
   non_member_role_id: 1301648113483907132      # Replace with your Non-Member role ID
+  bot_admins:
+    - "1174838659065847859"  # Replace with actual Bot Admin role IDs
+  lead_moderators:
+    - "1174838659065847859"  # Replace with actual Lead Moderator role IDs
 
 embeds:
   verification:

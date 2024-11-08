@@ -1,5 +1,3 @@
-# bot.py
-
 import discord
 from discord.ext import commands
 import os
@@ -16,10 +14,7 @@ from config.config_loader import ConfigLoader  # Import the ConfigLoader
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s:%(levelname)s:%(name)s: %(message)s',
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 
 # Load configuration using ConfigLoader
@@ -71,7 +66,11 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True  # Needed for receiving messages
 
-initial_extensions = ['cogs.verification']
+# List of initial extensions to load
+initial_extensions = [
+    'cogs.verification',  # Main verification cog
+    'cogs.admin'          # Admin commands cog
+]
 
 class MyBot(commands.Bot):
     """
@@ -80,10 +79,6 @@ class MyBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         """
         Initializes the MyBot instance with specific role and channel IDs.
-
-        Args:
-            *args: Variable length argument list.
-            **kwargs: Arbitrary keyword arguments.
         """
         super().__init__(*args, **kwargs)
 
@@ -93,6 +88,9 @@ class MyBot(commands.Bot):
         self.MAIN_ROLE_ID = MAIN_ROLE_ID
         self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
         self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
+
+        # Initialize uptime tracking
+        self.start_time = asyncio.get_event_loop().time()
 
     async def setup_hook(self):
         """
@@ -104,15 +102,38 @@ class MyBot(commands.Bot):
                 logging.info(f"Loaded extension: {extension}")
             except Exception as e:
                 logging.error(f"Failed to load extension {extension}: {e}")
+        
+        # No global sync here to avoid delay; we'll sync in on_ready
+
+    async def on_ready(self):
+        """
+        Event handler for when the bot is ready and connected to Discord.
+        """
+        logging.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        logging.info("Bot is ready and online!")
+        
+        # Sync the command tree to a specific guild for immediate availability
+        # Replace YOUR_GUILD_ID with your server's ID
+        YOUR_GUILD_ID = 123456789012345678  # Replace with your actual guild ID (integer)
+        guild = discord.Object(id=YOUR_GUILD_ID)  # Replace with your guild ID
+
+        try:
+            synced = await self.tree.sync(guild=guild)
+            logging.info(f"Synced {len(synced)} commands to guild {guild.id}.")
+        except Exception as e:
+            logging.error(f"Failed to sync commands: {e}")
+
+    @property
+    def uptime(self):
+        """
+        Calculates the bot's uptime.
+        """
+        now = asyncio.get_event_loop().time()
+        delta = int(now - self.start_time)
+        hours, remainder = divmod(delta, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours}h {minutes}m {seconds}s"
 
 bot = MyBot(command_prefix=PREFIX, intents=intents)
-
-@bot.event
-async def on_ready():
-    """
-    Event handler for when the bot is ready and connected to Discord.
-    """
-    logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    logging.info("Bot is ready and online!")
 
 bot.run(TOKEN)
