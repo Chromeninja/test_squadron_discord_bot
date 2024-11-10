@@ -3,12 +3,16 @@
 import discord
 from discord.ui import Modal, TextInput
 import logging
+import re
 
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
 from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
+
+RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
+
 
 class HandleModal(Modal, title="Verification"):
     """
@@ -17,7 +21,7 @@ class HandleModal(Modal, title="Verification"):
     rsi_handle = TextInput(
         label="RSI Handle",
         placeholder="Enter your Star Citizen handle here",
-        max_length=32
+        max_length=60  # Limit to 60 characters
     )
 
     def __init__(self, bot):
@@ -41,6 +45,15 @@ class HandleModal(Modal, title="Verification"):
         member = interaction.user
         rsi_handle_input = self.rsi_handle.value.strip()
 
+        # Validate RSI handle
+        if not RSI_HANDLE_REGEX.match(rsi_handle_input):
+            embed = create_error_embed(
+                "Invalid RSI Handle format. Please use only letters, numbers, and underscores, up to 60 characters."
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logging.warning(f"User {member} provided invalid RSI handle format: {rsi_handle_input}")
+            return
+
         # Normalize the RSI handle to lowercase for case-insensitive handling
         rsi_handle_value = rsi_handle_input.lower()
 
@@ -63,13 +76,24 @@ class HandleModal(Modal, title="Verification"):
 
         # Defer the response as verification may take some time
         await interaction.response.defer(ephemeral=True)
-        logging.info(f"Deferred response for user {member} during verification.")
+        logging.debug(f"Deferred response for user {member} during verification.")
 
         token = user_token_info['token']
 
-        # Perform RSI verification with normalized handle
-        verify_value = await is_valid_rsi_handle(rsi_handle_value)
-        token_verify = await is_valid_rsi_bio(rsi_handle_value, token)
+        # Perform RSI verification with sanitized handle
+        verify_value = await is_valid_rsi_handle(rsi_handle_value, self.bot.http_client)
+        if verify_value is None:
+            embed = create_error_embed("Failed to verify RSI handle. Please check your handle and try again.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logging.warning(f"Verification failed for user {member}: invalid RSI handle.")
+            return
+
+        token_verify = await is_valid_rsi_bio(rsi_handle_value, token, self.bot.http_client)
+        if token_verify is None:
+            embed = create_error_embed("Failed to verify token in RSI bio. Please ensure your token is in your bio.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logging.warning(f"Verification failed for user {member}: token not found in bio.")
+            return
 
         # Log the attempt
         log_attempt(member.id)

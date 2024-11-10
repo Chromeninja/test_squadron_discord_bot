@@ -4,6 +4,7 @@ import discord
 import logging
 from typing import List, Optional
 
+
 async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[discord.Role]]:
     """
     Retrieve roles from the guild based on a list of role IDs.
@@ -13,7 +14,7 @@ async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[
         role_ids (List[int]): A list of role IDs to fetch.
 
     Returns:
-        List[Optional[discord.Role]]: A list of roles corresponding to the provided IDs. 
+        List[Optional[discord.Role]]: A list of roles corresponding to the provided IDs.
                                       None if a role is not found.
     """
     roles = []
@@ -25,6 +26,7 @@ async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[
             logging.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
             roles.append(None)
     return roles
+
 
 async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_value: str, bot) -> str:
     """
@@ -81,6 +83,8 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
             await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
             removed_role_names = [role.name for role in roles_to_remove]
             logging.info(f"Removed roles: {removed_role_names} from user {member}.")
+        except discord.Forbidden:
+            logging.warning(f"Cannot remove roles from user {member} due to permission hierarchy.")
         except Exception as e:
             logging.exception(f"Failed to remove roles from user {member}: {e}")
 
@@ -90,6 +94,9 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
             await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
             added_role_names = [role.name for role in roles_to_add]
             logging.info(f"Assigned roles: {added_role_names} to user {member}.")
+        except discord.Forbidden:
+            logging.warning(f"Cannot assign roles to user {member} due to permission hierarchy.")
+            assigned_role_type = 'unknown'
         except Exception as e:
             logging.exception(f"Failed to assign roles to user {member}: {e}")
             assigned_role_type = 'unknown'
@@ -98,23 +105,24 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
         assigned_role_type = 'unknown'
 
     # Check role hierarchy before attempting to change nickname
-    if can_modify_roles(bot, member):
+    if can_modify_nickname(bot, member):
         # Bot's role is higher; attempt to change nickname
         try:
             await member.edit(nick=rsi_handle_value[:32])
             logging.info(f"Nickname changed to {rsi_handle_value[:32]} for user {member}.")
         except discord.Forbidden:
-            logging.warning("Bot lacks permission to change this member's nickname due to role hierarchy.")
+            logging.warning(f"Bot lacks permission to change nickname for user {member} due to role hierarchy.")
         except Exception as e:
             logging.exception(f"Unexpected error when changing nickname for user {member}: {e}")
     else:
-        logging.warning("Cannot change nickname due to role hierarchy.")
+        logging.warning(f"Cannot change nickname for user {member} due to role hierarchy.")
 
     return assigned_role_type
 
-def can_modify_roles(bot, member) -> bool:
+
+def can_modify_nickname(bot, member) -> bool:
     """
-    Checks if the bot can modify the member's roles and nickname based on role hierarchy.
+    Checks if the bot can modify the member's nickname based on role hierarchy.
 
     Args:
         bot (commands.Bot): The bot instance.

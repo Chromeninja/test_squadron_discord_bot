@@ -8,11 +8,12 @@ import asyncio
 from helpers.embeds import create_verification_embed
 from helpers.views import VerificationView
 
+
 class VerificationCog(commands.Cog):
     """
     Cog to handle user verification within the Discord server.
     """
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         """
         Initializes the VerificationCog with the bot instance.
 
@@ -37,10 +38,10 @@ class VerificationCog(commands.Cog):
         else:
             logging.info(f"Found verification channel: {channel.name} (ID: {self.verification_channel_id})")
 
-        # Clear all messages in the verification channel
-        logging.info("Clearing messages in the verification channel...")
-        await self.clear_verification_channel(channel)
-        logging.info("Cleared messages in the verification channel.")
+        # Delete the previous message sent by the bot in the verification channel
+        logging.info("Attempting to delete previous bot message in the verification channel...")
+        await self.delete_previous_bot_message(channel)
+        logging.info("Deleted previous bot message in the verification channel.")
 
         # Create the verification embed
         embed = create_verification_embed()
@@ -56,24 +57,27 @@ class VerificationCog(commands.Cog):
         except Exception as e:
             logging.exception(f"Failed to send verification message: {e}")
 
-    async def clear_verification_channel(self, channel):
+    async def delete_previous_bot_message(self, channel: discord.TextChannel):
         """
-        Clears all messages from the specified verification channel.
+        Deletes the previous message sent by the bot in the specified channel.
 
         Args:
-            channel (discord.TextChannel): The channel to clear messages from.
+            channel (discord.TextChannel): The channel to search for the bot's message.
         """
-        logging.info("Attempting to clear verification channel messages...")
         try:
-            # Use channel.purge to delete messages
-            deleted = await channel.purge(limit=None)
-            logging.info(f"Deleted {len(deleted)} messages in the verification channel.")
+            async for message in channel.history(limit=100):
+                if message.author == self.bot.user:
+                    await message.delete()
+                    logging.info(f"Deleted previous message from bot: Message ID {message.id}")
+                    return
+            logging.info("No previous bot message found to delete.")
         except discord.Forbidden:
             logging.error("Bot lacks permission to delete messages in the verification channel.")
         except discord.HTTPException as e:
-            logging.exception(f"Failed to delete messages: {e}")
+            logging.exception(f"Failed to delete bot message: {e}")
 
-async def setup(bot):
+
+async def setup(bot: commands.Bot):
     """
     Asynchronous setup function to add the VerificationCog to the bot.
 

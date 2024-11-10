@@ -1,14 +1,18 @@
+# bot.py
+
 import discord
 from discord.ext import commands
 import os
 import logging
 from dotenv import load_dotenv
 import asyncio
+import time
+
+from config.config_loader import ConfigLoader
+from helpers.http_helper import HTTPClient
 
 # Load environment variables
 load_dotenv()
-
-from config.config_loader import ConfigLoader  # Import the ConfigLoader
 
 # Configure logging
 logging.basicConfig(
@@ -35,32 +39,6 @@ if not TOKEN:
     logging.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
-# Define required configuration variables
-required_channels = [
-    'VERIFICATION_CHANNEL_ID'
-]
-
-required_roles = [
-    'BOT_VERIFIED_ROLE_ID',
-    'MAIN_ROLE_ID',
-    'AFFILIATE_ROLE_ID',
-    'NON_MEMBER_ROLE_ID'
-]
-
-# Validate required channels
-for var in required_channels:
-    key = var.lower()
-    if not config['channels'].get(key):
-        logging.critical(f"{var} not found in configuration file.")
-        raise ValueError(f"{var} not set in configuration.")
-
-# Validate required roles
-for var in required_roles:
-    key = var.lower()
-    if not config['roles'].get(key):
-        logging.critical(f"{var} not found in configuration file.")
-        raise ValueError(f"{var} not set in configuration.")
-
 # Initialize bot intents
 intents = discord.Intents.default()
 intents.members = True
@@ -68,14 +46,16 @@ intents.message_content = True  # Needed for receiving messages
 
 # List of initial extensions to load
 initial_extensions = [
-    'cogs.verification',  # Main verification cog
-    'cogs.admin'          # Admin commands cog
+    'cogs.verification',
+    'cogs.admin'
 ]
+
 
 class MyBot(commands.Bot):
     """
     Custom Bot class extending commands.Bot to include additional attributes.
     """
+
     def __init__(self, *args, **kwargs):
         """
         Initializes the MyBot instance with specific role and channel IDs.
@@ -90,20 +70,24 @@ class MyBot(commands.Bot):
         self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
 
         # Initialize uptime tracking
-        self.start_time = asyncio.get_event_loop().time()
+        self.start_time = time.monotonic()
+
+        # Initialize the HTTP client
+        self.http_client = HTTPClient()
 
     async def setup_hook(self):
         """
         Asynchronously loads all initial extensions (cogs).
         """
+        # Initialize the HTTP client session
+        await self.http_client.init_session()
+
         for extension in initial_extensions:
             try:
                 await self.load_extension(extension)
                 logging.info(f"Loaded extension: {extension}")
             except Exception as e:
                 logging.error(f"Failed to load extension {extension}: {e}")
-        
-        # No global sync here to avoid delay; we'll sync in on_ready
 
     async def on_ready(self):
         """
@@ -111,29 +95,36 @@ class MyBot(commands.Bot):
         """
         logging.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logging.info("Bot is ready and online!")
-        
-        # Sync the command tree to a specific guild for immediate availability
-        # Replace YOUR_GUILD_ID with your server's ID
-        YOUR_GUILD_ID = 123456789012345678  # Replace with your actual guild ID (integer)
-        guild = discord.Object(id=YOUR_GUILD_ID)  # Replace with your guild ID
 
+        # Sync the command tree globally
         try:
-            synced = await self.tree.sync(guild=guild)
-            logging.info(f"Synced {len(synced)} commands to guild {guild.id}.")
+            synced = await self.tree.sync()
+            logging.info(f"Synced {len(synced)} commands globally.")
         except Exception as e:
             logging.error(f"Failed to sync commands: {e}")
 
     @property
-    def uptime(self):
+    def uptime(self) -> str:
         """
         Calculates the bot's uptime.
+
+        Returns:
+            str: The uptime as a formatted string.
         """
-        now = asyncio.get_event_loop().time()
+        now = time.monotonic()
         delta = int(now - self.start_time)
         hours, remainder = divmod(delta, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours}h {minutes}m {seconds}s"
 
-bot = MyBot(command_prefix=PREFIX, intents=intents)
+    async def close(self):
+        """
+        Closes the bot and the HTTP client session.
+        """
+        logging.info("Shutting down the bot and closing HTTP client session.")
+        await self.http_client.close()
+        await super().close()
 
+
+bot = MyBot(command_prefix=PREFIX, intents=intents)
 bot.run(TOKEN)
