@@ -4,7 +4,6 @@ import aiohttp
 import logging
 from typing import Optional
 
-
 class HTTPClient:
     """
     HTTP client for making asynchronous HTTP requests with a single ClientSession.
@@ -18,7 +17,9 @@ class HTTPClient:
         Initializes the ClientSession.
         """
         if self.session is None:
-            self.session = aiohttp.ClientSession()
+            connector = aiohttp.TCPConnector(limit_per_host=10)  # Limit concurrent connections
+            timeout = aiohttp.ClientTimeout(total=10)  # Set total timeout
+            self.session = aiohttp.ClientSession(connector=connector, timeout=timeout)
 
     async def fetch_html(self, url: str) -> Optional[str]:
         """
@@ -49,3 +50,4 @@ class HTTPClient:
         """
         if self.session is not None:
             await self.session.close()
+            self.session = None

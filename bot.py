@@ -10,6 +10,8 @@ import time
 
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
+from helpers.token_manager import cleanup_tokens
+from helpers.rate_limiter import cleanup_attempts
 
 # Load environment variables
 load_dotenv()
@@ -41,15 +43,15 @@ if not TOKEN:
 
 # Initialize bot intents
 intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True  # Needed for receiving messages
+intents.guilds = True  # Needed for guild-related events
+intents.members = True  # Needed for member-related events
+intents.message_content = True  # Needed for reading message content
 
 # List of initial extensions to load
 initial_extensions = [
     'cogs.verification',
     'cogs.admin'
 ]
-
 
 class MyBot(commands.Bot):
     """
@@ -75,6 +77,9 @@ class MyBot(commands.Bot):
         # Initialize the HTTP client
         self.http_client = HTTPClient()
 
+        # Initialize role cache
+        self.role_cache = {}
+
     async def setup_hook(self):
         """
         Asynchronously loads all initial extensions (cogs).
@@ -88,6 +93,50 @@ class MyBot(commands.Bot):
                 logging.info(f"Loaded extension: {extension}")
             except Exception as e:
                 logging.error(f"Failed to load extension {extension}: {e}")
+
+        # Cache roles after bot is ready
+        self.loop.create_task(self.cache_roles())
+
+        # Start cleanup tasks
+        self.loop.create_task(self.token_cleanup_task())
+        self.loop.create_task(self.attempts_cleanup_task())
+
+    async def cache_roles(self):
+        """
+        Caches role objects to avoid redundant lookups.
+        """
+        await self.wait_until_ready()
+        guild = discord.utils.get(self.guilds)  # Assuming bot is in only one guild
+        role_ids = [
+            self.BOT_VERIFIED_ROLE_ID,
+            self.MAIN_ROLE_ID,
+            self.AFFILIATE_ROLE_ID,
+            self.NON_MEMBER_ROLE_ID
+        ]
+        for role_id in role_ids:
+            role = guild.get_role(role_id)
+            if role:
+                self.role_cache[role_id] = role
+            else:
+                logging.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+
+    async def token_cleanup_task(self):
+        """
+        Periodically cleans up expired tokens.
+        """
+        while not self.is_closed():
+            await asyncio.sleep(600)  # Run every 10 minutes
+            cleanup_tokens()
+            logging.debug("Expired tokens cleaned up.")
+
+    async def attempts_cleanup_task(self):
+        """
+        Periodically cleans up expired rate-limiting data.
+        """
+        while not self.is_closed():
+            await asyncio.sleep(600)  # Run every 10 minutes
+            cleanup_attempts()
+            logging.debug("Expired rate-limiting data cleaned up.")
 
     async def on_ready(self):
         """
@@ -124,7 +173,6 @@ class MyBot(commands.Bot):
         logging.info("Shutting down the bot and closing HTTP client session.")
         await self.http_client.close()
         await super().close()
-
 
 bot = MyBot(command_prefix=PREFIX, intents=intents)
 bot.run(TOKEN)

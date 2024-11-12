@@ -2,7 +2,7 @@
 
 import secrets
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 # Token storage: {user_id: {'token': '1234', 'expires_at': 1637100000}}
 token_store = {}
@@ -54,4 +54,13 @@ def clear_token(user_id: int):
         user_id (int): The Discord user ID.
     """
     if user_id in token_store:
+        del token_store[user_id]
+
+def cleanup_tokens():
+    """
+    Cleans up expired tokens from the token store.
+    """
+    current_time = time.time()
+    expired_users = [user_id for user_id, info in token_store.items() if current_time > info['expires_at']]
+    for user_id in expired_users:
         del token_store[user_id]

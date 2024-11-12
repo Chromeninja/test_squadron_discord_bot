@@ -3,11 +3,9 @@
 import discord
 from discord.ext import commands
 import logging
-import asyncio
 
 from helpers.embeds import create_verification_embed
 from helpers.views import VerificationView
-
 
 class VerificationCog(commands.Cog):
     """
@@ -21,22 +19,27 @@ class VerificationCog(commands.Cog):
             bot (commands.Bot): The bot instance.
         """
         self.bot = bot
-        self.verification_channel_id = bot.VERIFICATION_CHANNEL_ID
-        # Create a background task for sending the verification message
-        self.bot.loop.create_task(self.send_verification_message())
+        # Schedule the verification message to be sent after the bot is ready
+        self.bot.loop.create_task(self.wait_and_send_verification_message())
+
+    async def wait_and_send_verification_message(self):
+        """
+        Waits until the bot is ready and sends the verification message.
+        """
+        await self.bot.wait_until_ready()
+        await self.send_verification_message()
 
     async def send_verification_message(self):
         """
         Sends the initial verification message to the verification channel.
         """
         logging.info("Starting to send verification message...")
-        await self.bot.wait_until_ready()
-        channel = self.bot.get_channel(self.verification_channel_id)
+        channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
         if channel is None:
-            logging.error(f"Could not find the channel with ID {self.verification_channel_id}.")
+            logging.error(f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}.")
             return
         else:
-            logging.info(f"Found verification channel: {channel.name} (ID: {self.verification_channel_id})")
+            logging.info(f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})")
 
         # Delete the previous message sent by the bot in the verification channel
         logging.info("Attempting to delete previous bot message in the verification channel...")
@@ -75,7 +78,6 @@ class VerificationCog(commands.Cog):
             logging.error("Bot lacks permission to delete messages in the verification channel.")
         except discord.HTTPException as e:
             logging.exception(f"Failed to delete bot message: {e}")
-
 
 async def setup(bot: commands.Bot):
     """

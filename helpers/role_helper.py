@@ -4,13 +4,12 @@ import discord
 import logging
 from typing import List, Optional
 
-
-async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[discord.Role]]:
+async def get_roles(bot, role_ids: List[int]) -> List[Optional[discord.Role]]:
     """
-    Retrieve roles from the guild based on a list of role IDs.
+    Retrieve roles from the cached role objects.
 
     Args:
-        guild (discord.Guild): The guild from which to retrieve roles.
+        bot (commands.Bot): The bot instance.
         role_ids (List[int]): A list of role IDs to fetch.
 
     Returns:
@@ -19,14 +18,13 @@ async def get_roles(guild: discord.Guild, role_ids: List[int]) -> List[Optional[
     """
     roles = []
     for role_id in role_ids:
-        role = guild.get_role(role_id)
+        role = bot.role_cache.get(role_id)
         if role:
             roles.append(role)
         else:
-            logging.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+            logging.warning(f"Role with ID {role_id} not found in role cache.")
             roles.append(None)
     return roles
-
 
 async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_value: str, bot) -> str:
     """
@@ -41,14 +39,13 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
     Returns:
         str: The type of role assigned ('main', 'affiliate', 'non_member', or 'unknown').
     """
-    guild = member.guild
     role_ids = [
         bot.BOT_VERIFIED_ROLE_ID,
         bot.MAIN_ROLE_ID,
         bot.AFFILIATE_ROLE_ID,
         bot.NON_MEMBER_ROLE_ID
     ]
-    roles = await get_roles(guild, role_ids)
+    roles = await get_roles(bot, role_ids)
     bot_verified_role, main_role, affiliate_role, non_member_role = roles
 
     # Initialize lists for roles to add and remove
@@ -118,7 +115,6 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
         logging.warning(f"Cannot change nickname for user {member} due to role hierarchy.")
 
     return assigned_role_type
-
 
 def can_modify_nickname(bot, member) -> bool:
     """
