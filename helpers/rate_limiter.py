@@ -107,3 +107,17 @@ def cleanup_attempts():
             expired_users.append(user_id)
     for user_id in expired_users:
         del user_verification_attempts[user_id]
+
+def reset_all_attempts():
+    """
+    Resets the verification attempts for all users.
+    """
+    global user_verification_attempts
+    user_verification_attempts.clear()
+
+def clear_all_tokens():
+    """
+    Clears the tokens for all users.
+    """
+    global token_store
+    token_store.clear()

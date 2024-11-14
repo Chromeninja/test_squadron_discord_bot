@@ -7,6 +7,10 @@ import logging
 from typing import List
 
 from config.config_loader import ConfigLoader
+from helpers.rate_limiter import reset_attempts
+from helpers.token_manager import clear_token
+from helpers.rate_limiter import reset_all_attempts
+from helpers.token_manager import clear_all_tokens
 
 # Access configuration values from config.yaml
 config = ConfigLoader.load_config()
@@ -48,12 +52,15 @@ class Admin(commands.Cog):
             await interaction.response.send_message("You don't have permission to restart the bot.", ephemeral=True)
 
     @app_commands.command(name="reset-all", description="Reset verification timers for all members. Only for Bot Admins.")
+    @app_commands.command(name="reset-all", description="Reset verification timers for all members. Only for Bot Admins.")
     async def reset_all(self, interaction: discord.Interaction):
         """Slash command to reset verification timers for all members."""
         if await self.has_roles(interaction, self.BOT_ADMIN_ROLE_IDS):
-            await interaction.response.send_message("Resetting verification timers for all members...", ephemeral=True)
+            # Reset all attempts and tokens
+            reset_all_attempts()
+            clear_all_tokens()
+            await interaction.response.send_message("Reset verification timers for all members.", ephemeral=True)
             logging.info(f"Reset all command issued by {interaction.user} (ID: {interaction.user.id}).")
-            # Implement the reset logic here
         else:
             await interaction.response.send_message("You don't have permission to reset all members.", ephemeral=True)
 
@@ -63,9 +70,11 @@ class Admin(commands.Cog):
         """Slash command to reset a specific user's verification timer."""
         combined_roles = self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS
         if await self.has_roles(interaction, combined_roles):
-            await interaction.response.send_message(f"Resetting verification timer for {member.mention}...", ephemeral=True)
+            # Reset the user's attempts and token
+            reset_attempts(member.id)
+            clear_token(member.id)
+            await interaction.response.send_message(f"Reset verification timer for {member.mention}.", ephemeral=True)
             logging.info(f"Reset user command issued by {interaction.user} (ID: {interaction.user.id}) for {member} (ID: {member.id}).")
-            # Implement the reset logic here
         else:
             await interaction.response.send_message("You don't have permission to reset this user's timer.", ephemeral=True)
 
