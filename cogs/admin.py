@@ -7,6 +7,7 @@ import logging
 from typing import List
 
 from config.config_loader import ConfigLoader
+
 from helpers.rate_limiter import reset_attempts
 from helpers.token_manager import clear_token
 from helpers.rate_limiter import reset_all_attempts
@@ -51,7 +52,6 @@ class Admin(commands.Cog):
         else:
             await interaction.response.send_message("You don't have permission to restart the bot.", ephemeral=True)
 
-    @app_commands.command(name="reset-all", description="Reset verification timers for all members. Only for Bot Admins.")
     @app_commands.command(name="reset-all", description="Reset verification timers for all members. Only for Bot Admins.")
     async def reset_all(self, interaction: discord.Interaction):
         """Slash command to reset verification timers for all members."""

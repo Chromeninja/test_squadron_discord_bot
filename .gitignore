@@ -161,9 +161,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Environment variables
-.env
-
 # Discord bot files (if needed)
 config.json
 bot_secret.json

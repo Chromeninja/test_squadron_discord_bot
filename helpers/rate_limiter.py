@@ -114,10 +114,3 @@ def reset_all_attempts():
     """
     global user_verification_attempts
     user_verification_attempts.clear()
-
-def clear_all_tokens():
-    """
-    Clears the tokens for all users.
-    """
-    global token_store
-    token_store.clear()
