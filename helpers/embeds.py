@@ -2,6 +2,10 @@
 
 import discord
 from config.config_loader import ConfigLoader
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 def create_embed(title: str, description: str, color: int = 0x00FF00, thumbnail_url: str = None) -> discord.Embed:
     """

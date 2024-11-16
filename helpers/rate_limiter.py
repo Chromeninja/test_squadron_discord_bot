@@ -4,6 +4,10 @@ import time
 from typing import Tuple
 
 from config.config_loader import ConfigLoader
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Load configuration using ConfigLoader
 config = ConfigLoader.load_config()
@@ -63,6 +67,10 @@ def log_attempt(user_id: int):
         attempt_info = {'count': 1, 'first_attempt': current_time}
 
     user_verification_attempts[user_id] = attempt_info
+    logger.debug("Logged verification attempt.", extra={
+        'user_id': user_id,
+        'attempt_count': attempt_info['count']
+    })
 
 def get_remaining_attempts(user_id: int) -> int:
     """
@@ -95,6 +103,7 @@ def reset_attempts(user_id: int):
         user_id (int): The ID of the user.
     """
     user_verification_attempts.pop(user_id, None)
+    logger.debug("Reset verification attempts.", extra={'user_id': user_id})
 
 def cleanup_attempts():
     """
@@ -107,6 +116,7 @@ def cleanup_attempts():
             expired_users.append(user_id)
     for user_id in expired_users:
         del user_verification_attempts[user_id]
+    logger.debug("Cleaned up expired rate-limiting data.")
 
 def reset_all_attempts():
     """
@@ -114,3 +124,4 @@ def reset_all_attempts():
     """
     global user_verification_attempts
     user_verification_attempts.clear()
+    logger.debug("Reset all verification attempts.")

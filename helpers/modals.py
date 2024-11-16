@@ -2,7 +2,6 @@
 
 import discord
 from discord.ui import Modal, TextInput
-import logging
 import re
 
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
@@ -10,9 +9,12 @@ from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
-
 
 class HandleModal(Modal, title="Verification"):
     """
@@ -41,7 +43,7 @@ class HandleModal(Modal, title="Verification"):
         Args:
             interaction (discord.Interaction): The interaction triggered by the modal submission.
         """
-        logging.info(f"Verification modal submitted by user {interaction.user} (ID: {interaction.user.id})")
+        logger.info("Verification modal submitted.", extra={'user_id': interaction.user.id})
         member = interaction.user
         rsi_handle_input = self.rsi_handle.value.strip()
 
@@ -51,7 +53,10 @@ class HandleModal(Modal, title="Verification"):
                 "Invalid RSI Handle format. Please use only letters, numbers, and underscores, up to 60 characters."
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.warning(f"User {member} provided invalid RSI handle format: {rsi_handle_input}")
+            logger.warning("Invalid RSI handle format provided.", extra={
+                'user_id': member.id,
+                'rsi_handle': rsi_handle_input
+            })
             return
 
         # Normalize the RSI handle to lowercase for case-insensitive handling
@@ -64,19 +69,19 @@ class HandleModal(Modal, title="Verification"):
                 "No active token found. Please click 'Get Token' to receive a new token."
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.warning(f"User {member} attempted verification without a token.")
+            logger.warning("Verification attempted without a token.", extra={'user_id': member.id})
             return
 
         valid, message = validate_token(member.id, user_token_info['token'])
         if not valid:
             embed = create_error_embed(message)
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.warning(f"User {member} provided an invalid or expired token.")
+            logger.warning("Invalid or expired token provided.", extra={'user_id': member.id})
             return
 
         # Defer the response as verification may take some time
         await interaction.response.defer(ephemeral=True)
-        logging.debug(f"Deferred response for user {member} during verification.")
+        logger.debug("Deferred response during verification.", extra={'user_id': member.id})
 
         token = user_token_info['token']
 
@@ -85,14 +90,14 @@ class HandleModal(Modal, title="Verification"):
         if verify_value is None:
             embed = create_error_embed("Failed to verify RSI handle. Please check your handle and try again.")
             await interaction.followup.send(embed=embed, ephemeral=True)
-            logging.warning(f"Verification failed for user {member}: invalid RSI handle.")
+            logger.warning("Verification failed: invalid RSI handle.", extra={'user_id': member.id})
             return
 
         token_verify = await is_valid_rsi_bio(rsi_handle_value, token, self.bot.http_client)
         if token_verify is None:
             embed = create_error_embed("Failed to verify token in RSI bio. Please ensure your token is in your bio.")
             await interaction.followup.send(embed=embed, ephemeral=True)
-            logging.warning(f"Verification failed for user {member}: token not found in bio.")
+            logger.warning("Verification failed: token not found in bio.", extra={'user_id': member.id})
             return
 
         # Log the attempt
@@ -109,7 +114,7 @@ class HandleModal(Modal, title="Verification"):
                 embed = create_cooldown_embed(wait_until)
 
                 await interaction.followup.send(embed=embed, ephemeral=True)
-                logging.info(f"User {member} exceeded verification attempts. Cooldown enforced.")
+                logger.info("User exceeded verification attempts. Cooldown enforced.", extra={'user_id': member.id})
                 return
             else:
                 # Prepare error details with enhanced instructions
@@ -127,7 +132,10 @@ class HandleModal(Modal, title="Verification"):
                 error_message = "\n".join(error_details)
                 embed = create_error_embed(error_message)
                 await interaction.followup.send(embed=embed, ephemeral=True)
-                logging.info(f"User {member} failed verification. Remaining attempts: {remaining_attempts}.")
+                logger.info("User failed verification.", extra={
+                    'user_id': member.id,
+                    'remaining_attempts': remaining_attempts
+                })
                 return
 
         # Verification successful
@@ -168,6 +176,10 @@ class HandleModal(Modal, title="Verification"):
                 embed=embed,
                 ephemeral=True
             )
-            logging.info(f"User {member} successfully verified and roles assigned as '{assigned_role_type}'.")
+            logger.info("User successfully verified.", extra={
+                'user_id': member.id,
+                'rsi_handle': rsi_handle_value,
+                'assigned_role': assigned_role_type
+            })
         except Exception as e:
-            logging.exception(f"Failed to send verification success message to user {member}: {e}")
+            logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})

@@ -3,7 +3,6 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import logging
 from typing import List
 
 from config.config_loader import ConfigLoader
@@ -12,10 +11,13 @@ from helpers.rate_limiter import reset_attempts
 from helpers.token_manager import clear_token
 from helpers.rate_limiter import reset_all_attempts
 from helpers.token_manager import clear_all_tokens
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Access configuration values from config.yaml
 config = ConfigLoader.load_config()
-
 
 class Admin(commands.Cog):
     """
@@ -47,7 +49,7 @@ class Admin(commands.Cog):
         """Slash command to restart the bot."""
         if await self.has_roles(interaction, self.BOT_ADMIN_ROLE_IDS):
             await interaction.response.send_message("Restarting the bot...", ephemeral=True)
-            logging.info(f"Restart command issued by {interaction.user} (ID: {interaction.user.id}).")
+            logger.info("Restart command issued.", extra={'user_id': interaction.user.id})
             await self.bot.close()
         else:
             await interaction.response.send_message("You don't have permission to restart the bot.", ephemeral=True)
@@ -60,7 +62,7 @@ class Admin(commands.Cog):
             reset_all_attempts()
             clear_all_tokens()
             await interaction.response.send_message("Reset verification timers for all members.", ephemeral=True)
-            logging.info(f"Reset all command issued by {interaction.user} (ID: {interaction.user.id}).")
+            logger.info("Reset all command issued.", extra={'user_id': interaction.user.id})
         else:
             await interaction.response.send_message("You don't have permission to reset all members.", ephemeral=True)
 
@@ -74,7 +76,10 @@ class Admin(commands.Cog):
             reset_attempts(member.id)
             clear_token(member.id)
             await interaction.response.send_message(f"Reset verification timer for {member.mention}.", ephemeral=True)
-            logging.info(f"Reset user command issued by {interaction.user} (ID: {interaction.user.id}) for {member} (ID: {member.id}).")
+            logger.info("Reset user command issued.", extra={
+                'user_id': interaction.user.id,
+                'target_user_id': member.id
+            })
         else:
             await interaction.response.send_message("You don't have permission to reset this user's timer.", ephemeral=True)
 
@@ -87,7 +92,7 @@ class Admin(commands.Cog):
             self.BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('bot_admins', [])]
             self.LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('lead_moderators', [])]
             await interaction.response.send_message("Configuration reloaded successfully.", ephemeral=True)
-            logging.info(f"Reload config command issued by {interaction.user} (ID: {interaction.user.id}).")
+            logger.info("Reload config command issued.", extra={'user_id': interaction.user.id})
         else:
             await interaction.response.send_message("You don't have permission to reload the configuration.", ephemeral=True)
 
@@ -96,7 +101,7 @@ class Admin(commands.Cog):
         """Slash command to shutdown the bot."""
         if await self.has_roles(interaction, self.BOT_ADMIN_ROLE_IDS):
             await interaction.response.send_message("Shutting down the bot...", ephemeral=True)
-            logging.info(f"Shutdown command issued by {interaction.user} (ID: {interaction.user.id}).")
+            logger.info("Shutdown command issued.", extra={'user_id': interaction.user.id})
             await self.bot.close()
         else:
             await interaction.response.send_message("You don't have permission to shut down the bot.", ephemeral=True)
@@ -109,7 +114,7 @@ class Admin(commands.Cog):
             uptime = self.bot.uptime
             status_message = f"Bot is online and operational. Uptime: {uptime}."
             await interaction.response.send_message(status_message, ephemeral=True)
-            logging.info(f"Status command issued by {interaction.user} (ID: {interaction.user.id}).")
+            logger.info("Status command issued.", extra={'user_id': interaction.user.id})
         else:
             await interaction.response.send_message("You don't have permission to check the bot's status.", ephemeral=True)
 
@@ -119,16 +124,17 @@ class Admin(commands.Cog):
         combined_roles = self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS
         if await self.has_roles(interaction, combined_roles):
             try:
-                with open("bot.log", "r") as log_file:
+                log_file_path = os.path.join('logs', 'bot.log')
+                with open(log_file_path, "r") as log_file:
                     logs = log_file.read()
-                if len(logs) > 2000:
+                if len(logs) > 1900:
                     await interaction.response.send_message("Logs are too long to display here. Check your DM.", ephemeral=True)
-                    await interaction.user.send(file=discord.File("bot.log"))
+                    await interaction.user.send(file=discord.File(log_file_path))
                 else:
                     await interaction.response.send_message(f"```\n{logs}\n```", ephemeral=True)
-                logging.info(f"View logs command issued by {interaction.user} (ID: {interaction.user.id}).")
+                logger.info("View logs command issued.", extra={'user_id': interaction.user.id})
             except Exception as e:
-                logging.exception(f"Failed to send logs to {interaction.user} (ID: {interaction.user.id}): {e}")
+                logger.exception(f"Failed to send logs: {e}", extra={'user_id': interaction.user.id})
                 await interaction.response.send_message("Failed to retrieve logs.", ephemeral=True)
         else:
             await interaction.response.send_message("You don't have permission to view the logs.", ephemeral=True)
@@ -145,9 +151,8 @@ class Admin(commands.Cog):
         if isinstance(error, app_commands.errors.MissingAnyRole):
             await interaction.response.send_message("You don't have the required permissions to use this command.", ephemeral=True)
         else:
-            logging.exception(f"Error in command {interaction.command.name}: {error}")
+            logger.exception(f"Error in command {interaction.command.name}: {error}", extra={'user_id': interaction.user.id})
             await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

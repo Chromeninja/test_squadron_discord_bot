@@ -1,8 +1,11 @@
 # helpers/http_helper.py
 
 import aiohttp
-import logging
 from typing import Optional
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 class HTTPClient:
     """
@@ -32,16 +35,16 @@ class HTTPClient:
             Optional[str]: The fetched HTML content as a string, or None if failed.
         """
         if self.session is None:
-            logging.error("HTTPClient session not initialized.")
+            logger.error("HTTPClient session not initialized.")
             return None
         try:
             async with self.session.get(url) as response:
                 if response.status != 200:
-                    logging.error(f"Failed to fetch {url}: Status {response.status}")
+                    logger.error(f"Failed to fetch {url}: Status {response.status}")
                     return None
                 return await response.text()
         except Exception as e:
-            logging.exception(f"Exception occurred while fetching {url}: {e}")
+            logger.exception(f"Exception occurred while fetching {url}: {e}")
             return None
 
     async def close(self):

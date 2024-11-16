@@ -1,8 +1,11 @@
 # helpers/role_helper.py
 
 import discord
-import logging
 from typing import List, Optional
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 async def get_roles(bot, role_ids: List[int]) -> List[Optional[discord.Role]]:
     """
@@ -22,7 +25,7 @@ async def get_roles(bot, role_ids: List[int]) -> List[Optional[discord.Role]]:
         if role:
             roles.append(role)
         else:
-            logging.warning(f"Role with ID {role_id} not found in role cache.")
+            logger.warning(f"Role with ID {role_id} not found in role cache.")
             roles.append(None)
     return roles
 
@@ -79,26 +82,32 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
         try:
             await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
             removed_role_names = [role.name for role in roles_to_remove]
-            logging.info(f"Removed roles: {removed_role_names} from user {member}.")
+            logger.info(f"Removed roles from user.", extra={
+                'user_id': member.id,
+                'roles_removed': removed_role_names
+            })
         except discord.Forbidden:
-            logging.warning(f"Cannot remove roles from user {member} due to permission hierarchy.")
+            logger.warning("Cannot remove roles due to permission hierarchy.", extra={'user_id': member.id})
         except Exception as e:
-            logging.exception(f"Failed to remove roles from user {member}: {e}")
+            logger.exception(f"Failed to remove roles: {e}", extra={'user_id': member.id})
 
     # Add the necessary roles
     if roles_to_add:
         try:
             await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
             added_role_names = [role.name for role in roles_to_add]
-            logging.info(f"Assigned roles: {added_role_names} to user {member}.")
+            logger.info(f"Assigned roles to user.", extra={
+                'user_id': member.id,
+                'roles_added': added_role_names
+            })
         except discord.Forbidden:
-            logging.warning(f"Cannot assign roles to user {member} due to permission hierarchy.")
+            logger.warning("Cannot assign roles due to permission hierarchy.", extra={'user_id': member.id})
             assigned_role_type = 'unknown'
         except Exception as e:
-            logging.exception(f"Failed to assign roles to user {member}: {e}")
+            logger.exception(f"Failed to assign roles: {e}", extra={'user_id': member.id})
             assigned_role_type = 'unknown'
     else:
-        logging.error("No valid roles to add.")
+        logger.error("No valid roles to add.", extra={'user_id': member.id})
         assigned_role_type = 'unknown'
 
     # Check role hierarchy before attempting to change nickname
@@ -106,13 +115,16 @@ async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_val
         # Bot's role is higher; attempt to change nickname
         try:
             await member.edit(nick=rsi_handle_value[:32])
-            logging.info(f"Nickname changed to {rsi_handle_value[:32]} for user {member}.")
+            logger.info("Nickname changed for user.", extra={
+                'user_id': member.id,
+                'new_nickname': rsi_handle_value[:32]
+            })
         except discord.Forbidden:
-            logging.warning(f"Bot lacks permission to change nickname for user {member} due to role hierarchy.")
+            logger.warning("Bot lacks permission to change nickname due to role hierarchy.", extra={'user_id': member.id})
         except Exception as e:
-            logging.exception(f"Unexpected error when changing nickname for user {member}: {e}")
+            logger.exception(f"Unexpected error when changing nickname: {e}", extra={'user_id': member.id})
     else:
-        logging.warning(f"Cannot change nickname for user {member} due to role hierarchy.")
+        logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
 

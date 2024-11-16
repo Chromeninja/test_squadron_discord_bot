@@ -3,25 +3,21 @@
 import discord
 from discord.ext import commands
 import os
-import logging
-from dotenv import load_dotenv
 import asyncio
 import time
+from dotenv import load_dotenv
 
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
 from helpers.rate_limiter import cleanup_attempts
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s',
-    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
-)
 
 # Load configuration using ConfigLoader
 config = ConfigLoader.load_config()
@@ -38,7 +34,7 @@ AFFILIATE_ROLE_ID = config['roles']['affiliate_role_id']
 NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
 
 if not TOKEN:
-    logging.critical("DISCORD_TOKEN not found in environment variables.")
+    logger.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
 # Initialize bot intents
@@ -90,9 +86,9 @@ class MyBot(commands.Bot):
         for extension in initial_extensions:
             try:
                 await self.load_extension(extension)
-                logging.info(f"Loaded extension: {extension}")
+                logger.info(f"Loaded extension: {extension}")
             except Exception as e:
-                logging.error(f"Failed to load extension {extension}: {e}")
+                logger.error(f"Failed to load extension {extension}: {e}")
 
         # Cache roles after bot is ready
         self.loop.create_task(self.cache_roles())
@@ -118,7 +114,7 @@ class MyBot(commands.Bot):
             if role:
                 self.role_cache[role_id] = role
             else:
-                logging.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+                logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
 
     async def token_cleanup_task(self):
         """
@@ -127,7 +123,7 @@ class MyBot(commands.Bot):
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
             cleanup_tokens()
-            logging.debug("Expired tokens cleaned up.")
+            logger.debug("Expired tokens cleaned up.")
 
     async def attempts_cleanup_task(self):
         """
@@ -136,21 +132,21 @@ class MyBot(commands.Bot):
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
             cleanup_attempts()
-            logging.debug("Expired rate-limiting data cleaned up.")
+            logger.debug("Expired rate-limiting data cleaned up.")
 
     async def on_ready(self):
         """
         Event handler for when the bot is ready and connected to Discord.
         """
-        logging.info(f"Logged in as {self.user} (ID: {self.user.id})")
-        logging.info("Bot is ready and online!")
+        logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        logger.info("Bot is ready and online!")
 
         # Sync the command tree globally
         try:
             synced = await self.tree.sync()
-            logging.info(f"Synced {len(synced)} commands globally.")
+            logger.info(f"Synced {len(synced)} commands globally.")
         except Exception as e:
-            logging.error(f"Failed to sync commands: {e}")
+            logger.error(f"Failed to sync commands: {e}")
 
     @property
     def uptime(self) -> str:
@@ -170,9 +166,12 @@ class MyBot(commands.Bot):
         """
         Closes the bot and the HTTP client session.
         """
-        logging.info("Shutting down the bot and closing HTTP client session.")
+        logger.info("Shutting down the bot and closing HTTP client session.")
         await self.http_client.close()
         await super().close()
 
+# Initialize the bot
 bot = MyBot(command_prefix=PREFIX, intents=intents)
+
+# Run the bot
 bot.run(TOKEN)

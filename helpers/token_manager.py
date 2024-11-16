@@ -3,6 +3,10 @@
 import secrets
 import time
 from typing import Tuple
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Token storage: {user_id: {'token': '1234', 'expires_at': 1637100000}}
 token_store = {}
@@ -22,6 +26,7 @@ def generate_token(user_id: int) -> str:
     token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
     expires_at = time.time() + TOKEN_EXPIRATION_TIME
     token_store[user_id] = {'token': token, 'expires_at': expires_at}
+    logger.debug("Generated token for user.", extra={'user_id': user_id})
     return token
 
 def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
@@ -41,9 +46,11 @@ def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
         return False, "No token found for this user. Please generate a new token."
     if time.time() > user_token_info['expires_at']:
         del token_store[user_id]
+        logger.debug("Token expired for user.", extra={'user_id': user_id})
         return False, "Your token has expired. Please generate a new token."
     if user_token_info['token'] != token:
         return False, "Invalid token provided."
+    logger.debug("Token validated for user.", extra={'user_id': user_id})
     return True, "Token is valid."
 
 def clear_token(user_id: int):
@@ -55,6 +62,7 @@ def clear_token(user_id: int):
     """
     if user_id in token_store:
         del token_store[user_id]
+        logger.debug("Cleared token for user.", extra={'user_id': user_id})
 
 def cleanup_tokens():
     """
@@ -64,6 +72,7 @@ def cleanup_tokens():
     expired_users = [user_id for user_id, info in token_store.items() if current_time > info['expires_at']]
     for user_id in expired_users:
         del token_store[user_id]
+    logger.debug("Cleaned up expired tokens.")
 
 def clear_all_tokens():
     """
@@ -71,3 +80,4 @@ def clear_all_tokens():
     """
     global token_store
     token_store.clear()
+    logger.debug("Cleared all tokens.")
