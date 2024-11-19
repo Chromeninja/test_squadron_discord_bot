@@ -19,7 +19,7 @@ roles:
   lead_moderators:
     - "1174838659065847859"  # Replace with actual Lead Moderator role IDs
 logging:
-  level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+  level: "DEBUG"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
 
 embeds:
   verification:
@@ -31,7 +31,7 @@ embeds:
 
       If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).
     color: "0xFFBB00"
-    thumbnail_url: "https://robertsspaceindustries.com/static/images/logo.png"
+    thumbnail_url: "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
   token:
     title: "📡 Account Verification"
     description: |
@@ -39,13 +39,16 @@ embeds:
 
       **Instructions:**
       :one: Login to your [RSI account profile](https://robertsspaceindustries.com/account/profile).
+      *If you see a "Restricted Access" message, please log in by clicking on the user icon in the top right corner of the webpage.*
       :two: Add the PIN to your **Short Bio** field.
       :three: Scroll down and click **Apply All Changes**.
       :four: Return here and click the 'Verify' button below.
 
+      If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).
+
       :information_source: *Note: The PIN expires <t:{expires_unix}:R>.*
     color: "0x00FF00"
-    thumbnail_url: "https://robertsspaceindustries.com/static/images/logo.png"
+    thumbnail_url: "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
     field_name: "🔑 Your Verification PIN"
   error:
     title: "❌ Verification Failed"

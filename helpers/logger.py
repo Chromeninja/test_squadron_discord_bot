@@ -69,7 +69,11 @@ def setup_logging():
     log_level = getattr(logging, log_level_str, logging.INFO)
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
+    root_logger.setLevel(logging.DEBUG)  # Capture all messages at the root logger
+
+    # Remove all handlers associated with the root logger
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
 
     # Ensure the logs directory exists
     if not os.path.exists('logs'):
@@ -81,10 +85,11 @@ def setup_logging():
         log_file, when='midnight', interval=1, backupCount=30, utc=True
     )
     file_handler.suffix = "%Y-%m-%d"
+    file_handler.setLevel(log_level)  # Set file handler level based on config
 
     # Create a console handler for outputting logs to the console
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)  # Set console to INFO to exclude DEBUG
+    console_handler.setLevel(log_level)  # Set console handler level based on config
 
     # Define the log format
     log_format = {
@@ -98,9 +103,6 @@ def setup_logging():
     # Set formatter for both handlers
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
-
-    # Set file handler level to DEBUG to include all messages
-    file_handler.setLevel(logging.DEBUG)
 
     # Define excluded messages for specific modules
     excluded_messages = {
@@ -116,11 +118,14 @@ def setup_logging():
     file_handler.addFilter(exclude_filter)
     console_handler.addFilter(exclude_filter)
 
-    # Add handlers to the root logger if they haven't been added already
-    if not root_logger.handlers:
-        root_logger.addHandler(file_handler)
-        root_logger.addHandler(console_handler)
+    # Add handlers to the root logger
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
 
+    # Set the logging level for the 'discord' logger to WARNING to suppress debug logs
+    discord_logger = logging.getLogger('discord')
+    discord_logger.setLevel(logging.WARNING)
+    
 def get_logger(name: str) -> logging.Logger:
     """
     Retrieves a logger with the given name. Assumes root logger is already configured.
