@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 
 RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
 
+
 class HandleModal(Modal, title="Verification"):
     """
     Modal to collect the user's RSI handle for verification.
@@ -61,11 +62,9 @@ class HandleModal(Modal, title="Verification"):
         # Proceed with verification to get verify_value and cased_handle
         verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle_input, self.bot.http_client)
         if verify_value is None or cased_handle is None:
-            embed = create_error_embed(
-                "Failed to verify your RSI handle. Please ensure it is correct and try again."
-            )
+            embed = create_error_embed("Failed to verify RSI handle. Please check your handle and try again.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logger.warning("Verification failed: invalid handle or could not retrieve cased handle.", extra={'user_id': member.id})
+            logger.warning("Verification failed: invalid RSI handle.", extra={'user_id': member.id})
             return
 
         # Validate token
@@ -109,7 +108,8 @@ class HandleModal(Modal, title="Verification"):
         # Log the attempt
         log_attempt(member.id)
 
-        if not verify_value_check or not token_verify:
+        # Corrected condition to handle verify_value_check == 0
+        if verify_value_check is None or not token_verify:
             # Verification failed
             remaining_attempts = get_remaining_attempts(member.id)
             if remaining_attempts <= 0:
@@ -125,15 +125,10 @@ class HandleModal(Modal, title="Verification"):
             else:
                 # Prepare error details with enhanced instructions
                 error_details = []
-                if not verify_value_check:
+                if verify_value_check is None:
                     error_details.append("- Could not verify RSI organization membership.")
                 if not token_verify:
                     error_details.append("- Token not found or does not match in RSI bio.")
-                # Add additional instructions and link
-                error_details.append(
-                    "- Please ensure your RSI Handle is correct and check the spelling.\n"
-                    "- You can find your RSI Handle on your [RSI Account Settings](https://robertsspaceindustries.com/account/settings) page, next to the handle field."
-                )
                 error_details.append(f"You have {remaining_attempts} attempt(s) remaining before cooldown.")
                 error_message = "\n".join(error_details)
                 embed = create_error_embed(error_message)
