@@ -9,7 +9,6 @@ class CustomJsonFormatter(logging.Formatter):
     """
     Custom formatter to output logs in JSON format.
     """
-
     def __init__(self, fmt: dict, datefmt: str = None):
         super().__init__(datefmt=datefmt)
         self.fmt = fmt
@@ -45,7 +44,6 @@ class ExcludeSpecificMessagesFilter(logging.Filter):
     """
     Custom filter to exclude specific log messages from certain modules.
     """
-
     def __init__(self, module_name: str, excluded_messages: set):
         super().__init__()
         self.module_name = module_name
@@ -54,27 +52,18 @@ class ExcludeSpecificMessagesFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         """
         Determine if the specified record is to be logged.
-
         Returns True if the record should be logged, False otherwise.
         """
         if record.module == self.module_name and record.message in self.excluded_messages:
             return False  # Exclude this log record
         return True  # Keep all other records
 
-def get_logger(name: str) -> logging.Logger:
+def setup_logging():
     """
-    Configures and returns a logger with the specified name.
-
-    Args:
-        name (str): The name of the logger, typically __name__.
-
-    Returns:
-        logging.Logger: Configured logger instance.
+    Sets up the root logger with file and console handlers.
     """
-
-    # Create a logger
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)  # Set to DEBUG to allow handlers to filter levels
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
 
     # Ensure the logs directory exists
     if not os.path.exists('logs'):
@@ -121,11 +110,22 @@ def get_logger(name: str) -> logging.Logger:
     file_handler.addFilter(exclude_filter)
     console_handler.addFilter(exclude_filter)
 
-    # Add handlers to the logger if they haven't been added already
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    # Add handlers to the root logger if they haven't been added already
+    if not root_logger.handlers:
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
 
+def get_logger(name: str) -> logging.Logger:
+    """
+    Retrieves a logger with the given name. Assumes root logger is already configured.
+
+    Args:
+        name (str): The name of the logger.
+
+    Returns:
+        logging.Logger: The configured logger.
+    """
+    logger = logging.getLogger(name)
     return logger
 
 def set_module_logging_level(module_name: str, level: int):
@@ -138,3 +138,6 @@ def set_module_logging_level(module_name: str, level: int):
     """
     logger = logging.getLogger(module_name)
     logger.setLevel(level)
+
+# Setup logging when the module is imported
+setup_logging()

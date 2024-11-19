@@ -72,7 +72,6 @@ def cleanup_tokens():
     expired_users = [user_id for user_id, info in token_store.items() if current_time > info['expires_at']]
     for user_id in expired_users:
         del token_store[user_id]
-    logger.debug("Cleaned up expired tokens.")
 
 def clear_all_tokens():
     """

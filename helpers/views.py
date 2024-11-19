@@ -42,7 +42,6 @@ class VerificationView(View):
         Args:
             interaction (discord.Interaction): The interaction triggered by the button click.
         """
-        logger.info("'Get Token' button clicked.", extra={'user_id': interaction.user.id})
         member = interaction.user
 
         # Check rate limit
@@ -64,7 +63,6 @@ class VerificationView(View):
 
         try:
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logger.info("Sent verification PIN to user.", extra={'user_id': member.id})
         except Exception as e:
             logger.exception(f"Failed to send verification PIN: {e}", extra={'user_id': member.id})
 
@@ -75,7 +73,6 @@ class VerificationView(View):
         Args:
             interaction (discord.Interaction): The interaction triggered by the button click.
         """
-        logger.info("'Verify' button clicked.", extra={'user_id': interaction.user.id})
         member = interaction.user
 
         # Check rate limit
@@ -89,4 +86,3 @@ class VerificationView(View):
         # Show the modal to get RSI handle
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
-        logger.info("Displayed verification modal to user.", extra={'user_id': member.id})

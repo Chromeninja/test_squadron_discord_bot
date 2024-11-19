@@ -60,6 +60,9 @@ class MyBot(commands.Bot):
         """
         super().__init__(*args, **kwargs)
 
+        # Assign the entire config to the bot instance
+        self.config = config
+
         # Pass role and channel IDs to the bot for use in cogs
         self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
         self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
@@ -132,7 +135,6 @@ class MyBot(commands.Bot):
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
             cleanup_attempts()
-            logger.debug("Expired rate-limiting data cleaned up.")
 
     async def on_ready(self):
         """

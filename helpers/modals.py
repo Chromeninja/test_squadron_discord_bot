@@ -43,11 +43,10 @@ class HandleModal(Modal, title="Verification"):
         Args:
             interaction (discord.Interaction): The interaction triggered by the modal submission.
         """
-        logger.info("Verification modal submitted.", extra={'user_id': interaction.user.id})
         member = interaction.user
         rsi_handle_input = self.rsi_handle.value.strip()
 
-        # Validate RSI handle
+        # Validate RSI handle format
         if not RSI_HANDLE_REGEX.match(rsi_handle_input):
             embed = create_error_embed(
                 "Invalid RSI Handle format. Please use only letters, numbers, and underscores, up to 60 characters."
@@ -59,10 +58,17 @@ class HandleModal(Modal, title="Verification"):
             })
             return
 
-        # Normalize the RSI handle to lowercase for case-insensitive handling
-        rsi_handle_value = rsi_handle_input.lower()
+        # Proceed with verification to get verify_value and cased_handle
+        verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle_input, self.bot.http_client)
+        if verify_value is None or cased_handle is None:
+            embed = create_error_embed(
+                "Failed to verify your RSI handle. Please ensure it is correct and try again."
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.warning("Verification failed: invalid handle or could not retrieve cased handle.", extra={'user_id': member.id})
+            return
 
-        # Check if the user has an active token
+        # Validate token
         user_token_info = token_store.get(member.id)
         if not user_token_info:
             embed = create_error_embed(
@@ -86,14 +92,14 @@ class HandleModal(Modal, title="Verification"):
         token = user_token_info['token']
 
         # Perform RSI verification with sanitized handle
-        verify_value = await is_valid_rsi_handle(rsi_handle_value, self.bot.http_client)
-        if verify_value is None:
+        verify_value_check, _ = await is_valid_rsi_handle(cased_handle, self.bot.http_client)
+        if verify_value_check is None:
             embed = create_error_embed("Failed to verify RSI handle. Please check your handle and try again.")
             await interaction.followup.send(embed=embed, ephemeral=True)
             logger.warning("Verification failed: invalid RSI handle.", extra={'user_id': member.id})
             return
 
-        token_verify = await is_valid_rsi_bio(rsi_handle_value, token, self.bot.http_client)
+        token_verify = await is_valid_rsi_bio(cased_handle, token, self.bot.http_client)
         if token_verify is None:
             embed = create_error_embed("Failed to verify token in RSI bio. Please ensure your token is in your bio.")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -103,7 +109,7 @@ class HandleModal(Modal, title="Verification"):
         # Log the attempt
         log_attempt(member.id)
 
-        if not verify_value or not token_verify:
+        if not verify_value_check or not token_verify:
             # Verification failed
             remaining_attempts = get_remaining_attempts(member.id)
             if remaining_attempts <= 0:
@@ -119,7 +125,7 @@ class HandleModal(Modal, title="Verification"):
             else:
                 # Prepare error details with enhanced instructions
                 error_details = []
-                if not verify_value:
+                if not verify_value_check:
                     error_details.append("- Could not verify RSI organization membership.")
                 if not token_verify:
                     error_details.append("- Token not found or does not match in RSI bio.")
@@ -139,7 +145,7 @@ class HandleModal(Modal, title="Verification"):
                 return
 
         # Verification successful
-        assigned_role_type = await assign_roles(member, verify_value, rsi_handle_value, self.bot)
+        assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)
         reset_attempts(member.id)  # Reset attempts on success
 
@@ -178,7 +184,7 @@ class HandleModal(Modal, title="Verification"):
             )
             logger.info("User successfully verified.", extra={
                 'user_id': member.id,
-                'rsi_handle': rsi_handle_value,
+                'rsi_handle': cased_handle,
                 'assigned_role': assigned_role_type
             })
         except Exception as e:
