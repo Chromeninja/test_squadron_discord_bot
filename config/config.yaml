@@ -18,6 +18,8 @@ roles:
     - "1174838659065847859"  # Replace with actual Bot Admin role IDs
   lead_moderators:
     - "1174838659065847859"  # Replace with actual Lead Moderator role IDs
+logging:
+  level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
 
 embeds:
   verification:

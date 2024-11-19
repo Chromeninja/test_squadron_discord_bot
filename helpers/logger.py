@@ -4,6 +4,7 @@ import logging
 import logging.handlers
 import os
 import json
+from config.config_loader import ConfigLoader
 
 class CustomJsonFormatter(logging.Formatter):
     """
@@ -62,8 +63,13 @@ def setup_logging():
     """
     Sets up the root logger with file and console handlers.
     """
+    config = ConfigLoader.load_config()
+    logging_config = config.get('logging', {})
+    log_level_str = logging_config.get('level', 'INFO').upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(log_level)
 
     # Ensure the logs directory exists
     if not os.path.exists('logs'):

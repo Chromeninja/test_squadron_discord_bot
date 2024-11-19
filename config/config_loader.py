@@ -30,6 +30,9 @@ class ConfigLoader:
                 # Convert role IDs to integers
                 cls._convert_role_ids_to_int()
 
+                # Validate logging level
+                cls._validate_logging_level()
+
             except FileNotFoundError:
                 logging.error(f"Configuration file not found at path: {config_path}")
                 raise
@@ -41,6 +44,15 @@ class ConfigLoader:
                 raise
         return cls._config
 
+    @classmethod
+    def _validate_logging_level(cls):
+        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        logging_config = cls._config.get('logging', {})
+        level = logging_config.get('level', 'INFO').upper()
+        if level not in valid_levels:
+            logging.warning(f"Invalid logging level '{level}' in config. Defaulting to 'INFO'.")
+            cls._config['logging']['level'] = 'INFO'
+            
     @classmethod
     def _convert_role_ids_to_int(cls):
         """
