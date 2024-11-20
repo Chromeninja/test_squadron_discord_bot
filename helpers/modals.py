@@ -14,6 +14,7 @@ from helpers.logger import get_logger
 # Initialize logger
 logger = get_logger(__name__)
 
+# Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
 
 
@@ -107,9 +108,8 @@ class HandleModal(Modal, title="Verification"):
 
         log_attempt(member.id)
 
-        # Corrected condition to handle verify_value_check == 0
+        # Check if verification failed
         if verify_value_check is None or not token_verify:
-            # Verification failed
             remaining_attempts = get_remaining_attempts(member.id)
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
@@ -146,23 +146,29 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == 'main':
             description = (
-                "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
-                "We're thrilled to have you with us."
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+                "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
+                "Fly safe! <:o7:1306961462215970836>"
             )
         elif assigned_role_type == 'affiliate':
             description = (
-                "Thanks for being an affiliate of **TEST Squadron - Best Squadron!** "
-                "Consider setting **TEST** as your Main Org to share in the glory of TEST.\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                "1️⃣ Click on **Set as Main** next to **TEST**."
+                "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
+                "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
+                "<:o7:1306961462215970836>"
             )
         elif assigned_role_type == 'non_member':
             description = (
-                "Welcome! It looks like you're not a member of **TEST Squadron - Best Squadron!** "
-                "Join us to be part of the adventure!\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "It looks like you're not yet a member of our org. <:what:1306961532080623676>\n\n"
+                "Join us for thrilling adventures and be part of the best and  biggest community!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
-                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours.*"
+                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
+                "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1306961462215970836>"
             )
         else:
             description = (
@@ -183,3 +189,20 @@ class HandleModal(Modal, title="Verification"):
             })
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
+
+
+def can_modify_nickname(member: discord.Member) -> bool:
+    """
+    Checks if the bot can modify the member's nickname based on role hierarchy.
+
+    Args:
+        member (discord.Member): The member to check.
+
+    Returns:
+        bool: True if the bot can modify, False otherwise.
+    """
+    guild = member.guild
+    bot_member = guild.me
+    can_modify = bot_member.top_role > member.top_role
+    logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
+    return can_modify
