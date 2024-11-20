@@ -41,24 +41,6 @@ class CustomJsonFormatter(logging.Formatter):
 
         return json.dumps(record_dict)
 
-class ExcludeSpecificMessagesFilter(logging.Filter):
-    """
-    Custom filter to exclude specific log messages from certain modules.
-    """
-    def __init__(self, module_name: str, excluded_messages: set):
-        super().__init__()
-        self.module_name = module_name
-        self.excluded_messages = excluded_messages
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Determine if the specified record is to be logged.
-        Returns True if the record should be logged, False otherwise.
-        """
-        if record.module == self.module_name and record.message in self.excluded_messages:
-            return False  # Exclude this log record
-        return True  # Keep all other records
-
 def setup_logging():
     """
     Sets up the root logger with file and console handlers.
@@ -103,20 +85,6 @@ def setup_logging():
     # Set formatter for both handlers
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
-
-    # Define excluded messages for specific modules
-    excluded_messages = {
-        "'Get Token' button clicked.",
-        "User reached max verification attempts."
-    }
-
-    # Create and add the custom filter to both handlers
-    exclude_filter = ExcludeSpecificMessagesFilter(
-        module_name="helpers.views",
-        excluded_messages=excluded_messages
-    )
-    file_handler.addFilter(exclude_filter)
-    console_handler.addFilter(exclude_filter)
 
     # Add handlers to the root logger
     root_logger.addHandler(file_handler)

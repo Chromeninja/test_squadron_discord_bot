@@ -20,8 +20,8 @@ class HTTPClient:
         Initializes the ClientSession.
         """
         if self.session is None:
-            connector = aiohttp.TCPConnector(limit_per_host=10)  # Limit concurrent connections
-            timeout = aiohttp.ClientTimeout(total=10)  # Set total timeout
+            connector = aiohttp.TCPConnector(limit_per_host=10)
+            timeout = aiohttp.ClientTimeout(total=10)
             self.session = aiohttp.ClientSession(connector=connector, timeout=timeout)
 
     async def fetch_html(self, url: str) -> Optional[str]:

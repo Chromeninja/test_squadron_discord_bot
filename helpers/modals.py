@@ -24,7 +24,7 @@ class HandleModal(Modal, title="Verification"):
     rsi_handle = TextInput(
         label="RSI Handle",
         placeholder="Enter your Star Citizen handle here",
-        max_length=60  # Limit to 60 characters
+        max_length=60
     )
 
     def __init__(self, bot):
@@ -105,7 +105,6 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("Verification failed: token not found in bio.", extra={'user_id': member.id})
             return
 
-        # Log the attempt
         log_attempt(member.id)
 
         # Corrected condition to handle verify_value_check == 0
@@ -147,7 +146,7 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == 'main':
             description = (
-                "Thank you for being a main member of **TEST Squadron - Best Squadron!** "
+                "Thank you for being a main member of **TEST Squadron - Best Squardon!** "
                 "We're thrilled to have you with us."
             )
         elif assigned_role_type == 'affiliate':

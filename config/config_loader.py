@@ -52,7 +52,7 @@ class ConfigLoader:
         if level not in valid_levels:
             logging.warning(f"Invalid logging level '{level}' in config. Defaulting to 'INFO'.")
             cls._config['logging']['level'] = 'INFO'
-            
+
     @classmethod
     def _convert_role_ids_to_int(cls):
         """
@@ -86,14 +86,4 @@ class ConfigLoader:
 
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
-        """
-        Retrieves a value from the configuration.
-
-        Args:
-            key (str): The key to retrieve from the configuration.
-            default (Any, optional): Default value if the key is not found. Defaults to None.
-
-        Returns:
-            Any: The value associated with the key or the default.
-        """
         return cls._config.get(key, default)
