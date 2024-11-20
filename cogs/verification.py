@@ -2,10 +2,13 @@
 
 import discord
 from discord.ext import commands
-import logging
 
 from helpers.embeds import create_verification_embed
 from helpers.views import VerificationView
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 class VerificationCog(commands.Cog):
     """
@@ -32,19 +35,20 @@ class VerificationCog(commands.Cog):
     async def send_verification_message(self):
         """
         Sends the initial verification message to the verification channel.
+        Deletes all existing messages in the channel before sending a new one.
         """
-        logging.info("Starting to send verification message...")
+        logger.info("Starting to send verification message...")
         channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
         if channel is None:
-            logging.error(f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}.")
+            logger.error(f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}.")
             return
         else:
-            logging.info(f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})")
+            logger.info(f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})")
 
-        # Delete the previous message sent by the bot in the verification channel
-        logging.info("Attempting to delete previous bot message in the verification channel...")
-        await self.delete_previous_bot_message(channel)
-        logging.info("Deleted previous bot message in the verification channel.")
+        # Delete all previous messages in the verification channel (up to 100 messages)
+        logger.info("Attempting to delete all messages in the verification channel...")
+        await self.delete_all_messages(channel)
+        logger.info("Deleted all messages in the verification channel.")
 
         # Create the verification embed
         embed = create_verification_embed()
@@ -54,30 +58,29 @@ class VerificationCog(commands.Cog):
 
         # Send the embed with the interactive view to the channel
         try:
-            logging.info("Attempting to send the verification embed...")
-            await channel.send(embed=embed, view=view)
-            logging.info("Sent verification message in channel.")
-        except Exception as e:
-            logging.exception(f"Failed to send verification message: {e}")
+            logger.info("Attempting to send the verification embed...")
+            sent_message = await channel.send(embed=embed, view=view)
+            logger.info(f"Sent verification message in channel. Message ID: {sent_message.id}")
+        except discord.Forbidden:
+            logger.error("Bot lacks permission to send messages in the verification channel.")
+        except discord.HTTPException as e:
+            logger.exception(f"Failed to send verification message: {e}")
 
-    async def delete_previous_bot_message(self, channel: discord.TextChannel):
+    async def delete_all_messages(self, channel: discord.TextChannel):
         """
-        Deletes the previous message sent by the bot in the specified channel.
+        Deletes all messages in the specified channel up to a limit of 100 messages.
 
         Args:
-            channel (discord.TextChannel): The channel to search for the bot's message.
+            channel (discord.TextChannel): The channel to delete messages from.
         """
         try:
-            async for message in channel.history(limit=100):
-                if message.author == self.bot.user:
-                    await message.delete()
-                    logging.info(f"Deleted previous message from bot: Message ID {message.id}")
-                    return
-            logging.info("No previous bot message found to delete.")
+            # Purge all messages in the channel with a limit of 100
+            deleted = await channel.purge(limit=100, check=lambda m: True)
+            logger.info(f"Deleted {len(deleted)} messages from channel '{channel.name}'.")
         except discord.Forbidden:
-            logging.error("Bot lacks permission to delete messages in the verification channel.")
+            logger.error("Bot lacks permission to delete messages in the verification channel.")
         except discord.HTTPException as e:
-            logging.exception(f"Failed to delete bot message: {e}")
+            logger.exception(f"Failed to delete messages: {e}")
 
 async def setup(bot: commands.Bot):
     """

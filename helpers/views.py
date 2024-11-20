@@ -2,12 +2,15 @@
 
 import discord
 from discord.ui import Button, View
-import logging
 
 from helpers.embeds import create_token_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.modals import HandleModal
+from helpers.logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 class VerificationView(View):
     """
@@ -39,7 +42,6 @@ class VerificationView(View):
         Args:
             interaction (discord.Interaction): The interaction triggered by the button click.
         """
-        logging.info(f"'Get Token' button clicked by user {interaction.user} (ID: {interaction.user.id})")
         member = interaction.user
 
         # Check rate limit
@@ -47,7 +49,7 @@ class VerificationView(View):
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.info(f"User {member} reached max verification attempts.")
+            logger.info("User reached max verification attempts.", extra={'user_id': member.id})
             return
 
         # Proceed to generate and send token
@@ -61,9 +63,8 @@ class VerificationView(View):
 
         try:
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.info(f"Sent verification PIN to user {member} (ID: {member.id}).")
         except Exception as e:
-            logging.exception(f"Failed to send verification PIN to user {member}: {e}")
+            logger.exception(f"Failed to send verification PIN: {e}", extra={'user_id': member.id})
 
     async def verify_button_callback(self, interaction: discord.Interaction):
         """
@@ -72,7 +73,6 @@ class VerificationView(View):
         Args:
             interaction (discord.Interaction): The interaction triggered by the button click.
         """
-        logging.info(f"'Verify' button clicked by user {interaction.user} (ID: {interaction.user.id})")
         member = interaction.user
 
         # Check rate limit
@@ -80,10 +80,9 @@ class VerificationView(View):
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            logging.info(f"User {member} reached max verification attempts.")
+            logger.info("User reached max verification attempts.", extra={'user_id': member.id})
             return
 
         # Show the modal to get RSI handle
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
-        logging.info(f"Displayed verification modal to user {member}.")

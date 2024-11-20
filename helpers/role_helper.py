@@ -1,132 +1,83 @@
 # helpers/role_helper.py
 
 import discord
-import logging
-from typing import List, Optional
+from helpers.logger import get_logger
 
-async def get_roles(bot, role_ids: List[int]) -> List[Optional[discord.Role]]:
-    """
-    Retrieve roles from the cached role objects.
+logger = get_logger(__name__)
 
-    Args:
-        bot (commands.Bot): The bot instance.
-        role_ids (List[int]): A list of role IDs to fetch.
+async def assign_roles(member: discord.Member, verify_value: int, cased_handle: str, bot) -> str:
+    bot_verified_role = bot.role_cache.get(bot.BOT_VERIFIED_ROLE_ID)
+    main_role = bot.role_cache.get(bot.MAIN_ROLE_ID)
+    affiliate_role = bot.role_cache.get(bot.AFFILIATE_ROLE_ID)
+    non_member_role = bot.role_cache.get(bot.NON_MEMBER_ROLE_ID)
 
-    Returns:
-        List[Optional[discord.Role]]: A list of roles corresponding to the provided IDs.
-                                      None if a role is not found.
-    """
-    roles = []
-    for role_id in role_ids:
-        role = bot.role_cache.get(role_id)
-        if role:
-            roles.append(role)
-        else:
-            logging.warning(f"Role with ID {role_id} not found in role cache.")
-            roles.append(None)
-    return roles
-
-async def assign_roles(member: discord.Member, verify_value: int, rsi_handle_value: str, bot) -> str:
-    """
-    Assigns roles to the member based on their verification status.
-
-    Args:
-        member (discord.Member): The member to assign roles to.
-        verify_value (int): Verification status (1: main, 2: affiliate, 0: non-member).
-        rsi_handle_value (str): The RSI handle of the user.
-        bot (commands.Bot): The bot instance.
-
-    Returns:
-        str: The type of role assigned ('main', 'affiliate', 'non_member', or 'unknown').
-    """
-    role_ids = [
-        bot.BOT_VERIFIED_ROLE_ID,
-        bot.MAIN_ROLE_ID,
-        bot.AFFILIATE_ROLE_ID,
-        bot.NON_MEMBER_ROLE_ID
-    ]
-    roles = await get_roles(bot, role_ids)
-    bot_verified_role, main_role, affiliate_role, non_member_role = roles
-
-    # Initialize lists for roles to add and remove
     roles_to_add = []
     roles_to_remove = []
     assigned_role_type = 'unknown'
 
-    # Always add BOT_VERIFIED_ROLE_ID if not already present
     if bot_verified_role and bot_verified_role not in member.roles:
         roles_to_add.append(bot_verified_role)
+        logger.debug(f"Appending role to add: {bot_verified_role.name}")
 
-    # Determine which specific role to assign based on verify_value
     if verify_value == 1 and main_role:
         roles_to_add.append(main_role)
         assigned_role_type = 'main'
+        logger.debug(f"Appending role to add: {main_role.name}")
     elif verify_value == 2 and affiliate_role:
         roles_to_add.append(affiliate_role)
         assigned_role_type = 'affiliate'
+        logger.debug(f"Appending role to add: {affiliate_role.name}")
     elif verify_value == 0 and non_member_role:
         roles_to_add.append(non_member_role)
         assigned_role_type = 'non_member'
+        logger.debug(f"Appending role to add: {non_member_role.name}")
 
-    # Identify conflicting roles to remove
     conflicting_roles = [main_role, affiliate_role, non_member_role]
     for role in conflicting_roles:
         if role and role in member.roles and role not in roles_to_add:
             roles_to_remove.append(role)
+            logger.debug(f"Scheduling role for removal: {role.name}")
 
-    # Remove conflicting roles
     if roles_to_remove:
         try:
             await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
-            removed_role_names = [role.name for role in roles_to_remove]
-            logging.info(f"Removed roles: {removed_role_names} from user {member}.")
+            removed_roles = [role.name for role in roles_to_remove]
+            logger.info("Removed roles from user.", extra={'user_id': member.id, 'roles_removed': removed_roles})
         except discord.Forbidden:
-            logging.warning(f"Cannot remove roles from user {member} due to permission hierarchy.")
+            logger.warning("Cannot remove roles due to permission hierarchy.", extra={'user_id': member.id})
         except Exception as e:
-            logging.exception(f"Failed to remove roles from user {member}: {e}")
+            logger.exception(f"Failed to remove roles: {e}", extra={'user_id': member.id})
 
-    # Add the necessary roles
     if roles_to_add:
         try:
             await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
-            added_role_names = [role.name for role in roles_to_add]
-            logging.info(f"Assigned roles: {added_role_names} to user {member}.")
+            added_roles = [role.name for role in roles_to_add]
+            logger.info("Assigned roles to user.", extra={'user_id': member.id, 'roles_added': added_roles})
         except discord.Forbidden:
-            logging.warning(f"Cannot assign roles to user {member} due to permission hierarchy.")
+            logger.warning("Cannot assign roles due to permission hierarchy.", extra={'user_id': member.id})
             assigned_role_type = 'unknown'
         except Exception as e:
-            logging.exception(f"Failed to assign roles to user {member}: {e}")
+            logger.exception(f"Failed to assign roles: {e}", extra={'user_id': member.id})
             assigned_role_type = 'unknown'
     else:
-        logging.error("No valid roles to add.")
-        assigned_role_type = 'unknown'
+        logger.error("No valid roles to add.", extra={'user_id': member.id})
 
-    # Check role hierarchy before attempting to change nickname
-    if can_modify_nickname(bot, member):
-        # Bot's role is higher; attempt to change nickname
+    if can_modify_nickname(member):
         try:
-            await member.edit(nick=rsi_handle_value[:32])
-            logging.info(f"Nickname changed to {rsi_handle_value[:32]} for user {member}.")
+            await member.edit(nick=cased_handle[:32])
+            logger.info("Nickname changed for user.", extra={'user_id': member.id, 'new_nickname': cased_handle[:32]})
         except discord.Forbidden:
-            logging.warning(f"Bot lacks permission to change nickname for user {member} due to role hierarchy.")
+            logger.warning("Bot lacks permission to change nickname due to role hierarchy.", extra={'user_id': member.id})
         except Exception as e:
-            logging.exception(f"Unexpected error when changing nickname for user {member}: {e}")
+            logger.exception(f"Unexpected error when changing nickname: {e}", extra={'user_id': member.id})
     else:
-        logging.warning(f"Cannot change nickname for user {member} due to role hierarchy.")
+        logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
 
-def can_modify_nickname(bot, member) -> bool:
-    """
-    Checks if the bot can modify the member's nickname based on role hierarchy.
-
-    Args:
-        bot (commands.Bot): The bot instance.
-        member (discord.Member): The member to check.
-
-    Returns:
-        bool: True if the bot can modify, False otherwise.
-    """
+def can_modify_nickname(member: discord.Member) -> bool:
     guild = member.guild
     bot_member = guild.me
-    return bot_member.top_role > member.top_role
+    can_modify = bot_member.top_role > member.top_role
+    logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
+    return can_modify
