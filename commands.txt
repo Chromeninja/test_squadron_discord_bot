@@ -1,42 +1,15 @@
-# TEST Squadron Discord Verification Bot - Command List
+/admin reset-all - Reset verification timers for all members. Only for Bot Admins.
+/admin reset-user - Reset verification timer for a specific user. Bot Admins and Lead Moderators.
+/admin reload-config - Reload the bot's configuration. Only for Bot Admins.
+/admin status - Check the status of the bot.
+/admin view-logs - View recent bot logs. Bot Admins and Lead Moderators.
 
-## 🔧 **Bot Admins Only**
-
-1. **/restart**
-   - **Description:** Restart the bot.
-   - **Usage:** Only users with the Bot Admin role can execute this command.
-
-2. **/reset-all**
-   - **Description:** Reset verification timers for all members.
-   - **Usage:** Only users with the Bot Admin role can execute this command.
-
-3. **/reload-config**
-   - **Description:** Reload the bot's configuration.
-   - **Usage:** Only users with the Bot Admin role can execute this command.
-
-4. **/shutdown**
-   - **Description:** Shutdown the bot.
-   - **Usage:** Only users with the Bot Admin role can execute this command.
-
----
-
-## 🔧 **Bot Admins and Lead Moderators**
-
-1. **/reset-user**
-   - **Description:** Reset verification timer for a specific user.
-   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
-
-2. **/status**
-   - **Description:** Check the status and uptime of the bot.
-   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
-
-3. **/view-logs**
-   - **Description:** View recent bot logs.
-   - **Usage:** Users with either the Bot Admin or Lead Moderator roles can execute this command.
-
----
-
-## 💡 **Additional Information**
-
-- **Ephemeral Responses:** All command responses are set to be ephemeral, meaning only the user who invoked the command can see the response.
-- **Error Handling:** If a user lacks the necessary permissions, the bot will inform them with an appropriate message.
+/voice setup - Set up the voice channel system. Only for Bot Admins.
+/voice lock - Lock your voice channel.
+/voice unlock - Unlock your voice channel.
+/voice name <name> - Change your voice channel's name.
+/voice limit <limit> - Set user limit for your voice channel (0 for unlimited).
+/voice permit <member> - Permit a user to join your locked voice channel.
+/voice reject <member> - Reject a user from your voice channel.
+/voice claim - Claim ownership of a voice channel if the original owner left.
+/voice unclaim - Unclaim your currently claimed voice channel.

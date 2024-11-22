@@ -29,3 +29,6 @@ voice:
   default_category_name: "Voice"  # Default category for voice channels
   owner_role_id: 1174838659065847859  # Replace with your owner role ID if different
   cooldown_seconds: 60  # Cooldown period in seconds (e.g., 60 seconds)
+
+database:
+  path: "TESTDatabase.db"

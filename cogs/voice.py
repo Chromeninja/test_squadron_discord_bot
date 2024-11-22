@@ -3,11 +3,11 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import aiosqlite
 import time  # For timestamp handling
 
 from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
+from helpers.database import Database
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -21,56 +21,33 @@ class Voice(commands.GroupCog, name="voice"):
         super().__init__()
         self.bot = bot
         self.config = ConfigLoader.load_config()
-        self.database_path = self.config['voice'].get('database_path', 'voice.db')
         self.bot_admin_role_ids = [int(role_id) for role_id in self.config['roles'].get('bot_admins', [])]
         self.cooldown_seconds = self.config['voice'].get('cooldown_seconds', 60)  # Default to 60 seconds if not set
-        self.bot.loop.create_task(self.initialize_database())
+        self.join_to_create_channel_id = None
+        self.voice_category_id = None
 
-    async def initialize_database(self):
+    async def cog_load(self):
         """
-        Initializes the database tables if they don't exist.
+        Called when the cog is loaded.
         """
-        try:
-            async with aiosqlite.connect(self.database_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS guild (
-                        guildID BIGINT PRIMARY KEY,
-                        ownerID BIGINT NOT NULL,
-                        voiceChannelID BIGINT NOT NULL,
-                        voiceCategoryID BIGINT NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS voiceChannel (
-                        userID BIGINT PRIMARY KEY,
-                        voiceID BIGINT NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS userSettings (
-                        userID BIGINT PRIMARY KEY,
-                        channelName TEXT NOT NULL,
-                        channelLimit INTEGER NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS guildSettings (
-                        guildID BIGINT PRIMARY KEY,
-                        channelName TEXT NOT NULL,
-                        channelLimit INTEGER NOT NULL
-                    )
-                """)
-                # New table for cooldowns
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS voiceCooldowns (
-                        userID BIGINT PRIMARY KEY,
-                        lastCreated TIMESTAMP NOT NULL
-                    )
-                """)
-                await db.commit()
-                logger.info("VoiceMaster database initialized.")
-        except Exception as e:
-            logger.exception(f"Failed to initialize VoiceMaster database: {e}")
+        # Fetch settings from the database
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", ('join_to_create_channel_id',))
+            row = await cursor.fetchone()
+            if row:
+                self.join_to_create_channel_id = int(row[0])
+            else:
+                logger.warning("Join to Create channel ID not found in settings.")
+
+            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", ('voice_category_id',))
+            row = await cursor.fetchone()
+            if row:
+                self.voice_category_id = int(row[0])
+            else:
+                logger.warning("Voice category ID not found in settings.")
+
+        if not self.join_to_create_channel_id or not self.voice_category_id:
+            logger.error("Voice setup is incomplete. Please run /voice setup command.")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -80,20 +57,17 @@ class Voice(commands.GroupCog, name="voice"):
         if after.channel is None:
             return  # User left a voice channel
 
-        async with aiosqlite.connect(self.database_path) as db:
-            guild_id = member.guild.id
-            cursor = await db.execute("SELECT voiceChannelID FROM guild WHERE guildID = ?", (guild_id,))
-            row = await cursor.fetchone()
-            if row is None:
-                return  # No setup for this guild
-            voice_channel_id = row[0]
+        if not self.join_to_create_channel_id or not self.voice_category_id:
+            logger.error("Voice setup is incomplete. Please run /voice setup command.")
+            return
 
-            if after.channel.id != voice_channel_id:
-                return  # Not the designated voice channel
+        if after.channel.id != self.join_to_create_channel_id:
+            return  # Not the designated voice channel
 
-            # Check for cooldown
-            current_time = int(time.time())
-            cursor = await db.execute("SELECT lastCreated FROM voiceCooldowns WHERE userID = ?", (member.id,))
+        # Check for cooldown
+        current_time = int(time.time())
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT last_created FROM voice_cooldowns WHERE user_id = ?", (member.id,))
             cooldown_row = await cursor.fetchone()
             if cooldown_row:
                 last_created = cooldown_row[0]
@@ -106,44 +80,23 @@ class Voice(commands.GroupCog, name="voice"):
                         logger.warning(f"Cannot send DM to {member.display_name}.")
                     return
 
-            # Fetch settings
-            cursor = await db.execute("SELECT voiceCategoryID FROM guild WHERE guildID = ?", (guild_id,))
-            row = await cursor.fetchone()
-            if row is None:
-                logger.error(f"No category ID found for guild {guild_id}")
-                return
-            category_id = row[0]
-            category = self.bot.get_channel(category_id)
-
-            # Fetch user settings
-            cursor = await db.execute("SELECT channelName, channelLimit FROM userSettings WHERE userID = ?", (member.id,))
-            user_setting = await cursor.fetchone()
-            if user_setting:
-                channel_name, channel_limit = user_setting
-            else:
-                # Fetch guild default settings
-                cursor = await db.execute("SELECT channelLimit FROM guildSettings WHERE guildID = ?", (guild_id,))
-                guild_setting = await cursor.fetchone()
-                channel_name = f"{member.display_name}'s Channel"
-                channel_limit = guild_setting[0] if guild_setting else 0  # Default limit
-
             # Create voice channel
             try:
+                category = self.bot.get_channel(self.voice_category_id)
+                if not category:
+                    logger.error("Voice category not found.")
+                    return
+
+                channel_name = f"{member.display_name}'s Channel"
                 new_channel = await member.guild.create_voice_channel(
                     name=channel_name,
                     category=category
                 )
                 await new_channel.set_permissions(member, manage_channels=True, connect=True)
                 await member.move_to(new_channel)
-                await new_channel.edit(user_limit=channel_limit)
-                await db.execute("INSERT INTO voiceChannel (userID, voiceID) VALUES (?, ?)", (member.id, new_channel.id))
 
-                # Update cooldown
-                await db.execute("""
-                    INSERT OR REPLACE INTO voiceCooldowns (userID, lastCreated)
-                    VALUES (?, ?)
-                """, (member.id, current_time))
-
+                await db.execute("INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, user_id) VALUES (?, ?)", (new_channel.id, member.id))
+                await db.execute("INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)", (member.id, current_time))
                 await db.commit()
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
@@ -153,7 +106,7 @@ class Voice(commands.GroupCog, name="voice"):
 
                 await self.bot.wait_for('voice_state_update', check=check)
                 await new_channel.delete()
-                await db.execute("DELETE FROM voiceChannel WHERE userID = ?", (member.id,))
+                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (new_channel.id,))
                 await db.commit()
                 logger.info(f"Deleted voice channel '{new_channel.name}'")
             except Exception as e:
@@ -202,12 +155,18 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         # Save to database
-        async with aiosqlite.connect(self.database_path) as db:
+        async with Database.get_connection() as db:
             await db.execute("""
-                INSERT OR REPLACE INTO guild (guildID, ownerID, voiceChannelID, voiceCategoryID)
-                VALUES (?, ?, ?, ?)
-            """, (guild.id, guild.owner_id, voice_channel.id, category.id))
+                INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)
+            """, ('join_to_create_channel_id', str(voice_channel.id)))
+            await db.execute("""
+                INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)
+            """, ('voice_category_id', str(category.id)))
             await db.commit()
+
+        # Update the cog's variables
+        self.join_to_create_channel_id = voice_channel.id
+        self.voice_category_id = category.id
 
         await interaction.followup.send("Setup complete!", ephemeral=True)
 
@@ -219,8 +178,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         logger.debug(f"Received /voice lock command from {interaction.user.display_name} in guild '{interaction.guild.name}'")
         member = interaction.user
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (member.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -242,8 +201,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         logger.debug(f"Received /voice unlock command from {interaction.user.display_name} in guild '{interaction.guild.name}'")
         member = interaction.user
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (member.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -269,8 +228,8 @@ class Voice(commands.GroupCog, name="voice"):
         if len(name) > 100:
             await interaction.response.send_message("Channel name must be less than 100 characters.", ephemeral=True)
             return
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (member.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -281,13 +240,6 @@ class Voice(commands.GroupCog, name="voice"):
                 await channel.edit(name=name)
                 await interaction.response.send_message(f"Your voice channel name has been changed to '{name}'.", ephemeral=True)
                 logger.info(f"{member.display_name} changed their voice channel name to '{name}'.")
-
-                # Update user settings
-                await db.execute("""
-                    INSERT OR REPLACE INTO userSettings (userID, channelName, channelLimit)
-                    VALUES (?, ?, COALESCE((SELECT channelLimit FROM userSettings WHERE userID = ?), 0))
-                """, (member.id, name, member.id))
-                await db.commit()
             else:
                 await interaction.response.send_message("Channel not found.", ephemeral=True)
 
@@ -303,8 +255,8 @@ class Voice(commands.GroupCog, name="voice"):
         if limit < 0 or limit > 99:
             await interaction.response.send_message("User limit must be between 0 and 99.", ephemeral=True)
             return
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (member.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -315,13 +267,6 @@ class Voice(commands.GroupCog, name="voice"):
                 await channel.edit(user_limit=limit)
                 await interaction.response.send_message(f"Your voice channel user limit has been set to {limit}.", ephemeral=True)
                 logger.info(f"{member.display_name} set their voice channel limit to {limit}.")
-
-                # Update user settings
-                await db.execute("""
-                    INSERT OR REPLACE INTO userSettings (userID, channelName, channelLimit)
-                    VALUES (?, COALESCE((SELECT channelName FROM userSettings WHERE userID = ?), ?), ?)
-                """, (member.id, member.id, f"{member.display_name}'s Channel", limit))
-                await db.commit()
             else:
                 await interaction.response.send_message("Channel not found.", ephemeral=True)
 
@@ -334,8 +279,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         logger.debug(f"Received /voice permit command from {interaction.user.display_name} in guild '{interaction.guild.name}' for member '{member.display_name}'")
         owner = interaction.user
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (owner.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (owner.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -358,8 +303,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         logger.debug(f"Received /voice reject command from {interaction.user.display_name} in guild '{interaction.guild.name}' for member '{member.display_name}'")
         owner = interaction.user
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (owner.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (owner.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -392,8 +337,8 @@ class Voice(commands.GroupCog, name="voice"):
             return
         channel = voice_state.channel
 
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT userID FROM voiceChannel WHERE voiceID = ?", (channel.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT user_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,))
             row = await cursor.fetchone()
             if row is None:
                 await interaction.response.send_message("This channel cannot be claimed.", ephemeral=True)
@@ -407,7 +352,7 @@ class Voice(commands.GroupCog, name="voice"):
                 await interaction.response.send_message("The owner is still in the channel.", ephemeral=True)
                 return
             # Transfer ownership
-            await db.execute("UPDATE voiceChannel SET userID = ? WHERE voiceID = ?", (member.id, channel.id))
+            await db.execute("UPDATE user_voice_channels SET user_id = ? WHERE voice_channel_id = ?", (member.id, channel.id))
             await db.commit()
             await interaction.response.send_message("You have claimed ownership of the channel.", ephemeral=True)
             logger.info(f"{member.display_name} claimed ownership of channel '{channel.name}'")
@@ -416,12 +361,12 @@ class Voice(commands.GroupCog, name="voice"):
     @app_commands.guild_only()
     async def unclaim_voice(self, interaction: discord.Interaction):
         """
-        Unclaims any voice channels currently claimed by the user.
+        Unclaims any voice channel currently claimed by the user.
         """
         logger.debug(f"Received /voice unclaim command from {interaction.user.display_name} in guild '{interaction.guild.name}'")
         member = interaction.user
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("SELECT voiceID FROM voiceChannel WHERE userID = ?", (member.id,))
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
             rows = await cursor.fetchall()
             if not rows:
                 await interaction.response.send_message("You don't have any claimed voice channels.", ephemeral=True)
@@ -434,7 +379,7 @@ class Voice(commands.GroupCog, name="voice"):
                     if len(channel.members) == 0:
                         try:
                             await channel.delete()
-                            await db.execute("DELETE FROM voiceChannel WHERE voiceID = ?", (channel_id,))
+                            await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
                             await db.commit()
                             logger.info(f"Deleted unclaimed empty voice channel '{channel.name}' for {member.display_name}")
                         except Exception as e:
@@ -444,7 +389,7 @@ class Voice(commands.GroupCog, name="voice"):
                         logger.info(f"{member.display_name} attempted to unclaim non-empty channel '{channel.name}'")
                         return
                 else:
-                    await db.execute("DELETE FROM voiceChannel WHERE voiceID = ?", (channel_id,))
+                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
                     await db.commit()
                     logger.warning(f"Channel with ID {channel_id} not found. Removed from database.")
             await interaction.response.send_message("All your claimed voice channels have been unclaimed and deleted if empty.", ephemeral=True)

@@ -1,5 +1,6 @@
-# Define the output file (set this to your desired location)
-$outputFile = "C:\Users\thech\OneDrive\Documents\Code\TEST Squadron\Discord Verification Bot\TESTing\test_squadron_discord_bot\all_code.txt"
+# Define the output file (set to the same folder the script is in)
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$outputFile = Join-Path -Path $scriptDirectory -ChildPath "all_code.txt"
 
 # Remove the file if it already exists to avoid appending to an old version
 if (Test-Path $outputFile) { 
@@ -7,7 +8,7 @@ if (Test-Path $outputFile) {
 }
 
 # Parse .gitignore to build an exclusion list
-$gitignorePath = Join-Path -Path (Get-Location) -ChildPath ".gitignore"
+$gitignorePath = Join-Path -Path $scriptDirectory -ChildPath ".gitignore"
 $exclusions = @()
 if (Test-Path $gitignorePath) {
     $gitignore = Get-Content -Path $gitignorePath -ErrorAction SilentlyContinue
@@ -17,7 +18,7 @@ if (Test-Path $gitignorePath) {
 }
 
 # Recursively get all files, process each one while following .gitignore rules
-Get-ChildItem -Path . -Recurse -File | ForEach-Object {
+Get-ChildItem -Path $scriptDirectory -Recurse -File | ForEach-Object {
     # Skip files if they match any .gitignore exclusion pattern or are in __pycache__ folders
     $skipFile = $false
     foreach ($exclusion in $exclusions) {
@@ -30,7 +31,7 @@ Get-ChildItem -Path . -Recurse -File | ForEach-Object {
     }
     
     # Additional checks to skip specific files
-    if ($_.Name -in @('bot.log', 'package-lock.json', 'package.json')) {
+    if ($_.Name -in @('bot.log', 'package-lock.json', 'package.json', 'TESTDatabase.db')) {
         $skipFile = $true
     }
     

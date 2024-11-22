@@ -12,6 +12,7 @@ from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
 from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
+from helpers.database import Database  # <-- Add this import
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -85,6 +86,9 @@ class MyBot(commands.Bot):
         """
         Asynchronously loads all initial extensions (cogs) and syncs commands.
         """
+        # Initialize the database
+        await Database.initialize()
+        
         # Initialize the HTTP client session
         await self.http_client.init_session()
 
