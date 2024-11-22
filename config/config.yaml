@@ -15,9 +15,17 @@ roles:
   affiliate_role_id: 1179618003604750447       # Replace with your Affiliate role ID
   non_member_role_id: 1301648113483907132      # Replace with your Non-Member role ID
   bot_admins:
-    - "1174838659065847859"  # Replace with actual Bot Admin role IDs
+    - "1174838659065847859"
+    - "1309213397757460530"
+
   lead_moderators:
-    - "1174838659065847859"  # Replace with actual Lead Moderator role IDs
+    - "1174838659065847859"
 
 logging:
   level: "DEBUG"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+
+voice:
+  database_path: "voice.db"  # Path to VoiceMaster's SQLite database
+  default_category_name: "Voice"  # Default category for voice channels
+  owner_role_id: 1174838659065847859  # Replace with your owner role ID if different
+  cooldown_seconds: 60  # Cooldown period in seconds (e.g., 60 seconds)
