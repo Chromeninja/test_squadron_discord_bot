@@ -44,16 +44,6 @@ class Admin(commands.Cog):
         user_roles = [role.id for role in interaction.user.roles]
         return any(role_id in user_roles for role_id in role_ids)
 
-    @app_commands.command(name="restart", description="Restart the bot. Only for Bot Admins.")
-    async def restart(self, interaction: discord.Interaction):
-        """Slash command to restart the bot."""
-        if await self.has_roles(interaction, self.BOT_ADMIN_ROLE_IDS):
-            await interaction.response.send_message("Restarting the bot...", ephemeral=True)
-            logger.info("Restart command issued.", extra={'user_id': interaction.user.id})
-            await self.bot.close()
-        else:
-            await interaction.response.send_message("You don't have permission to restart the bot.", ephemeral=True)
-
     @app_commands.command(name="reset-all", description="Reset verification timers for all members. Only for Bot Admins.")
     async def reset_all(self, interaction: discord.Interaction):
         """Slash command to reset verification timers for all members."""
@@ -96,16 +86,6 @@ class Admin(commands.Cog):
         else:
             await interaction.response.send_message("You don't have permission to reload the configuration.", ephemeral=True)
 
-    @app_commands.command(name="shutdown", description="Shutdown the bot. Only for Bot Admins.")
-    async def shutdown(self, interaction: discord.Interaction):
-        """Slash command to shutdown the bot."""
-        if await self.has_roles(interaction, self.BOT_ADMIN_ROLE_IDS):
-            await interaction.response.send_message("Shutting down the bot...", ephemeral=True)
-            logger.info("Shutdown command issued.", extra={'user_id': interaction.user.id})
-            await self.bot.close()
-        else:
-            await interaction.response.send_message("You don't have permission to shut down the bot.", ephemeral=True)
-
     @app_commands.command(name="status", description="Check the status of the bot.")
     async def status(self, interaction: discord.Interaction):
         """Slash command to check bot status."""
@@ -140,11 +120,9 @@ class Admin(commands.Cog):
             await interaction.response.send_message("You don't have permission to view the logs.", ephemeral=True)
 
     # Error handling for permissions and other issues
-    @restart.error
     @reset_all.error
     @reset_user.error
     @reload_config.error
-    @shutdown.error
     @status.error
     @view_logs.error
     async def admin_command_error(self, interaction: discord.Interaction, error):
