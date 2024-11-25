@@ -290,14 +290,14 @@ class TargetTypeSelectView(View):
 
 class SelectUserView(View):
     """
-    View to select multiple users.
+    View to select multiple users and apply permissions or actions such as PTT.
     """
-    def __init__(self, bot, member, action):
+    def __init__(self, bot, member, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
         self.member = member
         self.action = action
-        self.enable = enable
+        self.enable = enable  # For PTT action
 
         self.user_select = UserSelect(
             placeholder="Select Users",
@@ -320,7 +320,11 @@ class SelectUserView(View):
 
         # Apply permissions
         try:
-            await apply_permissions_changes(channel, {'action': self.action, 'targets': targets})
+            if self.action == "ptt":
+                permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+            else:
+                permission_change = {'action': self.action, 'targets': targets}
+            await apply_permissions_changes(channel, permission_change)
         except Exception as e:
             logger.exception(f"Failed to apply permissions: {e}")
             embed = create_error_embed("Failed to apply permissions. Please try again.")
@@ -349,12 +353,14 @@ class SelectUserView(View):
             )
             await db.commit()
 
-        status = {
-            "permit": "permitted",
-            "reject": "rejected",
-            "force_ptt": "PTT enabled",
-            "disable_ptt": "PTT disabled"
-        }.get(self.action, "applied")
+        # Determine status message based on action
+        if self.action == "ptt":
+            status = "PTT enabled" if self.enable else "PTT disabled"
+        else:
+            status = {
+                "permit": "permitted",
+                "reject": "rejected",
+            }.get(self.action, "applied")
 
         await interaction.response.send_message(f"Selected users have been {status} in your channel.", ephemeral=True)
         logger.info(f"{self.member.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'.")

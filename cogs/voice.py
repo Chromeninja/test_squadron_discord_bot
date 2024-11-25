@@ -2,7 +2,7 @@
 
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import Interaction, app_commands
 import asyncio
 import json
 import time
@@ -10,7 +10,7 @@ import time
 from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
 from helpers.database import Database
-from helpers.views import ChannelSettingsView, TargetTypeSelectView
+from helpers.views import ChannelSettingsView, TargetTypeSelectView, PTTSelectView
 from helpers.modals import CloseChannelConfirmationModal, ResetSettingsConfirmationModal, NameModal, LimitModal
 from helpers.permissions_helper import apply_ptt_settings, apply_permissions_changes, reset_channel_permissions
 from helpers.embeds import create_error_embed
@@ -277,37 +277,17 @@ class Voice(commands.GroupCog, name="voice"):
         view = TargetTypeSelectView(self.bot, member, action="reject")
         await interaction.response.send_message("Choose the type of target you want to reject:", view=view, ephemeral=True)
 
-    @app_commands.command(name="force_ptt", description="Enable PTT for users/roles in your channel")
+    @app_commands.command(name="ptt", description="Manage PTT settings in your voice channel")
     @app_commands.guild_only()
-    async def force_ptt(self, interaction: discord.Interaction):
+    async def ptt(self, interaction: discord.Interaction):
         """
-        Enables PTT (push-to-talk) for users or roles in the user's voice channel.
+        Manages PTT (push-to-talk) settings for users or roles in the user's voice channel.
         """
         member = interaction.user
         channel = await self._get_user_channel(member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
-
-        # Send the TargetTypeSelectView with 'force_ptt' action
-        view = TargetTypeSelectView(self.bot, member, action="force_ptt")
-        await interaction.response.send_message("Choose the type of target you want to enable PTT for:", view=view, ephemeral=True)
-
-    @app_commands.command(name="disable_ptt", description="Disable PTT for users/roles in your channel")
-    @app_commands.guild_only()
-    async def disable_ptt(self, interaction: discord.Interaction):
-        """
-        Disables PTT (push-to-talk) for users or roles in the user's voice channel.
-        """
-        member = interaction.user
-        channel = await self._get_user_channel(member)
-        if not channel:
-            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-            return
-
-        # Send the TargetTypeSelectView with 'disable_ptt' action
-        view = TargetTypeSelectView(self.bot, member, action="disable_ptt")
-        await interaction.response.send_message("Choose the type of target you want to disable PTT for:", view=view, ephemeral=True)
 
     @app_commands.command(name="lock", description="Lock your voice channel")
     @app_commands.guild_only()
@@ -415,8 +395,7 @@ class Voice(commands.GroupCog, name="voice"):
             "/voice limit - Set user limit for your voice channel\n"
             "/voice permit - Permit users/roles to join your channel\n"
             "/voice reject - Reject users/roles from joining your channel\n"
-            "/voice force_ptt - Enable PTT for users/roles in your channel\n"
-            "/voice disable_ptt - Disable PTT for users/roles in your channel\n"
+            "/voice ptt - Manage PTT settings in your channel\n"
             "/voice close - Close your voice channel\n"
             "/voice reset - Reset your channel settings to default\n"
             "/voice help - Show this help message"
