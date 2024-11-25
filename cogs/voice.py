@@ -64,7 +64,7 @@ class Voice(commands.GroupCog, name="voice"):
         if before.channel and before.channel.id in self.join_to_create_channel_ids:
             return
 
-        # User joined a voice channel
+        # User joined a "Join to Create" voice channel
         if after.channel and after.channel.id in self.join_to_create_channel_ids:
             if not self.voice_category_id:
                 logger.error("Voice setup is incomplete. Please run /voice setup command.")
@@ -125,7 +125,11 @@ class Voice(commands.GroupCog, name="voice"):
                 # Apply saved permissions (like PTT settings)
                 if settings_row and settings_row[2]:
                     permissions = json.loads(settings_row[2])
+                    if not isinstance(permissions, dict):
+                        permissions = {}
                     await self._apply_channel_permissions(new_channel, permissions)
+                else:
+                    permissions = {}
 
                 # Move the member to the new channel
                 await member.move_to(new_channel)
@@ -186,6 +190,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Applies saved permissions to the channel.
         """
+        if not isinstance(permissions, dict):
+            permissions = {}
         guild = channel.guild
         # Apply PTT settings
         ptt_settings = permissions.get('ptt')
@@ -195,7 +201,8 @@ class Voice(commands.GroupCog, name="voice"):
         # Apply other permissions (permit/reject)
         perm_settings = permissions.get('permissions')
         if perm_settings:
-            await apply_permissions_changes(channel, perm_settings)
+            for perm_change in perm_settings:
+                await apply_permissions_changes(channel, perm_change)
 
     @app_commands.command(name="setup", description="Set up the voice channel system")
     @app_commands.guild_only()
@@ -289,6 +296,10 @@ class Voice(commands.GroupCog, name="voice"):
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
 
+        # Send a view to select enable or disable PTT
+        view = PTTSelectView(self.bot, member)
+        await interaction.response.send_message("Do you want to enable or disable PTT?", view=view, ephemeral=True)
+
     @app_commands.command(name="lock", description="Lock your voice channel")
     @app_commands.guild_only()
     async def lock_voice(self, interaction: discord.Interaction):
@@ -312,9 +323,14 @@ class Voice(commands.GroupCog, name="voice"):
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
 
+        # Retrieve current overwrites
         overwrite = channel.overwrites_for(interaction.guild.default_role)
-        overwrite.connect = not lock
-        await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+        desired_connect = not lock
+        if overwrite.connect != desired_connect:
+            overwrite.connect = desired_connect
+            await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+            logger.info(f"Set connect permission to {desired_connect} for @everyone in channel '{channel.name}'.")
+            await asyncio.sleep(1)  # Delay to prevent rate limits
 
         # Save the lock state in permissions
         async with Database.get_connection() as db:
@@ -323,9 +339,12 @@ class Voice(commands.GroupCog, name="voice"):
                 (member.id,)
             )
             settings_row = await cursor.fetchone()
-            permissions = {}
             if settings_row and settings_row[0]:
                 permissions = json.loads(settings_row[0])
+                if not isinstance(permissions, dict):
+                    permissions = {}
+            else:
+                permissions = {}
 
             permissions['lock'] = lock
 
@@ -423,17 +442,51 @@ class Voice(commands.GroupCog, name="voice"):
         if not channel:
             return
 
-        # Reset channel name
+        # Reset channel name to default if it's not already the default
         default_name = f"{member.display_name}'s Channel"
-        await channel.edit(name=default_name[:32], user_limit=None)
+        try:
+            if channel.name != default_name[:32]:
+                await channel.edit(name=default_name[:32])
+                logger.info(f"Reset channel name to '{default_name[:32]}' for '{member.display_name}'.")
+                await asyncio.sleep(1)  # Delay to prevent rate limits
+        except Exception as e:
+            logger.exception(f"Failed to reset channel name for {member.display_name}: {e}")
 
         # Reset permissions
-        await reset_channel_permissions(channel)
+        try:
+            await reset_channel_permissions(channel)
+            logger.info(f"Reset permissions for channel '{channel.name}'.")
+            await asyncio.sleep(1)  # Delay to prevent rate limits
+        except Exception as e:
+            logger.exception(f"Failed to reset permissions for {member.display_name}'s channel: {e}")
 
-        # Remove settings from the database
+        # Reset lock state in permissions
         async with Database.get_connection() as db:
-            await db.execute("DELETE FROM channel_settings WHERE user_id = ?", (member.id,))
+            cursor = await db.execute(
+                "SELECT permissions FROM channel_settings WHERE user_id = ?",
+                (member.id,)
+            )
+            settings_row = await cursor.fetchone()
+            if settings_row and settings_row[0]:
+                permissions = json.loads(settings_row[0])
+                if not isinstance(permissions, dict):
+                    permissions = {}
+            else:
+                permissions = {}
+
+            # Reset lock state
+            permissions['lock'] = False
+
+            await db.execute(
+                "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
+                (member.id, json.dumps(permissions))
+            )
             await db.commit()
+
+        # Optionally, preserve the channel_name by not deleting it
+        # Only remove other settings if necessary
+        # Here, we're preserving the channel_name by not deleting it from the DB
+        # So, the next time the user creates a channel, it will use the last set name
 
         logger.info(f"Reset settings for {member.display_name}'s channel.")
 
