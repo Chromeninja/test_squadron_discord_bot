@@ -3,12 +3,13 @@
 import discord
 from discord.ui import Modal, TextInput
 import re
-
+import json
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
 from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
+from helpers.database import Database
 from helpers.logger import get_logger
 
 # Initialize logger
@@ -189,20 +190,148 @@ class HandleModal(Modal, title="Verification"):
             })
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
+            
+class CloseChannelConfirmationModal(Modal):
+    def __init__(self, bot, member, channel):
+        super().__init__(title="Confirm Close Channel")
+        self.bot = bot
+        self.member = member
+        self.channel = channel
+        self.confirmation = TextInput(
+            label="Type 'CLOSE' to confirm",
+            placeholder="Type 'CLOSE' to confirm",
+            required=True,
+            max_length=5
+        )
+        self.add_item(self.confirmation)
 
+    async def on_submit(self, interaction: discord.Interaction):
+        if self.confirmation.value.strip().upper() == "CLOSE":
+            # Delete the channel
+            try:
+                await self.channel.delete()
+                async with Database.get_connection() as db:
+                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (self.channel.id,))
+                    await db.commit()
+                await interaction.response.send_message("Your voice channel has been closed.", ephemeral=True)
+                logger.info(f"{self.member.display_name} closed their voice channel.")
+            except Exception as e:
+                logger.exception(f"Error deleting voice channel: {e}")
+                await interaction.response.send_message("Failed to close your voice channel.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Channel closure cancelled.", ephemeral=True)
 
-def can_modify_nickname(member: discord.Member) -> bool:
-    """
-    Checks if the bot can modify the member's nickname based on role hierarchy.
+class ResetSettingsConfirmationModal(Modal):
+    def __init__(self, bot, member):
+        super().__init__(title="Confirm Reset Settings")
+        self.bot = bot
+        self.member = member
+        self.confirmation = TextInput(
+            label="Type 'RESET' to confirm",
+            placeholder="Type 'RESET' to confirm",
+            required=True,
+            max_length=5
+        )
+        self.add_item(self.confirmation)
 
-    Args:
-        member (discord.Member): The member to check.
+    async def on_submit(self, interaction: discord.Interaction):
+        if self.confirmation.value.strip().upper() == "RESET":
+            # Reset settings
+            async with Database.get_connection() as db:
+                await db.execute("DELETE FROM channel_settings WHERE user_id = ?", (self.member.id,))
+                await db.commit()
+            # Reset current channel settings
+            await self.bot.get_cog('voice')._reset_current_channel_settings(self.member)
+            await interaction.response.send_message("Your channel settings have been reset to default.", ephemeral=True)
+            logger.info(f"{self.member.display_name} reset their channel settings.")
+        else:
+            await interaction.response.send_message("Channel settings reset cancelled.", ephemeral=True)
 
-    Returns:
-        bool: True if the bot can modify, False otherwise.
-    """
-    guild = member.guild
-    bot_member = guild.me
-    can_modify = bot_member.top_role > member.top_role
-    logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
-    return can_modify
+class NameModal(Modal):
+    def __init__(self, bot, member):
+        super().__init__(title="Change Channel Name")
+        self.bot = bot
+        self.member = member
+        self.channel_name = TextInput(
+            label="New Channel Name",
+            placeholder="Enter a new name for your channel",
+            min_length=2,
+            max_length=32
+        )
+        self.add_item(self.channel_name)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        new_name = self.channel_name.value.strip()
+        if not (2 <= len(new_name) <= 32):
+            embed = create_error_embed("Channel name must be between 2 and 32 characters.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Update channel name
+        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return
+
+        try:
+            await channel.edit(name=new_name)
+            async with Database.get_connection() as db:
+                await db.execute(
+                    "UPDATE channel_settings SET channel_name = ? WHERE user_id = ?",
+                    (new_name, self.member.id)
+                )
+                await db.commit()
+
+            embed = create_success_embed(f"Channel name has been changed to '{new_name}'.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.info(f"{self.member.display_name} changed their channel name to '{new_name}'.")
+        except Exception as e:
+            logger.exception(f"Failed to change channel name: {e}")
+            embed = create_error_embed("Failed to change channel name. Please try again.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class LimitModal(Modal):
+    def __init__(self, bot, member):
+        super().__init__(title="Set User Limit")
+        self.bot = bot
+        self.member = member
+        self.user_limit = TextInput(
+            label="User Limit",
+            placeholder="Enter a number between 2 and 99",
+            required=True,
+            max_length=2
+        )
+        self.add_item(self.user_limit)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            limit = int(self.user_limit.value.strip())
+            if not (2 <= limit <= 99):
+                raise ValueError
+        except ValueError:
+            embed = create_error_embed("User limit must be a number between 2 and 99.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Update user limit
+        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return
+
+        try:
+            await channel.edit(user_limit=limit)
+            async with Database.get_connection() as db:
+                await db.execute(
+                    "UPDATE channel_settings SET user_limit = ? WHERE user_id = ?",
+                    (limit, self.member.id)
+                )
+                await db.commit()
+
+            embed = create_success_embed(f"User limit has been set to {limit}.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.info(f"{self.member.display_name} set their channel user limit to {limit}.")
+        except Exception as e:
+            logger.exception(f"Failed to set user limit: {e}")
+            embed = create_error_embed("Failed to set user limit. Please try again.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)

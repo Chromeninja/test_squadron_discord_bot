@@ -56,6 +56,14 @@ class Database:
                 value TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_settings (
+                user_id INTEGER PRIMARY KEY,
+                channel_name TEXT,
+                user_limit INTEGER,
+                permissions TEXT  -- JSON string to store permissions like PTT settings
+            )
+        """)
         await db.commit()
 
     @classmethod
