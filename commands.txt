@@ -1,0 +1,15 @@
+/admin reset-all - Reset verification timers for all members. Only for Bot Admins.
+/admin reset-user - Reset verification timer for a specific user. Bot Admins and Lead Moderators.
+/admin reload-config - Reload the bot's configuration. Only for Bot Admins.
+/admin status - Check the status of the bot.
+/admin view-logs - View recent bot logs. Bot Admins and Lead Moderators.
+
+/voice setup - Set up the voice channel system. Only for Bot Admins.
+/voice lock - Lock your voice channel.
+/voice unlock - Unlock your voice channel.
+/voice name <name> - Change your voice channel's name.
+/voice limit <limit> - Set user limit for your voice channel (0 for unlimited).
+/voice permit <member> - Permit a user to join your locked voice channel.
+/voice reject <member> - Reject a user from your voice channel.
+/voice claim - Claim ownership of a voice channel if the original owner left.
+/voice unclaim - Unclaim your currently claimed voice channel.

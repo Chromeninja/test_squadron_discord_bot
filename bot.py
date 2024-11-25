@@ -1,106 +1,189 @@
+# bot.py
+
 import discord
 from discord.ext import commands
-from discord.ui import Button, View, Modal
 import os
+import asyncio
+import time
 from dotenv import load_dotenv
-import RSIVerify  
-import GenDailyToken as GT   
-import RSIBioVerify                                     
 
+from config.config_loader import ConfigLoader
+from helpers.http_helper import HTTPClient
+from helpers.token_manager import cleanup_tokens
+from helpers.rate_limiter import cleanup_attempts
+from helpers.logger import get_logger
+from helpers.database import Database  # <-- Add this import
+
+# Initialize logger
+logger = get_logger(__name__)
+
+# Load environment variables
 load_dotenv()
+
+# Load configuration using ConfigLoader
+config = ConfigLoader.load_config()
+
+# Load sensitive information from .env
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Set up bot intents (needs to have member-related intents enabled in Discord Developer Portal)
+# Access configuration values from config.yaml
+PREFIX = config['bot']['prefix']
+VERIFICATION_CHANNEL_ID = config['channels']['verification_channel_id']
+BOT_VERIFIED_ROLE_ID = config['roles']['bot_verified_role_id']
+MAIN_ROLE_ID = config['roles']['main_role_id']
+AFFILIATE_ROLE_ID = config['roles']['affiliate_role_id']
+NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
+
+if not TOKEN:
+    logger.critical("DISCORD_TOKEN not found in environment variables.")
+    raise ValueError("DISCORD_TOKEN not set.")
+
+# Initialize bot intents
 intents = discord.Intents.default()
-intents.members = True
+intents.guilds = True  # Needed for guild-related events
+intents.members = True  # Needed for member-related events
+intents.message_content = True  # Needed for reading message content
+intents.voice_states = True  # Needed for voice state updates
 
-# Initialize bot with command prefix and intents
-bot = commands.Bot(command_prefix="!", intents=intents)
+# List of initial extensions to load
+initial_extensions = [
+    'cogs.verification',
+    'cogs.admin',
+    'cogs.voice'
+]
 
-# Channel ID where the bot sends verification message (replace with actual channel ID)
-VERIFICATION_CHANNEL_ID = 1301647270889914429  # Replace with the channel ID
+class MyBot(commands.Bot):
+    """
+    Custom Bot class extending commands.Bot to include additional attributes.
+    """
 
-#Update Roles
-NoneMember_ROLE_ID = 1301648113483907132
-Main_ROLE_ID = 1179505821760114689
-Affiliate_ROLE_ID = 1179618003604750447
+    def __init__(self, *args, **kwargs):
+        """
+        Initializes the MyBot instance with specific role and channel IDs.
+        """
+        super().__init__(*args, **kwargs)
 
-class HandleModal(Modal):
-    def __init__(self):
-        dtoken = GT.generate_daily_token()
-        super().__init__(title=f"First, change Star Citizen bio to {dtoken}")
-        # Create a TextInput for the modal
-        self.handle = discord.ui.TextInput(label="Verify", placeholder="Enter your Star Citizen handle here")
-        # Add the TextInput to the modal
-        self.add_item(self.handle)
+        # Assign the entire config to the bot instance
+        self.config = config
 
-    async def on_submit(self, interaction: discord.Interaction):
-        # Handle submission logic
-        star_citizen_handle = self.handle.value
-        verify_value = is_valid_rsi_handle(star_citizen_handle)
-        tokenverify_value = is_valid_rsi_bio(star_citizen_handle)
+        # Pass role and channel IDs to the bot for use in cogs
+        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
+        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
+        self.MAIN_ROLE_ID = MAIN_ROLE_ID
+        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
+        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
 
-        member = interaction.user
+        # Initialize uptime tracking
+        self.start_time = time.monotonic()
 
-        if verify_value == 1 and tokenverify_value == 1:
-            role = interaction.guild.get_role(Main_ROLE_ID)
-            await member.edit(nick=star_citizen_handle)
-            await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
-        elif verify_value == 2 and tokenverify_value == 1:
-            role = interaction.guild.get_role(Affiliate_ROLE_ID)
-            await member.edit(nick=star_citizen_handle)
-            await interaction.response.send_message(f"Your nickname has been updated to {star_citizen_handle}!", ephemeral=True)
-        else:
-            role = interaction.guild.get_role(NoneMember_ROLE_ID)
-            await member.edit(nick="KickMe")
-            await interaction.response.send_message(f"Your nickname has been updated to Kickme!", ephemeral=True)        
+        # Initialize the HTTP client
+        self.http_client = HTTPClient()
 
+        # Initialize role cache
+        self.role_cache = {}
 
-        await member.add_roles(role)
-        await interaction.followup.send(f"You have been assigned the {role.name} role!", ephemeral=True)
+    async def setup_hook(self):
+        """
+        Asynchronously loads all initial extensions (cogs) and syncs commands.
+        """
+        # Initialize the database
+        await Database.initialize()
+        
+        # Initialize the HTTP client session
+        await self.http_client.init_session()
 
+        for extension in initial_extensions:
+            try:
+                await self.load_extension(extension)
+                logger.info(f"Loaded extension: {extension}")
+            except Exception as e:
+                logger.error(f"Failed to load extension {extension}: {e}")
 
+        # Cache roles after bot is ready
+        self.loop.create_task(self.cache_roles())
 
+        # Start cleanup tasks
+        self.loop.create_task(self.token_cleanup_task())
+        self.loop.create_task(self.attempts_cleanup_task())
 
-class VerificationView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
+        # Sync the command tree after loading all cogs
+        try:
+            await self.tree.sync()
+            logger.info("All commands synced globally.")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}")
 
-    @discord.ui.button(label="Verify", style=discord.ButtonStyle.primary)
-    async def verify_button_callback(self,interaction: discord.Interaction, button: Button):
-        # Display the modal when the button is clicked
-        modal = HandleModal()
-        # Correctly call the interaction's response method to send the modal
-        await interaction.response.send_modal(modal)
+    async def cache_roles(self):
+        """
+        Caches role objects to avoid redundant lookups.
+        """
+        await self.wait_until_ready()
+        guild = discord.utils.get(self.guilds)  # Assuming bot is in only one guild
+        role_ids = [
+            self.BOT_VERIFIED_ROLE_ID,
+            self.MAIN_ROLE_ID,
+            self.AFFILIATE_ROLE_ID,
+            self.NON_MEMBER_ROLE_ID
+        ]
+        for role_id in role_ids:
+            role = guild.get_role(role_id)
+            if role:
+                self.role_cache[role_id] = role
+            else:
+                logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
 
+    async def token_cleanup_task(self):
+        """
+        Periodically cleans up expired tokens.
+        """
+        while not self.is_closed():
+            await asyncio.sleep(600)  # Run every 10 minutes
+            cleanup_tokens()
+            logger.debug("Expired tokens cleaned up.")
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
+    async def attempts_cleanup_task(self):
+        """
+        Periodically cleans up expired rate-limiting data.
+        """
+        while not self.is_closed():
+            await asyncio.sleep(600)  # Run every 10 minutes
+            cleanup_attempts()
 
+    async def on_ready(self):
+        """
+        Event handler for when the bot is ready and connected to Discord.
+        """
+        logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        logger.info("Bot is ready and online!")
 
-@bot.event
-async def on_member_join(member):
-    # Send a verification message to a specific channel when a user joins
-    channel = bot.get_channel(VERIFICATION_CHANNEL_ID)
-    if channel:
-        view = VerificationView()
-        await channel.send(f"Welcome {member.mention}! Please verify yourself by clicking the button below.", view=view)
+        # Optional: Log bot uptime
+        uptime = self.uptime
+        logger.info(f"Uptime: {uptime}")
 
+    @property
+    def uptime(self) -> str:
+        """
+        Calculates the bot's uptime.
 
-def is_valid_rsi_handle(user_handle):
+        Returns:
+            str: The uptime as a formatted string.
+        """
+        now = time.monotonic()
+        delta = int(now - self.start_time)
+        hours, remainder = divmod(delta, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours}h {minutes}m {seconds}s"
 
-    url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
-    org_data = RSIVerify.scrape_rsi_organizations(url)
-    verify_data = RSIVerify.search_organization(org_data,"TEST Squadron - Best Squardon!")
-    return verify_data
+    async def close(self):
+        """
+        Closes the bot and the HTTP client session.
+        """
+        logger.info("Shutting down the bot and closing HTTP client session.")
+        await self.http_client.close()
+        await super().close()
 
-def is_valid_rsi_bio(user_handle):
+# Initialize the bot
+bot = MyBot(command_prefix=PREFIX, intents=intents)
 
-    url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
-    biotoken = RSIBioVerify.extract_bio(url)
-    tokenverify = RSIBioVerify.verifytoken(biotoken)
-    return tokenverify
-
-# Replace with your bot token
+# Run the bot
 bot.run(TOKEN)
