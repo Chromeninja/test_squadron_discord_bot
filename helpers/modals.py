@@ -223,29 +223,44 @@ class CloseChannelConfirmationModal(Modal):
 
 class ResetSettingsConfirmationModal(Modal):
     def __init__(self, bot, member):
-        super().__init__(title="Confirm Reset Settings")
+        super().__init__(title="Reset Channel Settings")
         self.bot = bot
         self.member = member
-        self.confirmation = TextInput(
+        self.confirm = TextInput(
             label="Type 'RESET' to confirm",
-            placeholder="Type 'RESET' to confirm",
+            placeholder="RESET",
             required=True,
+            min_length=5,
             max_length=5
         )
-        self.add_item(self.confirmation)
+        self.add_item(self.confirm)
 
     async def on_submit(self, interaction: discord.Interaction):
-        if self.confirmation.value.strip().upper() == "RESET":
-            # Reset settings
-            async with Database.get_connection() as db:
-                await db.execute("DELETE FROM channel_settings WHERE user_id = ?", (self.member.id,))
-                await db.commit()
-            # Reset current channel settings
-            await self.bot.get_cog('voice')._reset_current_channel_settings(self.member)
-            await interaction.response.send_message("Your channel settings have been reset to default.", ephemeral=True)
+        # Defer the response to acknowledge the interaction
+        await interaction.response.defer(ephemeral=True)
+        
+        confirmation_text = self.confirm.value.strip().upper()
+        if confirmation_text != "RESET":
+            await interaction.followup.send("Confirmation text does not match. Channel settings were not reset.", ephemeral=True)
+            logger.info(f"{self.member.display_name} failed to confirm channel reset.")
+            return
+
+        try:
+            # Access the Voice cog to reset channel settings
+            voice_cog = self.bot.get_cog("voice")
+            if not voice_cog:
+                await interaction.followup.send("Voice cog is not loaded.", ephemeral=True)
+                logger.error("Voice cog not found.")
+                return
+
+            # Reset the channel settings
+            await voice_cog._reset_current_channel_settings(self.member)
+
+            await interaction.followup.send("Your channel settings have been reset to default.", ephemeral=True)
             logger.info(f"{self.member.display_name} reset their channel settings.")
-        else:
-            await interaction.response.send_message("Channel settings reset cancelled.", ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Failed to reset channel settings for {self.member.display_name}: {e}")
+            await interaction.followup.send("An error occurred while resetting your channel settings. Please try again later.", ephemeral=True)
 
 class NameModal(Modal):
     def __init__(self, bot, member):
@@ -261,20 +276,32 @@ class NameModal(Modal):
         self.add_item(self.channel_name)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Defer the response to acknowledge the interaction
+        await interaction.response.defer(ephemeral=True)
+
         new_name = self.channel_name.value.strip()
         if not (2 <= len(new_name) <= 32):
-            embed = create_error_embed("Channel name must be between 2 and 32 characters.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        # Update channel name
-        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
-        if not channel:
-            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            await interaction.followup.send("Channel name must be between 2 and 32 characters.", ephemeral=True)
             return
 
         try:
+            # Access the Voice cog to change the channel name
+            voice_cog = self.bot.get_cog("Voice")
+            if not voice_cog:
+                await interaction.followup.send("Voice cog is not loaded.", ephemeral=True)
+                logger.error("Voice cog not found.")
+                return
+
+            channel = await voice_cog._get_user_channel(self.member)
+            if not channel:
+                await interaction.followup.send("You don't own a channel.", ephemeral=True)
+                return
+
+            # Change the channel name
             await channel.edit(name=new_name)
+            logger.info(f"{self.member.display_name} changed channel name to '{new_name}'.")
+
+            # Update the database with the new channel name
             async with Database.get_connection() as db:
                 await db.execute(
                     "UPDATE channel_settings SET channel_name = ? WHERE user_id = ?",
@@ -282,13 +309,10 @@ class NameModal(Modal):
                 )
                 await db.commit()
 
-            embed = create_success_embed(f"Channel name has been changed to '{new_name}'.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            logger.info(f"{self.member.display_name} changed their channel name to '{new_name}'.")
+            await interaction.followup.send(f"Channel name has been changed to '{new_name}'.", ephemeral=True)
         except Exception as e:
-            logger.exception(f"Failed to change channel name: {e}")
-            embed = create_error_embed("Failed to change channel name. Please try again.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.exception(f"Failed to change channel name for {self.member.display_name}: {e}")
+            await interaction.followup.send("Failed to change channel name. Please try again later.", ephemeral=True)
 
 class LimitModal(Modal):
     def __init__(self, bot, member):
