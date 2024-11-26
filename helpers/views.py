@@ -8,9 +8,16 @@ from helpers.permissions_helper import apply_permissions_changes
 from helpers.embeds import create_token_embed, create_error_embed, create_success_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.modals import HandleModal, NameModal, LimitModal
+from helpers.modals import (
+    HandleModal,
+    NameModal,
+    LimitModal,
+    CloseChannelConfirmationModal,
+    ResetSettingsConfirmationModal  # Added missing imports
+)
 from helpers.logger import get_logger
 from helpers.database import Database
+from helpers.voice_utils import get_user_channel, get_user_game_name, update_channel_settings
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -123,6 +130,18 @@ class ChannelSettingsView(View):
                     description="Set channel name to your current game",
                     emoji="🎮"
                 ),
+                SelectOption(
+                    label="Reset",
+                    value="reset",
+                    description="Reset your channel settings to default",
+                    emoji="🔄"
+                ),
+                SelectOption(
+                    label="Close",
+                    value="close",
+                    description="Close your voice channel",
+                    emoji="❌"
+                ),
             ]
         )
         self.channel_settings_select.callback = self.channel_settings_callback
@@ -159,16 +178,10 @@ class ChannelSettingsView(View):
                     emoji="🚫"
                 ),
                 SelectOption(
-                    label="Force PTT",
-                    value="force_ptt",
-                    description="Enable PTT for users/roles",
+                    label="PTT",
+                    value="ptt",
+                    description="Manage PTT settings",
                     emoji="🎙️"
-                ),
-                SelectOption(
-                    label="Disable PTT",
-                    value="disable_ptt",
-                    description="Disable PTT for users/roles",
-                    emoji="🔊"
                 ),
             ]
         )
@@ -184,12 +197,12 @@ class ChannelSettingsView(View):
             modal = LimitModal(self.bot, self.member)
             await interaction.response.send_modal(modal)
         elif selected == "game":
-            channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+            channel = await get_user_channel(self.bot, self.member)
             if not channel:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
-            game_name = self.bot.get_cog('voice')._get_user_game_name(self.member)
+            game_name = get_user_game_name(self.member)
             if not game_name:
                 await interaction.response.send_message("You are not currently playing a game.", ephemeral=True)
                 return
@@ -197,12 +210,9 @@ class ChannelSettingsView(View):
             # Update channel name to game name
             try:
                 await channel.edit(name=game_name[:32])  # Ensure name is within 32 characters
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        "UPDATE channel_settings SET channel_name = ? WHERE user_id = ?",
-                        (game_name, self.member.id)
-                    )
-                    await db.commit()
+
+                # Update settings using the helper function
+                await update_channel_settings(self.member.id, channel_name=game_name)
 
                 embed = discord.Embed(
                     description=f"Channel name has been set to your current game: **{game_name}**.",
@@ -214,16 +224,30 @@ class ChannelSettingsView(View):
                 logger.exception(f"Failed to set channel name to game: {e}")
                 embed = create_error_embed("Failed to set channel name to your current game. Please try again.")
                 await interaction.response.send_message(embed=embed, ephemeral=True)
+        elif selected == "reset":
+            await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot, self.member))
+        elif selected == "close":
+            channel = await get_user_channel(self.bot, self.member)
+            if not channel:
+                await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+                return
+            await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot, self.member, channel))
+        else:
+            await interaction.response.send_message("Unknown option selected.", ephemeral=True)
 
     async def channel_permissions_callback(self, interaction: discord.Interaction):
         selected = self.channel_permissions_select.values[0]
-        if selected in ["permit", "reject", "force_ptt", "disable_ptt"]:
+        if selected in ["permit", "reject"]:
             action = selected
             view = TargetTypeSelectView(self.bot, self.member, action=action)
             await interaction.response.send_message("Choose the type of target you want to apply the action to:", view=view, ephemeral=True)
+        elif selected == "ptt":
+            # Send a view to select enable or disable PTT
+            view = PTTSelectView(self.bot, self.member)
+            await interaction.response.send_message("Do you want to enable or disable PTT?", view=view, ephemeral=True)
         elif selected in ["lock", "unlock"]:
             lock = True if selected == "lock" else False
-            channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+            channel = await get_user_channel(self.bot, self.member)
             if not channel:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
@@ -232,24 +256,23 @@ class ChannelSettingsView(View):
             overwrite.connect = not lock
             await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
 
-            # Save the lock state in permissions
+            # Update settings using the helper function
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     "SELECT permissions FROM channel_settings WHERE user_id = ?",
                     (self.member.id,)
                 )
                 settings_row = await cursor.fetchone()
-                permissions = {}
                 if settings_row and settings_row[0]:
                     permissions = json.loads(settings_row[0])
+                    if not isinstance(permissions, dict):
+                        permissions = {}
+                else:
+                    permissions = {}
 
                 permissions['lock'] = lock
 
-                await db.execute(
-                    "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
-                    (self.member.id, json.dumps(permissions))
-                )
-                await db.commit()
+                await update_channel_settings(self.member.id, permissions=permissions)
 
             status = "locked" if lock else "unlocked"
             await interaction.response.send_message(f"Your voice channel has been {status}.", ephemeral=True)
@@ -258,6 +281,9 @@ class ChannelSettingsView(View):
             await interaction.response.send_message("Unknown option selected.", ephemeral=True)
 
 class TargetTypeSelectView(View):
+    """
+    View to select the type of target (user or role).
+    """
     def __init__(self, bot, member, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
@@ -311,7 +337,7 @@ class SelectUserView(View):
     async def user_select_callback(self, interaction: Interaction):
         selected_users = self.user_select.values
         selected_user_ids = [user.id for user in selected_users]
-        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+        channel = await get_user_channel(self.bot, self.member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -338,20 +364,23 @@ class SelectUserView(View):
                 (self.member.id,)
             )
             settings_row = await cursor.fetchone()
-            permissions = {}
             if settings_row and settings_row[0]:
-                permissions = json.loads(settings_row[0])
+                existing_permissions = json.loads(settings_row[0])
+                if not isinstance(existing_permissions, dict):
+                    existing_permissions = {}
+            else:
+                existing_permissions = {}
 
-            if 'permissions' not in permissions:
-                permissions['permissions'] = []
+            if 'permissions' not in existing_permissions:
+                existing_permissions['permissions'] = []
 
-            permissions['permissions'].append({'action': self.action, 'targets': targets})
+            if self.action == "ptt":
+                existing_permissions['ptt'] = existing_permissions.get('ptt', [])
+                existing_permissions['ptt'].append({'targets': targets, 'enable': self.enable})
+            else:
+                existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
 
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
-                (self.member.id, json.dumps(permissions))
-            )
-            await db.commit()
+            await update_channel_settings(self.member.id, permissions=existing_permissions)
 
         # Determine status message based on action
         if self.action == "ptt":
@@ -369,11 +398,12 @@ class SelectRoleView(View):
     """
     View to select multiple roles.
     """
-    def __init__(self, bot, member, action):
+    def __init__(self, bot, member, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
         self.member = member
         self.action = action
+        self.enable = enable  # For PTT action
 
         self.role_select = RoleSelect(
             placeholder="Select Roles",
@@ -387,7 +417,7 @@ class SelectRoleView(View):
     async def role_select_callback(self, interaction: Interaction):
         selected_roles = self.role_select.values
         selected_role_ids = [role.id for role in selected_roles]
-        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+        channel = await get_user_channel(self.bot, self.member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -396,7 +426,11 @@ class SelectRoleView(View):
 
         # Apply permissions
         try:
-            await apply_permissions_changes(channel, {'action': self.action, 'targets': targets})
+            if self.action == "ptt":
+                permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+            else:
+                permission_change = {'action': self.action, 'targets': targets}
+            await apply_permissions_changes(channel, permission_change)
         except Exception as e:
             logger.exception(f"Failed to apply permissions: {e}")
             embed = create_error_embed("Failed to apply permissions. Please try again.")
@@ -410,26 +444,28 @@ class SelectRoleView(View):
                 (self.member.id,)
             )
             settings_row = await cursor.fetchone()
-            permissions = {}
             if settings_row and settings_row[0]:
-                permissions = json.loads(settings_row[0])
+                existing_permissions = json.loads(settings_row[0])
+                if not isinstance(existing_permissions, dict):
+                    existing_permissions = {}
+            else:
+                existing_permissions = {}
 
-            if 'permissions' not in permissions:
-                permissions['permissions'] = []
+            if 'permissions' not in existing_permissions:
+                existing_permissions['permissions'] = []
 
-            permissions['permissions'].append({'action': self.action, 'targets': targets})
+            if self.action == "ptt":
+                existing_permissions['ptt'] = existing_permissions.get('ptt', [])
+                existing_permissions['ptt'].append({'targets': targets, 'enable': self.enable})
+            else:
+                existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
 
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
-                (self.member.id, json.dumps(permissions))
-            )
-            await db.commit()
+            await update_channel_settings(self.member.id, permissions=existing_permissions)
 
         status = {
             "permit": "permitted",
             "reject": "rejected",
-            "force_ptt": "PTT enabled",
-            "disable_ptt": "PTT disabled"
+            "ptt": "PTT settings updated"
         }.get(self.action, "applied")
 
         await interaction.response.send_message(f"Selected roles have been {status} in your channel.", ephemeral=True)

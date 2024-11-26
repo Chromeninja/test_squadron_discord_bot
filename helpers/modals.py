@@ -11,13 +11,13 @@ from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.database import Database
 from helpers.logger import get_logger
+from helpers.voice_utils import get_user_channel, update_channel_settings
 
 # Initialize logger
 logger = get_logger(__name__)
 
 # Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
-
 
 class HandleModal(Modal, title="Verification"):
     """
@@ -147,14 +147,14 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == 'main':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
                 "Fly safe! <:o7:1306961462215970836>"
             )
         elif assigned_role_type == 'affiliate':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
@@ -164,9 +164,9 @@ class HandleModal(Modal, title="Verification"):
             )
         elif assigned_role_type == 'non_member':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1306961532080623676>\n\n"
-                "Join us for thrilling adventures and be part of the best and  biggest community!\n\n"
+                "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1306961462215970836>"
@@ -190,8 +190,11 @@ class HandleModal(Modal, title="Verification"):
             })
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
-            
+
 class CloseChannelConfirmationModal(Modal):
+    """
+    Modal to confirm closing the voice channel.
+    """
     def __init__(self, bot, member, channel):
         super().__init__(title="Confirm Close Channel")
         self.bot = bot
@@ -222,6 +225,9 @@ class CloseChannelConfirmationModal(Modal):
             await interaction.response.send_message("Channel closure cancelled.", ephemeral=True)
 
 class ResetSettingsConfirmationModal(Modal):
+    """
+    Modal to confirm resetting channel settings.
+    """
     def __init__(self, bot, member):
         super().__init__(title="Reset Channel Settings")
         self.bot = bot
@@ -238,7 +244,7 @@ class ResetSettingsConfirmationModal(Modal):
     async def on_submit(self, interaction: discord.Interaction):
         # Defer the response to acknowledge the interaction
         await interaction.response.defer(ephemeral=True)
-        
+
         confirmation_text = self.confirm.value.strip().upper()
         if confirmation_text != "RESET":
             await interaction.followup.send("Confirmation text does not match. Channel settings were not reset.", ephemeral=True)
@@ -263,6 +269,9 @@ class ResetSettingsConfirmationModal(Modal):
             await interaction.followup.send("An error occurred while resetting your channel settings. Please try again later.", ephemeral=True)
 
 class NameModal(Modal):
+    """
+    Modal to change the voice channel name.
+    """
     def __init__(self, bot, member):
         super().__init__(title="Change Channel Name")
         self.bot = bot
@@ -285,36 +294,31 @@ class NameModal(Modal):
             return
 
         try:
-            # Access the Voice cog to change the channel name
-            voice_cog = self.bot.get_cog("Voice")
-            if not voice_cog:
-                await interaction.followup.send("Voice cog is not loaded.", ephemeral=True)
-                logger.error("Voice cog not found.")
-                return
-
-            channel = await voice_cog._get_user_channel(self.member)
+            # Use the helper function to get the user's channel
+            channel = await get_user_channel(self.bot, self.member)
             if not channel:
                 await interaction.followup.send("You don't own a channel.", ephemeral=True)
                 return
 
             # Change the channel name
             await channel.edit(name=new_name)
-            logger.info(f"{self.member.display_name} changed channel name to '{new_name}'.")
 
-            # Update the database with the new channel name
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "UPDATE channel_settings SET channel_name = ? WHERE user_id = ?",
-                    (new_name, self.member.id)
-                )
-                await db.commit()
+            # Update settings using the helper function
+            await update_channel_settings(self.member.id, channel_name=new_name)
 
             await interaction.followup.send(f"Channel name has been changed to '{new_name}'.", ephemeral=True)
+            logger.info(f"{self.member.display_name} changed channel name to '{new_name}'.")
+        except discord.Forbidden:
+            logger.warning(f"Insufficient permissions to change channel name for {self.member.display_name}.")
+            await interaction.followup.send("I don't have permission to change the channel name.", ephemeral=True)
         except Exception as e:
             logger.exception(f"Failed to change channel name for {self.member.display_name}: {e}")
-            await interaction.followup.send("Failed to change channel name. Please try again later.", ephemeral=True)
+            await interaction.followup.send("An unexpected error occurred. Please try again later.", ephemeral=True)
 
 class LimitModal(Modal):
+    """
+    Modal to set the user limit for the voice channel.
+    """
     def __init__(self, bot, member):
         super().__init__(title="Set User Limit")
         self.bot = bot
@@ -338,23 +342,24 @@ class LimitModal(Modal):
             return
 
         # Update user limit
-        channel = await self.bot.get_cog('voice')._get_user_channel(self.member)
+        channel = await get_user_channel(self.bot, self.member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
 
         try:
             await channel.edit(user_limit=limit)
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "UPDATE channel_settings SET user_limit = ? WHERE user_id = ?",
-                    (limit, self.member.id)
-                )
-                await db.commit()
+
+            # Update settings using the helper function
+            await update_channel_settings(self.member.id, user_limit=limit)
 
             embed = create_success_embed(f"User limit has been set to {limit}.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
             logger.info(f"{self.member.display_name} set their channel user limit to {limit}.")
+        except discord.Forbidden:
+            logger.warning(f"Insufficient permissions to set user limit for {self.member.display_name}.")
+            embed = create_error_embed("I don't have permission to set the user limit.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
         except Exception as e:
             logger.exception(f"Failed to set user limit: {e}")
             embed = create_error_embed("Failed to set user limit. Please try again.")

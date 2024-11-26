@@ -14,6 +14,7 @@ from helpers.views import ChannelSettingsView, TargetTypeSelectView, PTTSelectVi
 from helpers.modals import CloseChannelConfirmationModal, ResetSettingsConfirmationModal, NameModal, LimitModal
 from helpers.permissions_helper import apply_ptt_settings, apply_permissions_changes, reset_channel_permissions
 from helpers.embeds import create_error_embed
+from helpers.voice_utils import get_user_channel, get_user_game_name, update_channel_settings
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -105,7 +106,7 @@ class Voice(commands.GroupCog, name="voice"):
                 if settings_row and settings_row[0]:
                     channel_name = settings_row[0]
                 else:
-                    channel_name = self._get_user_game_name(member) or f"{member.display_name}'s Channel"
+                    channel_name = get_user_game_name(member) or f"{member.display_name}'s Channel"
                 channel_name = channel_name[:32]  # Ensure name is within 32 characters
 
                 # Determine user limit
@@ -177,15 +178,6 @@ class Voice(commands.GroupCog, name="voice"):
             if len(channel.members) == 0:
                 break
 
-    def _get_user_game_name(self, member):
-        """
-        Retrieves the name of the game the user is currently playing.
-        """
-        for activity in member.activities:
-            if isinstance(activity, discord.Game):
-                return activity.name
-        return None
-
     async def _apply_channel_permissions(self, channel, permissions):
         """
         Applies saved permissions to the channel.
@@ -194,12 +186,13 @@ class Voice(commands.GroupCog, name="voice"):
             permissions = {}
         guild = channel.guild
         # Apply PTT settings
-        ptt_settings = permissions.get('ptt')
+        ptt_settings = permissions.get('ptt', [])
         if ptt_settings:
-            await apply_ptt_settings(channel, ptt_settings)
+            for ptt_setting in ptt_settings:
+                await apply_ptt_settings(channel, ptt_setting)
 
         # Apply other permissions (permit/reject)
-        perm_settings = permissions.get('permissions')
+        perm_settings = permissions.get('permissions', [])
         if perm_settings:
             for perm_change in perm_settings:
                 await apply_permissions_changes(channel, perm_change)
@@ -259,7 +252,7 @@ class Voice(commands.GroupCog, name="voice"):
         Allows users to permit other users or roles to join their voice channel.
         """
         member = interaction.user
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -275,7 +268,7 @@ class Voice(commands.GroupCog, name="voice"):
         Rejects users or roles from joining the user's voice channel.
         """
         member = interaction.user
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -291,7 +284,7 @@ class Voice(commands.GroupCog, name="voice"):
         Manages PTT (push-to-talk) settings for users or roles in the user's voice channel.
         """
         member = interaction.user
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -318,7 +311,7 @@ class Voice(commands.GroupCog, name="voice"):
 
     async def _change_channel_lock(self, interaction: discord.Interaction, lock: bool):
         member = interaction.user
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -348,11 +341,7 @@ class Voice(commands.GroupCog, name="voice"):
 
             permissions['lock'] = lock
 
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
-                (member.id, json.dumps(permissions))
-            )
-            await db.commit()
+            await update_channel_settings(member.id, permissions=permissions)
 
         status = "locked" if lock else "unlocked"
         await interaction.response.send_message(f"Your voice channel has been {status}.", ephemeral=True)
@@ -383,7 +372,7 @@ class Voice(commands.GroupCog, name="voice"):
         Closes the user's voice channel.
         """
         member = interaction.user
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -421,24 +410,11 @@ class Voice(commands.GroupCog, name="voice"):
         )
         await interaction.response.send_message(help_text, ephemeral=True)
 
-    async def _get_user_channel(self, member):
-        """
-        Retrieves the voice channel owned by the user.
-        """
-        async with Database.get_connection() as db:
-            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
-            row = await cursor.fetchone()
-            if not row:
-                return None
-            channel_id = row[0]
-            channel = self.bot.get_channel(channel_id)
-            return channel
-
     async def _reset_current_channel_settings(self, member):
         """
         Resets the settings of the user's current voice channel to default.
         """
-        channel = await self._get_user_channel(member)
+        channel = await get_user_channel(self.bot, member)
         if not channel:
             return
 
@@ -460,33 +436,8 @@ class Voice(commands.GroupCog, name="voice"):
         except Exception as e:
             logger.exception(f"Failed to reset permissions for {member.display_name}'s channel: {e}")
 
-        # Reset lock state in permissions
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                (member.id,)
-            )
-            settings_row = await cursor.fetchone()
-            if settings_row and settings_row[0]:
-                permissions = json.loads(settings_row[0])
-                if not isinstance(permissions, dict):
-                    permissions = {}
-            else:
-                permissions = {}
-
-            # Reset lock state
-            permissions['lock'] = False
-
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, permissions) VALUES (?, ?)",
-                (member.id, json.dumps(permissions))
-            )
-            await db.commit()
-
-        # Optionally, preserve the channel_name by not deleting it
-        # Only remove other settings if necessary
-        # Here, we're preserving the channel_name by not deleting it from the DB
-        # So, the next time the user creates a channel, it will use the last set name
+        # Remove settings from the database
+        await update_channel_settings(member.id, channel_name=None, user_limit=None, permissions=None)
 
         logger.info(f"Reset settings for {member.display_name}'s channel.")
 

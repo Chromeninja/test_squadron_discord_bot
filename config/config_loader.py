@@ -86,4 +86,14 @@ class ConfigLoader:
 
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
+        """
+        Retrieves a value from the configuration.
+
+        Args:
+            key (str): The key to retrieve.
+            default (Any, optional): The default value if key is not found. Defaults to None.
+
+        Returns:
+            Any: The value associated with the key.
+        """
         return cls._config.get(key, default)
