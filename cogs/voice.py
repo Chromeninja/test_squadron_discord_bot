@@ -40,6 +40,7 @@ class Voice(commands.GroupCog, name="voice"):
         self.cooldown_seconds = self.config['voice'].get('cooldown_seconds', 60)
         self.join_to_create_channel_ids = []
         self.voice_category_id = None
+        self.managed_voice_channels = set()
 
     async def cog_load(self):
         """
@@ -61,6 +62,11 @@ class Voice(commands.GroupCog, name="voice"):
             else:
                 logger.warning("Voice category ID not found in settings.")
 
+            # Load managed voice channels
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels")
+            rows = await cursor.fetchall()
+            self.managed_voice_channels = {row[0] for row in rows}
+
         if not self.join_to_create_channel_ids or not self.voice_category_id:
             logger.error("Voice setup is incomplete. Please run /voice setup command.")
 
@@ -73,17 +79,22 @@ class Voice(commands.GroupCog, name="voice"):
         if before.channel:
             # If the channel is a user-created channel (not a 'Join to Create' channel)
             if before.channel.id not in self.join_to_create_channel_ids:
-                # Check if the channel is now empty
-                if len(before.channel.members) == 0:
-                    try:
-                        await before.channel.delete()
-                        async with Database.get_connection() as db:
-                            await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
-                            await db.commit()
-                        logger.info(f"Deleted empty voice channel '{before.channel.name}'")
-                    except Exception as e:
-                        logger.exception(f"Error deleting empty voice channel '{before.channel.name}': {e}")
-                return
+                # Check if the channel is managed by the bot
+                if before.channel.id in self.managed_voice_channels:
+                    # Check if the channel is now empty
+                    if len(before.channel.members) == 0:
+                        try:
+                            await before.channel.delete()
+                            self.managed_voice_channels.remove(before.channel.id)
+                            async with Database.get_connection() as db:
+                                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
+                                await db.commit()
+                            logger.info(f"Deleted empty voice channel '{before.channel.name}'")
+                        except Exception as e:
+                            logger.exception(f"Error deleting empty voice channel '{before.channel.name}': {e}")
+                else:
+                    logger.debug(f"Channel '{before.channel.name}' (ID: {before.channel.id}) is not managed by the bot. Skipping deletion.")
+            return
 
         # User joined a "Join to Create" voice channel
         if after.channel and after.channel.id in self.join_to_create_channel_ids:
@@ -160,7 +171,7 @@ class Voice(commands.GroupCog, name="voice"):
                 # Move the member to the new channel
                 await safe_move_member(member, new_channel)
 
-                # Store channel in the database
+                # Store channel in the database and in-memory set
                 async with Database.get_connection() as db:
                     await db.execute(
                         "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, user_id) VALUES (?, ?)",
@@ -171,6 +182,7 @@ class Voice(commands.GroupCog, name="voice"):
                         (member.id, current_time)
                     )
                     await db.commit()
+                    self.managed_voice_channels.add(new_channel.id)
                     logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
                 # Send settings view to the channel
@@ -185,11 +197,6 @@ class Voice(commands.GroupCog, name="voice"):
                 # Wait until the channel is empty
                 await self._wait_for_channel_empty(new_channel)
 
-                # Delete the channel after it's empty
-                await safe_delete_channel(new_channel)
-                async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (new_channel.id,))
-                    await db.commit()
             except Exception as e:
                 logger.exception(f"Error creating voice channel for {member.display_name}: {e}")
 
