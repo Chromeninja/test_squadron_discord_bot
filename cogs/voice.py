@@ -75,6 +75,8 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Listener for voice state updates to create and delete dynamic voice channels.
         """
+        logger.debug(f"Voice state update for {member.display_name}: before={before.channel}, after={after.channel}")
+
         # User left a voice channel
         if before.channel:
             # If the channel is a user-created channel (not a 'Join to Create' channel)
@@ -94,12 +96,18 @@ class Voice(commands.GroupCog, name="voice"):
                             logger.exception(f"Error deleting empty voice channel '{before.channel.name}': {e}")
                 else:
                     logger.debug(f"Channel '{before.channel.name}' (ID: {before.channel.id}) is not managed by the bot. Skipping deletion.")
-            return
+            # Continue to check if the user moved into a "Join to Create" channel
+            # This ensures that moving out doesn't interfere with the creation logic
 
         # User joined a "Join to Create" voice channel
         if after.channel and after.channel.id in self.join_to_create_channel_ids:
             if not self.voice_category_id:
                 logger.error("Voice setup is incomplete. Please run /voice setup command.")
+                return
+
+            # Check if the user is already in a managed voice channel to prevent loops
+            if member.voice and member.voice.channel and member.voice.channel.id in self.managed_voice_channels:
+                logger.debug(f"User '{member.display_name}' is already in a managed channel. Skipping creation.")
                 return
 
             # Check for cooldown
@@ -196,7 +204,7 @@ class Voice(commands.GroupCog, name="voice"):
 
                 # Wait until the channel is empty
                 await self._wait_for_channel_empty(new_channel)
-
+                # Deletion logic removed to prevent double deletion
             except Exception as e:
                 logger.exception(f"Error creating voice channel for {member.display_name}: {e}")
 
