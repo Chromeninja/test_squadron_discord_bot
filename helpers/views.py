@@ -1,6 +1,7 @@
 # helpers/views.py
 
 import discord
+import asyncio
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
 import json
@@ -13,11 +14,11 @@ from helpers.modals import (
     NameModal,
     LimitModal,
     CloseChannelConfirmationModal,
-    ResetSettingsConfirmationModal  # Added missing imports
+    ResetSettingsConfirmationModal
 )
 from helpers.logger import get_logger
 from helpers.database import Database
-from helpers.voice_utils import get_user_channel, get_user_game_name, update_channel_settings
+from helpers.voice_utils import get_user_channel, get_user_game_name, update_channel_settings, safe_edit_channel
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -73,8 +74,9 @@ class VerificationView(View):
 
         try:
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.info(f"Sent verification token to user '{member.display_name}'.")
         except Exception as e:
-            logger.exception(f"Failed to send verification PIN: {e}", extra={'user_id': member.id})
+            logger.exception(f"Failed to send verification token to user '{member.display_name}': {e}", extra={'user_id': member.id})
 
     async def verify_button_callback(self, interaction: discord.Interaction):
         """
@@ -207,9 +209,9 @@ class ChannelSettingsView(View):
                 await interaction.response.send_message("You are not currently playing a game.", ephemeral=True)
                 return
 
-            # Update channel name to game name
+            # Update channel name to game name with rate limiting
             try:
-                await channel.edit(name=game_name[:32])  # Ensure name is within 32 characters
+                await safe_edit_channel(channel, name=game_name[:32])  # Ensure name is within 32 characters
 
                 # Update settings using the helper function
                 await update_channel_settings(self.member.id, channel_name=game_name)
@@ -252,9 +254,24 @@ class ChannelSettingsView(View):
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
-            overwrite = channel.overwrites_for(interaction.guild.default_role)
-            overwrite.connect = not lock
-            await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+            # Define permission change
+            if lock:
+                action = 'lock'
+            else:
+                action = 'unlock'
+
+            permission_change = {
+                'action': action,
+                'targets': [{'type': 'role', 'id': channel.guild.default_role.id}]
+            }
+
+            # Apply permissions with batching and rate limiting
+            try:
+                await apply_permissions_changes(channel, permission_change)
+            except Exception as e:
+                logger.error(f"Failed to apply permission '{action}' to channel '{channel.name}': {e}")
+                await interaction.response.send_message(f"Failed to {'lock' if lock else 'unlock'} your voice channel.", ephemeral=True)
+                return
 
             # Update settings using the helper function
             async with Database.get_connection() as db:
@@ -344,12 +361,14 @@ class SelectUserView(View):
 
         targets = [{'type': 'user', 'id': user_id} for user_id in selected_user_ids]
 
-        # Apply permissions
+        # Prepare permission change dictionary
+        if self.action == "ptt":
+            permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+        else:
+            permission_change = {'action': self.action, 'targets': targets}
+
+        # Apply permissions with batching and rate limiting
         try:
-            if self.action == "ptt":
-                permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
-            else:
-                permission_change = {'action': self.action, 'targets': targets}
             await apply_permissions_changes(channel, permission_change)
         except Exception as e:
             logger.exception(f"Failed to apply permissions: {e}")
@@ -424,12 +443,14 @@ class SelectRoleView(View):
 
         targets = [{'type': 'role', 'id': role_id} for role_id in selected_role_ids]
 
-        # Apply permissions
+        # Prepare permission change dictionary
+        if self.action == "ptt":
+            permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+        else:
+            permission_change = {'action': self.action, 'targets': targets}
+
+        # Apply permissions with batching and rate limiting
         try:
-            if self.action == "ptt":
-                permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
-            else:
-                permission_change = {'action': self.action, 'targets': targets}
             await apply_permissions_changes(channel, permission_change)
         except Exception as e:
             logger.exception(f"Failed to apply permissions: {e}")

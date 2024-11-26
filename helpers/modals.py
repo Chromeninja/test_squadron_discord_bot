@@ -11,7 +11,7 @@ from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.voice_utils import get_user_channel, update_channel_settings
+from helpers.voice_utils import get_user_channel, update_channel_settings, safe_edit_channel
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -210,9 +210,9 @@ class CloseChannelConfirmationModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         if self.confirmation.value.strip().upper() == "CLOSE":
-            # Delete the channel
+            # Delete the channel with rate limiting
             try:
-                await self.channel.delete()
+                await safe_delete_channel(self.channel)
                 async with Database.get_connection() as db:
                     await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (self.channel.id,))
                     await db.commit()
@@ -300,8 +300,8 @@ class NameModal(Modal):
                 await interaction.followup.send("You don't own a channel.", ephemeral=True)
                 return
 
-            # Change the channel name
-            await channel.edit(name=new_name)
+            # Change the channel name with rate limiting
+            await safe_edit_channel(channel, name=new_name)
 
             # Update settings using the helper function
             await update_channel_settings(self.member.id, channel_name=new_name)
@@ -348,7 +348,7 @@ class LimitModal(Modal):
             return
 
         try:
-            await channel.edit(user_limit=limit)
+            await safe_edit_channel(channel, user_limit=limit)
 
             # Update settings using the helper function
             await update_channel_settings(self.member.id, user_limit=limit)

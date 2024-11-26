@@ -1,14 +1,16 @@
 # helpers/permissions_helper.py
 
 import discord
+from helpers.voice_utils import safe_edit_channel
 from helpers.logger import get_logger
+import json
 import asyncio
 
 logger = get_logger(__name__)
 
 async def apply_ptt_settings(channel: discord.VoiceChannel, ptt_settings: dict):
     """
-    Applies PTT settings to the channel based on the provided configuration.
+    Applies PTT (Push-To-Talk) settings to the channel based on the provided configuration.
 
     Args:
         channel (discord.VoiceChannel): The voice channel to modify.
@@ -17,36 +19,50 @@ async def apply_ptt_settings(channel: discord.VoiceChannel, ptt_settings: dict):
     enable = ptt_settings.get('enable', True)
     targets = ptt_settings.get('targets', [])
 
+    # Prepare a dictionary to hold all overwrites
+    overwrites = channel.overwrites.copy()
+
     if not targets:
         # Apply to @everyone
-        overwrite = channel.overwrites_for(channel.guild.default_role)
-        if overwrite.use_voice_activation != (not enable):
-            overwrite.use_voice_activation = not enable
-            await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
-            logger.info(f"Applied PTT settings: {'Enabled' if enable else 'Disabled'} for everyone in channel '{channel.name}'.")
-            await asyncio.sleep(1)  # Delay to prevent rate limits
+        overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
+        desired_state = not enable  # If PTT is enabled, disable voice activation
+        if overwrite.use_voice_activation != desired_state:
+            overwrite.use_voice_activation = desired_state
+            overwrites[channel.guild.default_role] = overwrite
+            logger.info(f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for everyone in channel '{channel.name}'.")
     else:
         for target in targets:
-            if target['type'] == 'user':
-                member = channel.guild.get_member(target['id'])
+            target_type = target.get('type')
+            target_id = target.get('id')
+
+            if target_type == 'user':
+                member = channel.guild.get_member(target_id)
                 if member:
-                    overwrite = channel.overwrites_for(member)
+                    overwrite = overwrites.get(member, discord.PermissionOverwrite())
                     desired_state = not enable
                     if overwrite.use_voice_activation != desired_state:
                         overwrite.use_voice_activation = desired_state
-                        await channel.set_permissions(member, overwrite=overwrite)
-                        logger.info(f"Applied PTT settings: {'Enabled' if enable else 'Disabled'} for user '{member.display_name}' in channel '{channel.name}'.")
-                        await asyncio.sleep(1)  # Delay to prevent rate limits
-            elif target['type'] == 'role':
-                role = channel.guild.get_role(target['id'])
+                        overwrites[member] = overwrite
+                        logger.info(f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for user '{member.display_name}' in channel '{channel.name}'.")
+            elif target_type == 'role':
+                role = channel.guild.get_role(target_id)
                 if role:
-                    overwrite = channel.overwrites_for(role)
+                    overwrite = overwrites.get(role, discord.PermissionOverwrite())
                     desired_state = not enable
                     if overwrite.use_voice_activation != desired_state:
                         overwrite.use_voice_activation = desired_state
-                        await channel.set_permissions(role, overwrite=overwrite)
-                        logger.info(f"Applied PTT settings: {'Enabled' if enable else 'Disabled'} for role '{role.name}' in channel '{channel.name}'.")
-                        await asyncio.sleep(1)  # Delay to prevent rate limits
+                        overwrites[role] = overwrite
+                        logger.info(f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for role '{role.name}' in channel '{channel.name}'.")
+            else:
+                logger.warning(f"Unknown target type: {target_type}")
+
+    # Apply all overwrites in a single API call
+    try:
+        await safe_edit_channel(channel, overwrites=overwrites)
+        logger.info(f"Applied PTT settings to channel '{channel.name}'.")
+    except Exception as e:
+        logger.error(f"Failed to apply PTT settings to channel '{channel.name}': {e}")
+        raise
 
 async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict):
     """
@@ -60,67 +76,71 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
     targets = perm_settings.get('targets', [])
     enable = perm_settings.get('enable', None)
 
-    for target in targets:
-        target_type = target.get('type')  # 'user' or 'role'
-        target_id = target.get('id')
-        if target_type == 'user':
-            member = channel.guild.get_member(target_id)
-            if member:
-                overwrite = channel.overwrites_for(member)
-                changed = False
-                if action == 'permit':
-                    if overwrite.connect != True:
-                        overwrite.connect = True
-                        changed = True
-                elif action == 'reject':
-                    if overwrite.connect != False:
-                        overwrite.connect = False
-                        changed = True
-                        if member in channel.members:
-                            try:
-                                await member.move_to(None)
-                                logger.info(f"Moved user '{member.display_name}' out of channel '{channel.name}' due to rejection.")
-                            except Exception as e:
-                                logger.error(f"Failed to move user '{member.display_name}': {e}")
-                elif action == 'ptt' and enable is not None:
+    # Prepare a dictionary to hold all overwrites
+    overwrites = channel.overwrites.copy()
+
+    if action in ['permit', 'reject']:
+        desired_connect = True if action == 'permit' else False
+        for target in targets:
+            target_type = target.get('type')
+            target_id = target.get('id')
+
+            if target_type == 'user':
+                member = channel.guild.get_member(target_id)
+                if member:
+                    overwrite = overwrites.get(member, discord.PermissionOverwrite())
+                    if overwrite.connect != desired_connect:
+                        overwrite.connect = desired_connect
+                        overwrites[member] = overwrite
+                        logger.info(f"Prepared permission '{action}' for user '{member.display_name}' in channel '{channel.name}'.")
+            elif target_type == 'role':
+                role = channel.guild.get_role(target_id)
+                if role:
+                    overwrite = overwrites.get(role, discord.PermissionOverwrite())
+                    if overwrite.connect != desired_connect:
+                        overwrite.connect = desired_connect
+                        overwrites[role] = overwrite
+                        logger.info(f"Prepared permission '{action}' for role '{role.name}' in channel '{channel.name}'.")
+            else:
+                logger.warning(f"Unknown target type: {target_type}")
+
+    elif action == 'ptt':
+        for target in targets:
+            target_type = target.get('type')
+            target_id = target.get('id')
+
+            if target_type == 'user':
+                member = channel.guild.get_member(target_id)
+                if member:
+                    overwrite = overwrites.get(member, discord.PermissionOverwrite())
                     desired_state = not enable
                     if overwrite.use_voice_activation != desired_state:
                         overwrite.use_voice_activation = desired_state
-                        changed = True
-                if changed:
-                    await channel.set_permissions(member, overwrite=overwrite)
-                    logger.info(f"Applied permission '{action}' to user '{member.display_name}' in channel '{channel.name}'.")
-                    await asyncio.sleep(1)  # Delay to prevent rate limits
-        elif target_type == 'role':
-            role = channel.guild.get_role(target_id)
-            if role:
-                overwrite = channel.overwrites_for(role)
-                changed = False
-                if action == 'permit':
-                    if overwrite.connect != True:
-                        overwrite.connect = True
-                        changed = True
-                elif action == 'reject':
-                    if overwrite.connect != False:
-                        overwrite.connect = False
-                        changed = True
-                        # Move all members with this role out of the channel
-                        for member in channel.members:
-                            if role in member.roles:
-                                try:
-                                    await member.move_to(None)
-                                    logger.info(f"Moved user '{member.display_name}' out of channel '{channel.name}' due to role rejection.")
-                                except Exception as e:
-                                    logger.error(f"Failed to move user '{member.display_name}': {e}")
-                elif action == 'ptt' and enable is not None:
+                        overwrites[member] = overwrite
+                        logger.info(f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for user '{member.display_name}' in channel '{channel.name}'.")
+            elif target_type == 'role':
+                role = channel.guild.get_role(target_id)
+                if role:
+                    overwrite = overwrites.get(role, discord.PermissionOverwrite())
                     desired_state = not enable
                     if overwrite.use_voice_activation != desired_state:
                         overwrite.use_voice_activation = desired_state
-                        changed = True
-                if changed:
-                    await channel.set_permissions(role, overwrite=overwrite)
-                    logger.info(f"Applied permission '{action}' to role '{role.name}' in channel '{channel.name}'.")
-                    await asyncio.sleep(1)  # Delay to prevent rate limits
+                        overwrites[role] = overwrite
+                        logger.info(f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for role '{role.name}' in channel '{channel.name}'.")
+            else:
+                logger.warning(f"Unknown target type: {target_type}")
+
+    else:
+        logger.warning(f"Unknown action: {action}")
+        return
+
+    # Apply all overwrites in a single API call
+    try:
+        await safe_edit_channel(channel, overwrites=overwrites)
+        logger.info(f"Applied permission '{action}' to channel '{channel.name}'.")
+    except Exception as e:
+        logger.error(f"Failed to apply permission '{action}' to channel '{channel.name}': {e}")
+        raise
 
 async def reset_channel_permissions(channel: discord.VoiceChannel):
     """
@@ -132,23 +152,16 @@ async def reset_channel_permissions(channel: discord.VoiceChannel):
     guild = channel.guild
     default_role = guild.default_role
 
-    # Reset permissions for @everyone
-    overwrite = discord.PermissionOverwrite()
-    overwrite.connect = True
-    overwrite.use_voice_activation = True
-    await channel.set_permissions(default_role, overwrite=overwrite)
-    logger.info(f"Reset permissions for @everyone in channel '{channel.name}'.")
-    await asyncio.sleep(1)  # Delay to prevent rate limits
+    # Prepare default overwrites
+    overwrites = {
+        default_role: discord.PermissionOverwrite(connect=True, use_voice_activation=True),
+        guild.me: discord.PermissionOverwrite(manage_channels=True, connect=True)
+    }
 
-    # Remove all other overwrites except for the owner and the bot
-    for target, perms in list(channel.overwrites.items()):
-        if isinstance(target, discord.Member) and target != guild.me:
-            await channel.set_permissions(target, overwrite=None)
-            logger.info(f"Removed permissions for user '{target.display_name}' in channel '{channel.name}'.")
-            await asyncio.sleep(1)  # Delay to prevent rate limits
-        elif isinstance(target, discord.Role) and target != default_role:
-            await channel.set_permissions(target, overwrite=None)
-            logger.info(f"Removed permissions for role '{target.name}' in channel '{channel.name}'.")
-            await asyncio.sleep(1)  # Delay to prevent rate limits
-
-    logger.info(f"All non-default permissions reset for channel '{channel.name}'.")
+    # Apply the default overwrites
+    try:
+        await safe_edit_channel(channel, overwrites=overwrites)
+        logger.info(f"Reset permissions for channel '{channel.name}' to default.")
+    except Exception as e:
+        logger.error(f"Failed to reset permissions for channel '{channel.name}': {e}")
+        raise
