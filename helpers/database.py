@@ -37,13 +37,15 @@ class Database:
                 last_updated INTEGER NOT NULL
             )
         """)
-        # Simplify voice tables since the bot is for a single server
+        # Create or update voice tables
+        # In _create_tables method
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_voice_channels (
-                user_id INTEGER PRIMARY KEY,
-                voice_channel_id INTEGER NOT NULL
+                voice_channel_id INTEGER PRIMARY KEY,
+                owner_id INTEGER NOT NULL
             )
         """)
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS voice_cooldowns (
                 user_id INTEGER PRIMARY KEY,

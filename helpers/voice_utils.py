@@ -25,14 +25,16 @@ async def get_user_channel(bot, member):
     Returns:
         The voice channel owned by the user, or None if not found.
     """
+    # Fetch the channel ID from the database
     async with Database.get_connection() as db:
-        cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE user_id = ?", (member.id,))
+        cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,))
         row = await cursor.fetchone()
-        if not row:
-            return None
-        channel_id = row[0]
-        channel = bot.get_channel(channel_id)
-        return channel
+        if row:
+            channel_id = row[0]
+            channel = bot.get_channel(channel_id)
+            if channel:
+                return channel
+    return None
 
 def get_user_game_name(member):
     """

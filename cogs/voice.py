@@ -12,8 +12,7 @@ from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.views import ChannelSettingsView, TargetTypeSelectView, PTTSelectView
 from helpers.modals import CloseChannelConfirmationModal, ResetSettingsConfirmationModal, NameModal, LimitModal
-from helpers.permissions_helper import apply_permissions_changes, reset_channel_permissions
-from helpers.embeds import create_error_embed
+from helpers.permissions_helper import apply_permissions_changes, update_channel_owner
 from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
@@ -79,25 +78,29 @@ class Voice(commands.GroupCog, name="voice"):
 
         # User left a voice channel
         if before.channel:
-            # If the channel is a user-created channel (not a 'Join to Create' channel)
-            if before.channel.id not in self.join_to_create_channel_ids:
-                # Check if the channel is managed by the bot
-                if before.channel.id in self.managed_voice_channels:
-                    # Check if the channel is now empty
-                    if len(before.channel.members) == 0:
-                        try:
-                            await before.channel.delete()
-                            self.managed_voice_channels.remove(before.channel.id)
-                            async with Database.get_connection() as db:
-                                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
-                                await db.commit()
-                            logger.info(f"Deleted empty voice channel '{before.channel.name}'")
-                        except Exception as e:
-                            logger.exception(f"Error deleting empty voice channel '{before.channel.name}': {e}")
+            if before.channel.id in self.managed_voice_channels:
+                # Fetch current owner from the database
+                async with Database.get_connection() as db:
+                    cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
+                    row = await cursor.fetchone()
+                    if row:
+                        owner_id = row[0]
+                    else:
+                        owner_id = None
+                # Check if the channel is now empty
+                if len(before.channel.members) == 0:
+                    # Channel is empty, delete it
+                    await safe_delete_channel(before.channel)
+                    self.managed_voice_channels.remove(before.channel.id)
+                    async with Database.get_connection() as db:
+                        await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
+                        await db.commit()
+                    logger.info(f"Deleted empty voice channel '{before.channel.name}'")
                 else:
-                    logger.debug(f"Channel '{before.channel.name}' (ID: {before.channel.id}) is not managed by the bot. Skipping deletion.")
-            # Continue to check if the user moved into a "Join to Create" channel
-            # This ensures that moving out doesn't interfere with the creation logic
+                    # If the owner left, and there are still members, ownership can be claimed
+                    if member.id == owner_id:
+                        logger.info(f"Owner '{member.display_name}' left the channel '{before.channel.name}', but members are still present.")
+                        # Ownership can be claimed by others now
 
         # User joined a "Join to Create" voice channel
         if after.channel and after.channel.id in self.join_to_create_channel_ids:
@@ -172,7 +175,7 @@ class Voice(commands.GroupCog, name="voice"):
                     permissions = json.loads(settings_row[2])
                     if not isinstance(permissions, dict):
                         permissions = {}
-                    await apply_permissions_changes(new_channel, permissions)
+                    await self._apply_channel_permissions(new_channel, permissions)
                 else:
                     permissions = {}
 
@@ -182,8 +185,8 @@ class Voice(commands.GroupCog, name="voice"):
                 # Store channel in the database and in-memory set
                 async with Database.get_connection() as db:
                     await db.execute(
-                        "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, user_id) VALUES (?, ?)",
-                        (new_channel.id, member.id)
+                        "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, owner_id) VALUES (?, ?)",
+                        (new_channel.id, member.id)  # Set owner_id to the member's ID
                     )
                     await db.execute(
                         "INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)",
@@ -195,7 +198,7 @@ class Voice(commands.GroupCog, name="voice"):
 
                 # Send settings view to the channel
                 try:
-                    view = ChannelSettingsView(self.bot, member)
+                    view = ChannelSettingsView(self.bot)
                     await new_channel.send(f"{member.mention}, configure your channel settings:", view=view)
                 except discord.Forbidden:
                     logger.warning(f"Cannot send message to channel '{new_channel.name}' (ID: {new_channel.id}).")
@@ -306,7 +309,7 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         # Send the TargetTypeSelectView
-        view = TargetTypeSelectView(self.bot, member, action="permit")
+        view = TargetTypeSelectView(self.bot, action="permit")
         await interaction.response.send_message("Choose the type of target you want to permit:", view=view, ephemeral=True)
 
     @app_commands.command(name="reject", description="Reject users/roles from joining your channel")
@@ -322,7 +325,7 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         # Send the TargetTypeSelectView
-        view = TargetTypeSelectView(self.bot, member, action="reject")
+        view = TargetTypeSelectView(self.bot, action="reject")
         await interaction.response.send_message("Choose the type of target you want to reject:", view=view, ephemeral=True)
 
     @app_commands.command(name="ptt", description="Manage PTT settings in your voice channel")
@@ -338,7 +341,7 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         # Send a view to select enable or disable PTT
-        view = PTTSelectView(self.bot, member)
+        view = PTTSelectView(self.bot)
         await interaction.response.send_message("Do you want to enable or disable PTT?", view=view, ephemeral=True)
 
     @app_commands.command(name="lock", description="Lock your voice channel")
@@ -407,8 +410,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Changes the user's voice channel name.
         """
-        member = interaction.user
-        await interaction.response.send_modal(NameModal(self.bot, member))
+        await interaction.response.send_modal(NameModal(self.bot))
 
     @app_commands.command(name="limit", description="Set user limit for your voice channel")
     @app_commands.guild_only()
@@ -416,8 +418,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Sets the user limit for the user's voice channel.
         """
-        member = interaction.user
-        await interaction.response.send_modal(LimitModal(self.bot, member))
+        await interaction.response.send_modal(LimitModal(self.bot))
 
     @app_commands.command(name="close", description="Close your voice channel")
     @app_commands.guild_only()
@@ -425,13 +426,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Closes the user's voice channel.
         """
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
-        if not channel:
-            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot, member, channel))
+        await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot))
 
     @app_commands.command(name="reset", description="Reset your channel settings to default")
     @app_commands.guild_only()
@@ -439,8 +434,63 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Resets the user's channel settings to default.
         """
+        await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
+
+    @app_commands.command(name="claim", description="Claim ownership of the voice channel if the owner is absent")
+    @app_commands.guild_only()
+    async def claim_channel(self, interaction: discord.Interaction):
+        """
+        Allows a user to claim ownership of a voice channel if the original owner has left.
+        """
         member = interaction.user
-        await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot, member))
+        channel = member.voice.channel if member.voice else None
+        if not channel:
+            await interaction.response.send_message("You are not connected to any voice channel.", ephemeral=True)
+            return
+
+        # Check if the channel is managed by the bot
+        if channel.id not in self.managed_voice_channels:
+            await interaction.response.send_message("This channel cannot be claimed.", ephemeral=True)
+            return
+
+        # Fetch current owner from the database
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,))
+            row = await cursor.fetchone()
+            if row:
+                owner_id = row[0]
+            else:
+                await interaction.response.send_message("Unable to retrieve channel ownership information.", ephemeral=True)
+                return
+
+        # Check if the owner is still in the channel
+        owner_in_channel = any(user.id == owner_id for user in channel.members)
+        if owner_in_channel:
+            logger.warning(f"{member.display_name} attempted to claim channel '{channel.name}' but owner is still present.")
+            await interaction.response.send_message("The channel owner is still present. You cannot claim ownership.", ephemeral=True)
+            return
+
+        # Update the owner in the database
+        async with Database.get_connection() as db:
+            await db.execute("UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?", (member.id, channel.id))
+            await db.commit()
+        # After updating the owner in the database and permissions
+        try:
+            view = ChannelSettingsView(self.bot)
+            await channel.send(f"{member.mention}, configure your channel settings:", view=view)
+        except discord.Forbidden:
+            logger.warning(f"Cannot send message to channel '{channel.name}' (ID: {channel.id}).")
+        except Exception as e:
+            logger.exception(f"Error sending settings view to channel '{channel.name}' (ID: {channel.id}): {e}")
+
+        # Use the helper function to update permissions
+        try:
+            await update_channel_owner(channel, member.id, owner_id)
+            await interaction.response.send_message(f"You have claimed ownership of the channel '{channel.name}'.", ephemeral=True)
+            logger.info(f"{member.display_name} claimed ownership of channel '{channel.name}'.")
+        except Exception as e:
+            logger.exception(f"Failed to claim ownership: {e}")
+            await interaction.response.send_message("Failed to claim ownership of the channel.", ephemeral=True)
 
     @app_commands.command(name="help", description="Show help for voice commands")
     @app_commands.guild_only()
@@ -448,20 +498,12 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Displays help information for voice commands.
         """
-        help_text = (
-            "**Voice Commands:**\n"
-            "/voice setup - Set up the voice channel system (Bot Admins only)\n"
-            "/voice lock - Lock your voice channel\n"
-            "/voice unlock - Unlock your voice channel\n"
-            "/voice name - Change your voice channel's name\n"
-            "/voice limit - Set user limit for your voice channel\n"
-            "/voice permit - Permit users/roles to join your channel\n"
-            "/voice reject - Reject users/roles from joining your channel\n"
-            "/voice ptt - Manage PTT settings in your channel\n"
-            "/voice close - Close your voice channel\n"
-            "/voice reset - Reset your channel settings to default\n"
-            "/voice help - Show this help message"
-        )
+        commands_list = []
+        for command in self.walk_app_commands():
+            if command.parent is self:
+                commands_list.append(f"/voice {command.name} - {command.description}")
+
+        help_text = "**Voice Commands:**\n" + "\n".join(commands_list)
         await interaction.response.send_message(help_text, ephemeral=True)
 
     async def _reset_current_channel_settings(self, member):

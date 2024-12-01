@@ -241,7 +241,7 @@ def extract_bio(html_content: str) -> Optional[str]:
     """
     logger.debug("Extracting bio from profile HTML.")
     soup = BeautifulSoup(html_content, 'lxml')
-    bio_div = soup.select_one("div.entry.bio div.value")  # Adjust selector based on actual HTML structure
+    bio_div = soup.select_one("div.entry.bio div.value")
     if bio_div:
         bio_text = bio_div.get_text(separator=" ", strip=True)
         logger.debug(f"Bio extracted: {bio_text}")

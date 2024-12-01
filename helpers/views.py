@@ -1,7 +1,6 @@
 # helpers/views.py
 
 import discord
-import asyncio
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
 import json
@@ -103,10 +102,9 @@ class ChannelSettingsView(View):
     """
     View containing interactive select menus for channel settings and permissions.
     """
-    def __init__(self, bot, member: discord.Member):
+    def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
-        self.member = member
 
         # Channel Settings Select Menu
         self.channel_settings_select = Select(
@@ -190,21 +188,44 @@ class ChannelSettingsView(View):
         self.channel_permissions_select.callback = self.channel_permissions_callback
         self.add_item(self.channel_permissions_select)
 
-    async def channel_settings_callback(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensures that only the owner can interact with this view.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You cannot interact with this.", ephemeral=True)
+            return False
+        return True
+
+    async def _check_ownership(self, interaction: Interaction) -> bool:
+        """
+        Ensures the user is the owner of the channel.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
+    async def channel_settings_callback(self, interaction: Interaction):
+        if not await self._check_ownership(interaction):
+            return
+
         selected = self.channel_settings_select.values[0]
         if selected == "name":
-            modal = NameModal(self.bot, self.member)
+            modal = NameModal(self.bot)
             await interaction.response.send_modal(modal)
         elif selected == "limit":
-            modal = LimitModal(self.bot, self.member)
+            modal = LimitModal(self.bot)
             await interaction.response.send_modal(modal)
         elif selected == "game":
-            channel = await get_user_channel(self.bot, self.member)
+            channel = await get_user_channel(self.bot, interaction.user)
             if not channel:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
-            game_name = get_user_game_name(self.member)
+            game_name = get_user_game_name(interaction.user)
             if not game_name:
                 await interaction.response.send_message("You are not currently playing a game.", ephemeral=True)
                 return
@@ -214,51 +235,47 @@ class ChannelSettingsView(View):
                 await safe_edit_channel(channel, name=game_name[:32])  # Ensure name is within 32 characters
 
                 # Update settings using the helper function
-                await update_channel_settings(self.member.id, channel_name=game_name)
+                await update_channel_settings(interaction.user.id, channel_name=game_name)
 
                 embed = discord.Embed(
                     description=f"Channel name has been set to your current game: **{game_name}**.",
                     color=discord.Color.green()
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
-                logger.info(f"{self.member.display_name} set their channel name to game: {game_name}.")
+                logger.info(f"{interaction.user.display_name} set their channel name to game: {game_name}.")
             except Exception as e:
                 logger.exception(f"Failed to set channel name to game: {e}")
                 embed = create_error_embed("Failed to set channel name to your current game. Please try again.")
                 await interaction.response.send_message(embed=embed, ephemeral=True)
         elif selected == "reset":
-            await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot, self.member))
+            await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
         elif selected == "close":
-            channel = await get_user_channel(self.bot, self.member)
-            if not channel:
-                await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-                return
-            await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot, self.member, channel))
+            await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot))
         else:
             await interaction.response.send_message("Unknown option selected.", ephemeral=True)
 
-    async def channel_permissions_callback(self, interaction: discord.Interaction):
+    async def channel_permissions_callback(self, interaction: Interaction):
+        if not await self._check_ownership(interaction):
+            return
+
         selected = self.channel_permissions_select.values[0]
         if selected in ["permit", "reject"]:
             action = selected
-            view = TargetTypeSelectView(self.bot, self.member, action=action)
+            view = TargetTypeSelectView(self.bot, action=action)
             await interaction.response.send_message("Choose the type of target you want to apply the action to:", view=view, ephemeral=True)
         elif selected == "ptt":
             # Send a view to select enable or disable PTT
-            view = PTTSelectView(self.bot, self.member)
+            view = PTTSelectView(self.bot)
             await interaction.response.send_message("Do you want to enable or disable PTT?", view=view, ephemeral=True)
         elif selected in ["lock", "unlock"]:
             lock = True if selected == "lock" else False
-            channel = await get_user_channel(self.bot, self.member)
+            channel = await get_user_channel(self.bot, interaction.user)
             if not channel:
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
             # Define permission change
-            if lock:
-                action = 'lock'
-            else:
-                action = 'unlock'
+            action = 'lock' if lock else 'unlock'
 
             permission_change = {
                 'action': action,
@@ -277,7 +294,7 @@ class ChannelSettingsView(View):
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                    (self.member.id,)
+                    (interaction.user.id,)
                 )
                 settings_row = await cursor.fetchone()
                 if settings_row and settings_row[0]:
@@ -289,11 +306,11 @@ class ChannelSettingsView(View):
 
                 permissions['lock'] = lock
 
-                await update_channel_settings(self.member.id, permissions=permissions)
+                await update_channel_settings(interaction.user.id, permissions=permissions)
 
             status = "locked" if lock else "unlocked"
             await interaction.response.send_message(f"Your voice channel has been {status}.", ephemeral=True)
-            logger.info(f"{self.member.display_name} {status} their voice channel.")
+            logger.info(f"{interaction.user.display_name} {status} their voice channel.")
         else:
             await interaction.response.send_message("Unknown option selected.", ephemeral=True)
 
@@ -301,10 +318,9 @@ class TargetTypeSelectView(View):
     """
     View to select the type of target (user or role).
     """
-    def __init__(self, bot, member, action, enable=None):
+    def __init__(self, bot, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
-        self.member = member
         self.action = action
         self.enable = enable  # For PTT action
 
@@ -320,13 +336,31 @@ class TargetTypeSelectView(View):
         self.target_type_select.callback = self.target_type_callback
         self.add_item(self.target_type_select)
 
+    async def _check_ownership(self, interaction: Interaction):
+        """
+        Ensures the user is the owner of the channel.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+    
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        # Ensure only the channel owner can interact
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
     async def target_type_callback(self, interaction: Interaction):
         selected_type = self.target_type_select.values[0]
         if selected_type == "user":
-            view = SelectUserView(self.bot, self.member, self.action, enable=self.enable)
+            view = SelectUserView(self.bot, self.action, enable=self.enable)
             await interaction.response.edit_message(content="Select users to apply the action:", view=view)
         elif selected_type == "role":
-            view = SelectRoleView(self.bot, self.member, self.action, enable=self.enable)
+            view = SelectRoleView(self.bot, self.action, enable=self.enable)
             await interaction.response.edit_message(content="Select roles to apply the action:", view=view)
         else:
             await interaction.response.send_message("Unknown target type selected.", ephemeral=True)
@@ -335,10 +369,9 @@ class SelectUserView(View):
     """
     View to select multiple users and apply permissions or actions such as PTT.
     """
-    def __init__(self, bot, member, action, enable=None):
+    def __init__(self, bot, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
-        self.member = member
         self.action = action
         self.enable = enable  # For PTT action
 
@@ -351,10 +384,18 @@ class SelectUserView(View):
         self.user_select.callback = self.user_select_callback
         self.add_item(self.user_select)
 
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        # Ensure only the channel owner can interact
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
     async def user_select_callback(self, interaction: Interaction):
         selected_users = self.user_select.values
         selected_user_ids = [user.id for user in selected_users]
-        channel = await get_user_channel(self.bot, self.member)
+        channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -380,7 +421,7 @@ class SelectUserView(View):
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                (self.member.id,)
+                (interaction.user.id,)
             )
             settings_row = await cursor.fetchone()
             if settings_row and settings_row[0]:
@@ -399,7 +440,7 @@ class SelectUserView(View):
             else:
                 existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
 
-            await update_channel_settings(self.member.id, permissions=existing_permissions)
+            await update_channel_settings(interaction.user.id, permissions=existing_permissions)
 
         # Determine status message based on action
         if self.action == "ptt":
@@ -411,16 +452,15 @@ class SelectUserView(View):
             }.get(self.action, "applied")
 
         await interaction.response.send_message(f"Selected users have been {status} in your channel.", ephemeral=True)
-        logger.info(f"{self.member.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'.")
+        logger.info(f"{interaction.user.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'.")
 
 class SelectRoleView(View):
     """
     View to select multiple roles.
     """
-    def __init__(self, bot, member, action, enable=None):
+    def __init__(self, bot, action, enable=None):
         super().__init__(timeout=None)
         self.bot = bot
-        self.member = member
         self.action = action
         self.enable = enable  # For PTT action
 
@@ -433,10 +473,18 @@ class SelectRoleView(View):
         self.role_select.callback = self.role_select_callback
         self.add_item(self.role_select)
 
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        # Ensure only the channel owner can interact
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
     async def role_select_callback(self, interaction: Interaction):
         selected_roles = self.role_select.values
         selected_role_ids = [role.id for role in selected_roles]
-        channel = await get_user_channel(self.bot, self.member)
+        channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
@@ -462,7 +510,7 @@ class SelectRoleView(View):
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                (self.member.id,)
+                (interaction.user.id,)
             )
             settings_row = await cursor.fetchone()
             if settings_row and settings_row[0]:
@@ -481,7 +529,7 @@ class SelectRoleView(View):
             else:
                 existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
 
-            await update_channel_settings(self.member.id, permissions=existing_permissions)
+            await update_channel_settings(interaction.user.id, permissions=existing_permissions)
 
         status = {
             "permit": "permitted",
@@ -490,16 +538,15 @@ class SelectRoleView(View):
         }.get(self.action, "applied")
 
         await interaction.response.send_message(f"Selected roles have been {status} in your channel.", ephemeral=True)
-        logger.info(f"{self.member.display_name} {status} roles: {selected_role_ids} in channel '{channel.name}'.")
+        logger.info(f"{interaction.user.display_name} {status} roles: {selected_role_ids} in channel '{channel.name}'.")
 
 class PTTSelectView(View):
     """
     View to select whether to enable or disable PTT.
     """
-    def __init__(self, bot, member):
+    def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
-        self.member = member
 
         self.ptt_select = Select(
             placeholder="Enable or Disable PTT",
@@ -513,8 +560,16 @@ class PTTSelectView(View):
         self.ptt_select.callback = self.ptt_select_callback
         self.add_item(self.ptt_select)
 
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        # Ensure only the channel owner can interact
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
     async def ptt_select_callback(self, interaction: Interaction):
         enable = True if self.ptt_select.values[0] == "enable" else False
         # Now proceed to select target type
-        view = TargetTypeSelectView(self.bot, self.member, action="ptt", enable=enable)
+        view = TargetTypeSelectView(self.bot, action="ptt", enable=enable)
         await interaction.response.edit_message(content="Choose the type of target you want to apply the PTT setting to:", view=view)
