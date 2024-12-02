@@ -33,19 +33,28 @@ class VerificationView(View):
         Args:
             bot (commands.Bot): The bot instance.
         """
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # Set timeout to None for persistence
         self.bot = bot
-        # Add "Get Token" button
-        self.get_token_button = Button(label="Get Token", style=discord.ButtonStyle.success)
+
+        # Add "Get Token" button with custom_id
+        self.get_token_button = Button(
+            label="Get Token",
+            style=discord.ButtonStyle.success,
+            custom_id="verification_get_token_button"  # Unique custom_id
+        )
         self.get_token_button.callback = self.get_token_button_callback
         self.add_item(self.get_token_button)
 
-        # Add "Verify" button
-        self.verify_button = Button(label="Verify", style=discord.ButtonStyle.primary)
+        # Add "Verify" button with custom_id
+        self.verify_button = Button(
+            label="Verify",
+            style=discord.ButtonStyle.primary,
+            custom_id="verification_verify_button"  # Unique custom_id
+        )
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
 
-    async def get_token_button_callback(self, interaction: discord.Interaction):
+    async def get_token_button_callback(self, interaction: Interaction):
         """
         Callback for the "Get Token" button. Generates and sends a verification token to the user.
 
@@ -77,7 +86,7 @@ class VerificationView(View):
         except Exception as e:
             logger.exception(f"Failed to send verification token to user '{member.display_name}': {e}", extra={'user_id': member.id})
 
-    async def verify_button_callback(self, interaction: discord.Interaction):
+    async def verify_button_callback(self, interaction: Interaction):
         """
         Callback for the "Verify" button. Initiates the verification modal.
 
