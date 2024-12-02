@@ -36,6 +36,7 @@ class Voice(commands.GroupCog, name="voice"):
         self.bot = bot
         self.config = ConfigLoader.load_config()
         self.bot_admin_role_ids = [int(role_id) for role_id in self.config['roles'].get('bot_admins', [])]
+        self.lead_moderator_role_ids = [int(role_id) for role_id in self.config['roles'].get('lead_moderators', [])]
         self.cooldown_seconds = self.config['voice'].get('cooldown_seconds', 60)
         self.join_to_create_channel_ids = []
         self.voice_category_id = None
@@ -546,6 +547,66 @@ class Voice(commands.GroupCog, name="voice"):
         await update_channel_settings(member.id, channel_name=None, user_limit=None, permissions=None)
 
         logger.info(f"Reset settings for {member.display_name}'s channel.")
+    ### Admin Commands
+
+    def is_bot_admin_or_lead_moderator(self, member):
+        roles = [role.id for role in member.roles]
+        return any(role_id in roles for role_id in (self.bot_admin_role_ids + self.lead_moderator_role_ids))
+
+    @app_commands.command(name="admin_reset", description="Admin command to reset a user's voice channel")
+    @app_commands.guild_only()
+    async def admin_reset_voice(self, interaction: discord.Interaction, user: discord.Member):
+        """
+        Allows bot admins or lead moderators to reset a user's voice channel.
+        """
+        # Permission check
+        if not self.is_bot_admin_or_lead_moderator(interaction.user):
+            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+            return
+
+        # Check if the user has a channel
+        channel = await get_user_channel(self.bot, user)
+        if not channel:
+            await interaction.response.send_message(f"{user.display_name} does not own a voice channel.", ephemeral=True)
+            return
+
+        # Reset the user's channel settings
+        await self._reset_current_channel_settings(user)
+        await interaction.response.send_message(f"{user.display_name}'s voice channel has been reset to default settings.", ephemeral=True)
+        logger.info(f"{interaction.user.display_name} reset {user.display_name}'s voice channel.")
+
+    @app_commands.command(name="owner", description="List all voice channels managed by the bot and their owners")
+    @app_commands.guild_only()
+    async def voice_owner(self, interaction: discord.Interaction):
+        """
+        Lists all voice channels managed by the bot and their owners.
+        """
+        # Fetch all managed voice channels from the database
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id, owner_id FROM user_voice_channels")
+            rows = await cursor.fetchall()
+
+        if not rows:
+            await interaction.response.send_message("There are no active voice channels managed by the bot.", ephemeral=True)
+            return
+
+        message = "**Active Voice Channels Managed by the Bot:**\n"
+        for channel_id, owner_id in rows:
+            channel = self.bot.get_channel(channel_id)
+            owner = interaction.guild.get_member(owner_id)
+            if channel and owner:
+                message += f"- {channel.name} (Owner: {owner.display_name})\n"
+            elif channel:
+                message += f"- {channel.name} (Owner: Unknown)\n"
+            else:
+                # Channel might have been deleted; remove it from the database
+                async with Database.get_connection() as db:
+                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                    await db.commit()
+                self.managed_voice_channels.discard(channel_id)
+                continue  # Skip to the next channel
+
+        await interaction.response.send_message(message, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Voice(bot))
