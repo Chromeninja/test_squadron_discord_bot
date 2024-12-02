@@ -31,7 +31,8 @@ Get-ChildItem -Path $scriptDirectory -Recurse -File | ForEach-Object {
     }
     
     # Additional checks to skip specific files
-    if ($_.Name -in @('bot.log', 'package-lock.json', 'package.json', 'TESTDatabase.db')) {
+    if ($_.Name -in @('bot.log', 'package-lock.json', 'package.json', 'TESTDatabase.db') -or
+        $_.Extension -eq '.txt') {
         $skipFile = $true
     }
     

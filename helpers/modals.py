@@ -3,20 +3,20 @@
 import discord
 from discord.ui import Modal, TextInput
 import re
-
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
 from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
+from helpers.database import Database
 from helpers.logger import get_logger
+from helpers.voice_utils import get_user_channel, update_channel_settings, safe_edit_channel, safe_delete_channel
 
 # Initialize logger
 logger = get_logger(__name__)
 
 # Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
-
 
 class HandleModal(Modal, title="Verification"):
     """
@@ -146,14 +146,14 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == 'main':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
                 "Fly safe! <:o7:1306961462215970836>"
             )
         elif assigned_role_type == 'affiliate':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
@@ -163,9 +163,9 @@ class HandleModal(Modal, title="Verification"):
             )
         elif assigned_role_type == 'non_member':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squardon!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1306961532080623676>\n\n"
-                "Join us for thrilling adventures and be part of the best and  biggest community!\n\n"
+                "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1306961462215970836>"
@@ -190,19 +190,181 @@ class HandleModal(Modal, title="Verification"):
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
 
-
-def can_modify_nickname(member: discord.Member) -> bool:
+class CloseChannelConfirmationModal(Modal):
     """
-    Checks if the bot can modify the member's nickname based on role hierarchy.
-
-    Args:
-        member (discord.Member): The member to check.
-
-    Returns:
-        bool: True if the bot can modify, False otherwise.
+    Modal to confirm closing the voice channel.
     """
-    guild = member.guild
-    bot_member = guild.me
-    can_modify = bot_member.top_role > member.top_role
-    logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
-    return can_modify
+    def __init__(self, bot):
+        super().__init__(title="Confirm Close Channel")
+        self.bot = bot
+        self.confirmation = TextInput(
+            label="Type 'CLOSE' to confirm",
+            placeholder="Type 'CLOSE' to confirm",
+            required=True,
+            max_length=5
+        )
+        self.add_item(self.confirmation)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        member = interaction.user
+        channel = await get_user_channel(self.bot, member)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return
+
+        if self.confirmation.value.strip().upper() == "CLOSE":
+            # Delete the channel with rate limiting
+            try:
+                await safe_delete_channel(channel)
+                async with Database.get_connection() as db:
+                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,))
+                    await db.commit()
+                await interaction.response.send_message("Your voice channel has been closed.", ephemeral=True)
+                logger.info(f"{member.display_name} closed their voice channel.")
+            except Exception as e:
+                logger.exception(f"Error deleting voice channel: {e}")
+                await interaction.response.send_message("Failed to close your voice channel.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Channel closure cancelled.", ephemeral=True)
+
+class ResetSettingsConfirmationModal(Modal):
+    """
+    Modal to confirm resetting channel settings.
+    """
+    def __init__(self, bot):
+        super().__init__(title="Reset Channel Settings")
+        self.bot = bot
+        self.confirm = TextInput(
+            label="Type 'RESET' to confirm",
+            placeholder="RESET",
+            required=True,
+            min_length=5,
+            max_length=5
+        )
+        self.add_item(self.confirm)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        member = interaction.user
+        # Defer the response to acknowledge the interaction
+        await interaction.response.defer(ephemeral=True)
+
+        confirmation_text = self.confirm.value.strip().upper()
+        if confirmation_text != "RESET":
+            await interaction.followup.send("Confirmation text does not match. Channel settings were not reset.", ephemeral=True)
+            logger.info(f"{member.display_name} failed to confirm channel reset.")
+            return
+
+        try:
+            # Access the Voice cog to reset channel settings
+            voice_cog = self.bot.get_cog("voice")
+            if not voice_cog:
+                await interaction.followup.send("Voice cog is not loaded.", ephemeral=True)
+                logger.error("Voice cog not found.")
+                return
+
+            # Reset the channel settings
+            await voice_cog._reset_current_channel_settings(member)
+
+            await interaction.followup.send("Your channel settings have been reset to default.", ephemeral=True)
+            logger.info(f"{member.display_name} reset their channel settings.")
+        except Exception as e:
+            logger.exception(f"Failed to reset channel settings for {member.display_name}: {e}")
+            await interaction.followup.send("An error occurred while resetting your channel settings. Please try again later.", ephemeral=True)
+
+class NameModal(Modal):
+    """
+    Modal to change the voice channel name.
+    """
+    def __init__(self, bot):
+        super().__init__(title="Change Channel Name")
+        self.bot = bot
+        self.channel_name = TextInput(
+            label="New Channel Name",
+            placeholder="Enter a new name for your channel",
+            min_length=2,
+            max_length=32
+        )
+        self.add_item(self.channel_name)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        member = interaction.user
+        new_name = self.channel_name.value.strip()
+        if not (2 <= len(new_name) <= 32):
+            await interaction.response.send_message("Channel name must be between 2 and 32 characters.", ephemeral=True)
+            return
+        channel = await get_user_channel(self.bot, member)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return
+
+        try:
+            # Use the helper function to get the user's channel
+            channel = await get_user_channel(self.bot, member)
+            if not channel:
+                await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+                return
+
+            # Change the channel name with rate limiting
+            await safe_edit_channel(channel, name=new_name)
+
+            # Update settings using the helper function
+            await update_channel_settings(member.id, channel_name=new_name)
+
+            await interaction.response.send_message(f"Channel name has been changed to '{new_name}'.", ephemeral=True)
+            logger.info(f"{member.display_name} changed channel name to '{new_name}'.")
+        except discord.Forbidden:
+            logger.warning(f"Insufficient permissions to change channel name for {member.display_name}.")
+            await interaction.response.send_message("I don't have permission to change the channel name.", ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Failed to change channel name for {member.display_name}: {e}")
+            await interaction.response.send_message("An unexpected error occurred. Please try again later.", ephemeral=True)
+
+class LimitModal(Modal):
+    """
+    Modal to set the user limit for the voice channel.
+    """
+    def __init__(self, bot):
+        super().__init__(title="Set User Limit")
+        self.bot = bot
+        self.user_limit = TextInput(
+            label="User Limit",
+            placeholder="Enter a number between 2 and 99",
+            required=True,
+            max_length=2
+        )
+        self.add_item(self.user_limit)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        member = interaction.user
+        try:
+            limit = int(self.user_limit.value.strip())
+            if not (2 <= limit <= 99):
+                raise ValueError
+        except ValueError:
+            embed = create_error_embed("User limit must be a number between 2 and 99.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Update user limit
+        channel = await get_user_channel(self.bot, member)
+        if not channel:
+            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+            return
+
+        try:
+            await safe_edit_channel(channel, user_limit=limit)
+
+            # Update settings using the helper function
+            await update_channel_settings(member.id, user_limit=limit)
+
+            embed = create_success_embed(f"User limit has been set to {limit}.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            logger.info(f"{member.display_name} set their channel user limit to {limit}.")
+        except discord.Forbidden:
+            logger.warning(f"Insufficient permissions to set user limit for {member.display_name}.")
+            embed = create_error_embed("I don't have permission to set the user limit.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Failed to set user limit: {e}")
+            embed = create_error_embed("Failed to set user limit. Please try again.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)

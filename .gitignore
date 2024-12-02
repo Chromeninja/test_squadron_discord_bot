@@ -136,3 +136,5 @@ venv/
 
 #other
 all_code.txt
+
+ExportAllCode.ps1

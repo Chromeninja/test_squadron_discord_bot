@@ -100,6 +100,15 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     
 
 def can_modify_nickname(member: discord.Member) -> bool:
+    """
+    Checks if the bot can modify the member's nickname based on role hierarchy.
+
+    Args:
+        member (discord.Member): The member to check.
+
+    Returns:
+        bool: True if the bot can modify, False otherwise.
+    """
     guild = member.guild
     bot_member = guild.me
     can_modify = bot_member.top_role > member.top_role
