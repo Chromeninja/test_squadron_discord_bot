@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
+from helpers.views import VerificationView
 from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
 from helpers.database import Database  # <-- Add this import
@@ -105,6 +106,9 @@ class MyBot(commands.Bot):
         # Start cleanup tasks
         self.loop.create_task(self.token_cleanup_task())
         self.loop.create_task(self.attempts_cleanup_task())
+
+        # Register the persistent VerificationView
+        self.add_view(VerificationView(self))
 
         # Sync the command tree after loading all cogs
         try:
