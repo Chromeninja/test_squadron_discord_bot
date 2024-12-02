@@ -22,7 +22,7 @@ roles:
     - "1174838659065847859"
 
 logging:
-  level: "DEBUG"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+  level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
 
 voice:
   database_path: "voice.db"  # Path to VoiceMaster's SQLite database
