@@ -131,11 +131,8 @@ class Voice(commands.GroupCog, name="voice"):
 
             # Create voice channel
             try:
-                guild = member.guild
-                category = guild.get_channel(self.voice_category_id)
-                if not category:
-                    logger.error("Voice category not found.")
-                    return
+                # Get the "Join to Create" channel that the user joined
+                join_to_create_channel = after.channel  # This is the "Join to Create" channel
 
                 # Retrieve saved settings or set defaults
                 async with Database.get_connection() as db:
@@ -152,25 +149,24 @@ class Voice(commands.GroupCog, name="voice"):
                     channel_name = get_user_game_name(member) or f"{member.display_name}'s Channel"
                 channel_name = channel_name[:32]  # Ensure name is within 32 characters
 
-                # Determine user limit
-                user_limit = settings_row[1] if settings_row and settings_row[1] else None
+                # Clone the "Join to Create" channel with the new name
+                new_channel = await join_to_create_channel.clone(name=channel_name)
 
-                # Define permission overwrites
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(connect=False),
-                    member: discord.PermissionOverwrite(manage_channels=True, connect=True)
-                }
+                # Set user limit if specified
+                if settings_row and settings_row[1]:
+                    user_limit = settings_row[1]
+                    await new_channel.edit(user_limit=user_limit)
+                else:
+                    user_limit = None
 
-                # Create the channel with the settings
-                new_channel = await safe_create_voice_channel(
-                    guild=guild,
-                    name=channel_name,
-                    category=category,
-                    user_limit=user_limit,
-                    overwrites=overwrites
-                )
+                # Adjust permissions
+                overwrites = new_channel.overwrites
+                # Ensure the owner has manage_channels and connect permissions
+                overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+                # Update the overwrites
+                await new_channel.edit(overwrites=overwrites)
 
-                # Apply saved permissions (like PTT settings)
+                # Apply saved permissions
                 if settings_row and settings_row[2]:
                     permissions = json.loads(settings_row[2])
                     if not isinstance(permissions, dict):
@@ -186,7 +182,7 @@ class Voice(commands.GroupCog, name="voice"):
                 async with Database.get_connection() as db:
                     await db.execute(
                         "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, owner_id) VALUES (?, ?)",
-                        (new_channel.id, member.id)  # Set owner_id to the member's ID
+                        (new_channel.id, member.id)
                     )
                     await db.execute(
                         "INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)",
@@ -207,7 +203,6 @@ class Voice(commands.GroupCog, name="voice"):
 
                 # Wait until the channel is empty
                 await self._wait_for_channel_empty(new_channel)
-                # Deletion logic removed to prevent double deletion
             except Exception as e:
                 logger.exception(f"Error creating voice channel for {member.display_name}: {e}")
 
@@ -517,28 +512,32 @@ class Voice(commands.GroupCog, name="voice"):
         if not channel:
             return
 
-        # Define desired changes
-        changes = {}
-        default_name = f"{member.display_name}'s Channel"[:32]
-        if channel.name != default_name:
-            changes['name'] = default_name
+        # Get the "Join to Create" channel
+        join_to_create_channel = self.bot.get_channel(self.join_to_create_channel_ids[0])  # Use the first one or select appropriately
+        if not join_to_create_channel:
+            logger.error("Join to Create channel not found.")
+            return
 
-        # Reset overwrites to default
-        overwrites = {
-            member: discord.PermissionOverwrite(manage_channels=True, connect=True),
-            channel.guild.default_role: discord.PermissionOverwrite(connect=True)
-        }
-        changes['overwrites'] = overwrites
+        # Get settings from "Join to Create" channel
+        default_overwrites = join_to_create_channel.overwrites
+        default_user_limit = join_to_create_channel.user_limit
+        default_bitrate = join_to_create_channel.bitrate
 
-        # Reset user limit if it's not already None
-        if channel.user_limit is not None:
-            changes['user_limit'] = None
-
-        # Apply all changes with rate limiting
+        # Reset the channel's settings
         try:
-            if changes:
-                await safe_edit_channel(channel, **changes)
-                logger.info(f"Reset channel settings for '{member.display_name}'")
+            default_name = f"{member.display_name}'s Channel"[:32]
+
+            # Copy the overwrites and ensure the owner has the correct permissions
+            overwrites = default_overwrites.copy()
+            overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+
+            await channel.edit(
+                name=default_name,
+                overwrites=overwrites,
+                user_limit=default_user_limit,
+                bitrate=default_bitrate
+            )
+            logger.info(f"Reset channel settings for '{member.display_name}'")
         except Exception as e:
             logger.exception(f"Failed to reset channel settings for {member.display_name}: {e}")
             return
