@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
+from helpers.views import VerificationView
 from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
+from helpers.database import Database  # <-- Add this import
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -42,11 +44,13 @@ intents = discord.Intents.default()
 intents.guilds = True  # Needed for guild-related events
 intents.members = True  # Needed for member-related events
 intents.message_content = True  # Needed for reading message content
+intents.voice_states = True  # Needed for voice state updates
 
 # List of initial extensions to load
 initial_extensions = [
     'cogs.verification',
-    'cogs.admin'
+    'cogs.admin',
+    'cogs.voice'
 ]
 
 class MyBot(commands.Bot):
@@ -81,8 +85,11 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         """
-        Asynchronously loads all initial extensions (cogs).
+        Asynchronously loads all initial extensions (cogs) and syncs commands.
         """
+        # Initialize the database
+        await Database.initialize()
+        
         # Initialize the HTTP client session
         await self.http_client.init_session()
 
@@ -99,6 +106,16 @@ class MyBot(commands.Bot):
         # Start cleanup tasks
         self.loop.create_task(self.token_cleanup_task())
         self.loop.create_task(self.attempts_cleanup_task())
+
+        # Register the persistent VerificationView
+        self.add_view(VerificationView(self))
+
+        # Sync the command tree after loading all cogs
+        try:
+            await self.tree.sync()
+            logger.info("All commands synced globally.")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}")
 
     async def cache_roles(self):
         """
@@ -143,12 +160,9 @@ class MyBot(commands.Bot):
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
 
-        # Sync the command tree globally
-        try:
-            synced = await self.tree.sync()
-            logger.info(f"Synced {len(synced)} commands globally.")
-        except Exception as e:
-            logger.error(f"Failed to sync commands: {e}")
+        # Optional: Log bot uptime
+        uptime = self.uptime
+        logger.info(f"Uptime: {uptime}")
 
     @property
     def uptime(self) -> str:

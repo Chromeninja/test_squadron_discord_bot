@@ -1,5 +1,7 @@
 # helpers/role_helper.py
 
+import time
+from helpers.database import Database
 import discord
 from helpers.logger import get_logger
 
@@ -31,6 +33,27 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         roles_to_add.append(non_member_role)
         assigned_role_type = 'non_member'
         logger.debug(f"Appending role to add: {non_member_role.name}")
+    
+    # Map verify_value to membership status
+    membership_status_map = {
+        1: 'main',
+        2: 'affiliate',
+        0: 'non_member',
+    }
+    membership_status = membership_status_map.get(verify_value, 'unknown')
+
+    # Use the correct method to get a database connection
+    async with Database.get_connection() as db:
+        await db.execute("""
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                rsi_handle = excluded.rsi_handle,
+                membership_status = excluded.membership_status,
+                last_updated = excluded.last_updated
+        """, (member.id, cased_handle, membership_status, int(time.time())))
+        await db.commit()
+        logger.info(f"Stored verification data for user {member.display_name} ({member.id})")
 
     conflicting_roles = [main_role, affiliate_role, non_member_role]
     for role in conflicting_roles:
@@ -74,8 +97,18 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
+    
 
 def can_modify_nickname(member: discord.Member) -> bool:
+    """
+    Checks if the bot can modify the member's nickname based on role hierarchy.
+
+    Args:
+        member (discord.Member): The member to check.
+
+    Returns:
+        bool: True if the bot can modify, False otherwise.
+    """
     guild = member.guild
     bot_member = guild.me
     can_modify = bot_member.top_role > member.top_role

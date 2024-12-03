@@ -2,12 +2,13 @@
 
 import discord
 from discord.ext import commands
+import json
+import os
 
 from helpers.embeds import create_verification_embed
 from helpers.views import VerificationView
 from helpers.logger import get_logger
 
-# Initialize logger
 logger = get_logger(__name__)
 
 class VerificationCog(commands.Cog):
@@ -35,7 +36,7 @@ class VerificationCog(commands.Cog):
     async def send_verification_message(self):
         """
         Sends the initial verification message to the verification channel.
-        Deletes all existing messages in the channel before sending a new one.
+        If a message already exists, it will not send a new one.
         """
         logger.info("Starting to send verification message...")
         channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
@@ -45,10 +46,24 @@ class VerificationCog(commands.Cog):
         else:
             logger.info(f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})")
 
-        # Delete all previous messages in the verification channel (up to 100 messages)
-        logger.info("Attempting to delete all messages in the verification channel...")
-        await self.delete_all_messages(channel)
-        logger.info("Deleted all messages in the verification channel.")
+        # Load the message ID from a file
+        message_id = None
+        message_id_file = 'verification_message_id.json'
+        if os.path.exists(message_id_file):
+            with open(message_id_file, 'r') as f:
+                data = json.load(f)
+                message_id = data.get('message_id')
+
+        if message_id:
+            try:
+                # Try to fetch the message
+                verification_message = await channel.fetch_message(message_id)
+                logger.info(f"Verification message already exists with ID: {message_id}")
+                return  # Message already exists, no need to send a new one
+            except discord.NotFound:
+                logger.info("Verification message not found, will send a new one.")
+            except Exception as e:
+                logger.error(f"Error fetching verification message: {e}")
 
         # Create the verification embed
         embed = create_verification_embed()
@@ -61,26 +76,15 @@ class VerificationCog(commands.Cog):
             logger.info("Attempting to send the verification embed...")
             sent_message = await channel.send(embed=embed, view=view)
             logger.info(f"Sent verification message in channel. Message ID: {sent_message.id}")
+
+            # Save the message ID to the file
+            with open(message_id_file, 'w') as f:
+                json.dump({'message_id': sent_message.id}, f)
+
         except discord.Forbidden:
             logger.error("Bot lacks permission to send messages in the verification channel.")
         except discord.HTTPException as e:
             logger.exception(f"Failed to send verification message: {e}")
-
-    async def delete_all_messages(self, channel: discord.TextChannel):
-        """
-        Deletes all messages in the specified channel up to a limit of 100 messages.
-
-        Args:
-            channel (discord.TextChannel): The channel to delete messages from.
-        """
-        try:
-            # Purge all messages in the channel with a limit of 100
-            deleted = await channel.purge(limit=100, check=lambda m: True)
-            logger.info(f"Deleted {len(deleted)} messages from channel '{channel.name}'.")
-        except discord.Forbidden:
-            logger.error("Bot lacks permission to delete messages in the verification channel.")
-        except discord.HTTPException as e:
-            logger.exception(f"Failed to delete messages: {e}")
 
 async def setup(bot: commands.Bot):
     """

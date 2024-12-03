@@ -1,8 +1,6 @@
-# Setup Guide for TEST Squadron Discord Verification Bot
+# Setup Guide for TEST Squadron Discord Bot
 
-Hey team!
-
-Ready to get the Discord Verification Bot up and running on your local machine? Follow these steps to set things up.
+Ready to get the **TEST Squadron Discord Bot** up and running on your local machine? Follow these steps to set things up.
 
 ## 📝 Prerequisites
 
@@ -15,6 +13,10 @@ Before you start, make sure you have the following installed:
 ## 📦 Cloning the Repository
 
 1. Open your terminal or command prompt.
+2. Clone the repo:
+   ```bash
+   git clone https://github.com/yourusername/test-squadron-discord-bot.git
+
 2. Clone the repo:git clone https://github.com/yourusername/test-squadron-discord-bot.git
 3. Navigate into the project directory: cd test-squadron-discord-bot
 

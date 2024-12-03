@@ -142,10 +142,8 @@ def parse_rsi_organizations(html_content: str) -> dict:
             a_tag = aff_section.find('a', class_='value')
             if a_tag:
                 affiliate_name = a_tag.get_text(strip=True)
-                # Avoid adding the main organization as an affiliate
-                if affiliate_name.lower() != TEST_ORG_NAME:
-                    affiliates.append(affiliate_name)
-                    logger.debug(f"Affiliate organization found: {affiliate_name}")
+                affiliates.append(affiliate_name)  # Removed the condition here
+                logger.debug(f"Affiliate organization found: {affiliate_name}")
     else:
         logger.warning("No affiliate organizations found.")
 
@@ -241,7 +239,7 @@ def extract_bio(html_content: str) -> Optional[str]:
     """
     logger.debug("Extracting bio from profile HTML.")
     soup = BeautifulSoup(html_content, 'lxml')
-    bio_div = soup.select_one("div.entry.bio div.value")  # Adjust selector based on actual HTML structure
+    bio_div = soup.select_one("div.entry.bio div.value")
     if bio_div:
         bio_text = bio_div.get_text(separator=" ", strip=True)
         logger.debug(f"Bio extracted: {bio_text}")
