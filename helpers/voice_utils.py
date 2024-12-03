@@ -47,7 +47,7 @@ def get_user_game_name(member):
         The name of the game the user is playing, or None if not playing any.
     """
     for activity in member.activities:
-        if isinstance(activity, discord.Game):
+        if activity.type == discord.ActivityType.playing:
             return activity.name
     return None
 

@@ -234,7 +234,12 @@ class ChannelSettingsView(View):
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
-            game_name = get_user_game_name(interaction.user)
+            # Get the Member object from the interaction
+            member = interaction.guild.get_member(interaction.user.id)
+            if not member:
+                await interaction.response.send_message("Unable to retrieve your member data.", ephemeral=True)
+                return
+            game_name = get_user_game_name(member)
             if not game_name:
                 await interaction.response.send_message("You are not currently playing a game.", ephemeral=True)
                 return

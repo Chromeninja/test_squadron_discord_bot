@@ -45,6 +45,7 @@ intents.guilds = True  # Needed for guild-related events
 intents.members = True  # Needed for member-related events
 intents.message_content = True  # Needed for reading message content
 intents.voice_states = True  # Needed for voice state updates
+intents.presences = True
 
 # List of initial extensions to load
 initial_extensions = [
