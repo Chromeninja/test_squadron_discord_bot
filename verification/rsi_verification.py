@@ -142,10 +142,8 @@ def parse_rsi_organizations(html_content: str) -> dict:
             a_tag = aff_section.find('a', class_='value')
             if a_tag:
                 affiliate_name = a_tag.get_text(strip=True)
-                # Avoid adding the main organization as an affiliate
-                if affiliate_name.lower() != TEST_ORG_NAME:
-                    affiliates.append(affiliate_name)
-                    logger.debug(f"Affiliate organization found: {affiliate_name}")
+                affiliates.append(affiliate_name)  # Removed the condition here
+                logger.debug(f"Affiliate organization found: {affiliate_name}")
     else:
         logger.warning("No affiliate organizations found.")
 
