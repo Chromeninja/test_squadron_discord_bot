@@ -7,26 +7,23 @@ organization:
   name: "TEST Squadron - Best Squardon!" 
 
 channels:
-  verification_channel_id: 1301647270889914429  # Replace with your verification channel ID
+  verification_channel_id: 1313551608491282543  # Replace with your verification channel ID
 
 roles:
-  bot_verified_role_id: 1301647923268030474     # Replace with your BotVerified role ID
-  main_role_id: 1179505821760114689            # Replace with your Main role ID
-  affiliate_role_id: 1179618003604750447       # Replace with your Affiliate role ID
-  non_member_role_id: 1301648113483907132      # Replace with your Non-Member role ID
+  bot_verified_role_id: 1313551309869416528     # Replace with your BotVerified role ID
+  main_role_id: 1313551109373165671            # Replace with your Main role ID
+  affiliate_role_id: 1313551109373165671       # Replace with your Affiliate role ID
+  non_member_role_id: 1313551221625192458      # Replace with your Non-Member role ID
   bot_admins:
-    - "1174838659065847859"
-    - "1309213397757460530"
+    - "246604397155581954"
 
   lead_moderators:
     - "1174838659065847859"
 
 logging:
-  level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+  level: "DEBUG"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
 
 voice:
-  database_path: "voice.db"  # Path to VoiceMaster's SQLite database
-  default_category_name: "Voice"  # Default category for voice channels
   cooldown_seconds: 5  # Cooldown period in seconds
 
 database:
