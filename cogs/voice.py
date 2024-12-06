@@ -73,6 +73,17 @@ class Voice(commands.GroupCog, name="voice"):
         if not self.join_to_create_channel_ids or not self.voice_category_id:
             logger.error("Voice setup is incomplete. Please run /voice setup command.")
 
+        # Cleanup stale voice channels that no longer exist
+        for channel_id in list(self.managed_voice_channels):
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                # Channel doesn't exist, remove from DB and set
+                async with Database.get_connection() as db:
+                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                    await db.commit()
+                self.managed_voice_channels.remove(channel_id)
+                logger.info(f"Cleaned up stale voice channel entry {channel_id} from database.")
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         """

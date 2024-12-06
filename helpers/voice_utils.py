@@ -30,8 +30,21 @@ async def get_user_channel(bot, member):
         if row:
             channel_id = row[0]
             channel = bot.get_channel(channel_id)
-            if channel:
-                return channel
+
+            # If the bot doesn't have the channel cached, try fetching it from the API
+            if channel is None:
+                try:
+                    channel = await bot.fetch_channel(channel_id)
+                except discord.NotFound:
+                    logger.warning(f"Channel with ID {channel_id} not found.")
+                    return None
+                except discord.Forbidden:
+                    logger.warning(f"Forbidden to fetch channel with ID {channel_id}.")
+                    return None
+                except discord.HTTPException as e:
+                    logger.error(f"Failed to fetch channel {channel_id}: {e}")
+                    return None
+            return channel
     return None
 
 def get_user_game_name(member):
