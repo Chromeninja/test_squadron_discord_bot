@@ -320,7 +320,6 @@ class Voice(commands.GroupCog, name="voice"):
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
             return
 
-        # Send the TargetTypeSelectView
         view = TargetTypeSelectView(self.bot, action="reject")
         await interaction.response.send_message("Choose the type of target you want to reject:", view=view, ephemeral=True)
 
