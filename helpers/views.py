@@ -307,7 +307,7 @@ class ChannelSettingsView(View):
 
 class TargetTypeSelectView(View):
     """
-    View to select the type of target (user or role).
+    View to select the type of target (user, role, or everyone for PTT only).
     """
     def __init__(self, bot, action, enable=None):
         super().__init__(timeout=None)
@@ -315,14 +315,23 @@ class TargetTypeSelectView(View):
         self.action = action
         self.enable = enable  # For PTT action
 
+        # Base options for all actions
+        options = [
+            SelectOption(label="User", value="user", description="Select users to apply the action"),
+            SelectOption(label="Role", value="role", description="Select roles to apply the action"),
+        ]
+
+        # Add 'Everyone' option only if action is 'ptt'
+        if self.action == "ptt":
+            options.append(
+                SelectOption(label="Everyone", value="everyone", description="Apply to everyone")
+            )
+
         self.target_type_select = Select(
             placeholder="Select Target Type",
             min_values=1,
             max_values=1,
-            options=[
-                SelectOption(label="User", value="user", description="Select users to apply the action"),
-                SelectOption(label="Role", value="role", description="Select roles to apply the action"),
-            ]
+            options=options
         )
         self.target_type_select.callback = self.target_type_callback
         self.add_item(self.target_type_select)
@@ -337,6 +346,35 @@ class TargetTypeSelectView(View):
 
     async def target_type_callback(self, interaction: Interaction):
         selected_type = self.target_type_select.values[0]
+
+        # If the action is ptt and the user selected "everyone"
+        if self.action == "ptt" and selected_type == "everyone":
+            # Directly apply PTT to everyone
+            member = interaction.user
+            channel = await get_user_channel(self.bot, member)
+            if not channel:
+                await interaction.response.send_message("You don't own a channel.", ephemeral=True)
+                return
+
+            # Set PTT for everyone in the database
+            await set_ptt_setting(member.id, target_id=None, target_type='everyone', ptt_enabled=self.enable)
+
+            # Apply permission changes
+            permission_change = {
+                'action': 'ptt',
+                'targets': [{'type': 'everyone', 'id': None}],
+                'enable': self.enable
+            }
+
+            try:
+                await apply_permissions_changes(channel, permission_change)
+                status = "enabled" if self.enable else "disabled"
+                await interaction.response.edit_message(content=f"PTT has been {status} for everyone in your channel.", view=None)
+            except Exception as e:
+                await interaction.response.send_message(f"Failed to apply PTT settings: {e}", ephemeral=True)
+            return
+
+        # If the user selected 'user' or 'role' (or action != ptt)
         if selected_type == "user":
             view = SelectUserView(self.bot, self.action, enable=self.enable)
             await interaction.response.edit_message(content="Select users to apply the action:", view=view)
@@ -344,6 +382,8 @@ class TargetTypeSelectView(View):
             view = SelectRoleView(self.bot, self.action, enable=self.enable)
             await interaction.response.edit_message(content="Select roles to apply the action:", view=view)
         else:
+            # If action is not ptt and user somehow selected 'everyone' (which shouldn't be displayed unless ptt),
+            # or something unexpected, handle gracefully:
             await interaction.response.send_message("Unknown target type selected.", ephemeral=True)
 
 class SelectUserView(View):
