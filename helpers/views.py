@@ -1,25 +1,28 @@
-# helpers/views.py
-
 import discord
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
 import json
 from helpers.permissions_helper import apply_permissions_changes
-from helpers.embeds import create_token_embed, create_error_embed, create_success_embed, create_cooldown_embed
+from helpers.embeds import create_token_embed, create_error_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.modals import (
     HandleModal,
     NameModal,
     LimitModal,
-    CloseChannelConfirmationModal,
     ResetSettingsConfirmationModal
 )
 from helpers.logger import get_logger
 from helpers.database import Database
-from helpers.voice_utils import get_user_channel, get_user_game_name, update_channel_settings, safe_edit_channel
+from helpers.voice_utils import (
+    get_user_channel,
+    get_user_game_name,
+    update_channel_settings,
+    safe_edit_channel,
+    set_channel_permission,
+    set_ptt_setting
+)
 
-# Initialize logger
 logger = get_logger(__name__)
 
 class VerificationView(View):
@@ -40,7 +43,7 @@ class VerificationView(View):
         self.get_token_button = Button(
             label="Get Token",
             style=discord.ButtonStyle.success,
-            custom_id="verification_get_token_button"  # Unique custom_id
+            custom_id="verification_get_token_button"
         )
         self.get_token_button.callback = self.get_token_button_callback
         self.add_item(self.get_token_button)
@@ -49,7 +52,7 @@ class VerificationView(View):
         self.verify_button = Button(
             label="Verify",
             style=discord.ButtonStyle.primary,
-            custom_id="verification_verify_button"  # Unique custom_id
+            custom_id="verification_verify_button"
         )
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
@@ -144,12 +147,6 @@ class ChannelSettingsView(View):
                     value="reset",
                     description="Reset your channel settings to default",
                     emoji="🔄"
-                ),
-                SelectOption(
-                    label="Close",
-                    value="close",
-                    description="Close your voice channel",
-                    emoji="❌"
                 ),
             ]
         )
@@ -263,8 +260,6 @@ class ChannelSettingsView(View):
                 await interaction.response.send_message(embed=embed, ephemeral=True)
         elif selected == "reset":
             await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
-        elif selected == "close":
-            await interaction.response.send_modal(CloseChannelConfirmationModal(self.bot))
         else:
             await interaction.response.send_message("Unknown option selected.", ephemeral=True)
 
@@ -288,11 +283,8 @@ class ChannelSettingsView(View):
                 await interaction.response.send_message("You don't own a channel.", ephemeral=True)
                 return
 
-            # Define permission change
-            action = 'lock' if lock else 'unlock'
-
             permission_change = {
-                'action': action,
+                'action': 'lock' if lock else 'unlock',
                 'targets': [{'type': 'role', 'id': channel.guild.default_role.id}]
             }
 
@@ -300,27 +292,12 @@ class ChannelSettingsView(View):
             try:
                 await apply_permissions_changes(channel, permission_change)
             except Exception as e:
-                logger.error(f"Failed to apply permission '{action}' to channel '{channel.name}': {e}")
+                logger.error(f"Failed to apply permission '{'lock' if lock else 'unlock'}' to channel '{channel.name}': {e}")
                 await interaction.response.send_message(f"Failed to {'lock' if lock else 'unlock'} your voice channel.", ephemeral=True)
                 return
 
-            # Update settings using the helper function
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                    (interaction.user.id,)
-                )
-                settings_row = await cursor.fetchone()
-                if settings_row and settings_row[0]:
-                    permissions = json.loads(settings_row[0])
-                    if not isinstance(permissions, dict):
-                        permissions = {}
-                else:
-                    permissions = {}
-
-                permissions['lock'] = lock
-
-                await update_channel_settings(interaction.user.id, permissions=permissions)
+            # Update the lock state directly
+            await update_channel_settings(interaction.user.id, lock=1 if lock else 0)
 
             status = "locked" if lock else "unlocked"
             await interaction.response.send_message(f"Your voice channel has been {status}.", ephemeral=True)
@@ -350,16 +327,6 @@ class TargetTypeSelectView(View):
         self.target_type_select.callback = self.target_type_callback
         self.add_item(self.target_type_select)
 
-    async def _check_ownership(self, interaction: Interaction):
-        """
-        Ensures the user is the owner of the channel.
-        """
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-            return False
-        return True
-    
     async def interaction_check(self, interaction: Interaction) -> bool:
         # Ensure only the channel owner can interact
         channel = await get_user_channel(self.bot, interaction.user)
@@ -431,39 +398,20 @@ class SelectUserView(View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Update database permissions
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                (interaction.user.id,)
-            )
-            settings_row = await cursor.fetchone()
-            if settings_row and settings_row[0]:
-                existing_permissions = json.loads(settings_row[0])
-                if not isinstance(existing_permissions, dict):
-                    existing_permissions = {}
-            else:
-                existing_permissions = {}
+        # Update the dedicated permissions tables
+        if self.action in ["permit", "reject"]:
+            # Set channel permissions for each user
+            for user_id in selected_user_ids:
+                await set_channel_permission(interaction.user.id, user_id, 'user', self.action)
+        elif self.action == "ptt":
+            # Set PTT setting for each user
+            for user_id in selected_user_ids:
+                await set_ptt_setting(interaction.user.id, user_id, 'user', self.enable)
 
-            if 'permissions' not in existing_permissions:
-                existing_permissions['permissions'] = []
-
-            if self.action == "ptt":
-                existing_permissions['ptt'] = existing_permissions.get('ptt', [])
-                existing_permissions['ptt'].append({'targets': targets, 'enable': self.enable})
-            else:
-                existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
-
-            await update_channel_settings(interaction.user.id, permissions=existing_permissions)
-
-        # Determine status message based on action
         if self.action == "ptt":
             status = "PTT enabled" if self.enable else "PTT disabled"
         else:
-            status = {
-                "permit": "permitted",
-                "reject": "rejected",
-            }.get(self.action, "applied")
+            status = "permitted" if self.action == "permit" else "rejected"
 
         await interaction.response.send_message(f"Selected users have been {status} in your channel.", ephemeral=True)
         logger.info(f"{interaction.user.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'.")
@@ -520,36 +468,18 @@ class SelectRoleView(View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Update database permissions
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT permissions FROM channel_settings WHERE user_id = ?",
-                (interaction.user.id,)
-            )
-            settings_row = await cursor.fetchone()
-            if settings_row and settings_row[0]:
-                existing_permissions = json.loads(settings_row[0])
-                if not isinstance(existing_permissions, dict):
-                    existing_permissions = {}
-            else:
-                existing_permissions = {}
+        # Update the dedicated permissions tables
+        if self.action in ["permit", "reject"]:
+            for role_id in selected_role_ids:
+                await set_channel_permission(interaction.user.id, role_id, 'role', self.action)
+        elif self.action == "ptt":
+            for role_id in selected_role_ids:
+                await set_ptt_setting(interaction.user.id, role_id, 'role', self.enable)
 
-            if 'permissions' not in existing_permissions:
-                existing_permissions['permissions'] = []
-
-            if self.action == "ptt":
-                existing_permissions['ptt'] = existing_permissions.get('ptt', [])
-                existing_permissions['ptt'].append({'targets': targets, 'enable': self.enable})
-            else:
-                existing_permissions['permissions'].append({'action': self.action, 'targets': targets})
-
-            await update_channel_settings(interaction.user.id, permissions=existing_permissions)
-
-        status = {
-            "permit": "permitted",
-            "reject": "rejected",
-            "ptt": "PTT settings updated"
-        }.get(self.action, "applied")
+        if self.action == "ptt":
+            status = "PTT settings updated"
+        else:
+            status = "permitted" if self.action == "permit" else "rejected"
 
         await interaction.response.send_message(f"Selected roles have been {status} in your channel.", ephemeral=True)
         logger.info(f"{interaction.user.display_name} {status} roles: {selected_role_ids} in channel '{channel.name}'.")

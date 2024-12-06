@@ -2,10 +2,8 @@
 
 import discord
 from helpers.database import Database
-import json
 from helpers.logger import get_logger
 from aiolimiter import AsyncLimiter
-import asyncio
 
 logger = get_logger(__name__)
 
@@ -59,35 +57,80 @@ async def update_channel_settings(user_id, **kwargs):
         user_id (int): The Discord user ID.
         **kwargs: The settings to update (channel_name, user_limit, permissions).
     """
+    channel_name = kwargs.get('channel_name', None)
+    user_limit = kwargs.get('user_limit', None)
+    lock = kwargs.get('lock', None)
+
     async with Database.get_connection() as db:
-        cursor = await db.execute(
-            "SELECT channel_name, user_limit, permissions FROM channel_settings WHERE user_id = ?",
-            (user_id,)
-        )
-        settings_row = await cursor.fetchone()
-        if settings_row:
-            channel_name, user_limit, permissions = settings_row
-            if permissions and not isinstance(permissions, dict):
-                permissions = json.loads(permissions)
-        else:
-            channel_name = None
-            user_limit = None
-            permissions = None
+        if channel_name is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO channel_settings (user_id, channel_name) VALUES (?, ?)",
+                (user_id, channel_name)
+            )
 
-        # Update settings with provided kwargs
-        channel_name = kwargs.get('channel_name', channel_name)
-        user_limit = kwargs.get('user_limit', user_limit)
-        permissions = kwargs.get('permissions', permissions)
+        if user_limit is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO channel_settings (user_id, user_limit) VALUES (?, ?)",
+                (user_id, user_limit)
+            )
 
-        # Ensure permissions are stored as JSON string
-        if permissions and isinstance(permissions, dict):
-            permissions = json.dumps(permissions)
+        if lock is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO channel_settings (user_id, lock) VALUES (?, ?)",
+                (user_id, lock)
+            )
 
-        await db.execute(
-            "INSERT OR REPLACE INTO channel_settings (user_id, channel_name, user_limit, permissions) VALUES (?, ?, ?, ?)",
-            (user_id, channel_name, user_limit, permissions)
-        )
         await db.commit()
+
+async def set_channel_permission(user_id, target_id, target_type, permission):
+    async with Database.get_connection() as db:
+        await db.execute("""
+            INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, target_id, target_type, permission))
+        await db.commit()
+
+async def remove_channel_permission(user_id, target_id, target_type):
+    async with Database.get_connection() as db:
+        await db.execute("""
+            DELETE FROM channel_permissions
+            WHERE user_id = ? AND target_id = ? AND target_type = ?
+        """, (user_id, target_id, target_type))
+        await db.commit()
+
+async def get_channel_permissions(user_id):
+    async with Database.get_connection() as db:
+        cursor = await db.execute("""
+            SELECT target_id, target_type, permission FROM channel_permissions
+            WHERE user_id = ?
+        """, (user_id,))
+        permissions = await cursor.fetchall()
+        return permissions
+
+async def set_ptt_setting(user_id, target_id, target_type, ptt_enabled):
+    async with Database.get_connection() as db:
+        await db.execute("""
+            INSERT OR REPLACE INTO channel_ptt_settings (user_id, target_id, target_type, ptt_enabled)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, target_id if target_id is not None else 0, target_type, ptt_enabled))
+        await db.commit()
+
+async def remove_ptt_setting(user_id, target_id, target_type):
+    async with Database.get_connection() as db:
+        await db.execute("""
+            DELETE FROM channel_ptt_settings
+            WHERE user_id = ? AND target_id = ? AND target_type = ?
+        """, (user_id, target_id, target_type))
+        await db.commit()
+
+async def get_ptt_settings(user_id):
+    async with Database.get_connection() as db:
+        cursor = await db.execute("""
+            SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings
+            WHERE user_id = ?
+        """, (user_id,))
+        ptt_settings = await cursor.fetchall()
+        return ptt_settings
 
 async def safe_edit_channel(channel: discord.VoiceChannel, **kwargs):
     """
