@@ -492,15 +492,28 @@ class Voice(commands.GroupCog, name="voice"):
     @app_commands.guild_only()
     async def voice_help(self, interaction: discord.Interaction):
         """
-        Displays help information for voice commands.
+        Displays help information for voice commands using an embed.
         """
         commands_list = []
         for command in self.walk_app_commands():
-            if command.parent is self:
+            if command.parent and command.parent.name == "voice":
                 commands_list.append(f"/voice {command.name} - {command.description}")
 
-        help_text = "**Voice Commands:**\n" + "\n".join(commands_list)
-        await interaction.response.send_message(help_text, ephemeral=True)
+        if not commands_list:
+            await interaction.response.send_message("No voice commands available.", ephemeral=True)
+            return
+
+        help_text = "\n".join(commands_list)
+
+        embed = discord.Embed(
+            title="🎙️ Voice Commands Help",
+            description=help_text,
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="Use these commands to manage your voice channels effectively.")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
     async def _reset_current_channel_settings(self, member):
         """
