@@ -494,9 +494,14 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Displays help information for voice commands using an embed.
         """
+        excluded_commands = {"setup", "admin_reset"}
         commands_list = []
         for command in self.walk_app_commands():
-            if command.parent and command.parent.name == "voice":
+            if (
+                command.parent
+                and command.parent.name == "voice"
+                and command.name not in excluded_commands
+            ):
                 commands_list.append(f"/voice {command.name} - {command.description}")
 
         if not commands_list:
@@ -513,7 +518,6 @@ class Voice(commands.GroupCog, name="voice"):
         embed.set_footer(text="Use these commands to manage your voice channels effectively.")
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
 
     async def _reset_current_channel_settings(self, member):
         """
