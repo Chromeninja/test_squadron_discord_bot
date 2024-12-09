@@ -68,31 +68,30 @@ async def update_channel_settings(user_id, **kwargs):
 
     Args:
         user_id (int): The Discord user ID.
-        **kwargs: The settings to update (channel_name, user_limit, permissions).
+        **kwargs: The settings to update (channel_name, user_limit, lock).
     """
-    channel_name = kwargs.get('channel_name', None)
-    user_limit = kwargs.get('user_limit', None)
-    lock = kwargs.get('lock', None)
+    fields = []
+    values = []
+
+    if 'channel_name' in kwargs:
+        fields.append("channel_name = ?")
+        values.append(kwargs['channel_name'])
+    if 'user_limit' in kwargs:
+        fields.append("user_limit = ?")
+        values.append(kwargs['user_limit'])
+    if 'lock' in kwargs:
+        fields.append("lock = ?")
+        values.append(kwargs['lock'])
+
+    if not fields:
+        return  # Nothing to update
+
+    values.append(user_id)
+
+    query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ?"
 
     async with Database.get_connection() as db:
-        if channel_name is not None:
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, channel_name) VALUES (?, ?)",
-                (user_id, channel_name)
-            )
-
-        if user_limit is not None:
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, user_limit) VALUES (?, ?)",
-                (user_id, user_limit)
-            )
-
-        if lock is not None:
-            await db.execute(
-                "INSERT OR REPLACE INTO channel_settings (user_id, lock) VALUES (?, ?)",
-                (user_id, lock)
-            )
-
+        await db.execute(query, tuple(values))
         await db.commit()
 
 async def set_channel_permission(user_id, target_id, target_type, permission):
