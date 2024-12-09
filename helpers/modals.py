@@ -10,7 +10,7 @@ from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.voice_utils import get_user_channel, update_channel_settings, safe_edit_channel, safe_delete_channel
+from helpers.voice_utils import get_user_channel, update_channel_settings, safe_edit_channel
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -189,43 +189,6 @@ class HandleModal(Modal, title="Verification"):
             })
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
-
-class CloseChannelConfirmationModal(Modal):
-    """
-    Modal to confirm closing the voice channel.
-    """
-    def __init__(self, bot):
-        super().__init__(title="Confirm Close Channel")
-        self.bot = bot
-        self.confirmation = TextInput(
-            label="Type 'CLOSE' to confirm",
-            placeholder="Type 'CLOSE' to confirm",
-            required=True,
-            max_length=5
-        )
-        self.add_item(self.confirmation)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
-        if not channel:
-            await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-            return
-
-        if self.confirmation.value.strip().upper() == "CLOSE":
-            # Delete the channel with rate limiting
-            try:
-                await safe_delete_channel(channel)
-                async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,))
-                    await db.commit()
-                await interaction.response.send_message("Your voice channel has been closed.", ephemeral=True)
-                logger.info(f"{member.display_name} closed their voice channel.")
-            except Exception as e:
-                logger.exception(f"Error deleting voice channel: {e}")
-                await interaction.response.send_message("Failed to close your voice channel.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Channel closure cancelled.", ephemeral=True)
 
 class ResetSettingsConfirmationModal(Modal):
     """

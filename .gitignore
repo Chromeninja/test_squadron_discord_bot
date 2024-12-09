@@ -139,3 +139,5 @@ all_code.txt
 
 ExportAllCode.ps1
 verification_message_id.json
+
+config/config.yaml

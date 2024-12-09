@@ -1,5 +1,5 @@
 bot:
-  prefix: "!"
+  prefix: []
 rate_limits:
   max_attempts: 5
   window_seconds: 1800  # 30 min
@@ -15,18 +15,15 @@ roles:
   affiliate_role_id: 1179618003604750447       # Replace with your Affiliate role ID
   non_member_role_id: 1301648113483907132      # Replace with your Non-Member role ID
   bot_admins:
-    - "1174838659065847859"
     - "1309213397757460530"
 
   lead_moderators:
-    - "1174838659065847859"
+    - "1174877048972513400"
 
 logging:
   level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
 
 voice:
-  database_path: "voice.db"  # Path to VoiceMaster's SQLite database
-  default_category_name: "Voice"  # Default category for voice channels
   cooldown_seconds: 5  # Cooldown period in seconds
 
 database:

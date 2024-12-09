@@ -4,8 +4,6 @@ import discord
 from helpers.voice_utils import safe_edit_channel
 from helpers.database import Database
 from helpers.logger import get_logger
-import json
-import asyncio
 
 logger = get_logger(__name__)
 

@@ -45,25 +45,47 @@ class Database:
                 owner_id INTEGER NOT NULL
             )
         """)
-
+        # Create voice cooldown table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS voice_cooldowns (
                 user_id INTEGER PRIMARY KEY,
                 last_created INTEGER NOT NULL
             )
         """)
+        # Create settings table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
         """)
+        # Create channel_settings table (with lock column)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS channel_settings (
                 user_id INTEGER PRIMARY KEY,
                 channel_name TEXT,
                 user_limit INTEGER,
-                permissions TEXT  -- JSON string to store permissions like PTT settings
+                lock INTEGER DEFAULT 0
+            )
+        """)
+        # Create channel_permissions table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_permissions (
+                user_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,  -- 'user' or 'role'
+                permission TEXT NOT NULL,   -- 'permit' or 'reject'
+                PRIMARY KEY (user_id, target_id, target_type)
+            )
+        """)
+        # Create channel_ptt_settings table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_ptt_settings (
+                user_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
+                ptt_enabled BOOLEAN NOT NULL,
+                PRIMARY KEY (user_id, target_id, target_type)
             )
         """)
         await db.commit()
