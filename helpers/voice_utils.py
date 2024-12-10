@@ -91,6 +91,7 @@ async def update_channel_settings(user_id, **kwargs):
     query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ?"
 
     async with Database.get_connection() as db:
+        await db.execute("INSERT OR IGNORE INTO channel_settings (user_id) VALUES (?)", (user_id,))
         await db.execute(query, tuple(values))
         await db.commit()
 
