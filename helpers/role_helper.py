@@ -4,6 +4,7 @@ import time
 from helpers.database import Database
 import discord
 from helpers.logger import get_logger
+from helpers.task_queue import enqueue_task
 
 logger = get_logger(__name__)
 
@@ -61,43 +62,57 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
             roles_to_remove.append(role)
             logger.debug(f"Scheduling role for removal: {role.name}")
 
+    # Enqueue role removal tasks
     if roles_to_remove:
-        try:
-            await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
-            removed_roles = [role.name for role in roles_to_remove]
-            logger.info("Removed roles from user.", extra={'user_id': member.id, 'roles_removed': removed_roles})
-        except discord.Forbidden:
-            logger.warning("Cannot remove roles due to permission hierarchy.", extra={'user_id': member.id})
-        except Exception as e:
-            logger.exception(f"Failed to remove roles: {e}", extra={'user_id': member.id})
+        async def remove_task():
+            try:
+                await member.remove_roles(*roles_to_remove, reason="Updating roles after verification")
+                removed_roles = [role.name for role in roles_to_remove]
+                logger.info("Removed roles from user.", extra={'user_id': member.id, 'roles_removed': removed_roles})
+            except discord.Forbidden:
+                logger.warning("Cannot remove roles due to permission hierarchy.", extra={'user_id': member.id})
+            except Exception as e:
+                logger.exception(f"Failed to remove roles: {e}", extra={'user_id': member.id})
+        
+        await enqueue_task(remove_task)
 
+    # Enqueue role addition tasks
     if roles_to_add:
-        try:
-            await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
-            added_roles = [role.name for role in roles_to_add]
-            logger.info("Assigned roles to user.", extra={'user_id': member.id, 'roles_added': added_roles})
-        except discord.Forbidden:
-            logger.warning("Cannot assign roles due to permission hierarchy.", extra={'user_id': member.id})
-            assigned_role_type = 'unknown'
-        except Exception as e:
-            logger.exception(f"Failed to assign roles: {e}", extra={'user_id': member.id})
-            assigned_role_type = 'unknown'
+        async def add_task():
+            nonlocal assigned_role_type 
+
+            try:
+                await member.add_roles(*roles_to_add, reason="Roles assigned after verification")
+                added_roles = [role.name for role in roles_to_add]
+                logger.info("Assigned roles to user.", extra={'user_id': member.id, 'roles_added': added_roles})
+            except discord.Forbidden:
+                logger.warning("Cannot assign roles due to permission hierarchy.", extra={'user_id': member.id})
+                assigned_role_type = 'unknown'
+            except Exception as e:
+                logger.exception(f"Failed to assign roles: {e}", extra={'user_id': member.id})
+                assigned_role_type = 'unknown'
+
+        await enqueue_task(add_task)
     else:
         logger.error("No valid roles to add.", extra={'user_id': member.id})
 
+    # Enqueue nickname change task
     if can_modify_nickname(member):
-        try:
-            await member.edit(nick=cased_handle[:32])
-            logger.info("Nickname changed for user.", extra={'user_id': member.id, 'new_nickname': cased_handle[:32]})
-        except discord.Forbidden:
-            logger.warning("Bot lacks permission to change nickname due to role hierarchy.", extra={'user_id': member.id})
-        except Exception as e:
-            logger.exception(f"Unexpected error when changing nickname: {e}", extra={'user_id': member.id})
+        async def nickname_task():
+            try:
+                await member.edit(nick=cased_handle[:32])
+                logger.info("Nickname changed for user.", extra={'user_id': member.id, 'new_nickname': cased_handle[:32]})
+            except discord.Forbidden:
+                logger.warning("Bot lacks permission to change nickname due to role hierarchy.", extra={'user_id': member.id})
+            except Exception as e:
+                logger.exception(f"Unexpected error when changing nickname: {e}", extra={'user_id': member.id})
+        
+        await enqueue_task(nickname_task)
     else:
         logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
-    
+
 
 def can_modify_nickname(member: discord.Member) -> bool:
     """

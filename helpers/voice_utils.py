@@ -3,14 +3,13 @@
 import discord
 from helpers.database import Database
 from helpers.logger import get_logger
-from aiolimiter import AsyncLimiter
+from helpers.task_queue import enqueue_task
 
 logger = get_logger(__name__)
 
 # Initialize a global rate limiter
 # Discord's global rate limit is 50 requests per second
 # Adjust based on observed limits and needs
-api_limiter = AsyncLimiter(max_rate=45, time_period=1)  # Slightly below 50 to provide a buffer
 
 async def get_user_channel(bot, member):
     """
@@ -153,14 +152,15 @@ async def safe_edit_channel(channel: discord.VoiceChannel, **kwargs):
         channel (discord.VoiceChannel): The channel to edit.
         **kwargs: Attributes to edit.
     """
-    async with api_limiter:
-        try:
-            await channel.edit(**kwargs)
-            logger.info(f"Edited channel '{channel.name}' with {kwargs}")
-        except discord.HTTPException as e:
-            logger.error(f"Failed to edit channel '{channel.name}': {e}")
-            raise
+    def task():
+        return channel.edit(**kwargs)
 
+    try:
+        await enqueue_task(task)
+        logger.info(f"Enqueued edit task for '{channel.name}' with {kwargs}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue edit task for '{channel.name}': {e}")
+        raise
 async def safe_delete_channel(channel: discord.VoiceChannel):
     """
     Safely deletes a Discord channel with rate limiting.
@@ -168,13 +168,15 @@ async def safe_delete_channel(channel: discord.VoiceChannel):
     Args:
         channel (discord.VoiceChannel): The channel to delete.
     """
-    async with api_limiter:
-        try:
-            await channel.delete()
-            logger.info(f"Deleted channel '{channel.name}'")
-        except discord.HTTPException as e:
-            logger.error(f"Failed to delete channel '{channel.name}': {e}")
-            raise
+    def task():
+        return channel.delete()
+
+    try:
+        await enqueue_task(task)
+        logger.info(f"Enqueued delete task for '{channel.name}'")
+    except Exception as e:
+        logger.error(f"Failed to enqueue delete task for '{channel.name}': {e}")
+        raise
 
 async def safe_create_voice_channel(guild: discord.Guild, name: str, category: discord.CategoryChannel, user_limit: int = None, overwrites: dict = None):
     """
@@ -190,19 +192,18 @@ async def safe_create_voice_channel(guild: discord.Guild, name: str, category: d
     Returns:
         discord.VoiceChannel: The created voice channel.
     """
-    async with api_limiter:
-        try:
-            channel = await guild.create_voice_channel(
-                name=name,
-                category=category,
-                user_limit=user_limit,
-                overwrites=overwrites or {}
-            )
-            logger.info(f"Created voice channel '{channel.name}' in category '{category.name}'")
-            return channel
-        except discord.HTTPException as e:
-            logger.error(f"Failed to create voice channel '{name}': {e}")
-            raise
+    try:
+        channel = await guild.create_voice_channel(
+            name=name,
+            category=category,
+            user_limit=user_limit,
+            overwrites=overwrites or {}
+        )
+        logger.info(f"Created voice channel '{channel.name}' in category '{category.name}'")
+        return channel
+    except discord.HTTPException as e:
+        logger.error(f"Failed to create voice channel '{name}': {e}")
+        raise
 
 async def safe_move_member(member: discord.Member, channel: discord.VoiceChannel):
     """
@@ -212,10 +213,9 @@ async def safe_move_member(member: discord.Member, channel: discord.VoiceChannel
         member (discord.Member): The member to move.
         channel (discord.VoiceChannel): The target voice channel.
     """
-    async with api_limiter:
-        try:
-            await member.move_to(channel)
-            logger.info(f"Moved member '{member.display_name}' to channel '{channel.name}'")
-        except discord.HTTPException as e:
-            logger.error(f"Failed to move member '{member.display_name}' to channel '{channel.name}': {e}")
-            raise
+    try:
+        await member.move_to(channel)
+        logger.info(f"Moved member '{member.display_name}' to channel '{channel.name}'")
+    except discord.HTTPException as e:
+        logger.error(f"Failed to move member '{member.display_name}' to channel '{channel.name}': {e}")
+        raise
