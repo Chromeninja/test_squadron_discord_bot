@@ -17,12 +17,15 @@ from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
     update_channel_settings,
-    safe_create_voice_channel,
-    safe_move_member,
-    safe_delete_channel,
-    safe_edit_channel,
     get_channel_permissions,
     get_ptt_settings
+)
+# Import centralized Discord API calls
+from helpers.discord_api import (
+    create_voice_channel,
+    delete_channel,
+    edit_channel,
+    move_member
 )
 
 logger = get_logger(__name__)
@@ -93,15 +96,21 @@ class Voice(commands.GroupCog, name="voice"):
         # User leaves a managed channel
         if before.channel and before.channel.id in self.managed_voice_channels:
             async with Database.get_connection() as db:
-                cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
+                cursor = await db.execute(
+                    "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                    (before.channel.id,)
+                )
                 row = await cursor.fetchone()
                 owner_id = row[0] if row else None
 
                 if len(before.channel.members) == 0:
                     # Channel is empty, delete it
-                    await safe_delete_channel(before.channel)
+                    await delete_channel(before.channel)
                     self.managed_voice_channels.remove(before.channel.id)
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (before.channel.id,))
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (before.channel.id,)
+                    )
                     await db.commit()
                     logger.info(f"Deleted empty voice channel '{before.channel.name}'")
                 else:
@@ -123,7 +132,9 @@ class Voice(commands.GroupCog, name="voice"):
             # Check cooldown for creating channels
             current_time = int(time.time())
             async with Database.get_connection() as db:
-                cursor = await db.execute("SELECT last_created FROM voice_cooldowns WHERE user_id = ?", (member.id,))
+                cursor = await db.execute(
+                    "SELECT last_created FROM voice_cooldowns WHERE user_id = ?", (member.id,)
+                )
                 cooldown_row = await cursor.fetchone()
                 if cooldown_row:
                     last_created = cooldown_row[0]
@@ -131,7 +142,9 @@ class Voice(commands.GroupCog, name="voice"):
                     if elapsed_time < self.cooldown_seconds:
                         remaining_time = self.cooldown_seconds - elapsed_time
                         try:
-                            await member.send(f"You're creating channels too quickly. Please wait {remaining_time} seconds.")
+                            await member.send(
+                                f"You're creating channels too quickly. Please wait {remaining_time} seconds."
+                            )
                         except discord.Forbidden:
                             logger.warning(f"Cannot send DM to {member.display_name}.")
                         return
@@ -140,7 +153,10 @@ class Voice(commands.GroupCog, name="voice"):
             try:
                 join_to_create_channel = after.channel
                 async with Database.get_connection() as db:
-                    cursor = await db.execute("SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?", (member.id,))
+                    cursor = await db.execute(
+                        "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
+                        (member.id,)
+                    )
                     settings_row = await cursor.fetchone()
 
                 # Determine channel name
@@ -157,22 +173,24 @@ class Voice(commands.GroupCog, name="voice"):
                 overwrites = new_channel.overwrites.copy()
                 overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
 
-                # Apply user limit if specified
                 if settings_row and settings_row[1] is not None:
                     edit_kwargs['user_limit'] = settings_row[1]
 
                 edit_kwargs['overwrites'] = overwrites
 
-                # Move user to the new channel before final edits
-                await safe_move_member(member, new_channel)
-
-                # Single edit call for user limit and owner permissions
-                await safe_edit_channel(new_channel, **edit_kwargs)
+                await move_member(member, new_channel)
+                await edit_channel(new_channel, **edit_kwargs)
 
                 # Store channel and cooldown
                 async with Database.get_connection() as db:
-                    await db.execute("INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, owner_id) VALUES (?, ?)", (new_channel.id, member.id))
-                    await db.execute("INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)", (member.id, current_time))
+                    await db.execute(
+                        "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, owner_id) VALUES (?, ?)",
+                        (new_channel.id, member.id)
+                    )
+                    await db.execute(
+                        "INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)",
+                        (member.id, current_time)
+                    )
                     await db.commit()
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
@@ -187,8 +205,10 @@ class Voice(commands.GroupCog, name="voice"):
                     overwrite = lock_overwrites.get(default_role, discord.PermissionOverwrite())
                     overwrite.connect = False
                     lock_overwrites[default_role] = overwrite
-                    await safe_edit_channel(new_channel, overwrites=lock_overwrites)
-                    logger.info(f"Re-applied lock setting for {member.display_name}'s channel: '{new_channel.name}'.")
+                    await edit_channel(new_channel, overwrites=lock_overwrites)
+                    logger.info(
+                        f"Re-applied lock setting for {member.display_name}'s channel: '{new_channel.name}'."
+                    )
 
                 # Send settings view
                 try:
@@ -259,7 +279,6 @@ class Voice(commands.GroupCog, name="voice"):
             overwrite.connect = True
             overwrites[owner] = overwrite
 
-        # Check if overwrites changed
         if overwrites == original_overwrites:
             logger.info(f"No overwrite changes for channel '{channel.name}', skipping edit.")
             return
@@ -271,7 +290,7 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         try:
-            await safe_edit_channel(channel, overwrites=overwrites)
+            await edit_channel(channel, overwrites=overwrites)
             logger.info(f"Applied permissions to channel '{channel.name}'.")
             self.last_channel_edit[channel.id] = now
         except Exception as e:
@@ -282,40 +301,51 @@ class Voice(commands.GroupCog, name="voice"):
     @app_commands.guild_only()
     @app_commands.describe(category="Category to place voice channels in", num_channels="Number of 'Join to Create' channels")
     async def setup_voice(self, interaction: discord.Interaction, category: discord.CategoryChannel, num_channels: int):
-        """
-        Sets up the voice channel system in the guild by creating the specified number of 'Join to Create' channels.
-        """
         member = interaction.user
         if not any(r.id in self.bot_admin_role_ids for r in member.roles):
             await interaction.response.send_message("Only bot admins can set up the bot.", ephemeral=True)
             return
 
-        if num_channels < 1 or num_channels > 10:
-            await interaction.response.send_message("Please specify a number of channels between 1 and 10.", ephemeral=True)
+        if not (1 <= num_channels <= 10):
+            await interaction.response.send_message(
+                "Please specify a number of channels between 1 and 10.", ephemeral=True
+            )
             return
 
         await interaction.response.send_message("Starting setup...", ephemeral=True)
 
         async with Database.get_connection() as db:
-            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('voice_category_id', str(category.id)))
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ('voice_category_id', str(category.id))
+            )
             await db.commit()
         self.voice_category_id = category.id
 
         self.join_to_create_channel_ids = []
         try:
             for i in range(num_channels):
-                channel_name = f"Join to Create #{i+1}" if num_channels > 1 else "Join to Create"
-                voice_channel = await safe_create_voice_channel(guild=interaction.guild, name=channel_name, category=category)
+                ch_name = f"Join to Create #{i+1}" if num_channels > 1 else "Join to Create"
+                voice_channel = await create_voice_channel(
+                    guild=interaction.guild,
+                    name=ch_name,
+                    category=category
+                )
                 self.join_to_create_channel_ids.append(voice_channel.id)
 
             async with Database.get_connection() as db:
-                await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('join_to_create_channel_ids', json.dumps(self.join_to_create_channel_ids)))
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ('join_to_create_channel_ids', json.dumps(self.join_to_create_channel_ids))
+                )
                 await db.commit()
 
             await interaction.followup.send("Setup complete!", ephemeral=True)
         except Exception as e:
             logger.exception(f"Error creating voice channels: {e}")
-            await interaction.followup.send("Failed to create voice channels. Check bot permissions.", ephemeral=True)
+            await interaction.followup.send(
+                "Failed to create voice channels. Check bot permissions.", ephemeral=True
+            )
 
     @app_commands.command(name="permit", description="Permit users/roles to join your channel.")
     @app_commands.guild_only()
@@ -330,7 +360,9 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         view = TargetTypeSelectView(self.bot, action="permit")
-        await interaction.response.send_message("Choose the type of target you want to permit:", view=view, ephemeral=True)
+        await interaction.response.send_message(
+            "Choose the type of target you want to permit:", view=view, ephemeral=True
+        )
 
     @app_commands.command(name="reject", description="Reject users/roles from joining your channel.")
     @app_commands.guild_only()
@@ -345,7 +377,9 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         view = TargetTypeSelectView(self.bot, action="reject")
-        await interaction.response.send_message("Choose the type of target you want to reject:", view=view, ephemeral=True)
+        await interaction.response.send_message(
+            "Choose the type of target you want to reject:", view=view, ephemeral=True
+        )
 
     @app_commands.command(name="ptt", description="Manage PTT settings in your voice channel.")
     @app_commands.guild_only()
@@ -405,11 +439,13 @@ class Voice(commands.GroupCog, name="voice"):
         last_edit = self.last_channel_edit.get(channel.id, 0)
         if now - last_edit < 2:
             logger.info(f"Skipping channel edit for '{channel.name}' due to cooldown.")
-            await interaction.response.send_message("Channel update skipped due to cooldown.", ephemeral=True)
+            await interaction.response.send_message(
+                "Channel update skipped due to cooldown.", ephemeral=True
+            )
             return
 
         try:
-            await safe_edit_channel(channel, overwrites=overwrites)
+            await edit_channel(channel, overwrites=overwrites)
         except Exception:
             await interaction.response.send_message("Failed to update channel permissions.", ephemeral=True)
             return
@@ -417,7 +453,9 @@ class Voice(commands.GroupCog, name="voice"):
         self.last_channel_edit[channel.id] = now
         await update_channel_settings(member.id, lock=1 if lock else 0)
         status = "locked" if lock else "unlocked"
-        await interaction.response.send_message(f"Your voice channel has been {status}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Your voice channel has been {status}.", ephemeral=True
+        )
         logger.info(f"{member.display_name} {status} their voice channel.")
 
     @app_commands.command(name="name", description="Change your voice channel's name.")
@@ -453,7 +491,9 @@ class Voice(commands.GroupCog, name="voice"):
         member = interaction.user
         channel = member.voice.channel if member.voice else None
         if not channel:
-            await interaction.response.send_message("You are not connected to any voice channel.", ephemeral=True)
+            await interaction.response.send_message(
+                "You are not connected to any voice channel.", ephemeral=True
+            )
             return
 
         if channel.id not in self.managed_voice_channels:
@@ -461,21 +501,30 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         async with Database.get_connection() as db:
-            cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,))
+            cursor = await db.execute(
+                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,)
+            )
             row = await cursor.fetchone()
             if not row:
-                await interaction.response.send_message("Unable to retrieve channel ownership information.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Unable to retrieve channel ownership information.", ephemeral=True
+                )
                 return
             owner_id = row[0]
 
         owner_in_channel = any(u.id == owner_id for u in channel.members)
         if owner_in_channel:
             logger.warning(f"{member.display_name} attempted to claim '{channel.name}' but owner is present.")
-            await interaction.response.send_message("The channel owner is still present. You cannot claim ownership.", ephemeral=True)
+            await interaction.response.send_message(
+                "The channel owner is still present. You cannot claim ownership.", ephemeral=True
+            )
             return
 
         async with Database.get_connection() as db:
-            await db.execute("UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?", (member.id, channel.id))
+            await db.execute(
+                "UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?",
+                (member.id, channel.id)
+            )
             await db.commit()
 
         try:
@@ -488,11 +537,15 @@ class Voice(commands.GroupCog, name="voice"):
 
         try:
             await update_channel_owner(channel, member.id, owner_id)
-            await interaction.response.send_message(f"You have claimed ownership of '{channel.name}'.", ephemeral=True)
+            await interaction.response.send_message(
+                f"You have claimed ownership of '{channel.name}'.", ephemeral=True
+            )
             logger.info(f"{member.display_name} claimed ownership of '{channel.name}'.")
         except Exception as e:
             logger.exception(f"Failed to claim ownership: {e}")
-            await interaction.response.send_message("Failed to claim ownership of the channel.", ephemeral=True)
+            await interaction.response.send_message(
+                "Failed to claim ownership of the channel.", ephemeral=True
+            )
 
     @app_commands.command(name="help", description="Show help for voice commands.")
     @app_commands.guild_only()
@@ -522,12 +575,15 @@ class Voice(commands.GroupCog, name="voice"):
 
     async def _reset_current_channel_settings(self, member: discord.Member):
         """
-        Resets the user's channel settings to defaults using the 'Join to Create' channel as a template.
+        Resets the user's channel settings to defaults using the first 'Join to Create' channel as a template.
         """
         channel = await get_user_channel(self.bot, member)
         if not channel:
             return
 
+        if not self.join_to_create_channel_ids:
+            logger.error("No join-to-create channel configured.")
+            return
         join_to_create_channel = self.bot.get_channel(self.join_to_create_channel_ids[0])
         if not join_to_create_channel:
             logger.error("Join to Create channel not found.")
@@ -575,11 +631,15 @@ class Voice(commands.GroupCog, name="voice"):
 
         channel = await get_user_channel(self.bot, user)
         if not channel:
-            await interaction.response.send_message(f"{user.display_name} does not own a voice channel.", ephemeral=True)
+            await interaction.response.send_message(
+                f"{user.display_name} does not own a voice channel.", ephemeral=True
+            )
             return
 
         await self._reset_current_channel_settings(user)
-        await interaction.response.send_message(f"{user.display_name}'s voice channel has been reset to default settings.", ephemeral=True)
+        await interaction.response.send_message(
+            f"{user.display_name}'s voice channel has been reset to default settings.", ephemeral=True
+        )
         logger.info(f"{interaction.user.display_name} reset {user.display_name}'s voice channel.")
 
     @app_commands.command(name="owner", description="List all voice channels managed by the bot and their owners.")
@@ -593,7 +653,9 @@ class Voice(commands.GroupCog, name="voice"):
             rows = await cursor.fetchall()
 
         if not rows:
-            await interaction.response.send_message("There are no active voice channels managed by the bot.", ephemeral=True)
+            await interaction.response.send_message(
+                "There are no active voice channels managed by the bot.", ephemeral=True
+            )
             return
 
         message = "**Active Voice Channels Managed by the Bot:**\n"
@@ -604,13 +666,15 @@ class Voice(commands.GroupCog, name="voice"):
                 message += f"- {channel.name} (Owner: {owner.display_name})\n"
             elif channel:
                 message += f"- {channel.name} (Owner: Unknown)\n"
-                # Remove stale entry from DB
                 async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,)
+                    )
                     await db.commit()
                 self.managed_voice_channels.discard(channel_id)
 
         await interaction.response.send_message(message, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Voice(bot))

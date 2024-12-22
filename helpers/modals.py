@@ -3,6 +3,7 @@
 import discord
 from discord.ui import Modal, TextInput
 import re
+
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
 from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
 from helpers.token_manager import token_store, validate_token, clear_token
@@ -10,9 +11,9 @@ from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.voice_utils import get_user_channel, update_channel_settings, safe_edit_channel
+from helpers.voice_utils import get_user_channel, update_channel_settings
+from helpers.discord_api import edit_channel
 
-# Initialize logger
 logger = get_logger(__name__)
 
 # Regular expression to validate RSI handle format
@@ -141,7 +142,7 @@ class HandleModal(Modal, title="Verification"):
         # Verification successful
         assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)
-        reset_attempts(member.id)  # Reset attempts on success
+        reset_attempts(member.id)
 
         # Send customized success message based on role
         if assigned_role_type == 'main':
@@ -167,7 +168,8 @@ class HandleModal(Modal, title="Verification"):
                 "It looks like you're not yet a member of our org. <:what:1306961532080623676>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
-                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
+                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. "
+                "You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1306961462215970836>"
             )
         else:
@@ -213,7 +215,9 @@ class ResetSettingsConfirmationModal(Modal):
 
         confirmation_text = self.confirm.value.strip().upper()
         if confirmation_text != "RESET":
-            await interaction.followup.send("Confirmation text does not match. Channel settings were not reset.", ephemeral=True)
+            await interaction.followup.send(
+                "Confirmation text does not match. Channel settings were not reset.", ephemeral=True
+            )
             logger.info(f"{member.display_name} failed to confirm channel reset.")
             return
 
@@ -232,7 +236,11 @@ class ResetSettingsConfirmationModal(Modal):
             logger.info(f"{member.display_name} reset their channel settings.")
         except Exception as e:
             logger.exception(f"Failed to reset channel settings for {member.display_name}: {e}")
-            await interaction.followup.send("An error occurred while resetting your channel settings. Please try again later.", ephemeral=True)
+            await interaction.followup.send(
+                "An error occurred while resetting your channel settings. Please try again later.",
+                ephemeral=True
+            )
+
 
 class NameModal(Modal):
     """
@@ -261,26 +269,26 @@ class NameModal(Modal):
             return
 
         try:
-            # Use the helper function to get the user's channel
-            channel = await get_user_channel(self.bot, member)
-            if not channel:
-                await interaction.response.send_message("You don't own a channel.", ephemeral=True)
-                return
-
-            # Change the channel name with rate limiting
-            await safe_edit_channel(channel, name=new_name)
+            # Use the new centralized method
+            await edit_channel(channel, name=new_name)
 
             # Update settings using the helper function
             await update_channel_settings(member.id, channel_name=new_name)
 
-            await interaction.response.send_message(f"Channel name has been changed to '{new_name}'.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Channel name has been changed to '{new_name}'.", ephemeral=True
+            )
             logger.info(f"{member.display_name} changed channel name to '{new_name}'.")
         except discord.Forbidden:
             logger.warning(f"Insufficient permissions to change channel name for {member.display_name}.")
-            await interaction.response.send_message("I don't have permission to change the channel name.", ephemeral=True)
+            await interaction.response.send_message(
+                "I don't have permission to change the channel name.", ephemeral=True
+            )
         except Exception as e:
             logger.exception(f"Failed to change channel name for {member.display_name}: {e}")
-            await interaction.response.send_message("An unexpected error occurred. Please try again later.", ephemeral=True)
+            await interaction.response.send_message(
+                "An unexpected error occurred. Please try again later.", ephemeral=True
+            )
 
 class LimitModal(Modal):
     """
@@ -315,7 +323,7 @@ class LimitModal(Modal):
             return
 
         try:
-            await safe_edit_channel(channel, user_limit=limit)
+            await edit_channel(channel, user_limit=limit)
 
             # Update settings using the helper function
             await update_channel_settings(member.id, user_limit=limit)

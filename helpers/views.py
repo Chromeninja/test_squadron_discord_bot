@@ -1,7 +1,10 @@
+# helpers/views.py
+
 import discord
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
 import json
+
 from helpers.permissions_helper import apply_permissions_changes
 from helpers.embeds import create_token_embed, create_error_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
@@ -18,10 +21,10 @@ from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
     update_channel_settings,
-    safe_edit_channel,
     set_channel_permission,
     set_ptt_setting
 )
+from helpers.discord_api import edit_channel
 
 logger = get_logger(__name__)
 
@@ -74,7 +77,6 @@ class VerificationView(View):
             logger.info("User reached max verification attempts.", extra={'user_id': member.id})
             return
 
-        # Proceed to generate and send token
         token = generate_token(member.id)
         expires_at = token_store[member.id]['expires_at']
         expires_unix = int(expires_at)
@@ -243,9 +245,7 @@ class ChannelSettingsView(View):
 
             # Update channel name to game name with rate limiting
             try:
-                await safe_edit_channel(channel, name=game_name[:32])  # Ensure name is within 32 characters
-
-                # Update settings using the helper function
+                await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(interaction.user.id, channel_name=game_name)
 
                 embed = discord.Embed(
@@ -271,7 +271,9 @@ class ChannelSettingsView(View):
         if selected in ["permit", "reject"]:
             action = selected
             view = TargetTypeSelectView(self.bot, action=action)
-            await interaction.response.send_message("Choose the type of target you want to apply the action to:", view=view, ephemeral=True)
+            await interaction.response.send_message(
+                "Choose the type of target you want to apply the action to:", view=view, ephemeral=True
+            )
         elif selected == "ptt":
             # Send a view to select enable or disable PTT
             view = PTTSelectView(self.bot)
@@ -292,8 +294,10 @@ class ChannelSettingsView(View):
             try:
                 await apply_permissions_changes(channel, permission_change)
             except Exception as e:
-                logger.error(f"Failed to apply permission '{'lock' if lock else 'unlock'}' to channel '{channel.name}': {e}")
-                await interaction.response.send_message(f"Failed to {'lock' if lock else 'unlock'} your voice channel.", ephemeral=True)
+                logger.error(f"Failed to apply permission '{selected}' to channel '{channel.name}': {e}")
+                await interaction.response.send_message(
+                    f"Failed to {selected} your voice channel.", ephemeral=True
+                )
                 return
 
             # Update the lock state directly
@@ -313,9 +317,8 @@ class TargetTypeSelectView(View):
         super().__init__(timeout=None)
         self.bot = bot
         self.action = action
-        self.enable = enable  # For PTT action
+        self.enable = enable
 
-        # Base options for all actions
         options = [
             SelectOption(label="User", value="user", description="Select users to apply the action"),
             SelectOption(label="Role", value="role", description="Select roles to apply the action"),
@@ -369,7 +372,9 @@ class TargetTypeSelectView(View):
             try:
                 await apply_permissions_changes(channel, permission_change)
                 status = "enabled" if self.enable else "disabled"
-                await interaction.response.edit_message(content=f"PTT has been {status} for everyone in your channel.", view=None)
+                await interaction.response.edit_message(
+                    content=f"PTT has been {status} for everyone in your channel.", view=None
+                )
             except Exception as e:
                 await interaction.response.send_message(f"Failed to apply PTT settings: {e}", ephemeral=True)
             return
@@ -377,13 +382,15 @@ class TargetTypeSelectView(View):
         # If the user selected 'user' or 'role' (or action != ptt)
         if selected_type == "user":
             view = SelectUserView(self.bot, self.action, enable=self.enable)
-            await interaction.response.edit_message(content="Select users to apply the action:", view=view)
+            await interaction.response.edit_message(
+                content="Select users to apply the action:", view=view
+            )
         elif selected_type == "role":
             view = SelectRoleView(self.bot, self.action, enable=self.enable)
-            await interaction.response.edit_message(content="Select roles to apply the action:", view=view)
+            await interaction.response.edit_message(
+                content="Select roles to apply the action:", view=view
+            )
         else:
-            # If action is not ptt and user somehow selected 'everyone' (which shouldn't be displayed unless ptt),
-            # or something unexpected, handle gracefully:
             await interaction.response.send_message("Unknown target type selected.", ephemeral=True)
 
 class SelectUserView(View):
@@ -394,7 +401,7 @@ class SelectUserView(View):
         super().__init__(timeout=None)
         self.bot = bot
         self.action = action
-        self.enable = enable  # For PTT action
+        self.enable = enable
 
         self.user_select = UserSelect(
             placeholder="Select Users",
@@ -422,14 +429,11 @@ class SelectUserView(View):
             return
 
         targets = [{'type': 'user', 'id': user_id} for user_id in selected_user_ids]
-
-        # Prepare permission change dictionary
         if self.action == "ptt":
-            permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+            permission_change = {'action': 'ptt', 'targets': targets, 'enable': self.enable}
         else:
             permission_change = {'action': self.action, 'targets': targets}
 
-        # Apply permissions with batching and rate limiting
         try:
             await apply_permissions_changes(channel, permission_change)
         except Exception as e:
@@ -438,13 +442,10 @@ class SelectUserView(View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Update the dedicated permissions tables
         if self.action in ["permit", "reject"]:
-            # Set channel permissions for each user
             for user_id in selected_user_ids:
                 await set_channel_permission(interaction.user.id, user_id, 'user', self.action)
         elif self.action == "ptt":
-            # Set PTT setting for each user
             for user_id in selected_user_ids:
                 await set_ptt_setting(interaction.user.id, user_id, 'user', self.enable)
 
@@ -453,8 +454,12 @@ class SelectUserView(View):
         else:
             status = "permitted" if self.action == "permit" else "rejected"
 
-        await interaction.response.send_message(f"Selected users have been {status} in your channel.", ephemeral=True)
-        logger.info(f"{interaction.user.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'.")
+        await interaction.response.send_message(
+            f"Selected users have been {status} in your channel.", ephemeral=True
+        )
+        logger.info(
+            f"{interaction.user.display_name} {status} users: {selected_user_ids} in channel '{channel.name}'."
+        )
 
 class SelectRoleView(View):
     """
@@ -464,7 +469,7 @@ class SelectRoleView(View):
         super().__init__(timeout=None)
         self.bot = bot
         self.action = action
-        self.enable = enable  # For PTT action
+        self.enable = enable
 
         self.role_select = RoleSelect(
             placeholder="Select Roles",
@@ -476,7 +481,6 @@ class SelectRoleView(View):
         self.add_item(self.role_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
-        # Ensure only the channel owner can interact
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -492,14 +496,11 @@ class SelectRoleView(View):
             return
 
         targets = [{'type': 'role', 'id': role_id} for role_id in selected_role_ids]
-
-        # Prepare permission change dictionary
         if self.action == "ptt":
-            permission_change = {'action': self.action, 'targets': targets, 'enable': self.enable}
+            permission_change = {'action': 'ptt', 'targets': targets, 'enable': self.enable}
         else:
             permission_change = {'action': self.action, 'targets': targets}
 
-        # Apply permissions with batching and rate limiting
         try:
             await apply_permissions_changes(channel, permission_change)
         except Exception as e:
@@ -508,7 +509,6 @@ class SelectRoleView(View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Update the dedicated permissions tables
         if self.action in ["permit", "reject"]:
             for role_id in selected_role_ids:
                 await set_channel_permission(interaction.user.id, role_id, 'role', self.action)
@@ -521,8 +521,12 @@ class SelectRoleView(View):
         else:
             status = "permitted" if self.action == "permit" else "rejected"
 
-        await interaction.response.send_message(f"Selected roles have been {status} in your channel.", ephemeral=True)
-        logger.info(f"{interaction.user.display_name} {status} roles: {selected_role_ids} in channel '{channel.name}'.")
+        await interaction.response.send_message(
+            f"Selected roles have been {status} in your channel.", ephemeral=True
+        )
+        logger.info(
+            f"{interaction.user.display_name} {status} roles: {selected_role_ids} in channel '{channel.name}'."
+        )
 
 class PTTSelectView(View):
     """
@@ -537,7 +541,7 @@ class PTTSelectView(View):
             min_values=1,
             max_values=1,
             options=[
-                SelectOption(label="Enable PTT", value="enable", description="Force users/roles to use PTT"),
+                SelectOption(label="Enable PTT",  value="enable",  description="Force users/roles to use PTT"),
                 SelectOption(label="Disable PTT", value="disable", description="Allow users/roles to use voice activation"),
             ]
         )
@@ -545,7 +549,6 @@ class PTTSelectView(View):
         self.add_item(self.ptt_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
-        # Ensure only the channel owner can interact
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await interaction.response.send_message("You don't own a channel.", ephemeral=True)
@@ -553,7 +556,8 @@ class PTTSelectView(View):
         return True
 
     async def ptt_select_callback(self, interaction: Interaction):
-        enable = True if self.ptt_select.values[0] == "enable" else False
-        # Now proceed to select target type
+        enable = (self.ptt_select.values[0] == "enable")
         view = TargetTypeSelectView(self.bot, action="ptt", enable=enable)
-        await interaction.response.edit_message(content="Choose the type of target you want to apply the PTT setting to:", view=view)
+        await interaction.response.edit_message(
+            content="Choose the type of target you want to apply the PTT setting to:", view=view
+        )

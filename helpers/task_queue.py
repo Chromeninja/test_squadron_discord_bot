@@ -41,9 +41,11 @@ async def run_task(task):
         task (Callable): An asynchronous callable representing the task.
     """
     try:
-        await task()
+        result = await task()
+        return result
     except Exception as e:
         logger.exception(f"Exception in task: {e}")
+        return None
 
 async def enqueue_task(task):
     """
@@ -52,8 +54,20 @@ async def enqueue_task(task):
     Args:
         task (Callable): An asynchronous callable representing the task.
     """
-    await task_queue.put(task)
+    # If the caller needs the result of the task, create a Future.
+    loop = asyncio.get_event_loop()
+    future = loop.create_future()
+
+    async def wrapped_task():
+        # Run the original task and set the result in the future
+        result = await task()
+        if not future.done():
+            future.set_result(result)
+        return result
+
+    await task_queue.put(wrapped_task)
     logger.debug("Task enqueued.")
+    return future
 
 # To be called once when bot starts
 async def start_task_workers(num_workers=2):

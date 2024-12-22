@@ -3,13 +3,14 @@
 import discord
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.task_queue import enqueue_task
+from helpers.discord_api import (
+    create_voice_channel,
+    delete_channel,
+    edit_channel,
+    move_member
+)
 
 logger = get_logger(__name__)
-
-# Initialize a global rate limiter
-# Discord's global rate limit is 50 requests per second
-# Adjust based on observed limits and needs
 
 async def get_user_channel(bot, member):
     """
@@ -24,7 +25,9 @@ async def get_user_channel(bot, member):
     """
     # Fetch the channel ID from the database
     async with Database.get_connection() as db:
-        cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,))
+        cursor = await db.execute(
+            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,)
+        )
         row = await cursor.fetchone()
         if row:
             channel_id = row[0]
@@ -83,7 +86,7 @@ async def update_channel_settings(user_id, **kwargs):
         values.append(kwargs['lock'])
 
     if not fields:
-        return  # Nothing to update
+        return
 
     values.append(user_id)
 
@@ -96,126 +99,86 @@ async def update_channel_settings(user_id, **kwargs):
 
 async def set_channel_permission(user_id, target_id, target_type, permission):
     async with Database.get_connection() as db:
-        await db.execute("""
+        await db.execute(
+            """
             INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
             VALUES (?, ?, ?, ?)
-        """, (user_id, target_id, target_type, permission))
+            """,
+            (user_id, target_id, target_type, permission)
+        )
         await db.commit()
 
 async def remove_channel_permission(user_id, target_id, target_type):
     async with Database.get_connection() as db:
-        await db.execute("""
+        await db.execute(
+            """
             DELETE FROM channel_permissions
             WHERE user_id = ? AND target_id = ? AND target_type = ?
-        """, (user_id, target_id, target_type))
+            """,
+            (user_id, target_id, target_type)
+        )
         await db.commit()
 
 async def get_channel_permissions(user_id):
     async with Database.get_connection() as db:
-        cursor = await db.execute("""
-            SELECT target_id, target_type, permission FROM channel_permissions
+        cursor = await db.execute(
+            """
+            SELECT target_id, target_type, permission
+            FROM channel_permissions
             WHERE user_id = ?
-        """, (user_id,))
-        permissions = await cursor.fetchall()
-        return permissions
+            """,
+            (user_id,)
+        )
+        return await cursor.fetchall()
 
 async def set_ptt_setting(user_id, target_id, target_type, ptt_enabled):
     async with Database.get_connection() as db:
-        await db.execute("""
-            INSERT OR REPLACE INTO channel_ptt_settings (user_id, target_id, target_type, ptt_enabled)
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO channel_ptt_settings
+            (user_id, target_id, target_type, ptt_enabled)
             VALUES (?, ?, ?, ?)
-        """, (user_id, target_id if target_id is not None else 0, target_type, ptt_enabled))
+            """,
+            (user_id, target_id if target_id is not None else 0, target_type, ptt_enabled)
+        )
         await db.commit()
 
 async def remove_ptt_setting(user_id, target_id, target_type):
     async with Database.get_connection() as db:
-        await db.execute("""
+        await db.execute(
+            """
             DELETE FROM channel_ptt_settings
             WHERE user_id = ? AND target_id = ? AND target_type = ?
-        """, (user_id, target_id, target_type))
+            """,
+            (user_id, target_id, target_type)
+        )
         await db.commit()
 
 async def get_ptt_settings(user_id):
     async with Database.get_connection() as db:
-        cursor = await db.execute("""
-            SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings
+        cursor = await db.execute(
+            """
+            SELECT target_id, target_type, ptt_enabled
+            FROM channel_ptt_settings
             WHERE user_id = ?
-        """, (user_id,))
-        ptt_settings = await cursor.fetchall()
-        return ptt_settings
-
-async def safe_edit_channel(channel: discord.VoiceChannel, **kwargs):
-    """
-    Safely edits a Discord channel with rate limiting.
-
-    Args:
-        channel (discord.VoiceChannel): The channel to edit.
-        **kwargs: Attributes to edit.
-    """
-    def task():
-        return channel.edit(**kwargs)
-
-    try:
-        await enqueue_task(task)
-        logger.info(f"Enqueued edit task for '{channel.name}' with {kwargs}")
-    except Exception as e:
-        logger.error(f"Failed to enqueue edit task for '{channel.name}': {e}")
-        raise
-async def safe_delete_channel(channel: discord.VoiceChannel):
-    """
-    Safely deletes a Discord channel with rate limiting.
-
-    Args:
-        channel (discord.VoiceChannel): The channel to delete.
-    """
-    def task():
-        return channel.delete()
-
-    try:
-        await enqueue_task(task)
-        logger.info(f"Enqueued delete task for '{channel.name}'")
-    except Exception as e:
-        logger.error(f"Failed to enqueue delete task for '{channel.name}': {e}")
-        raise
-
-async def safe_create_voice_channel(guild: discord.Guild, name: str, category: discord.CategoryChannel, user_limit: int = None, overwrites: dict = None):
-    """
-    Safely creates a Discord voice channel with rate limiting.
-
-    Args:
-        guild (discord.Guild): The guild where the channel will be created.
-        name (str): The name of the channel.
-        category (discord.CategoryChannel): The category under which the channel will be created.
-        user_limit (int, optional): The user limit for the channel.
-        overwrites (dict, optional): Permission overwrites.
-
-    Returns:
-        discord.VoiceChannel: The created voice channel.
-    """
-    try:
-        channel = await guild.create_voice_channel(
-            name=name,
-            category=category,
-            user_limit=user_limit,
-            overwrites=overwrites or {}
+            """,
+            (user_id,)
         )
-        logger.info(f"Created voice channel '{channel.name}' in category '{category.name}'")
-        return channel
-    except discord.HTTPException as e:
-        logger.error(f"Failed to create voice channel '{name}': {e}")
-        raise
+        return await cursor.fetchall()
 
-async def safe_move_member(member: discord.Member, channel: discord.VoiceChannel):
-    """
-    Safely moves a member to a voice channel with rate limiting.
+# Deprecated wrappers to keep old calls from breaking (remove once fully migrated):
+async def safe_create_voice_channel(guild, name, category, user_limit=None, overwrites=None):
+    logger.warning("safe_create_voice_channel is deprecated. Use create_voice_channel from discord_api.")
+    return await create_voice_channel(guild, name, category, user_limit=user_limit, overwrites=overwrites)
 
-    Args:
-        member (discord.Member): The member to move.
-        channel (discord.VoiceChannel): The target voice channel.
-    """
-    try:
-        await member.move_to(channel)
-        logger.info(f"Moved member '{member.display_name}' to channel '{channel.name}'")
-    except discord.HTTPException as e:
-        logger.error(f"Failed to move member '{member.display_name}' to channel '{channel.name}': {e}")
-        raise
+async def safe_delete_channel(channel):
+    logger.warning("safe_delete_channel is deprecated. Use delete_channel from discord_api.")
+    await delete_channel(channel)
+
+async def safe_edit_channel(channel, **kwargs):
+    logger.warning("safe_edit_channel is deprecated. Use edit_channel from discord_api.")
+    await edit_channel(channel, **kwargs)
+
+async def safe_move_member(member, channel):
+    logger.warning("safe_move_member is deprecated. Use move_member from discord_api.")
+    await move_member(member, channel)
