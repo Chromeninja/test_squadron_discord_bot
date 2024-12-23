@@ -3,12 +3,6 @@
 import discord
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.discord_api import (
-    create_voice_channel,
-    delete_channel,
-    edit_channel,
-    move_member
-)
 
 logger = get_logger(__name__)
 
@@ -26,14 +20,15 @@ async def get_user_channel(bot, member):
     # Fetch the channel ID from the database
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,)
+            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
+            (member.id,)
         )
         row = await cursor.fetchone()
         if row:
             channel_id = row[0]
             channel = bot.get_channel(channel_id)
 
-            # If the bot doesn't have the channel cached, try fetching it from the API
+            # Attempt to fetch channel if not cached
             if channel is None:
                 try:
                     channel = await bot.fetch_channel(channel_id)
@@ -165,20 +160,3 @@ async def get_ptt_settings(user_id):
             (user_id,)
         )
         return await cursor.fetchall()
-
-# Deprecated wrappers to keep old calls from breaking (remove once fully migrated):
-async def safe_create_voice_channel(guild, name, category, user_limit=None, overwrites=None):
-    logger.warning("safe_create_voice_channel is deprecated. Use create_voice_channel from discord_api.")
-    return await create_voice_channel(guild, name, category, user_limit=user_limit, overwrites=overwrites)
-
-async def safe_delete_channel(channel):
-    logger.warning("safe_delete_channel is deprecated. Use delete_channel from discord_api.")
-    await delete_channel(channel)
-
-async def safe_edit_channel(channel, **kwargs):
-    logger.warning("safe_edit_channel is deprecated. Use edit_channel from discord_api.")
-    await edit_channel(channel, **kwargs)
-
-async def safe_move_member(member, channel):
-    logger.warning("safe_move_member is deprecated. Use move_member from discord_api.")
-    await move_member(member, channel)
