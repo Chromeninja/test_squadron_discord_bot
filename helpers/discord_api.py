@@ -249,3 +249,39 @@ async def send_direct_message_task(
         logger.warning(f"Cannot send DM to '{member.display_name}' (forbidden).")
     except Exception as e:
         logger.exception(f"Failed to send DM to '{member.display_name}': {e}")
+
+# -------------------------------------------------------------------------
+# Editing Messages
+# -------------------------------------------------------------------------
+
+async def edit_message(
+    interaction: discord.Interaction,
+    content: str = None,
+    embed: discord.Embed = None,
+    view: discord.ui.View = None
+):
+    """
+    Enqueues a message edit to be sent as part of a follow-up interaction.
+    """
+    task = partial(edit_message_task, interaction, content, embed, view)
+    await enqueue_task(task)
+
+async def edit_message_task(
+    interaction: discord.Interaction,
+    content: str,
+    embed: discord.Embed,
+    view: discord.ui.View
+):
+    try:
+        kwargs = {}
+        if content is not None:
+            kwargs["content"] = content
+        if embed is not None:
+            kwargs["embed"] = embed
+        if view is not None:
+            kwargs["view"] = view
+
+        await interaction.edit_original_response(**kwargs)
+        logger.info(f"Edited message for {interaction.user.display_name}: {content}")
+    except Exception as e:
+        logger.exception(f"Failed to edit message: {e}")

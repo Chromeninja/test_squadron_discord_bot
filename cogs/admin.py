@@ -94,8 +94,7 @@ class Admin(commands.Cog):
         combined_roles = self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS
         if await self.has_roles(interaction, combined_roles):
             uptime = self.bot.uptime
-            status_message = f"Bot is online and operational. Uptime: {uptime}."
-            await interaction.response.send_message(status_message, ephemeral=True)
+            await send_message(interaction, f"Bot is online and operational. Uptime: {uptime}.", ephemeral=True)
             logger.info("Status command issued.", extra={'user_id': interaction.user.id})
         else:
             await send_message(interaction, "You don't have permission to check the bot's status.", ephemeral=True)

@@ -22,7 +22,7 @@ from helpers.voice_utils import (
     set_channel_permission,
     set_ptt_setting
 )
-from helpers.discord_api import edit_channel, send_message
+from helpers.discord_api import edit_channel, send_message, edit_message
 
 logger = get_logger(__name__)
 
@@ -370,7 +370,7 @@ class TargetTypeSelectView(View):
             try:
                 await apply_permissions_changes(channel, permission_change)
                 status = "enabled" if self.enable else "disabled"
-                await interaction.response.edit_message(
+                await edit_message(interaction,
                     content=f"PTT has been {status} for everyone in your channel.", view=None
                 )
             except Exception as e:
@@ -380,12 +380,12 @@ class TargetTypeSelectView(View):
         # If the user selected 'user' or 'role' (or action != ptt)
         if selected_type == "user":
             view = SelectUserView(self.bot, self.action, enable=self.enable)
-            await interaction.response.edit_message(
+            await edit_message(interaction,
                 content="Select users to apply the action:", view=view
             )
         elif selected_type == "role":
             view = SelectRoleView(self.bot, self.action, enable=self.enable)
-            await interaction.response.edit_message(
+            await edit_message(interaction,
                 content="Select roles to apply the action:", view=view
             )
         else:
@@ -556,6 +556,6 @@ class PTTSelectView(View):
     async def ptt_select_callback(self, interaction: Interaction):
         enable = (self.ptt_select.values[0] == "enable")
         view = TargetTypeSelectView(self.bot, action="ptt", enable=enable)
-        await interaction.response.edit_message(
+        await edit_message(interaction,
             content="Choose the type of target you want to apply the PTT setting to:", view=view
         )

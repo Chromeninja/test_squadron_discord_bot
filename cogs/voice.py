@@ -681,7 +681,7 @@ class Voice(commands.GroupCog, name="voice"):
                     await db.commit()
                 self.managed_voice_channels.discard(channel_id)
 
-        await interaction.response.send_message(message, ephemeral=True)
+        await send_message(interaction, message, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
