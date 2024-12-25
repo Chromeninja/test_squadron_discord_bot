@@ -13,7 +13,8 @@ from helpers.token_manager import cleanup_tokens
 from helpers.views import VerificationView
 from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
-from helpers.database import Database  # <-- Add this import
+from helpers.database import Database
+from helpers.task_queue import start_task_workers, task_queue
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -90,6 +91,9 @@ class MyBot(commands.Bot):
         """
         # Initialize the database
         await Database.initialize()
+        
+        # Start the task queue workers
+        await start_task_workers(num_workers=2)  # Adjust the number of workers as needed
         
         # Initialize the HTTP client session
         await self.http_client.init_session()
@@ -184,6 +188,14 @@ class MyBot(commands.Bot):
         Closes the bot and the HTTP client session.
         """
         logger.info("Shutting down the bot and closing HTTP client session.")
+
+        # Enqueue shutdown signals for workers
+        for _ in range(2):  # Number of workers started
+            await task_queue.put(None)
+
+        await task_queue.join()  # Wait until all tasks are processed
+
+        # Close the HTTP client
         await self.http_client.close()
         await super().close()
 
