@@ -268,9 +268,9 @@ async def edit_message(
 
 async def edit_message_task(
     interaction: discord.Interaction,
-    content: str,
-    embed: discord.Embed,
-    view: discord.ui.View
+    content: str = None,
+    embed: discord.Embed = None,
+    view: discord.ui.View = None
 ):
     try:
         kwargs = {}
@@ -281,7 +281,16 @@ async def edit_message_task(
         if view is not None:
             kwargs["view"] = view
 
-        await interaction.edit_original_response(**kwargs)
-        logger.info(f"Edited message for {interaction.user.display_name}: {content}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(**kwargs)
+            logger.info(f"Sent initial interaction response to {interaction.user.display_name}: {content}")
+        else:
+            await interaction.edit_original_response(**kwargs)
+            logger.info(f"Edited interaction response for {interaction.user.display_name}: {content}")
+    except discord.NotFound as e:
+        if "Unknown Webhook" in str(e):
+            logger.error("Attempted to edit a message using an unknown webhook. Interaction may have expired.")
+        else:
+            logger.exception(f"Failed to edit message: {e}")
     except Exception as e:
         logger.exception(f"Failed to edit message: {e}")

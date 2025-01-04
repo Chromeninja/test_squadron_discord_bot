@@ -189,6 +189,31 @@ class ChannelSettingsView(View):
                     description="Manage PTT settings",
                     emoji="🎙️"
                 ),
+                # Additional features:
+                SelectOption(
+                    label="Mute",
+                    value="mute",
+                    description="Mute a user in your channel",
+                    emoji="🔇"
+                ),
+                SelectOption(
+                    label="Kick",
+                    value="kick",
+                    description="Kick a user from your channel",
+                    emoji="👢"
+                ),
+                SelectOption(
+                    label="Priority Speaker",
+                    value="priority_speaker",
+                    description="Grant or revoke priority speaker",
+                    emoji="📢"
+                ),
+                SelectOption(
+                    label="Soundboard",
+                    value="soundboard",
+                    description="Enable/disable soundboard",
+                    emoji="🔊"
+                ),
             ]
         )
         self.channel_permissions_select.callback = self.channel_permissions_callback
@@ -241,7 +266,7 @@ class ChannelSettingsView(View):
                 await send_message(interaction, "You are not currently playing a game.", ephemeral=True)
                 return
 
-            # Update channel name to game name with rate limiting
+            # Update channel name
             try:
                 await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(interaction.user.id, channel_name=game_name)
@@ -304,8 +329,526 @@ class ChannelSettingsView(View):
             status = "locked" if lock else "unlocked"
             await send_message(interaction,f"Your voice channel has been {status}.", ephemeral=True)
             logger.info(f"{interaction.user.display_name} {status} their voice channel.")
+
+        elif selected == "mute":
+            # Mute user only
+            view = MuteUserSelectView(self.bot)
+            await send_message(
+                interaction,
+                "Select a user to mute:",
+                view=view,
+                ephemeral=True
+            )
+
+        elif selected == "kick":
+            # Kick user only
+            view = KickUserSelectView(self.bot)
+            await send_message(
+                interaction,
+                "Select a user to kick from your channel:",
+                view=view,
+                ephemeral=True
+            )
+
+        elif selected == "priority_speaker":
+            # Similar approach to PTT: ask user if enable or disable
+            view = PrioritySpeakerSelectView(self.bot)
+            await send_message(
+                interaction,
+                "Do you want to enable or disable Priority Speaker?",
+                view=view,
+                ephemeral=True
+            )
+
+        elif selected == "soundboard":
+            # Enable or disable soundboard
+            view = SoundboardSelectView(self.bot)
+            await send_message(
+                interaction,
+                "Enable or disable soundboard access?",
+                view=view,
+                ephemeral=True
+            )
+
         else:
             await send_message(interaction, "Unknown option selected.", ephemeral=True)
+
+
+# --------------------------------------------------------------------------------------
+# Reuse the same user/role selection flow for certain new actions if desired
+# (e.g., Mute, Kick, Priority Speaker, Soundboard). We'll define new views only if needed.
+# --------------------------------------------------------------------------------------
+
+class MuteUserSelectView(View):
+    """
+    View that allows selection of exactly one user to mute.
+    """
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.user_select = UserSelect(
+            placeholder="Select user to mute",
+            min_values=1,
+            max_values=1
+        )
+        self.user_select.callback = self.user_select_callback
+        self.add_item(self.user_select)
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
+    async def user_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if len(self.user_select.values) == 0:
+            await send_message(interaction, "No user selected.", ephemeral=True)
+            return
+        target_user = self.user_select.values[0]
+
+        if target_user not in channel.members:
+            await send_message(
+                interaction,
+                f"{target_user.display_name} is not in your channel.",
+                ephemeral=True
+            )
+            return
+
+        overwrites = channel.overwrites.copy()
+        ow = overwrites.get(target_user, discord.PermissionOverwrite())
+        ow.speak = False
+        overwrites[target_user] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            await send_message(
+                interaction,
+                f"{target_user.display_name} has been muted in your channel.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await send_message(
+                interaction,
+                f"Failed to mute {target_user.display_name}: {e}",
+                ephemeral=True
+            )
+
+
+class KickUserSelectView(View):
+    """
+    View that allows selection of exactly one user to kick, with an optional reject toggle.
+    """
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.user_select = UserSelect(
+            placeholder="Select user to kick",
+            min_values=1,
+            max_values=1
+        )
+        self.user_select.callback = self.user_select_callback
+        self.add_item(self.user_select)
+
+        # Optional "Reject" toggle button
+        self.reject_button = Button(
+            label="Also Reject from Rejoining",
+            style=discord.ButtonStyle.danger
+        )
+        self.reject_button.callback = self.reject_button_callback
+        self.add_item(self.reject_button)
+
+        # Or you could add a second button "Kick Only" if you want separate flows
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return False
+        return True
+
+    async def user_select_callback(self, interaction: Interaction):
+        """
+        Kick user without rejecting by default.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if len(self.user_select.values) == 0:
+            await send_message(interaction, "No user selected.", ephemeral=True)
+            return
+        target_user = self.user_select.values[0]
+
+        if target_user not in channel.members:
+            await send_message(
+                interaction,
+                f"{target_user.display_name} is not in your channel.",
+                ephemeral=True
+            )
+            return
+
+        # Kick
+        try:
+            await target_user.move_to(None)
+            await send_message(
+                interaction,
+                f"{target_user.display_name} was kicked from your channel.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await send_message(
+                interaction,
+                f"Failed to kick user: {e}",
+                ephemeral=True
+            )
+
+    async def reject_button_callback(self, interaction: Interaction):
+        """
+        Kick + also reject from rejoining.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if len(self.user_select.values) == 0:
+            await send_message(interaction, "No user selected for reject.", ephemeral=True)
+            return
+        target_user = self.user_select.values[0]
+
+        # Kick
+        try:
+            await target_user.move_to(None)
+        except Exception as e:
+            await send_message(interaction, f"Failed to kick user: {e}", ephemeral=True)
+            return
+
+        # Reject
+        overwrites = channel.overwrites.copy()
+        ow = overwrites.get(target_user, discord.PermissionOverwrite())
+        ow.connect = False
+        overwrites[target_user] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            await send_message(
+                interaction,
+                f"{target_user.display_name} was kicked and rejected from rejoining.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await send_message(
+                interaction,
+                f"Kicked but failed to reject rejoining: {e}",
+                ephemeral=True
+            )
+
+
+# ---------------
+# Priority Speaker
+# ---------------
+class PrioritySpeakerSelectView(View):
+    """
+    Asks the user to enable or disable priority speaker, then triggers target selection.
+    """
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.select = Select(
+            placeholder="Enable or Disable Priority Speaker",
+            options=[
+                SelectOption(label="Enable", value="enable"),
+                SelectOption(label="Disable", value="disable"),
+            ],
+            min_values=1,
+            max_values=1
+        )
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: Interaction):
+        enable = (self.select.values[0] == "enable")
+        view = PrioritySpeakerTargetView(self.bot, enable)
+        await edit_message(
+            interaction,
+            content="Select user(s) or role(s) for Priority Speaker:",
+            view=view
+        )
+
+class PrioritySpeakerTargetView(View):
+    """
+    Allows selecting user or role for priority speaker.
+    """
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+
+        self.target_type_select = Select(
+            placeholder="Select Target Type",
+            options=[
+                SelectOption(label="User", value="user"),
+                SelectOption(label="Role", value="role")
+            ],
+            min_values=1,
+            max_values=1
+        )
+        self.target_type_select.callback = self.target_type_callback
+        self.add_item(self.target_type_select)
+
+    async def target_type_callback(self, interaction: Interaction):
+        selected = self.target_type_select.values[0]
+        if selected == "user":
+            view = PrioritySpeakerUserSelectView(self.bot, self.enable)
+            await edit_message(
+                interaction,
+                content="Select user(s) for priority speaker:",
+                view=view)
+        elif selected == "role":
+            view = PrioritySpeakerRoleSelectView(self.bot, self.enable)
+            await edit_message(
+                interaction,
+                content="Select role(s) for priority speaker:",
+                view=view,
+            )
+
+class PrioritySpeakerUserSelectView(View):
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+        self.user_select = UserSelect(
+            placeholder="Select user(s)",
+            min_values=1,
+            max_values=25
+        )
+        self.user_select.callback = self.user_select_callback
+        self.add_item(self.user_select)
+
+    async def user_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        overwrites = channel.overwrites.copy()
+
+        for user in self.user_select.values:
+            ow = overwrites.get(user, discord.PermissionOverwrite())
+            ow.priority_speaker = self.enable
+            overwrites[user] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            status = "enabled" if self.enable else "disabled"
+            await send_message(interaction, f"Priority speaker {status} for selected user(s).", ephemeral=True)
+            await edit_message(interaction, content=f"Priority speaker {status}.", view=None)
+        except Exception as e:
+            await send_message(interaction, f"Failed to update priority speaker: {e}", ephemeral=True)
+
+class PrioritySpeakerRoleSelectView(View):
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+        self.role_select = RoleSelect(
+            placeholder="Select role(s)",
+            min_values=1,
+            max_values=25
+        )
+        self.role_select.callback = self.role_select_callback
+        self.add_item(self.role_select)
+
+    async def role_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        overwrites = channel.overwrites.copy()
+
+        for role in self.role_select.values:
+            ow = overwrites.get(role, discord.PermissionOverwrite())
+            ow.priority_speaker = self.enable
+            overwrites[role] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            status = "enabled" if self.enable else "disabled"
+            await send_message(interaction, f"Priority speaker {status} for selected role(s).", ephemeral=True)
+            await edit_message(interaction, content=f"Priority speaker {status}.", view=None)
+        except Exception as e:
+            await send_message(interaction, f"Failed to update priority speaker: {e}", ephemeral=True)
+
+
+# ---------------
+# Soundboard
+# ---------------
+class SoundboardSelectView(View):
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.select = Select(
+            placeholder="Enable or Disable Soundboard",
+            options=[
+                SelectOption(label="Enable", value="enable"),
+                SelectOption(label="Disable", value="disable")
+            ],
+            min_values=1,
+            max_values=1
+        )
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: Interaction):
+        enable = (self.select.values[0] == "enable")
+        view = SoundboardTargetTypeView(self.bot, enable)
+        await edit_message(
+            interaction,
+            content="Select target type for soundboard permission:",
+            view=view,
+        )
+
+class SoundboardTargetTypeView(View):
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+        self.target_select = Select(
+            placeholder="User, Role, or Everyone",
+            options=[
+                SelectOption(label="User", value="user"),
+                SelectOption(label="Role", value="role"),
+                SelectOption(label="Everyone", value="everyone")
+            ],
+            min_values=1,
+            max_values=1
+        )
+        self.target_select.callback = self.target_select_callback
+        self.add_item(self.target_select)
+
+    async def target_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        selected = self.target_select.values[0]
+        overwrites = channel.overwrites.copy()
+
+        if selected == "everyone":
+            default_role = channel.guild.default_role
+            ow = overwrites.get(default_role, discord.PermissionOverwrite())
+            ow.use_soundboard = self.enable
+            overwrites[default_role] = ow
+            try:
+                await edit_channel(channel, overwrites=overwrites)
+                status = "enabled" if self.enable else "disabled"
+                await interaction.response.send_message(
+                    content=f"Soundboard {status} for everyone.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                await send_message(interaction, f"Failed to update soundboard: {e}", ephemeral=True)
+
+        elif selected == "user":
+            view = SoundboardUserSelectView(self.bot, self.enable)
+            await edit_message(
+                interaction,
+                content="Select user(s) for soundboard setting:",
+                view=view,
+            )
+
+        elif selected == "role":
+            view = SoundboardRoleSelectView(self.bot, self.enable)
+            await edit_message(
+                interaction,
+                content="Select role(s) for soundboard setting:",
+                view=view,
+            )
+
+
+class SoundboardUserSelectView(View):
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+        self.user_select = UserSelect(
+            placeholder="Select user(s)",
+            min_values=1,
+            max_values=25
+        )
+        self.user_select.callback = self.user_select_callback
+        self.add_item(self.user_select)
+
+    async def user_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        overwrites = channel.overwrites.copy()
+
+        for user in self.user_select.values:
+            ow = overwrites.get(user, discord.PermissionOverwrite())
+            ow.use_soundboard = self.enable
+            overwrites[user] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            status = "enabled" if self.enable else "disabled"
+            await send_message(interaction, f"Soundboard {status} for selected user(s).", ephemeral=True)
+            await interaction.response.edit_message(
+                content="Select user(s) for soundboard setting:",
+                view=view,
+            )
+        except Exception as e:
+            await send_message(interaction, f"Failed to update soundboard: {e}", ephemeral=True)
+
+class SoundboardRoleSelectView(View):
+    def __init__(self, bot, enable):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.enable = enable
+        self.role_select = RoleSelect(
+            placeholder="Select role(s)",
+            min_values=1,
+            max_values=25
+        )
+        self.role_select.callback = self.role_select_callback
+        self.add_item(self.role_select)
+
+    async def role_select_callback(self, interaction: Interaction):
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        overwrites = channel.overwrites.copy()
+
+        for role in self.role_select.values:
+            ow = overwrites.get(role, discord.PermissionOverwrite())
+            ow.use_soundboard = self.enable
+            overwrites[role] = ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            status = "enabled" if self.enable else "disabled"
+            await send_message(interaction, f"Soundboard {status} for selected role(s).", ephemeral=True)
+            await interaction.response.edit_message(
+                content="Select user(s) for soundboard setting:",
+                view=view,
+                ephemeral=True
+            )
+        except Exception as e:
+            await send_message(interaction, f"Failed to update soundboard: {e}", ephemeral=True)
 
 class TargetTypeSelectView(View):
     """
@@ -377,7 +920,7 @@ class TargetTypeSelectView(View):
                 await send_message(interaction,f"Failed to apply PTT settings: {e}", ephemeral=True)
             return
 
-        # If the user selected 'user' or 'role' (or action != ptt)
+        # If the user selected 'user' or 'role'
         if selected_type == "user":
             view = SelectUserView(self.bot, self.action, enable=self.enable)
             await edit_message(interaction,
@@ -440,6 +983,7 @@ class SelectUserView(View):
             await send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
+        # Update DB if needed
         if self.action in ["permit", "reject"]:
             for user_id in selected_user_ids:
                 await set_channel_permission(interaction.user.id, user_id, 'user', self.action)

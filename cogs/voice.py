@@ -305,6 +305,10 @@ class Voice(commands.GroupCog, name="voice"):
             logger.error(f"Failed to apply permissions to channel '{channel.name}': {e}")
             raise
 
+    # -------------------------------------------------------------------------
+    # Slash Commands
+    # -------------------------------------------------------------------------
+
     @app_commands.command(name="setup", description="Set up the voice channel system.")
     @app_commands.guild_only()
     @app_commands.describe(category="Category to place voice channels in", num_channels="Number of 'Join to Create' channels")
@@ -354,6 +358,79 @@ class Voice(commands.GroupCog, name="voice"):
             await followup_send_message(interaction,
                 "Failed to create voice channels. Check bot permissions.", ephemeral=True
             )
+
+    @app_commands.command(name="list", description="List all custom permissions and settings in your voice channel.")
+    @app_commands.guild_only()
+    async def list_channel_settings(self, interaction: discord.Interaction):
+        """
+        Lists your current channel's settings, including user limit, lock state,
+        permits/rejects, PTT, etc.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        # Fetch channel settings
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            row = await cursor.fetchone()
+
+        channel_name = row[0] if (row and row[0]) else channel.name
+        user_limit = row[1] if row else channel.user_limit
+        lock_state = "Locked" if (row and row[2] == 1) else "Unlocked"
+
+        # Fetch channel_permissions
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            perm_rows = await cursor.fetchall()
+
+        # Fetch ptt settings
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            ptt_rows = await cursor.fetchall()
+
+        # Format the data into a readable message
+        permission_lines = []
+        for target_id, target_type, permission in perm_rows:
+            permission_lines.append(f"- [{target_type}:{target_id}] => **{permission}**")
+
+        ptt_lines = []
+        for target_id, target_type, ptt_enabled in ptt_rows:
+            state = "Enabled" if ptt_enabled else "Disabled"
+            ptt_lines.append(f"- [{target_type}:{target_id}] => **PTT {state}**")
+
+        embed = discord.Embed(
+            title="Channel Settings & Permissions",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Channel Name", value=channel_name, inline=False)
+        embed.add_field(name="User Limit", value=str(user_limit), inline=True)
+        embed.add_field(name="Lock State", value=lock_state, inline=True)
+
+        if permission_lines:
+            embed.add_field(
+                name="Permits/Rejects",
+                value="\n".join(permission_lines),
+                inline=False
+            )
+        if ptt_lines:
+            embed.add_field(
+                name="PTT Settings",
+                value="\n".join(ptt_lines),
+                inline=False
+            )
+
+        await send_message(interaction, "", embed=embed, ephemeral=True)
 
     @app_commands.command(name="permit", description="Permit users/roles to join your channel.")
     @app_commands.guild_only()
@@ -554,6 +631,141 @@ class Voice(commands.GroupCog, name="voice"):
             await send_message(interaction,
                 "Failed to claim ownership of the channel.", ephemeral=True
             )
+
+    @app_commands.command(name="mute", description="Mute a user in your voice channel (user-only).")
+    @app_commands.describe(user="The user you want to mute in your channel.")
+    @app_commands.guild_only()
+    async def mute_user(self, interaction: discord.Interaction, user: discord.Member):
+        """
+        Disables 'speak' permission for a specific user in the channel the interaction user owns.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if user not in channel.members:
+            await send_message(interaction, f"{user.display_name} is not in your channel.", ephemeral=True)
+            return
+
+        overwrites = channel.overwrites.copy()
+        overwrite = overwrites.get(user, discord.PermissionOverwrite())
+        overwrite.speak = False  # remove speak permission
+        overwrites[user] = overwrite
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            await send_message(interaction, f"{user.display_name} has been muted in your channel.", ephemeral=True)
+        except Exception as e:
+            await send_message(interaction, f"Failed to mute {user.display_name}: {e}", ephemeral=True)
+
+    @app_commands.command(name="kick", description="Kick a user from your voice channel.")
+    @app_commands.describe(user="The user you want to kick out.")
+    @app_commands.guild_only()
+    async def kick_user(self, interaction: discord.Interaction, user: discord.Member, reject: bool = False):
+        """
+        Disconnect a user from your channel. Optionally reject them from rejoining if `reject` is True.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if user not in channel.members:
+            await send_message(interaction, f"{user.display_name} is not in your channel.", ephemeral=True)
+            return
+
+        # Kick (move to None)
+        try:
+            await user.move_to(None)
+        except Exception as e:
+            await send_message(interaction, f"Failed to kick {user.display_name}: {e}", ephemeral=True)
+            return
+
+        if not reject:
+            await send_message(
+                interaction,
+                f"{user.display_name} has been kicked from your channel.",
+                ephemeral=True
+            )
+            return
+
+        # If reject == True, also deny connect perms so they can't rejoin:
+        overwrites = channel.overwrites.copy()
+        overwrite = overwrites.get(user, discord.PermissionOverwrite())
+        overwrite.connect = False
+        overwrites[user] = overwrite
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            await send_message(
+                interaction,
+                f"{user.display_name} was kicked and temporarily rejected from rejoining.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await send_message(
+                interaction,
+                f"User was kicked but failed to reject further: {e}",
+                ephemeral=True
+            )
+
+    @app_commands.command(name="transfer", description="Transfer channel ownership to another user in your voice channel.")
+    @app_commands.describe(new_owner="Who should be the new channel owner?")
+    @app_commands.guild_only()
+    async def transfer_ownership(self, interaction: discord.Interaction, new_owner: discord.Member):
+        """
+        Allows the current owner to transfer ownership to another user in the same channel.
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        if new_owner not in channel.members:
+            await send_message(
+                interaction,
+                "The specified user must be in your channel to transfer ownership.",
+                ephemeral=True
+            )
+            return
+
+        # Update DB
+        async with Database.get_connection() as db:
+            await db.execute(
+                "UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?",
+                (new_owner.id, channel.id)
+            )
+            await db.commit()
+
+        # Update channel overwrites:
+        overwrites = channel.overwrites.copy()
+        # Remove manage_channels from old owner:
+        old_overwrite = overwrites.get(interaction.user, None)
+        if old_overwrite:
+            old_overwrite.manage_channels = False
+            overwrites[interaction.user] = old_overwrite
+
+        # Grant manage_channels to new owner:
+        new_ow = overwrites.get(new_owner, discord.PermissionOverwrite())
+        new_ow.manage_channels = True
+        new_ow.connect = True
+        overwrites[new_owner] = new_ow
+
+        try:
+            await edit_channel(channel, overwrites=overwrites)
+            await send_message(
+                interaction,
+                f"Channel ownership transferred to {new_owner.display_name}.",
+                ephemeral=True
+            )
+            logger.info(
+                f"{interaction.user.display_name} transferred ownership of '{channel.name}' "
+                f"to {new_owner.display_name}."
+            )
+        except Exception as e:
+            logger.exception(f"Failed to transfer ownership: {e}")
+            await send_message(interaction, f"Failed to transfer ownership: {e}", ephemeral=True)
 
     @app_commands.command(name="help", description="Show help for voice commands.")
     @app_commands.guild_only()
