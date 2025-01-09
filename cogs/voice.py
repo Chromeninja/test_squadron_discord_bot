@@ -440,59 +440,55 @@ class Voice(commands.GroupCog, name="voice"):
             )
             soundboard_rows = await cursor.fetchall()
 
-        # Format the data into a readable message
-        permission_lines = []
-        for target_id, target_type, permission in perm_rows:
-            permission_lines.append(f"- [{target_type}:{target_id}] => **{permission}**")
+        # Format permissions
+        def format_target(target_id, target_type):
+            if target_type == "user":
+                user = interaction.guild.get_member(target_id)
+                return user.mention if user else f"User ID: {target_id}"
+            elif target_type == "role":
+                role = interaction.guild.get_role(target_id)
+                return role.mention if role else f"Role ID: {target_id}"
+            elif target_type == "everyone":
+                return "**Everyone**"
+            return f"Unknown: {target_id}"
 
-        ptt_lines = []
-        for target_id, target_type, ptt_enabled in ptt_rows:
-            state = "Enabled" if ptt_enabled else "Disabled"
-            ptt_lines.append(f"- [{target_type}:{target_id}] => **PTT {state}**")
+        permission_lines = [
+            f"- {format_target(target_id, target_type)} => **{permission}**"
+            for target_id, target_type, permission in perm_rows
+        ] or ["No custom permissions set."]
 
-        priority_lines = []
-        for target_id, target_type, priority_enabled in priority_rows:
-            state = "Enabled" if priority_enabled else "Disabled"
-            priority_lines.append(f"- [{target_type}:{target_id}] => **PrioritySpeaker {state}**")
+        ptt_lines = [
+            f"- {format_target(target_id, target_type)} => **PTT {'Enabled' if ptt_enabled else 'Disabled'}**"
+            for target_id, target_type, ptt_enabled in ptt_rows
+        ] or ["PTT is not configured."]
 
-        soundboard_lines = []
-        for target_id, target_type, sb_enabled in soundboard_rows:
-            state = "Enabled" if sb_enabled else "Disabled"
-            soundboard_lines.append(f"- [{target_type}:{target_id}] => **Soundboard {state}**")
+        priority_lines = [
+            f"- {format_target(target_id, target_type)} => **PrioritySpeaker {'Enabled' if priority_enabled else 'Disabled'}**"
+            for target_id, target_type, priority_enabled in priority_rows
+        ] or ["No priority speakers set."]
 
+        soundboard_lines = [
+            f"- {format_target(target_id, target_type)} => **Soundboard {'Enabled' if sb_enabled else 'Disabled'}**"
+            for target_id, target_type, sb_enabled in soundboard_rows
+        ] or ["Soundboard settings not customized."]
+
+        # Build embed
         embed = discord.Embed(
             title="Channel Settings & Permissions",
+            description=f"Settings for your channel: {channel_name}",
             color=discord.Color.blue()
         )
-        embed.add_field(name="Channel Name", value=channel_name, inline=False)
-        embed.add_field(name="User Limit", value=str(user_limit), inline=True)
-        embed.add_field(name="Lock State", value=lock_state, inline=True)
+        embed.add_field(name="🔒 Lock State", value=lock_state, inline=True)
+        embed.add_field(name="👥 User Limit", value=str(user_limit), inline=True)
 
-        if permission_lines:
-            embed.add_field(
-                name="Permits/Rejects",
-                value="\n".join(permission_lines),
-                inline=False
-            )
-        if ptt_lines:
-            embed.add_field(
-                name="PTT Settings",
-                value="\n".join(ptt_lines),
-                inline=False
-            )
-        if priority_lines:
-            embed.add_field(
-                name="Priority Speaker",
-                value="\n".join(priority_lines),
-                inline=False
-            )
-        if soundboard_lines:
-            embed.add_field(
-                name="Soundboard",
-                value="\n".join(soundboard_lines),
-                inline=False
-            )
+        embed.add_field(name="✅ Permits/Rejects", value="\n".join(permission_lines), inline=False)
+        embed.add_field(name="🎙️ PTT Settings", value="\n".join(ptt_lines), inline=False)
+        embed.add_field(name="📢 Priority Speaker", value="\n".join(priority_lines), inline=False)
+        embed.add_field(name="🔊 Soundboard", value="\n".join(soundboard_lines), inline=False)
 
+        embed.set_footer(text="Use /voice commands to adjust these settings.")
+
+        # Send embed
         await send_message(interaction, "", embed=embed, ephemeral=True)
 
     @app_commands.command(name="permit", description="Permit users/roles to join your channel.")
