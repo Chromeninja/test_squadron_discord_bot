@@ -160,3 +160,79 @@ async def get_ptt_settings(user_id):
             (user_id,)
         )
         return await cursor.fetchall()
+
+# ======================
+# Priority Speaker
+# ======================
+async def set_priority_speaker_setting(user_id, target_id, target_type, priority_enabled: bool):
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO channel_priority_speaker_settings 
+            (user_id, target_id, target_type, priority_enabled)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, target_id if target_id else 0, target_type, priority_enabled)
+        )
+        await db.commit()
+
+async def remove_priority_speaker_setting(user_id, target_id, target_type):
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            DELETE FROM channel_priority_speaker_settings
+            WHERE user_id = ? AND target_id = ? AND target_type = ?
+            """,
+            (user_id, target_id, target_type)
+        )
+        await db.commit()
+
+async def get_priority_speaker_settings(user_id: int):
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT target_id, target_type, priority_enabled
+            FROM channel_priority_speaker_settings
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        )
+        return await cursor.fetchall()
+
+# ======================
+# Soundboard
+# ======================
+async def set_soundboard_setting(user_id, target_id, target_type, soundboard_enabled: bool):
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO channel_soundboard_settings 
+            (user_id, target_id, target_type, soundboard_enabled)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, target_id if target_id else 0, target_type, soundboard_enabled)
+        )
+        await db.commit()
+
+async def remove_soundboard_setting(user_id, target_id, target_type):
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            DELETE FROM channel_soundboard_settings
+            WHERE user_id = ? AND target_id = ? AND target_type = ?
+            """,
+            (user_id, target_id, target_type)
+        )
+        await db.commit()
+
+async def get_soundboard_settings(user_id: int):
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT target_id, target_type, soundboard_enabled
+            FROM channel_soundboard_settings
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        )
+        return await cursor.fetchall()

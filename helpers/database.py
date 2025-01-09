@@ -88,6 +88,26 @@ class Database:
                 PRIMARY KEY (user_id, target_id, target_type)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings (
+                user_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,  -- 'user' or 'role'
+                priority_enabled BOOLEAN NOT NULL,
+                PRIMARY KEY (user_id, target_id, target_type)
+            )
+        """)
+
+        # Create channel_soundboard_settings table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_soundboard_settings (
+                user_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
+                soundboard_enabled BOOLEAN NOT NULL,
+                PRIMARY KEY (user_id, target_id, target_type)
+            )
+        """)
         await db.commit()
 
     @classmethod

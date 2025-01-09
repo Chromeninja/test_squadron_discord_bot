@@ -20,7 +20,9 @@ from helpers.voice_utils import (
     get_user_game_name,
     update_channel_settings,
     set_channel_permission,
-    set_ptt_setting
+    set_ptt_setting,
+    set_priority_speaker_setting,
+    set_soundboard_setting,
 )
 from helpers.discord_api import edit_channel, send_message, edit_message
 
@@ -634,6 +636,13 @@ class PrioritySpeakerUserSelectView(View):
             ow.priority_speaker = self.enable
             overwrites[user] = ow
 
+            await set_priority_speaker_setting(
+                interaction.user.id,
+                user.id,
+                "user",
+                self.enable
+            )
+
         try:
             await edit_channel(channel, overwrites=overwrites)
             status = "enabled" if self.enable else "disabled"
@@ -643,7 +652,6 @@ class PrioritySpeakerUserSelectView(View):
                 f"Priority speaker {status} for selected user(s).",
                 ephemeral=True
             )
-            # No additional edit here to avoid multiple ephemeral calls in one callback
         except Exception as e:
             await send_message(interaction, f"Failed to update priority speaker: {e}", ephemeral=True)
 
@@ -672,6 +680,13 @@ class PrioritySpeakerRoleSelectView(View):
             ow.priority_speaker = self.enable
             overwrites[role] = ow
 
+            await set_priority_speaker_setting(
+                interaction.user.id,
+                role.id,
+                "role",
+                self.enable
+            )
+
         try:
             await edit_channel(channel, overwrites=overwrites)
             status = "enabled" if self.enable else "disabled"
@@ -680,7 +695,6 @@ class PrioritySpeakerRoleSelectView(View):
                 f"Priority speaker {status} for selected role(s).",
                 ephemeral=True
             )
-            # End callback; no double ephemeral message.
         except Exception as e:
             await send_message(interaction, f"Failed to update priority speaker: {e}", ephemeral=True)
 
@@ -745,6 +759,14 @@ class SoundboardTargetTypeView(View):
             ow = overwrites.get(default_role, discord.PermissionOverwrite())
             ow.use_soundboard = self.enable
             overwrites[default_role] = ow
+
+            await set_soundboard_setting(
+                interaction.user.id,
+                0,
+                "everyone",
+                self.enable
+            )
+
             try:
                 await edit_channel(channel, overwrites=overwrites)
                 status = "enabled" if self.enable else "disabled"
@@ -763,7 +785,6 @@ class SoundboardTargetTypeView(View):
                 content="Select user(s) for soundboard setting:",
                 view=view
             )
-
         else:  # "role"
             view = SoundboardRoleSelectView(self.bot, self.enable)
             await edit_message(
@@ -771,7 +792,6 @@ class SoundboardTargetTypeView(View):
                 content="Select role(s) for soundboard setting:",
                 view=view
             )
-
 
 class SoundboardUserSelectView(View):
     def __init__(self, bot, enable):
@@ -799,6 +819,13 @@ class SoundboardUserSelectView(View):
             ow.use_soundboard = self.enable
             overwrites[user] = ow
 
+            await set_soundboard_setting(
+                interaction.user.id,
+                user.id,
+                "user",
+                self.enable
+            )
+
         try:
             await edit_channel(channel, overwrites=overwrites)
             status = "enabled" if self.enable else "disabled"
@@ -807,7 +834,6 @@ class SoundboardUserSelectView(View):
                 f"Soundboard {status} for selected user(s).",
                 ephemeral=True
             )
-            # End callback to avoid multiple ephemeral calls
         except Exception as e:
             await send_message(interaction, f"Failed to update soundboard: {e}", ephemeral=True)
 
@@ -837,6 +863,13 @@ class SoundboardRoleSelectView(View):
             ow.use_soundboard = self.enable
             overwrites[role] = ow
 
+            await set_soundboard_setting(
+                interaction.user.id,
+                role.id,
+                "role",
+                self.enable
+            )
+
         try:
             await edit_channel(channel, overwrites=overwrites)
             status = "enabled" if self.enable else "disabled"
@@ -845,7 +878,6 @@ class SoundboardRoleSelectView(View):
                 f"Soundboard {status} for selected role(s).",
                 ephemeral=True
             )
-            # End callback; no second ephemeral message
         except Exception as e:
             await send_message(interaction, f"Failed to update soundboard: {e}", ephemeral=True)
 

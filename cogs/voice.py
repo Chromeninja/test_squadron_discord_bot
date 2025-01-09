@@ -18,7 +18,9 @@ from helpers.voice_utils import (
     get_user_game_name,
     update_channel_settings,
     get_channel_permissions,
-    get_ptt_settings
+    get_ptt_settings,
+    get_priority_speaker_settings,
+    get_soundboard_settings,
 )
 from helpers.discord_api import (
     create_voice_channel,
@@ -199,7 +201,7 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
-                # Apply permissions and PTT
+                # Apply permissions, PTT,Priority Speaker, and Soundboard)
                 await self._apply_channel_permissions(new_channel, member.id)
 
                 # Apply lock if enabled
@@ -243,10 +245,13 @@ class Voice(commands.GroupCog, name="voice"):
 
     async def _apply_channel_permissions(self, channel: discord.VoiceChannel, owner_id: int):
         """
-        Applies saved permissions (permit/reject) and PTT settings to the channel in one edit.
+        Applies saved permissions (permit/reject), PTT, Priority Speaker, and Soundboard
+        to the channel in one edit.
         """
         permissions = await get_channel_permissions(owner_id)
         ptt_settings = await get_ptt_settings(owner_id)
+        priority_settings = await get_priority_speaker_settings(owner_id)
+        soundboard_settings = await get_soundboard_settings(owner_id)
 
         original_overwrites = channel.overwrites.copy()
         overwrites = channel.overwrites.copy()
@@ -277,6 +282,32 @@ class Voice(commands.GroupCog, name="voice"):
             if target:
                 overwrite = overwrites.get(target, discord.PermissionOverwrite())
                 overwrite.use_voice_activation = not ptt_enabled
+                overwrites[target] = overwrite
+
+        for target_id, target_type, priority_enabled in priority_settings:
+            if target_type == 'user':
+                target = channel.guild.get_member(target_id)
+            elif target_type == 'role':
+                target = channel.guild.get_role(target_id)
+            else:
+                continue
+            if target:
+                overwrite = overwrites.get(target, discord.PermissionOverwrite())
+                overwrite.priority_speaker = priority_enabled
+                overwrites[target] = overwrite
+
+        for target_id, target_type, soundboard_enabled in soundboard_settings:
+            if target_type == 'user':
+                target = channel.guild.get_member(target_id)
+            elif target_type == 'role':
+                target = channel.guild.get_role(target_id)
+            elif target_type == 'everyone':
+                target = channel.guild.default_role
+            else:
+                continue
+            if target:
+                overwrite = overwrites.get(target, discord.PermissionOverwrite())
+                overwrite.use_soundboard = soundboard_enabled
                 overwrites[target] = overwrite
 
         # Ensure owner permissions
@@ -364,7 +395,7 @@ class Voice(commands.GroupCog, name="voice"):
     async def list_channel_settings(self, interaction: discord.Interaction):
         """
         Lists your current channel's settings, including user limit, lock state,
-        permits/rejects, PTT, etc.
+        permits/rejects, PTT, Priority Speaker, and Soundboard.
         """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
@@ -391,13 +422,23 @@ class Voice(commands.GroupCog, name="voice"):
             )
             perm_rows = await cursor.fetchall()
 
-        # Fetch ptt settings
-        async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
                 (interaction.user.id,)
             )
             ptt_rows = await cursor.fetchall()
+
+            cursor = await db.execute(
+                "SELECT target_id, target_type, priority_enabled FROM channel_priority_speaker_settings WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            priority_rows = await cursor.fetchall()
+
+            cursor = await db.execute(
+                "SELECT target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            soundboard_rows = await cursor.fetchall()
 
         # Format the data into a readable message
         permission_lines = []
@@ -408,6 +449,16 @@ class Voice(commands.GroupCog, name="voice"):
         for target_id, target_type, ptt_enabled in ptt_rows:
             state = "Enabled" if ptt_enabled else "Disabled"
             ptt_lines.append(f"- [{target_type}:{target_id}] => **PTT {state}**")
+
+        priority_lines = []
+        for target_id, target_type, priority_enabled in priority_rows:
+            state = "Enabled" if priority_enabled else "Disabled"
+            priority_lines.append(f"- [{target_type}:{target_id}] => **PrioritySpeaker {state}**")
+
+        soundboard_lines = []
+        for target_id, target_type, sb_enabled in soundboard_rows:
+            state = "Enabled" if sb_enabled else "Disabled"
+            soundboard_lines.append(f"- [{target_type}:{target_id}] => **Soundboard {state}**")
 
         embed = discord.Embed(
             title="Channel Settings & Permissions",
@@ -427,6 +478,18 @@ class Voice(commands.GroupCog, name="voice"):
             embed.add_field(
                 name="PTT Settings",
                 value="\n".join(ptt_lines),
+                inline=False
+            )
+        if priority_lines:
+            embed.add_field(
+                name="Priority Speaker",
+                value="\n".join(priority_lines),
+                inline=False
+            )
+        if soundboard_lines:
+            embed.add_field(
+                name="Soundboard",
+                value="\n".join(soundboard_lines),
                 inline=False
             )
 
@@ -587,7 +650,8 @@ class Voice(commands.GroupCog, name="voice"):
 
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel.id,)
+                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel.id,)
             )
             row = await cursor.fetchone()
             if not row:
