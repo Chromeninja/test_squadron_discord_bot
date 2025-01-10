@@ -148,6 +148,7 @@ class ChannelSettingsView(View):
             placeholder="Channel Permissions (1/2)",
             min_values=1,
             max_values=1,
+            custom_id="channel_permissions_select_1",
             options=[
                 SelectOption(
                     label="Lock",
@@ -188,6 +189,7 @@ class ChannelSettingsView(View):
             placeholder="Channel Permissions (2/2)",
             min_values=1,
             max_values=1,
+            custom_id="channel_permissions_select_2",
             options=[
                 SelectOption(
                     label="Mute",
@@ -285,96 +287,95 @@ class ChannelSettingsView(View):
         if not await self._check_ownership(interaction):
             return
 
-        selected = self.channel_permissions_select.values[0]
-        if selected in ["permit", "reject"]:
-            action = selected
-            view = TargetTypeSelectView(self.bot, action=action)
-            await send_message(
-                interaction,
-                "Choose the type of target you want to apply the action to:",
-                view=view,
-                ephemeral=True
-            )
-        elif selected == "ptt":
-            view = PTTSelectView(self.bot)
-            await send_message(
-                interaction,
-                "Do you want to enable or disable PTT?",
-                view=view,
-                ephemeral=True
-            )
+        dropdown_trigger = interaction.data['custom_id']
+        if dropdown_trigger == "channel_permissions_select_1":
+            selected = self.channel_permissions_select_1.values[0]
+        elif dropdown_trigger == "channel_permissions_select_2":
+            selected = self.channel_permissions_select_2.values[0]
+        else:
+            await send_message(interaction, "Unknown dropdown triggered the callback.", ephemeral=True)
+            return
 
-        elif selected in ["lock", "unlock"]:
-            lock = (selected == "lock")
-            channel = await get_user_channel(self.bot, interaction.user)
-            if not channel:
-                await send_message(interaction, "You don't own a channel.", ephemeral=True)
-                return
-
-            permission_change = {
-                'action': 'lock' if lock else 'unlock',
-                'targets': [{'type': 'role', 'id': channel.guild.default_role.id}]
-            }
-
-            try:
-                await apply_permissions_changes(channel, permission_change)
-            except Exception as e:
-                logger.error(f"Failed to apply permission '{selected}' to channel '{channel.name}': {e}")
+        try:
+            if selected in ["permit", "reject"]:
+                action = selected
+                view = TargetTypeSelectView(self.bot, action=action)
                 await send_message(
                     interaction,
-                    f"Failed to {selected} your voice channel.",
+                    "Choose the type of target you want to apply the action to:",
+                    view=view,
                     ephemeral=True
                 )
-                return
+            elif selected == "ptt":
+                view = PTTSelectView(self.bot)
+                await send_message(
+                    interaction,
+                    "Do you want to enable or disable PTT?",
+                    view=view,
+                    ephemeral=True
+                )
+            elif selected in ["lock", "unlock"]:
+                lock = (selected == "lock")
+                channel = await get_user_channel(self.bot, interaction.user)
+                if not channel:
+                    await send_message(interaction, "You don't own a channel.", ephemeral=True)
+                    return
 
-            await update_channel_settings(interaction.user.id, lock=1 if lock else 0)
-            status = "locked" if lock else "unlocked"
-            await send_message(
-                interaction,
-                f"Your voice channel has been {status}.",
-                ephemeral=True
-            )
-            logger.info(f"{interaction.user.display_name} {status} their voice channel.")
+                permission_change = {
+                    'action': 'lock' if lock else 'unlock',
+                    'targets': [{'type': 'role', 'id': channel.guild.default_role.id}]
+                }
 
-        elif selected == "mute":
-            view = MuteUserSelectView(self.bot)
-            await send_message(
-                interaction,
-                "Select a user to mute:",
-                view=view,
-                ephemeral=True
-            )
+                await apply_permissions_changes(channel, permission_change)
+                await update_channel_settings(interaction.user.id, lock=1 if lock else 0)
+                status = "locked" if lock else "unlocked"
+                await send_message(
+                    interaction,
+                    f"Your voice channel has been {status}.",
+                    ephemeral=True
+                )
+                logger.info(f"{interaction.user.display_name} {status} their voice channel.")
+            elif selected == "mute":
+                view = MuteUserSelectView(self.bot)
+                await send_message(
+                    interaction,
+                    "Select a user to mute:",
+                    view=view,
+                    ephemeral=True
+                )
+            elif selected == "kick":
+                view = KickUserSelectView(self.bot)
+                await send_message(
+                    interaction,
+                    "Select a user to kick from your channel:",
+                    view=view,
+                    ephemeral=True
+                )
+            elif selected == "priority_speaker":
+                view = PrioritySpeakerSelectView(self.bot)
+                await send_message(
+                    interaction,
+                    "Do you want to enable or disable Priority Speaker?",
+                    view=view,
+                    ephemeral=True
+                )
+            elif selected == "soundboard":
+                view = SoundboardSelectView(self.bot)
+                await send_message(
+                    interaction,
+                    "Enable or disable soundboard access?",
+                    view=view,
+                    ephemeral=True
+                )
+            else:
+                await send_message(interaction, "Unknown option selected.", ephemeral=True)
 
-        elif selected == "kick":
-            view = KickUserSelectView(self.bot)
-            await send_message(
-                interaction,
-                "Select a user to kick from your channel:",
-                view=view,
-                ephemeral=True
-            )
+            # Reset the dropdown after action
+            await interaction.message.edit(view=self)
 
-        elif selected == "priority_speaker":
-            view = PrioritySpeakerSelectView(self.bot)
-            await send_message(
-                interaction,
-                "Do you want to enable or disable Priority Speaker?",
-                view=view,
-                ephemeral=True
-            )
-
-        elif selected == "soundboard":
-            view = SoundboardSelectView(self.bot)
-            await send_message(
-                interaction,
-                "Enable or disable soundboard access?",
-                view=view,
-                ephemeral=True
-            )
-
-        else:
-            await send_message(interaction, "Unknown option selected.", ephemeral=True)
-
+        except Exception as e:
+            logger.exception(f"Error in processing channel permissions: {e}")
+            await send_message(interaction, "An error occurred while processing your request.", ephemeral=True)
 
 # -----------------------------------------------------------
 # Mute, Kick, Priority Speaker, Soundboard, etc.
