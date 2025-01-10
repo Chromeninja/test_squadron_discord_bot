@@ -22,8 +22,7 @@ async def apply_ptt_settings(channel: discord.VoiceChannel, ptt_settings: dict):
     # Prepare a dictionary to hold all overwrites
     overwrites = channel.overwrites.copy()
 
-    if not targets:
-        # Apply to @everyone
+    if not targets or any(target.get('type') == 'everyone' for target in targets):
         overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
         desired_state = not enable
         if overwrite.use_voice_activation != desired_state:
@@ -114,6 +113,14 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
                         logger.info(
                             f"Prepared permission '{action}' for role '{role.name}' in channel '{channel.name}'."
                         )
+            elif target_type == 'everyone':
+                overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
+                if overwrite.connect != desired_connect:
+                    overwrite.connect = desired_connect
+                    overwrites[channel.guild.default_role] = overwrite
+                    logger.info(
+                        f"Prepared permission '{action}' for everyone in channel '{channel.name}'."
+                    )
             else:
                 logger.warning(f"Unknown target type: {target_type}")
 
@@ -146,6 +153,15 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
                             f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} "
                             f"for role '{role.name}' in channel '{channel.name}'."
                         )
+            elif target_type == 'everyone':
+                overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
+                desired_state = not enable
+                if overwrite.use_voice_activation != desired_state:
+                    overwrite.use_voice_activation = desired_state
+                    overwrites[channel.guild.default_role] = overwrite
+                    logger.info(
+                        f"Prepared PTT settings: {'Enabled' if enable else 'Disabled'} for everyone in channel '{channel.name}'."
+                    )
             else:
                 logger.warning(f"Unknown target type: {target_type}")
 
@@ -166,6 +182,10 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
                     overwrite = overwrites.get(role, discord.PermissionOverwrite())
                     overwrite.connect = desired_connect
                     overwrites[role] = overwrite
+            elif target_type == 'everyone':
+                overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
+                overwrite.connect = desired_connect
+                overwrites[channel.guild.default_role] = overwrite
             else:
                 logger.warning(f"Unknown target type: {target_type}")
 
