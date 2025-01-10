@@ -3,6 +3,7 @@
 import discord
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
+from helpers.discord_api import edit_channel, send_message, edit_message, send_message
 
 from helpers.permissions_helper import apply_permissions_changes
 from helpers.embeds import create_token_embed, create_error_embed, create_cooldown_embed
@@ -23,8 +24,9 @@ from helpers.voice_utils import (
     set_ptt_setting,
     set_priority_speaker_setting,
     set_soundboard_setting,
+    fetch_channel_settings,
+    format_channel_settings,
 )
-from helpers.discord_api import edit_channel, send_message, edit_message
 
 logger = get_logger(__name__)
 
@@ -131,6 +133,12 @@ class ChannelSettingsView(View):
                     value="game",
                     description="Set channel name to your current game",
                     emoji="🎮"
+                ),
+                SelectOption(
+                    label="List",
+                    value="list",
+                    description="View current channel settings and permissions",
+                    emoji="📜"
                 ),
                 SelectOption(
                     label="Reset",
@@ -270,7 +278,27 @@ class ChannelSettingsView(View):
                     color=discord.Color.green()
                 )
                 await send_message(interaction, "", embed=embed, ephemeral=True)
-                logger.info(f"{interaction.user.display_name} set their channel name to game: {game_name}.")
+            elif selected == "list":
+                settings = await fetch_channel_settings(self.bot, interaction)
+                if not settings:
+                    return
+
+                formatted = format_channel_settings(settings, interaction)
+
+                embed = discord.Embed(
+                    title="Channel Settings & Permissions",
+                    description=f"Settings for your channel: {settings['channel_name']}",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
+                embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
+                embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
+                embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
+                embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
+                embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
+                embed.set_footer(text="Use the dropdowns to adjust these settings.")
+
+                await send_message(interaction, "", embed=embed, ephemeral=True)
             elif selected == "reset":
                 await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
             else:

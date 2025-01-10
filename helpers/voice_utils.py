@@ -3,6 +3,7 @@
 import discord
 from helpers.database import Database
 from helpers.logger import get_logger
+from helpers.discord_api import send_message, send_message
 
 logger = get_logger(__name__)
 
@@ -236,3 +237,112 @@ async def get_soundboard_settings(user_id: int):
             (user_id,)
         )
         return await cursor.fetchall()
+
+async def fetch_channel_settings(bot, interaction):
+    """
+    Fetch channel settings and permissions for the user's channel.
+
+    Returns:
+        A dictionary of channel settings and permissions, or None if the user doesn't own a channel.
+    """
+    channel = await get_user_channel(bot, interaction.user)
+    if not channel:
+        await send_message(interaction, "You don't own a channel.", ephemeral=True)
+        return None
+
+    # Fetch basic channel settings
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+        row = await cursor.fetchone()
+
+        channel_name = row[0] if (row and row[0]) else channel.name
+        user_limit = row[1] if row else channel.user_limit
+        lock_state = "Locked" if (row and row[2] == 1) else "Unlocked"
+
+    # Fetch permissions, PTT, Priority Speaker, and Soundboard settings
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+        perm_rows = await cursor.fetchall()
+
+        cursor = await db.execute(
+            "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+        ptt_rows = await cursor.fetchall()
+
+        cursor = await db.execute(
+            "SELECT target_id, target_type, priority_enabled FROM channel_priority_speaker_settings WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+        priority_rows = await cursor.fetchall()
+
+        cursor = await db.execute(
+            "SELECT target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+        soundboard_rows = await cursor.fetchall()
+
+    return {
+        "channel_name": channel_name,
+        "user_limit": user_limit,
+        "lock_state": lock_state,
+        "perm_rows": perm_rows,
+        "ptt_rows": ptt_rows,
+        "priority_rows": priority_rows,
+        "soundboard_rows": soundboard_rows,
+    }
+
+def format_channel_settings(settings, interaction):
+    """
+    Formats channel settings into a dictionary of lines for embedding.
+
+    Args:
+        settings: The dictionary returned by `fetch_channel_settings`.
+        interaction: The Discord interaction for accessing guild members/roles.
+
+    Returns:
+        A dictionary of formatted text lines.
+    """
+    def format_target(target_id, target_type):
+        if target_type == "user":
+            user = interaction.guild.get_member(target_id)
+            return user.mention if user else f"User ID: {target_id}"
+        elif target_type == "role":
+            role = interaction.guild.get_role(target_id)
+            return role.mention if role else f"Role ID: {target_id}"
+        elif target_type == "everyone":
+            return "**Everyone**"
+        return f"Unknown: {target_id}"
+
+    permission_lines = [
+        f"- {format_target(target_id, target_type)} => **{permission}**"
+        for target_id, target_type, permission in settings["perm_rows"]
+    ] or ["No custom permissions set."]
+
+    ptt_lines = [
+        f"- {format_target(target_id, target_type)} => **PTT {'Enabled' if ptt_enabled else 'Disabled'}**"
+        for target_id, target_type, ptt_enabled in settings["ptt_rows"]
+    ] or ["PTT is not configured."]
+
+    priority_lines = [
+        f"- {format_target(target_id, target_type)} => **PrioritySpeaker {'Enabled' if priority_enabled else 'Disabled'}**"
+        for target_id, target_type, priority_enabled in settings["priority_rows"]
+    ] or ["No priority speakers set."]
+
+    soundboard_lines = [
+        f"- {format_target(target_id, target_type)} => **Soundboard {'Enabled' if sb_enabled else 'Disabled'}**"
+        for target_id, target_type, sb_enabled in settings["soundboard_rows"]
+    ] or ["Soundboard settings not customized."]
+
+    return {
+        "permission_lines": permission_lines,
+        "ptt_lines": ptt_lines,
+        "priority_lines": priority_lines,
+        "soundboard_lines": soundboard_lines,
+    }
