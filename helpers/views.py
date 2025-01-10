@@ -100,7 +100,6 @@ class VerificationView(View):
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
 
-
 class ChannelSettingsView(View):
     """
     View containing interactive select menus for channel settings and permissions.
@@ -239,28 +238,28 @@ class ChannelSettingsView(View):
             return
 
         selected = self.channel_settings_select.values[0]
-        if selected == "name":
-            modal = NameModal(self.bot)
-            await interaction.response.send_modal(modal)
-        elif selected == "limit":
-            modal = LimitModal(self.bot)
-            await interaction.response.send_modal(modal)
-        elif selected == "game":
-            channel = await get_user_channel(self.bot, interaction.user)
-            if not channel:
-                await send_message(interaction, "You don't own a channel.", ephemeral=True)
-                return
+        try:
+            if selected == "name":
+                modal = NameModal(self.bot)
+                await interaction.response.send_modal(modal)
+            elif selected == "limit":
+                modal = LimitModal(self.bot)
+                await interaction.response.send_modal(modal)
+            elif selected == "game":
+                channel = await get_user_channel(self.bot, interaction.user)
+                if not channel:
+                    await send_message(interaction, "You don't own a channel.", ephemeral=True)
+                    return
 
-            member = interaction.guild.get_member(interaction.user.id)
-            if not member:
-                await send_message(interaction, "Unable to retrieve your member data.", ephemeral=True)
-                return
-            game_name = get_user_game_name(member)
-            if not game_name:
-                await send_message(interaction, "You are not currently playing a game.", ephemeral=True)
-                return
+                member = interaction.guild.get_member(interaction.user.id)
+                if not member:
+                    await send_message(interaction, "Unable to retrieve your member data.", ephemeral=True)
+                    return
+                game_name = get_user_game_name(member)
+                if not game_name:
+                    await send_message(interaction, "You are not currently playing a game.", ephemeral=True)
+                    return
 
-            try:
                 await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(interaction.user.id, channel_name=game_name)
 
@@ -270,14 +269,17 @@ class ChannelSettingsView(View):
                 )
                 await send_message(interaction, "", embed=embed, ephemeral=True)
                 logger.info(f"{interaction.user.display_name} set their channel name to game: {game_name}.")
-            except Exception as e:
-                logger.exception(f"Failed to set channel name to game: {e}")
-                embed = create_error_embed("Failed to set channel name to your current game. Please try again.")
-                await send_message(interaction, "", embed=embed, ephemeral=True)
-        elif selected == "reset":
-            await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
-        else:
-            await send_message(interaction, "Unknown option selected.", ephemeral=True)
+            elif selected == "reset":
+                await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
+            else:
+                await send_message(interaction, "Unknown option selected.", ephemeral=True)
+
+            # Reset the dropdown after action
+            await interaction.message.edit(view=self)
+
+        except Exception as e:
+            logger.exception(f"Error in processing channel settings: {e}")
+            await send_message(interaction, "An error occurred while processing your request.", ephemeral=True)
 
     async def channel_permissions_callback(self, interaction: Interaction):
         if not await self._check_ownership(interaction):
