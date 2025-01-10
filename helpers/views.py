@@ -124,7 +124,7 @@ class ChannelSettingsView(View):
                 SelectOption(
                     label="Limit",
                     value="limit",
-                    description="Set user limit for the channel",
+                    description="Limit how many users can join",
                     emoji="🔢"
                 ),
                 SelectOption(
@@ -144,9 +144,9 @@ class ChannelSettingsView(View):
         self.channel_settings_select.callback = self.channel_settings_callback
         self.add_item(self.channel_settings_select)
 
-        # Channel Permissions Select Menu
-        self.channel_permissions_select = Select(
-            placeholder="Channel Permissions",
+        # Channel Permissions Select Menus (Split into two parts)
+        self.channel_permissions_select_1 = Select(
+            placeholder="Channel Permissions (1/2)",
             min_values=1,
             max_values=1,
             options=[
@@ -180,6 +180,16 @@ class ChannelSettingsView(View):
                     description="Manage PTT settings",
                     emoji="🎙️"
                 ),
+            ]
+        )
+        self.channel_permissions_select_1.callback = self.channel_permissions_callback
+        self.add_item(self.channel_permissions_select_1)
+
+        self.channel_permissions_select_2 = Select(
+            placeholder="Channel Permissions (2/2)",
+            min_values=1,
+            max_values=1,
+            options=[
                 SelectOption(
                     label="Mute",
                     value="mute",
@@ -206,8 +216,8 @@ class ChannelSettingsView(View):
                 ),
             ]
         )
-        self.channel_permissions_select.callback = self.channel_permissions_callback
-        self.add_item(self.channel_permissions_select)
+        self.channel_permissions_select_2.callback = self.channel_permissions_callback
+        self.add_item(self.channel_permissions_select_2)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         # Ensure only the channel owner can interact
