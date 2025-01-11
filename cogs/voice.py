@@ -758,11 +758,11 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Displays a help embed with available voice commands.
         """
-        excluded_commands = {"setup", "admin_reset"}
+        excluded_commands = {"setup", "admin_reset","admin_list"}
         commands_list = []
         for command in self.walk_app_commands():
             if command.parent and command.parent.name == "voice" and command.name not in excluded_commands:
-                commands_list.append(f"/voice {command.name} - {command.description}")
+                commands_list.append(f"**/voice {command.name}** - {command.description}")
 
         if not commands_list:
             await send_message(interaction, "No voice commands available.", ephemeral=True)
