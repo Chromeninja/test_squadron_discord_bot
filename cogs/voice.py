@@ -880,6 +880,131 @@ class Voice(commands.GroupCog, name="voice"):
 
         await send_message(interaction, message, ephemeral=True)
 
+    @app_commands.command(
+        name="admin_list",
+        description="View saved permissions and settings for a user's voice channel (Admins/Moderators only)."
+    )
+    @app_commands.guild_only()
+    @app_commands.describe(user="The user whose voice channel settings you want to view.")
+    async def admin_list_channel(self, interaction: discord.Interaction, user: discord.Member):
+        """
+        Allows an admin to view the saved voice channel settings and permissions for a specific user.
+        """
+        # Check if the user has the appropriate roles
+        admin_role_ids = self.bot_admin_role_ids + self.lead_moderator_role_ids
+        user_roles = [role.id for role in interaction.user.roles]
+        if not any(role_id in user_roles for role_id in admin_role_ids):
+            await send_message(interaction, "You do not have permission to use this command.", ephemeral=True)
+            return
+
+        # Fetch the saved channel settings for the user
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
+                (user.id,)
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            await send_message(interaction, f"{user.display_name} does not have saved channel settings.", ephemeral=True)
+            return
+
+        # Extract settings from the database row
+        channel_name = row[0] or f"{user.display_name}'s Channel"
+        user_limit = row[1] or "No Limit"
+        lock_state = "Locked" if row[2] == 1 else "Unlocked"
+
+        # Fetch additional permissions and settings
+        settings = {
+            "channel_name": channel_name,
+            "user_limit": user_limit,
+            "lock_state": lock_state,
+        }
+        formatted = await self._format_admin_settings(user, interaction)
+
+        # Build embed using `/voice list` format
+        embed = discord.Embed(
+            title=f"Saved Channel Settings & Permissions for {user.display_name}",
+            description=f"Settings for the channel: {channel_name}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="🔒 Lock State", value=lock_state, inline=True)
+        embed.add_field(name="👥 User Limit", value=str(user_limit), inline=True)
+        embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
+        embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
+        embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
+        embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
+        embed.set_footer(text="Command restricted to admins and lead moderators.")
+
+        await send_message(interaction, "", embed=embed, ephemeral=True)
+
+    async def _format_admin_settings(self, user, interaction):
+        """
+        Helper method to format channel permissions and settings for an admin command.
+        """
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+                (user.id,)
+            )
+            perm_rows = await cursor.fetchall()
+
+            cursor = await db.execute(
+                "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
+                (user.id,)
+            )
+            ptt_rows = await cursor.fetchall()
+
+            cursor = await db.execute(
+                "SELECT target_id, target_type, priority_enabled FROM channel_priority_speaker_settings WHERE user_id = ?",
+                (user.id,)
+            )
+            priority_rows = await cursor.fetchall()
+
+            cursor = await db.execute(
+                "SELECT target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
+                (user.id,)
+            )
+            soundboard_rows = await cursor.fetchall()
+
+        def format_target(target_id, target_type):
+            if target_type == "user":
+                target_user = interaction.guild.get_member(target_id)
+                return target_user.mention if target_user else f"User ID: {target_id}"
+            elif target_type == "role":
+                target_role = interaction.guild.get_role(target_id)
+                return target_role.mention if target_role else f"Role ID: {target_id}"
+            elif target_type == "everyone":
+                return "**Everyone**"
+            return f"Unknown: {target_id}"
+
+        permission_lines = [
+            f"- {format_target(target_id, target_type)} => **{permission}**"
+            for target_id, target_type, permission in perm_rows
+        ] or ["No custom permissions set."]
+
+        ptt_lines = [
+            f"- {format_target(target_id, target_type)} => **PTT {'Enabled' if ptt_enabled else 'Disabled'}**"
+            for target_id, target_type, ptt_enabled in ptt_rows
+        ] or ["PTT is not configured."]
+
+        priority_lines = [
+            f"- {format_target(target_id, target_type)} => **PrioritySpeaker {'Enabled' if priority_enabled else 'Disabled'}**"
+            for target_id, target_type, priority_enabled in priority_rows
+        ] or ["No priority speakers set."]
+
+        soundboard_lines = [
+            f"- {format_target(target_id, target_type)} => **Soundboard {'Enabled' if sb_enabled else 'Disabled'}**"
+            for target_id, target_type, sb_enabled in soundboard_rows
+        ] or ["Soundboard settings not customized."]
+
+        return {
+            "permission_lines": permission_lines,
+            "ptt_lines": ptt_lines,
+            "priority_lines": priority_lines,
+            "soundboard_lines": soundboard_lines,
+        }
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Voice(bot))
