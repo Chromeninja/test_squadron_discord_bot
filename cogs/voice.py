@@ -57,39 +57,51 @@ class Voice(commands.GroupCog, name="voice"):
     async def cog_load(self):
         """
         Called when the cog is loaded.
-        Fetches stored settings and cleans up stale channels.
+        Fetches stored settings and deletes previously managed voice channels.
         """
+
         async with Database.get_connection() as db:
             cursor = await db.execute("SELECT value FROM settings WHERE key = ?", ('join_to_create_channel_ids',))
-            row = await cursor.fetchone()
-            if row:
+            if row := await cursor.fetchone():
                 self.join_to_create_channel_ids = json.loads(row[0])
-            else:
-                logger.warning("Join to Create channel IDs not found in settings.")
 
             cursor = await db.execute("SELECT value FROM settings WHERE key = ?", ('voice_category_id',))
-            row = await cursor.fetchone()
-            if row:
+            if row := await cursor.fetchone():
                 self.voice_category_id = int(row[0])
-            else:
-                logger.warning("Voice category ID not found in settings.")
 
             cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels")
             rows = await cursor.fetchall()
-            self.managed_voice_channels = {r[0] for r in rows}
 
-        if not self.join_to_create_channel_ids or not self.voice_category_id:
-            logger.error("Voice setup is incomplete. Please run /voice setup command.")
+            for (channel_id,) in rows:
+                self.bot.loop.create_task(self.cleanup_voice_channel(channel_id))
 
-        # Clean up stale voice channels
-        for channel_id in list(self.managed_voice_channels):
-            channel = self.bot.get_channel(channel_id)
-            if channel is None:
-                async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
-                    await db.commit()
-                self.managed_voice_channels.remove(channel_id)
-                logger.info(f"Cleaned up stale voice channel entry {channel_id} from database.")
+        logger.info("Voice cog loaded with 'delete all managed channels' configuration.")
+
+    async def cleanup_voice_channel(self, channel_id):
+        """
+        Deletes a voice channel and removes it from the database.
+        """
+        async with Database.get_connection() as db:
+            try:
+                channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+                
+                if channel:
+                    logger.info(f"Deleting managed voice channel: {channel.name} (ID: {channel.id})")
+                    await channel.delete()
+                else:
+                    logger.warning(f"Channel with ID {channel_id} not found.")
+
+            except discord.NotFound:
+                logger.warning(f"Channel with ID {channel_id} not found; assumed already deleted.")
+            except discord.Forbidden:
+                logger.error(f"Bot lacks permissions to delete channel ID {channel_id}.")
+            except discord.HTTPException as e:
+                logger.error(f"HTTP exception occurred while deleting channel ID {channel_id}: {e}")
+            finally:
+                # Remove the channel from the database
+                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                await db.commit()
+                logger.info(f"Removed channel ID {channel_id} from the database.")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
