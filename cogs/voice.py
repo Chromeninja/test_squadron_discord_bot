@@ -49,6 +49,7 @@ class Voice(commands.GroupCog, name="voice"):
         self.bot_admin_role_ids = [int(r) for r in self.config['roles'].get('bot_admins', [])]
         self.lead_moderator_role_ids = [int(r) for r in self.config['roles'].get('lead_moderators', [])]
         self.cooldown_seconds = self.config['voice'].get('cooldown_seconds', 60)
+        self.expiry_days = self.config['voice'].get('expiry_days', 30)
         self.join_to_create_channel_ids = []
         self.voice_category_id = None
         self.managed_voice_channels = set()
@@ -58,6 +59,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Called when the cog is loaded.
         Fetches stored settings and deletes previously managed voice channels.
+        Also starts the cleanup task for expired voice channel data.
         """
 
         async with Database.get_connection() as db:
@@ -76,6 +78,10 @@ class Voice(commands.GroupCog, name="voice"):
                 self.bot.loop.create_task(self.cleanup_voice_channel(channel_id))
 
         logger.info("Voice cog loaded with 'delete all managed channels' configuration.")
+
+        # Start the cleanup task for expired voice channel data
+        self.bot.loop.create_task(self.channel_data_cleanup_loop())
+        logger.info("Started voice channel data cleanup task.")
 
     async def cleanup_voice_channel(self, channel_id):
         """
@@ -215,7 +221,7 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
-                # Apply permissions, PTT,Priority Speaker, and Soundboard)
+                # Apply permissions, PTT, Priority Speaker, and Soundboard
                 await self._apply_channel_permissions(new_channel, member.id)
 
                 # Apply lock if enabled
@@ -247,6 +253,66 @@ class Voice(commands.GroupCog, name="voice"):
                 await self._wait_for_channel_empty(new_channel)
             except Exception as e:
                 logger.exception(f"Error creating voice channel for {member.display_name}: {e}")
+
+    async def channel_data_cleanup_loop(self):
+        """
+        Runs immediately, then every 24 hours to remove stale data
+        if last_created is older than expiry_days.
+        """
+        await self.cleanup_stale_channel_data()
+
+        while not self.bot.is_closed():
+            await asyncio.sleep(24 * 60 * 60)  # 24 hours
+            await self.cleanup_stale_channel_data()
+
+    async def cleanup_stale_channel_data(self):
+        """
+        Removes users' voice channel data if last_created is older
+        than config['voice']['expiry_days']. No channel deletion here.
+        """
+        expiry_seconds = self.expiry_days * 24 * 60 * 60
+        cutoff_time = time.time() - expiry_seconds
+
+        logger.info(f"Running stale channel data cleanup (cutoff={cutoff_time}).")
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute("""
+                SELECT user_id 
+                FROM voice_cooldowns
+                WHERE last_created < ?
+            """, (cutoff_time,))
+            rows = await cursor.fetchall()
+            stale_user_ids = [row[0] for row in rows]
+
+            if not stale_user_ids:
+                logger.info("No stale voice channel data found.")
+                return
+
+            logger.info(f"Found {len(stale_user_ids)} stale user(s) to clean up.")
+
+            tables_to_delete = [
+                ("user_voice_channels", "owner_id"),
+                ("channel_settings", "user_id"),
+                ("channel_permissions", "user_id"),
+                ("channel_ptt_settings", "user_id"),
+                ("channel_priority_speaker_settings", "user_id"),
+                ("channel_soundboard_settings", "user_id"),
+                ("voice_cooldowns", "user_id"),
+            ]
+
+            for user_id in stale_user_ids:
+                try:
+                    for table, column in tables_to_delete:
+                        await db.execute(f"DELETE FROM {table} WHERE {column} = ?", (user_id,))
+
+                    logger.info(f"Cleaned stale data for user_id={user_id}")
+
+                except Exception as e:
+                    logger.exception(f"Error cleaning stale data for user_id={user_id}: {e}")
+
+            await db.commit()
+
+        logger.info("Stale channel data cleanup completed.")
 
     async def _wait_for_channel_empty(self, channel: discord.VoiceChannel):
         """
@@ -720,8 +786,7 @@ class Voice(commands.GroupCog, name="voice"):
             return
 
         if new_owner not in channel.members:
-            await send_message(
-                interaction,
+            await send_message(interaction,
                 "The specified user must be in your channel to transfer ownership.",
                 ephemeral=True
             )
