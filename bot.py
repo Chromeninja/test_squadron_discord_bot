@@ -48,7 +48,7 @@ intents.guilds = True  # Needed for guild-related events
 intents.members = True  # Needed for member-related events
 intents.message_content = True  # Needed for reading message content
 intents.voice_states = True  # Needed for voice state updates
-intents.presences = True
+intents.presences = True # Needed for member presence updates
 
 # List of initial extensions to load
 initial_extensions = [
@@ -203,10 +203,6 @@ class MyBot(commands.Bot):
         """
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
-
-        # Optional: Log bot uptime
-        uptime = self.uptime
-        logger.info(f"Uptime: {uptime}")
 
     @property
     def uptime(self) -> str:
