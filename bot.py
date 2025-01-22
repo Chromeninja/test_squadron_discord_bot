@@ -35,6 +35,8 @@ BOT_VERIFIED_ROLE_ID = config['roles']['bot_verified_role_id']
 MAIN_ROLE_ID = config['roles']['main_role_id']
 AFFILIATE_ROLE_ID = config['roles']['affiliate_role_id']
 NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
+BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('bot_admins', [])]
+LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('lead_moderators', [])]
 
 if not TOKEN:
     logger.critical("DISCORD_TOKEN not found in environment variables.")
@@ -75,6 +77,8 @@ class MyBot(commands.Bot):
         self.MAIN_ROLE_ID = MAIN_ROLE_ID
         self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
         self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
+        self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
+        self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
 
         # Initialize uptime tracking
         self.start_time = time.monotonic()
@@ -122,6 +126,10 @@ class MyBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
+        # Set command permissions for each guild
+        for guild in self.guilds:
+            await self.set_admin_command_permissions(guild)
+
     async def cache_roles(self):
         """
         Caches role objects to avoid redundant lookups.
@@ -140,6 +148,37 @@ class MyBot(commands.Bot):
                 self.role_cache[role_id] = role
             else:
                 logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+
+    async def set_admin_command_permissions(self, guild: discord.Guild):
+        """
+        Applies slash command permissions so only 'bot_admins' or 'lead_moderators' can see/use certain commands.
+        """
+        # Define the restricted commands and combine role IDs
+        restricted_commands = ["reset-all", "reset-user", "status", "view-logs"]
+        combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
+
+        # Generate permissions for the roles
+        permissions = [
+            discord.AppCommandPermission(
+                type=discord.AppCommandPermissionType.ROLE,
+                id=role_id,
+                permission=True
+            )
+            for role_id in combined_role_ids
+        ]
+
+        # Apply permissions to each command
+        for cmd_name in restricted_commands:
+            command = self.tree.get_command(cmd_name, guild=guild)
+            if command:
+                try:
+                    await self.tree.set_permissions(guild, command, permissions)
+                    logger.info(f"Permissions set for command '{cmd_name}' in guild '{guild.name}'.")
+                except discord.HTTPException as e:
+                    logger.error(f"Failed to set permissions for '{cmd_name}' in guild '{guild.name}': {e}")
+            else:
+                logger.warning(f"Command '{cmd_name}' not found in guild '{guild.name}'. Skipping.")
+
 
     async def token_cleanup_task(self):
         """
