@@ -695,33 +695,6 @@ class Voice(commands.GroupCog, name="voice"):
                 "Failed to claim ownership of the channel.", ephemeral=True
             )
 
-    @app_commands.command(name="mute", description="Mute a user in your voice channel (user-only).")
-    @app_commands.describe(user="The user you want to mute in your channel.")
-    @app_commands.guild_only()
-    async def mute_user(self, interaction: discord.Interaction, user: discord.Member):
-        """
-        Disables 'speak' permission for a specific user in the channel the interaction user owns.
-        """
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return
-
-        if user not in channel.members:
-            await send_message(interaction, f"{user.display_name} is not in your channel.", ephemeral=True)
-            return
-
-        overwrites = channel.overwrites.copy()
-        overwrite = overwrites.get(user, discord.PermissionOverwrite())
-        overwrite.speak = False  # remove speak permission
-        overwrites[user] = overwrite
-
-        try:
-            await edit_channel(channel, overwrites=overwrites)
-            await send_message(interaction, f"{user.display_name} has been muted in your channel.", ephemeral=True)
-        except Exception as e:
-            await send_message(interaction, f"Failed to mute {user.display_name}: {e}", ephemeral=True)
-
     @app_commands.command(name="kick", description="Kick a user from your voice channel.")
     @app_commands.describe(user="The user you want to kick out.")
     @app_commands.guild_only()

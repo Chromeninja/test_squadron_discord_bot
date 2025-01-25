@@ -200,12 +200,6 @@ class ChannelSettingsView(View):
             custom_id="channel_permissions_select_2",
             options=[
                 SelectOption(
-                    label="Mute",
-                    value="mute",
-                    description="Mute a user in your channel",
-                    emoji="🔇"
-                ),
-                SelectOption(
                     label="Kick",
                     value="kick",
                     description="Kick a user from your channel",
@@ -363,14 +357,6 @@ class ChannelSettingsView(View):
                     ephemeral=True
                 )
                 logger.info(f"{interaction.user.display_name} {status} their voice channel.")
-            elif selected == "mute":
-                view = MuteUserSelectView(self.bot)
-                await send_message(
-                    interaction,
-                    "Select a user to mute:",
-                    view=view,
-                    ephemeral=True
-                )
             elif selected == "kick":
                 view = KickUserSelectView(self.bot)
                 await send_message(
@@ -406,69 +392,8 @@ class ChannelSettingsView(View):
             await send_message(interaction, "An error occurred while processing your request.", ephemeral=True)
 
 # -----------------------------------------------------------
-# Mute, Kick, Priority Speaker, Soundboard, etc.
+# Kick, Priority Speaker, Soundboard, etc.
 # -----------------------------------------------------------
-
-class MuteUserSelectView(View):
-    """
-    Allows selection of exactly one user to mute.
-    """
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-        self.user_select = UserSelect(
-            placeholder="Select user to mute",
-            min_values=1,
-            max_values=1
-        )
-        self.user_select.callback = self.user_select_callback
-        self.add_item(self.user_select)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return False
-        return True
-
-    async def user_select_callback(self, interaction: Interaction):
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return
-
-        if not self.user_select.values:
-            await send_message(interaction, "No user selected.", ephemeral=True)
-            return
-
-        target_user = self.user_select.values[0]
-        if target_user not in channel.members:
-            await send_message(
-                interaction,
-                f"{target_user.display_name} is not in your channel.",
-                ephemeral=True
-            )
-            return
-
-        overwrites = channel.overwrites.copy()
-        ow = overwrites.get(target_user, discord.PermissionOverwrite())
-        ow.speak = False
-        overwrites[target_user] = ow
-
-        try:
-            await edit_channel(channel, overwrites=overwrites)
-            await send_message(
-                interaction,
-                f"{target_user.display_name} has been muted in your channel.",
-                ephemeral=True
-            )
-        except Exception as e:
-            await send_message(
-                interaction,
-                f"Failed to mute {target_user.display_name}: {e}",
-                ephemeral=True
-            )
-
 
 class KickUserSelectView(View):
     """
