@@ -10,19 +10,16 @@ import time
 from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
 from helpers.database import Database
-from helpers.views import ChannelSettingsView, TargetTypeSelectView, PTTSelectView
-from helpers.modals import ResetSettingsConfirmationModal, NameModal, LimitModal
+from helpers.views import ChannelSettingsView
 from helpers.permissions_helper import update_channel_owner
 from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
     update_channel_settings,
-    get_channel_permissions,
-    get_ptt_settings,
-    get_priority_speaker_settings,
-    get_soundboard_settings,
     fetch_channel_settings,
     format_channel_settings,
+    set_voice_feature_setting,
+    apply_voice_feature_toggle,
 )
 from helpers.discord_api import (
     create_voice_channel,
@@ -221,10 +218,7 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
-                # Apply permissions, PTT, Priority Speaker, and Soundboard
-                await self._apply_channel_permissions(new_channel, member.id)
-
-                # Apply lock if enabled
+                # Apply lock if user has it enabled
                 if settings_row and settings_row[2] == 1:
                     lock_overwrites = new_channel.overwrites.copy()
                     default_role = new_channel.guild.default_role
@@ -267,8 +261,7 @@ class Voice(commands.GroupCog, name="voice"):
 
     async def cleanup_stale_channel_data(self):
         """
-        Removes users' voice channel data if last_created is older
-        than config['voice']['expiry_days']. No channel deletion here.
+        Removes stale data for users who haven't created a channel in `expiry_days`.
         """
         expiry_seconds = self.expiry_days * 24 * 60 * 60
         cutoff_time = time.time() - expiry_seconds
@@ -277,7 +270,7 @@ class Voice(commands.GroupCog, name="voice"):
 
         async with Database.get_connection() as db:
             cursor = await db.execute("""
-                SELECT user_id 
+                SELECT user_id
                 FROM voice_cooldowns
                 WHERE last_created < ?
             """, (cutoff_time,))
@@ -315,110 +308,14 @@ class Voice(commands.GroupCog, name="voice"):
         logger.info("Stale channel data cleanup completed.")
 
     async def _wait_for_channel_empty(self, channel: discord.VoiceChannel):
-        """
-        Waits until the voice channel is empty before continuing.
-        """
         while True:
             await asyncio.sleep(5)
             if len(channel.members) == 0:
                 break
 
-    async def _apply_channel_permissions(self, channel: discord.VoiceChannel, owner_id: int):
-        """
-        Applies saved permissions (permit/reject), PTT, Priority Speaker, and Soundboard
-        to the channel in one edit.
-        """
-        permissions = await get_channel_permissions(owner_id)
-        ptt_settings = await get_ptt_settings(owner_id)
-        priority_settings = await get_priority_speaker_settings(owner_id)
-        soundboard_settings = await get_soundboard_settings(owner_id)
-
-        original_overwrites = channel.overwrites.copy()
-        overwrites = channel.overwrites.copy()
-
-        # Apply permit/reject
-        for target_id, target_type, permission in permissions:
-            if target_type == 'user':
-                target = channel.guild.get_member(target_id)
-            elif target_type == 'role':
-                target = channel.guild.get_role(target_id)
-            else:
-                continue
-            if target:
-                overwrite = overwrites.get(target, discord.PermissionOverwrite())
-                overwrite.connect = (permission == 'permit')
-                overwrites[target] = overwrite
-
-        # Apply PTT
-        for target_id, target_type, ptt_enabled in ptt_settings:
-            if target_type == 'user':
-                target = channel.guild.get_member(target_id)
-            elif target_type == 'role':
-                target = channel.guild.get_role(target_id)
-            elif target_type == 'everyone':
-                target = channel.guild.default_role
-            else:
-                continue
-            if target:
-                overwrite = overwrites.get(target, discord.PermissionOverwrite())
-                overwrite.use_voice_activation = not ptt_enabled
-                overwrites[target] = overwrite
-
-        for target_id, target_type, priority_enabled in priority_settings:
-            if target_type == 'user':
-                target = channel.guild.get_member(target_id)
-            elif target_type == 'role':
-                target = channel.guild.get_role(target_id)
-            else:
-                continue
-            if target:
-                overwrite = overwrites.get(target, discord.PermissionOverwrite())
-                overwrite.priority_speaker = priority_enabled
-                overwrites[target] = overwrite
-
-        for target_id, target_type, soundboard_enabled in soundboard_settings:
-            if target_type == 'user':
-                target = channel.guild.get_member(target_id)
-            elif target_type == 'role':
-                target = channel.guild.get_role(target_id)
-            elif target_type == 'everyone':
-                target = channel.guild.default_role
-            else:
-                continue
-            if target:
-                overwrite = overwrites.get(target, discord.PermissionOverwrite())
-                overwrite.use_soundboard = soundboard_enabled
-                overwrites[target] = overwrite
-
-        # Ensure owner permissions
-        owner = channel.guild.get_member(owner_id)
-        if owner:
-            overwrite = overwrites.get(owner, discord.PermissionOverwrite())
-            overwrite.manage_channels = True
-            overwrite.connect = True
-            overwrites[owner] = overwrite
-
-        if overwrites == original_overwrites:
-            logger.info(f"No overwrite changes for channel '{channel.name}', skipping edit.")
-            return
-
-        now = time.time()
-        last_edit = self.last_channel_edit.get(channel.id, 0)
-        if now - last_edit < 2:
-            logger.info(f"Skipping channel edit for '{channel.name}' due to cooldown.")
-            return
-
-        try:
-            await edit_channel(channel, overwrites=overwrites)
-            logger.info(f"Applied permissions to channel '{channel.name}'.")
-            self.last_channel_edit[channel.id] = now
-        except Exception as e:
-            logger.error(f"Failed to apply permissions to channel '{channel.name}': {e}")
-            raise
-
-    # -------------------------------------------------------------------------
-    # Slash Commands
-    # -------------------------------------------------------------------------
+    # ---------------------------
+    #  Slash Commands
+    # ---------------------------
 
     @app_commands.command(name="setup", description="Set up the voice channel system.")
     @app_commands.guild_only()
@@ -490,144 +387,71 @@ class Voice(commands.GroupCog, name="voice"):
         embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
         embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
         embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
-        embed.set_footer(text="Use /voice commands to adjust these settings.")
+        embed.set_footer(text="Use /voice commands or the dropdown menu to adjust these settings.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
 
-    @app_commands.command(name="permit", description="Permit users/roles to join your channel.")
+    @app_commands.command(name="ptt", description="Enable or disable push-to-talk for a user, role, or everyone.")
+    @app_commands.describe(enable="Whether to enable (True) or disable (False) PTT", target="User or role mention (optional). Omit for everyone.")
     @app_commands.guild_only()
-    async def permit_user_voice(self, interaction: discord.Interaction):
-        """
-        Allows the channel owner to permit specific users or roles to join their channel.
-        """
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
+    async def ptt_command(self, interaction: discord.Interaction, enable: bool, target: discord.Member | discord.Role | None = None):
+        channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
 
-        view = TargetTypeSelectView(self.bot, action="permit")
-        await send_message(interaction,
-            "Choose the type of target you want to permit:", view=view, ephemeral=True
-        )
+        # Identify target
+        if not target:
+            target_type = "everyone"
+            target_id = 0
+            target_obj = channel.guild.default_role
+        elif isinstance(target, discord.Member):
+            target_type = "user"
+            target_id = target.id
+            target_obj = target
+        else:
+            target_type = "role"
+            target_id = target.id
+            target_obj = target
 
-    @app_commands.command(name="reject", description="Reject users/roles from joining your channel.")
+        # Update DB
+        await set_voice_feature_setting("ptt", interaction.user.id, target_id, target_type, enable)
+        # Update overwrites
+        await apply_voice_feature_toggle(channel, "ptt", target_obj, enable)
+
+        status = "enabled" if enable else "disabled"
+        await send_message(interaction, f"PTT {status} for {target_type}.", ephemeral=True)
+
+    @app_commands.command(name="soundboard", description="Enable or disable soundboard for a user, role, or everyone.")
+    @app_commands.describe(enable="True = enable, False = disable", target="User or role mention (optional). Omit for everyone.")
     @app_commands.guild_only()
-    async def reject_user_voice(self, interaction: discord.Interaction):
+    async def soundboard_command(self, interaction: discord.Interaction, enable: bool, target: discord.Member | discord.Role | None = None):
         """
-        Allows the channel owner to reject specific users or roles from joining their channel.
+        Example slash command to toggle soundboard for a specific user, role, or everyone.
         """
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
+        channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
 
-        view = TargetTypeSelectView(self.bot, action="reject")
-        await send_message(interaction,
-            "Choose the type of target you want to reject:", view=view, ephemeral=True
-        )
+        if not target:
+            target_type = "everyone"
+            target_id = 0
+            target_obj = channel.guild.default_role
+        elif isinstance(target, discord.Member):
+            target_type = "user"
+            target_id = target.id
+            target_obj = target
+        else:
+            target_type = "role"
+            target_id = target.id
+            target_obj = target
 
-    @app_commands.command(name="ptt", description="Manage PTT settings in your voice channel.")
-    @app_commands.guild_only()
-    async def ptt(self, interaction: discord.Interaction):
-        """
-        Allows the channel owner to manage PTT settings (enabling or disabling push-to-talk) for users or roles.
-        """
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return
+        await set_voice_feature_setting("soundboard", interaction.user.id, target_id, target_type, enable)
+        await apply_voice_feature_toggle(channel, "soundboard", target_obj, enable)
 
-        view = PTTSelectView(self.bot)
-        await send_message(interaction, "Do you want to enable or disable PTT?", view=view, ephemeral=True)
-
-    @app_commands.command(name="lock", description="Lock your voice channel.")
-    @app_commands.guild_only()
-    async def lock_voice(self, interaction: discord.Interaction):
-        """
-        Locks the user's voice channel, preventing @everyone from connecting.
-        """
-        await self._change_channel_lock(interaction, lock=True)
-
-    @app_commands.command(name="unlock", description="Unlock your voice channel.")
-    @app_commands.guild_only()
-    async def unlock_voice(self, interaction: discord.Interaction):
-        """
-        Unlocks the user's voice channel, allowing @everyone to connect.
-        """
-        await self._change_channel_lock(interaction, lock=False)
-
-    async def _change_channel_lock(self, interaction: discord.Interaction, lock: bool):
-        """
-        Helper method to lock/unlock the channel by updating @everyone's connect permission.
-        """
-        member = interaction.user
-        channel = await get_user_channel(self.bot, member)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return
-
-        original_overwrites = channel.overwrites.copy()
-        overwrites = channel.overwrites.copy()
-        default_role = interaction.guild.default_role
-
-        overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
-        overwrite.connect = not lock
-        overwrites[default_role] = overwrite
-
-        if overwrites == original_overwrites:
-            logger.info(f"No change in lock state for '{channel.name}', skipping update.")
-            await send_message(interaction, "Channel lock state unchanged.", ephemeral=True)
-            return
-
-        now = time.time()
-        last_edit = self.last_channel_edit.get(channel.id, 0)
-        if now - last_edit < 2:
-            logger.info(f"Skipping channel edit for '{channel.name}' due to cooldown.")
-            await send_message(interaction,
-                "Channel update skipped due to cooldown.", ephemeral=True
-            )
-            return
-
-        try:
-            await edit_channel(channel, overwrites=overwrites)
-        except Exception:
-            await send_message(interaction, "Failed to update channel permissions.", ephemeral=True)
-            return
-
-        self.last_channel_edit[channel.id] = now
-        await update_channel_settings(member.id, lock=1 if lock else 0)
-        status = "locked" if lock else "unlocked"
-        await send_message(interaction,
-            f"Your voice channel has been {status}.", ephemeral=True
-        )
-        logger.info(f"{member.display_name} {status} their voice channel.")
-
-    @app_commands.command(name="name", description="Change your voice channel's name.")
-    @app_commands.guild_only()
-    async def rename_voice(self, interaction: discord.Interaction):
-        """
-        Presents a modal to change the voice channel's name.
-        """
-        await interaction.response.send_modal(NameModal(self.bot))
-
-    @app_commands.command(name="limit", description="Set user limit for your voice channel.")
-    @app_commands.guild_only()
-    async def set_limit_voice(self, interaction: discord.Interaction):
-        """
-        Presents a modal to set the user limit for the voice channel.
-        """
-        await interaction.response.send_modal(LimitModal(self.bot))
-
-    @app_commands.command(name="reset", description="Reset your channel settings to default.")
-    @app_commands.guild_only()
-    async def reset_channel_settings(self, interaction: discord.Interaction):
-        """
-        Presents a modal to confirm resetting channel settings to defaults.
-        """
-        await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
+        state = "enabled" if enable else "disabled"
+        await send_message(interaction, f"Soundboard {state} for {target_type}.", ephemeral=True)
 
     @app_commands.command(name="claim", description="Claim ownership of the voice channel if the owner is absent.")
     @app_commands.guild_only()
@@ -676,6 +500,8 @@ class Voice(commands.GroupCog, name="voice"):
             await db.commit()
 
         try:
+            # Show channel settings again
+            from helpers.views import ChannelSettingsView
             view = ChannelSettingsView(self.bot)
             await channel.send(f"{member.mention}, configure your channel settings:", view=view)
         except discord.Forbidden:
@@ -696,7 +522,7 @@ class Voice(commands.GroupCog, name="voice"):
             )
 
     @app_commands.command(name="kick", description="Kick a user from your voice channel.")
-    @app_commands.describe(user="The user you want to kick out.")
+    @app_commands.describe(user="The user you want to kick out.", reject="Also reject them from rejoining.")
     @app_commands.guild_only()
     async def kick_user(self, interaction: discord.Interaction, user: discord.Member, reject: bool = False):
         """
@@ -824,7 +650,7 @@ class Voice(commands.GroupCog, name="voice"):
             description=help_text,
             color=discord.Color.blue()
         )
-        embed.set_footer(text="Use these commands to manage your voice channels effectively.")
+        embed.set_footer(text="Use these commands or the dropdown menus to manage your voice channels effectively.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
 
@@ -940,14 +766,12 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Allows an admin to view the saved voice channel settings and permissions for a specific user.
         """
-        # Check if the user has the appropriate roles
         admin_role_ids = self.bot_admin_role_ids + self.lead_moderator_role_ids
         user_roles = [role.id for role in interaction.user.roles]
         if not any(role_id in user_roles for role_id in admin_role_ids):
             await send_message(interaction, "You do not have permission to use this command.", ephemeral=True)
             return
 
-        # Fetch the saved channel settings for the user
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
@@ -959,20 +783,24 @@ class Voice(commands.GroupCog, name="voice"):
             await send_message(interaction, f"{user.display_name} does not have saved channel settings.", ephemeral=True)
             return
 
-        # Extract settings from the database row
         channel_name = row[0] or f"{user.display_name}'s Channel"
         user_limit = row[1] or "No Limit"
         lock_state = "Locked" if row[2] == 1 else "Unlocked"
 
-        # Fetch additional permissions and settings
-        settings = {
-            "channel_name": channel_name,
-            "user_limit": user_limit,
-            "lock_state": lock_state,
-        }
-        formatted = await self._format_admin_settings(user, interaction)
+        class FakeInteraction:
+            def __init__(self, user, guild):
+                self.user = user
+                self.guild = guild
 
-        # Build embed using `/voice list` format
+        settings = await fetch_channel_settings(self.bot, FakeInteraction())
+        if not settings:
+            await send_message(interaction,
+                f"{user.display_name} has no active channel, but we have some stored settings.", ephemeral=True
+            )
+            return
+
+        formatted = format_channel_settings(settings, interaction)
+
         embed = discord.Embed(
             title=f"Saved Channel Settings & Permissions for {user.display_name}",
             description=f"Settings for the channel: {channel_name}",
@@ -987,75 +815,6 @@ class Voice(commands.GroupCog, name="voice"):
         embed.set_footer(text="Command restricted to admins and lead moderators.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
-
-    async def _format_admin_settings(self, user, interaction):
-        """
-        Helper method to format channel permissions and settings for an admin command.
-        """
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
-                (user.id,)
-            )
-            perm_rows = await cursor.fetchall()
-
-            cursor = await db.execute(
-                "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
-                (user.id,)
-            )
-            ptt_rows = await cursor.fetchall()
-
-            cursor = await db.execute(
-                "SELECT target_id, target_type, priority_enabled FROM channel_priority_speaker_settings WHERE user_id = ?",
-                (user.id,)
-            )
-            priority_rows = await cursor.fetchall()
-
-            cursor = await db.execute(
-                "SELECT target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
-                (user.id,)
-            )
-            soundboard_rows = await cursor.fetchall()
-
-        def format_target(target_id, target_type):
-            if target_type == "user":
-                target_user = interaction.guild.get_member(target_id)
-                return target_user.mention if target_user else f"User ID: {target_id}"
-            elif target_type == "role":
-                target_role = interaction.guild.get_role(target_id)
-                return target_role.mention if target_role else f"Role ID: {target_id}"
-            elif target_type == "everyone":
-                return "**Everyone**"
-            return f"Unknown: {target_id}"
-
-        permission_lines = [
-            f"- {format_target(target_id, target_type)} => **{permission}**"
-            for target_id, target_type, permission in perm_rows
-        ] or ["No custom permissions set."]
-
-        ptt_lines = [
-            f"- {format_target(target_id, target_type)} => **PTT {'Enabled' if ptt_enabled else 'Disabled'}**"
-            for target_id, target_type, ptt_enabled in ptt_rows
-        ] or ["PTT is not configured."]
-
-        priority_lines = [
-            f"- {format_target(target_id, target_type)} => **PrioritySpeaker {'Enabled' if priority_enabled else 'Disabled'}**"
-            for target_id, target_type, priority_enabled in priority_rows
-        ] or ["No priority speakers set."]
-
-        soundboard_lines = [
-            f"- {format_target(target_id, target_type)} => **Soundboard {'Enabled' if sb_enabled else 'Disabled'}**"
-            for target_id, target_type, sb_enabled in soundboard_rows
-        ] or ["Soundboard settings not customized."]
-
-        return {
-            "permission_lines": permission_lines,
-            "ptt_lines": ptt_lines,
-            "priority_lines": priority_lines,
-            "soundboard_lines": soundboard_lines,
-        }
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(Voice(bot))
     logger.info("Voice cog loaded.")
