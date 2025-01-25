@@ -132,30 +132,30 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == 'main':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
-                "Fly safe! <:o7:1306961462215970836>"
+                "Fly safe! <:o7:1332572027877593148>"
             )
         elif assigned_role_type == 'affiliate':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
+                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
                 "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
-                "<:o7:1306961462215970836>"
+                "<:o7:1332572027877593148>"
             )
         elif assigned_role_type == 'non_member':
             description = (
-                "<:testSquad:1308586340996349952> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1308586367303028756>\n\n"
-                "It looks like you're not yet a member of our org. <:what:1306961532080623676>\n\n"
+                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+                "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
                 "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. "
                 "You will need to reverify to update your roles once approved.*\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1306961462215970836>"
+                "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1332572027877593148>"
             )
         else:
             description = "Welcome to the server! You can verify again after 3 hours if needed."
