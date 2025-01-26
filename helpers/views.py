@@ -3,7 +3,7 @@
 import discord
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
-from helpers.discord_api import send_message, edit_message
+from helpers.discord_api import send_message
 from helpers.embeds import create_token_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
