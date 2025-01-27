@@ -10,7 +10,7 @@ from helpers.http_helper import HTTPClient
 config = ConfigLoader.load_config()
 
 TEST_ORG_NAME = config['organization']['name'].strip().lower()
-RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9](?!.*[_\-\s]$)[A-Za-z0-9_\-\s]{0,58}[A-Za-z0-9]$')
+RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$')
 logger = logging.getLogger(__name__)
 
 
