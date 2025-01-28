@@ -127,6 +127,11 @@ class MyBot(commands.Bot):
         # Set command permissions for each guild
         for guild in self.guilds:
             await self.set_admin_command_permissions(guild)
+        
+         # Log all loaded commands after the setup
+        logger.info("Registered commands: ")
+        for command in self.tree.walk_commands():
+            logger.info(f"- Command: {command.name}, Description: {command.description}")
 
     async def on_ready(self):
         """
