@@ -27,6 +27,10 @@ class Admin(commands.Cog):
         self.bot = bot
         self.BOT_ADMIN_ROLE_IDS = self.bot.BOT_ADMIN_ROLE_IDS
         self.LEAD_MODERATOR_ROLE_IDS = self.bot.LEAD_MODERATOR_ROLE_IDS
+
+        logger.info(f"Tracking bot admin roles: {self.BOT_ADMIN_ROLE_IDS}")
+        logger.info(f"Tracking lead moderator roles: {self.LEAD_MODERATOR_ROLE_IDS}")
+        
         logger.info("Admin cog initialized.")  # Log cog initialization
 
     @app_commands.command(name="reset-all", description="Reset verification timers for all members.")
