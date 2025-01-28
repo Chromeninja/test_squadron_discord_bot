@@ -50,7 +50,7 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="reset-user", description="Reset verification timer for a specific user.")
     @app_commands.describe(member="The member whose timer you want to reset.")
-    #@app_commands.default_permissions()
+    @app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'], *config['roles']['lead_moderators'])
     async def reset_user(self, interaction: discord.Interaction, member: discord.Member):
