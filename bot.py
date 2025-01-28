@@ -27,6 +27,9 @@ config = ConfigLoader.load_config()
 
 # Load sensitive information from .env
 TOKEN = os.getenv('DISCORD_TOKEN')
+if not TOKEN:
+    logger.critical("DISCORD_TOKEN not found in environment variables.")
+    raise ValueError("DISCORD_TOKEN not set.")
 
 # Access configuration values from config.yaml
 PREFIX = config['bot']['prefix']
@@ -38,11 +41,6 @@ NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
 BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('bot_admins', [])]
 LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('lead_moderators', [])]
 
-if not TOKEN:
-    logger.critical("DISCORD_TOKEN not found in environment variables.")
-    raise ValueError("DISCORD_TOKEN not set.")
-
-# Initialize bot intents
 intents = discord.Intents.default()
 intents.guilds = True  # Needed for guild-related events
 intents.members = True  # Needed for member-related events
@@ -130,12 +128,62 @@ class MyBot(commands.Bot):
         for guild in self.guilds:
             await self.set_admin_command_permissions(guild)
 
+    async def on_ready(self):
+        """
+        Event handler for when the bot is ready and connected to Discord.
+        """
+        logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        logger.info("Bot is ready and online!")
+        
+        for guild in self.guilds:
+            await self.check_bot_permissions(guild)
+
+    async def check_bot_permissions(self, guild: discord.Guild):
+        """
+        Checks if the bot has all the required permissions in the specified guild.
+        Logs a warning if permissions are missing.
+        """
+        required_permissions = [
+            "manage_roles",            # To assign/remove roles during verification and admin commands
+            "manage_channels",         # To create/edit/delete voice channels
+            "change_nickname",         # To change the bot's nickname
+            "manage_nicknames",        # To change user nicknames during verification
+            "view_channel",            # To view channels for verification and commands
+            "send_messages",           # To send messages in channels
+            "embed_links",             # To send rich embed messages
+            "read_message_history",    # To fetch historical messages for verification
+            "use_application_commands",# To enable slash commands
+            "connect",                 # To join voice channels
+            "move_members",            # To move members between voice channels
+        ]
+
+        if not guild or not guild.me:
+            logger.warning("Bot permissions cannot be checked because the bot is not in the guild or the guild is None.")
+            return
+
+        bot_member = guild.me
+        missing_permissions = [
+            perm for perm in required_permissions 
+            if not getattr(bot_member.guild_permissions, perm, False)
+        ]
+
+        if missing_permissions:
+            logger.warning(
+                f"Missing permissions in guild '{guild.name}': {', '.join(missing_permissions)}"
+            )
+        else:
+            logger.info(f"All required permissions are present in guild '{guild.name}'.")
+
     async def cache_roles(self):
         """
         Caches role objects to avoid redundant lookups.
         """
         await self.wait_until_ready()
-        guild = discord.utils.get(self.guilds)  # Assuming bot is in only one guild
+        if not self.guilds:
+            logger.warning("Bot is not in any guild. Skipping role cache.")
+            return
+        
+        guild = self.guilds[0]
         role_ids = [
             self.BOT_VERIFIED_ROLE_ID,
             self.MAIN_ROLE_ID,
@@ -196,13 +244,6 @@ class MyBot(commands.Bot):
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
             cleanup_attempts()
-
-    async def on_ready(self):
-        """
-        Event handler for when the bot is ready and connected to Discord.
-        """
-        logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
-        logger.info("Bot is ready and online!")
 
     @property
     def uptime(self) -> str:
