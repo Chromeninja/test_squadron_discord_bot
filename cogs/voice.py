@@ -20,6 +20,7 @@ from helpers.voice_utils import (
     format_channel_settings,
     set_voice_feature_setting,
     apply_voice_feature_toggle,
+    create_voice_settings_embed,
 )
 from helpers.discord_api import (
     create_voice_channel,
@@ -326,18 +327,12 @@ class Voice(commands.GroupCog, name="voice"):
 
         formatted = format_channel_settings(settings, interaction)
 
-        embed = discord.Embed(
+        embed = create_voice_settings_embed(
+            settings=settings,
+            formatted=formatted,
             title="Channel Settings & Permissions",
-            color=discord.Color.blue()
+            footer="Use /voice commands or the dropdown menu to adjust these settings."
         )
-        embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
-        embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
-        embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
-        embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
-        embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
-        embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
-        embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
-        embed.set_footer(text="Use /voice commands or the dropdown menu to adjust these settings.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
 
@@ -637,7 +632,9 @@ class Voice(commands.GroupCog, name="voice"):
 
         await send_message(interaction, message, ephemeral=True)
         
-    #Admin Commands
+    # ---------------------------
+    #  Admin Commands
+    # ---------------------------
 
     @app_commands.command(name="setup", description="Set up the voice channel system.")
     @app_commands.guild_only()
@@ -832,18 +829,12 @@ class Voice(commands.GroupCog, name="voice"):
 
         formatted = format_channel_settings(settings, interaction)
 
-        embed = discord.Embed(
+        embed = create_voice_settings_embed(
+            settings=settings,
+            formatted=formatted,
             title=f"Saved Channel Settings & Permissions for {user.display_name}",
-            color=discord.Color.blue()
+            footer="Use /voice admin_reset to reset this user's channel."
         )
-        embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
-        embed.add_field(name="🔒 Lock State", value=lock_state, inline=True)
-        embed.add_field(name="👥 User Limit", value=str(user_limit), inline=True)
-        embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
-        embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
-        embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
-        embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
-        embed.set_footer(text="Command restricted to admins and lead moderators.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
 

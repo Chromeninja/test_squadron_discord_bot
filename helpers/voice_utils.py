@@ -221,6 +221,21 @@ async def _fetch_settings_table(table_name: str, user_id: int):
         results.append((target_id, target_type, feature_bool))
     return results
 
+def create_voice_settings_embed(settings, formatted, title: str, footer: str) -> discord.Embed:
+    embed = discord.Embed(
+        title=title,
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
+    embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
+    embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
+    embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
+    embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
+    embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
+    embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
+    embed.set_footer(text=footer)
+    return embed
+
 def format_channel_settings(settings, interaction):
     """
     Formats channel settings into text lines for embedding.
