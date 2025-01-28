@@ -34,7 +34,7 @@ class Admin(commands.Cog):
         logger.info("Admin cog initialized.")  # Log cog initialization
 
     @app_commands.command(name="reset-all", description="Reset verification timers for all members.")
-    #@app_commands.default_permissions()
+    @app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def reset_all(self, interaction: discord.Interaction):
@@ -82,7 +82,7 @@ class Admin(commands.Cog):
         logger.info("Status command completed successfully.", extra={'user_id': interaction.user.id})
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
-    #@app_commands.default_permissions()
+    @app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def view_logs(self, interaction: discord.Interaction):

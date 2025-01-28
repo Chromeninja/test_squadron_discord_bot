@@ -210,6 +210,15 @@ class MyBot(commands.Bot):
         restricted_commands = ["reset-all", "reset-user", "status", "view-logs"]
         combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
 
+        # Validate roles in the guild
+        valid_roles = []
+        for role_id in combined_role_ids:
+            role = guild.get_role(role_id)
+            if role:
+                valid_roles.append(role_id)
+            else:
+                logger.warning(f"Role ID {role_id} not found in guild '{guild.name}'.")
+
         # Generate permissions for the roles
         permissions = [
             discord.AppCommandPermission(
@@ -217,7 +226,7 @@ class MyBot(commands.Bot):
                 id=role_id,
                 permission=True
             )
-            for role_id in combined_role_ids
+            for role_id in valid_roles
         ]
 
         # Apply permissions to each command
@@ -228,10 +237,12 @@ class MyBot(commands.Bot):
                     await self.tree.set_permissions(guild, command, permissions)
                     logger.info(f"Permissions set for command '{cmd_name}' in guild '{guild.name}'.")
                 except discord.HTTPException as e:
-                    logger.error(f"Failed to set permissions for '{cmd_name}' in guild '{guild.name}': {e}")
+                    logger.error(
+                        f"Failed to set permissions for '{cmd_name}' in guild '{guild.name}': {e}.\n"
+                        f"Permissions: {permissions}"
+                    )
             else:
                 logger.warning(f"Command '{cmd_name}' not found in guild '{guild.name}'. Skipping.")
-
 
     async def token_cleanup_task(self):
         """
