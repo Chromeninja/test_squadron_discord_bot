@@ -199,9 +199,9 @@ class ChannelSettingsView(View):
 
                 embed = discord.Embed(
                     title="Channel Settings & Permissions",
-                    description=f"Settings for your channel: {settings['channel_name']}",
                     color=discord.Color.blue()
                 )
+                embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
                 embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
                 embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
                 embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)

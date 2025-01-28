@@ -317,56 +317,6 @@ class Voice(commands.GroupCog, name="voice"):
     #  Slash Commands
     # ---------------------------
 
-    @app_commands.command(name="setup", description="Set up the voice channel system.")
-    @app_commands.guild_only()
-    @app_commands.describe(category="Category to place voice channels in", num_channels="Number of 'Join to Create' channels")
-    async def setup_voice(self, interaction: discord.Interaction, category: discord.CategoryChannel, num_channels: int):
-        member = interaction.user
-        if not any(r.id in self.bot_admin_role_ids for r in member.roles):
-            await send_message(interaction, "Only bot admins can set up the bot.", ephemeral=True)
-            return
-
-        if not (1 <= num_channels <= 10):
-            await send_message(interaction,
-                "Please specify a number of channels between 1 and 10.", ephemeral=True
-            )
-            return
-
-        await send_message(interaction, "Starting setup...", ephemeral=True)
-
-        async with Database.get_connection() as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ('voice_category_id', str(category.id))
-            )
-            await db.commit()
-        self.voice_category_id = category.id
-
-        self.join_to_create_channel_ids = []
-        try:
-            for i in range(num_channels):
-                ch_name = f"Join to Create #{i+1}" if num_channels > 1 else "Join to Create"
-                voice_channel = await create_voice_channel(
-                    guild=interaction.guild,
-                    name=ch_name,
-                    category=category
-                )
-                self.join_to_create_channel_ids.append(voice_channel.id)
-
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                    ('join_to_create_channel_ids', json.dumps(self.join_to_create_channel_ids))
-                )
-                await db.commit()
-
-            await send_message(interaction, "Setup complete!", ephemeral=True)
-        except Exception as e:
-            logger.exception(f"Error creating voice channels: {e}")
-            await followup_send_message(interaction,
-                "Failed to create voice channels. Check bot permissions.", ephemeral=True
-            )
-
     @app_commands.command(name="list", description="List all custom permissions and settings in your voice channel.")
     @app_commands.guild_only()
     async def list_channel_settings(self, interaction: discord.Interaction):
@@ -378,9 +328,9 @@ class Voice(commands.GroupCog, name="voice"):
 
         embed = discord.Embed(
             title="Channel Settings & Permissions",
-            description=f"Settings for your channel: {settings['channel_name']}",
             color=discord.Color.blue()
         )
+        embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
         embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
         embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
         embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
@@ -427,7 +377,7 @@ class Voice(commands.GroupCog, name="voice"):
     @app_commands.guild_only()
     async def soundboard_command(self, interaction: discord.Interaction, enable: bool, target: discord.Member | discord.Role | None = None):
         """
-        Example slash command to toggle soundboard for a specific user, role, or everyone.
+        Toggle soundboard for a specific user, role, or everyone.
         """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
@@ -653,76 +603,7 @@ class Voice(commands.GroupCog, name="voice"):
         embed.set_footer(text="Use these commands or the dropdown menus to manage your voice channels effectively.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
-
-    async def _reset_current_channel_settings(self, member: discord.Member):
-        """
-        Resets the user's channel settings to defaults using the first 'Join to Create' channel as a template.
-        """
-        channel = await get_user_channel(self.bot, member)
-        if not channel:
-            return
-
-        if not self.join_to_create_channel_ids:
-            logger.error("No join-to-create channel configured.")
-            return
-        join_to_create_channel = self.bot.get_channel(self.join_to_create_channel_ids[0])
-        if not join_to_create_channel:
-            logger.error("Join to Create channel not found.")
-            return
-
-        default_overwrites = join_to_create_channel.overwrites
-        default_user_limit = join_to_create_channel.user_limit
-        default_bitrate = join_to_create_channel.bitrate
-
-        try:
-            default_name = f"{member.display_name}'s Channel"[:32]
-            overwrites = default_overwrites.copy()
-            overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
-
-            await channel.edit(
-                name=default_name,
-                overwrites=overwrites,
-                user_limit=default_user_limit,
-                bitrate=default_bitrate
-            )
-            logger.info(f"Reset channel settings for '{member.display_name}'")
-        except Exception as e:
-            logger.exception(f"Failed to reset channel settings for {member.display_name}: {e}")
-            return
-
-        await update_channel_settings(member.id, channel_name=None, user_limit=None, lock=0)
-        logger.info(f"Reset settings for {member.display_name}'s channel.")
-
-    def is_bot_admin_or_lead_moderator(self, member: discord.Member) -> bool:
-        """
-        Checks if a member is a bot admin or lead moderator.
-        """
-        roles = [r.id for r in member.roles]
-        return any(r_id in roles for r_id in (self.bot_admin_role_ids + self.lead_moderator_role_ids))
-
-    @app_commands.command(name="admin_reset", description="Admin command to reset a user's voice channel.")
-    @app_commands.guild_only()
-    async def admin_reset_voice(self, interaction: discord.Interaction, user: discord.Member):
-        """
-        Allows bot admins or lead moderators to reset a user's voice channel.
-        """
-        if not self.is_bot_admin_or_lead_moderator(interaction.user):
-            await send_message(interaction, "You do not have permission to use this command.", ephemeral=True)
-            return
-
-        channel = await get_user_channel(self.bot, user)
-        if not channel:
-            await send_message(interaction,
-                f"{user.display_name} does not own a voice channel.", ephemeral=True
-            )
-            return
-
-        await self._reset_current_channel_settings(user)
-        await send_message(interaction,
-            f"{user.display_name}'s voice channel has been reset to default settings.", ephemeral=True
-        )
-        logger.info(f"{interaction.user.display_name} reset {user.display_name}'s voice channel.")
-
+    
     @app_commands.command(name="owner", description="List all voice channels managed by the bot and their owners.")
     @app_commands.guild_only()
     async def voice_owner(self, interaction: discord.Interaction):
@@ -755,6 +636,152 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.discard(channel_id)
 
         await send_message(interaction, message, ephemeral=True)
+        
+    #Admin Commands
+
+    @app_commands.command(name="setup", description="Set up the voice channel system.")
+    @app_commands.guild_only()
+    @app_commands.describe(category="Category to place voice channels in", num_channels="Number of 'Join to Create' channels")
+    async def setup_voice(self, interaction: discord.Interaction, category: discord.CategoryChannel, num_channels: int):
+        member = interaction.user
+        if not any(r.id in self.bot_admin_role_ids for r in member.roles):
+            await send_message(interaction, "Only bot admins can set up the bot.", ephemeral=True)
+            return
+
+        if not (1 <= num_channels <= 10):
+            await send_message(interaction,
+                "Please specify a number of channels between 1 and 10.", ephemeral=True
+            )
+            return
+
+        await send_message(interaction, "Starting setup...", ephemeral=True)
+
+        async with Database.get_connection() as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ('voice_category_id', str(category.id))
+            )
+            await db.commit()
+        self.voice_category_id = category.id
+
+        self.join_to_create_channel_ids = []
+        try:
+            for i in range(num_channels):
+                ch_name = f"Join to Create #{i+1}" if num_channels > 1 else "Join to Create"
+                voice_channel = await create_voice_channel(
+                    guild=interaction.guild,
+                    name=ch_name,
+                    category=category
+                )
+                self.join_to_create_channel_ids.append(voice_channel.id)
+
+            async with Database.get_connection() as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ('join_to_create_channel_ids', json.dumps(self.join_to_create_channel_ids))
+                )
+                await db.commit()
+
+            await send_message(interaction, "Setup complete!", ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Error creating voice channels: {e}")
+            await followup_send_message(interaction,
+                "Failed to create voice channels. Check bot permissions.", ephemeral=True
+            )
+
+    async def _reset_current_channel_settings(self, member: discord.Member):
+        """
+        Resets the user's channel settings to defaults using the first 'Join to Create' channel as a template.
+        """
+        async with Database.get_connection() as db:
+            # Clear the channel_settings
+            await db.execute("""
+                UPDATE channel_settings
+                SET channel_name = NULL,
+                    user_limit = NULL,
+                    lock = 0
+                WHERE user_id = ?
+            """, (member.id,))
+
+            # Clear permissions from channel_permissions
+            await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ?", (member.id,))
+            await db.commit()
+
+    # If there's an actual channel, do the original "reset" logic:
+        channel = await get_user_channel(self.bot, member)
+        if channel:
+            if not channel:
+                return
+
+            if not self.join_to_create_channel_ids:
+                logger.error("No join-to-create channel configured.")
+                return
+            join_to_create_channel = self.bot.get_channel(self.join_to_create_channel_ids[0])
+            if not join_to_create_channel:
+                logger.error("Join to Create channel not found.")
+                return
+
+            default_overwrites = join_to_create_channel.overwrites
+            default_user_limit = join_to_create_channel.user_limit
+            default_bitrate = join_to_create_channel.bitrate
+
+            try:
+                default_name = f"{member.display_name}'s Channel"[:32]
+                overwrites = default_overwrites.copy()
+                overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+
+                await channel.edit(
+                    name=default_name,
+                    overwrites=overwrites,
+                    user_limit=default_user_limit,
+                    bitrate=default_bitrate
+                )
+                logger.info(f"Reset channel settings for '{member.display_name}'")
+            except Exception as e:
+                logger.exception(f"Failed to reset channel settings for {member.display_name}: {e}")
+                return
+
+            await update_channel_settings(member.id, channel_name=None, user_limit=None, lock=0)
+            logger.info(f"Reset settings for {member.display_name}'s channel.")
+
+    def is_bot_admin_or_lead_moderator(self, member: discord.Member) -> bool:
+        """
+        Checks if a member is a bot admin or lead moderator.
+        """
+        roles = [r.id for r in member.roles]
+        return any(r_id in roles for r_id in (self.bot_admin_role_ids + self.lead_moderator_role_ids))
+
+    @app_commands.command(name="admin_reset", description="Admin command to reset a user's voice channel.")
+    @app_commands.guild_only()
+    async def admin_reset_voice(self, interaction: discord.Interaction, user: discord.Member):
+        """
+        Allows bot admins or lead moderators to reset a user's voice channel.
+        """
+        if not self.is_bot_admin_or_lead_moderator(interaction.user):
+            await send_message(interaction, "You do not have permission to use this command.", ephemeral=True)
+            return
+
+        channel = await get_user_channel(self.bot, user)
+        await self._reset_current_channel_settings(user)
+
+        # If there's a channel currently active, you can optionally delete it:
+        if channel:
+            # Delete the channel if you want to ensure a full "reset"
+            try:
+                await delete_channel(channel)
+                logger.info(f"Deleted {user.display_name}'s active voice channel as part of admin reset.")
+            except Exception as e:
+                logger.exception(f"Error deleting channel for {user.display_name}: {e}")
+
+        await send_message(
+            interaction,
+            f"{user.display_name}'s voice channel data has been reset to default settings.",
+            ephemeral=True
+        )
+        logger.info(f"{interaction.user.display_name} reset {user.display_name}'s voice channel.")
 
     @app_commands.command(
         name="admin_list",
@@ -783,29 +810,33 @@ class Voice(commands.GroupCog, name="voice"):
             await send_message(interaction, f"{user.display_name} does not have saved channel settings.", ephemeral=True)
             return
 
-        channel_name = row[0] or f"{user.display_name}'s Channel"
-        user_limit = row[1] or "No Limit"
-        lock_state = "Locked" if row[2] == 1 else "Unlocked"
-
         class FakeInteraction:
             def __init__(self, user, guild):
                 self.user = user
                 self.guild = guild
 
-        settings = await fetch_channel_settings(self.bot, FakeInteraction())
+        fake_inter = FakeInteraction(user, interaction.guild)
+
+        settings = await fetch_channel_settings(self.bot, fake_inter, allow_inactive=True)
         if not settings:
-            await send_message(interaction,
-                f"{user.display_name} has no active channel, but we have some stored settings.", ephemeral=True
+            await send_message(
+                interaction,
+                f"No channel settings found for {user.display_name}.",
+                ephemeral=True
             )
             return
+
+        channel_name = row[0] or f"{user.display_name}'s Channel"
+        user_limit   = row[1] or "No Limit"
+        lock_state   = "Locked" if row[2] == 1 else "Unlocked"
 
         formatted = format_channel_settings(settings, interaction)
 
         embed = discord.Embed(
             title=f"Saved Channel Settings & Permissions for {user.display_name}",
-            description=f"Settings for the channel: {channel_name}",
             color=discord.Color.blue()
         )
+        embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
         embed.add_field(name="🔒 Lock State", value=lock_state, inline=True)
         embed.add_field(name="👥 User Limit", value=str(user_limit), inline=True)
         embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
@@ -815,6 +846,7 @@ class Voice(commands.GroupCog, name="voice"):
         embed.set_footer(text="Command restricted to admins and lead moderators.")
 
         await send_message(interaction, "", embed=embed, ephemeral=True)
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Voice(bot))
     logger.info("Voice cog loaded.")

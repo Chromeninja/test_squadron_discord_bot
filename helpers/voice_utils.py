@@ -90,7 +90,6 @@ async def set_voice_feature_setting(feature: str, user_id: int, target_id: int, 
     db_table = cfg["db_table"]
     db_column = cfg["db_column"]
 
-    # For "everyone", we store target_id=0
     t_id = target_id if target_id else 0
 
     query = f"""
@@ -152,13 +151,14 @@ async def apply_voice_feature_toggle(channel: discord.VoiceChannel, feature: str
 #  Fetch & Format Channel Settings
 # ------------------------------
 
-async def fetch_channel_settings(bot, interaction):
+async def fetch_channel_settings(bot, interaction, allow_inactive=False):
     """
     Fetch channel settings and permissions for the user's channel.
-    Returns a dictionary with all relevant info.
+    If allow_inactive=True, we return DB info even if there's no active channel.
     """
     channel = await get_user_channel(bot, interaction.user)
-    if not channel:
+    
+    if not channel and not allow_inactive:
         await send_message(interaction, "You don't own a channel.", ephemeral=True)
         return None
 
@@ -169,14 +169,25 @@ async def fetch_channel_settings(bot, interaction):
         )
         row = await cursor.fetchone()
 
-    if row:
-        channel_name = row[0] if row[0] else channel.name
-        user_limit = row[1] if row[1] else channel.user_limit
-        lock_state = "Locked" if row[2] == 1 else "Unlocked"
+    if not row:
+        return None
+
+    channel_name = None
+    user_limit = None
+    lock_state = "Unlocked"
+
+    db_channel_name = row[0] # None if not set
+    db_user_limit  = row[1] # 0=unlimited
+    db_lock        = row[2] # 0=unlocked, 1=locked
+
+    if channel:
+        channel_name = db_channel_name if db_channel_name else channel.name
+        user_limit   = db_user_limit  if db_user_limit  else channel.user_limit
     else:
-        channel_name = channel.name
-        user_limit = channel.user_limit
-        lock_state = "Unlocked"
+        channel_name = db_channel_name or f"{interaction.user.display_name}'s Channel"
+        user_limit   = db_user_limit  or "No Limit"
+
+    lock_state = "Locked" if db_lock == 1 else "Unlocked"
 
     # Fetch separate tables for permission, ptt, priority, soundboard
     perm_rows = await _fetch_settings_table("channel_permissions", interaction.user.id)
