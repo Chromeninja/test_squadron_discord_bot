@@ -56,8 +56,8 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
     description = (
         "Use the **4-digit PIN** below for verification.\n\n"
         "**Instructions:**\n"
-        ":one: Login to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
-        "*If you see a \"Restricted Access\" message, please log in by clicking on the user icon in the top right corner of the webpage.*\n"
+        ":one: Login and go to your [RSI account profile](https://robertsspaceindustries.com/account/profile).\n"
+        "*If you see a \"Restricted Access\" message, please log in to your RSI account\n"
         ":two: Add the PIN to your **Short Bio** field.\n"
         ":three: Scroll down and click **Apply All Changes**.\n"
         ":four: Return here and click the 'Verify' button below.\n\n"
