@@ -11,7 +11,7 @@ from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.views import ChannelSettingsView
-from helpers.permissions_helper import update_channel_owner
+from helpers.permissions_helper import update_channel_owner, apply_permissions_changes, fetch_permit_reject_entries
 from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
@@ -230,6 +230,15 @@ class Voice(commands.GroupCog, name="voice"):
                     logger.info(
                         f"Re-applied lock setting for {member.display_name}'s channel: '{new_channel.name}'."
                     )
+                
+                #Permit / reject
+                permit_rows = await fetch_permit_reject_entries(member.id)
+                for (target_id, target_type, perm_action) in permit_rows:
+                    permission_change = {
+                        "action": perm_action,
+                        "targets": [{"type": target_type, "id": target_id}]
+                    }
+                    await apply_permissions_changes(new_channel, permission_change)
 
                 # Send settings view
                 try:
@@ -631,6 +640,139 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.discard(channel_id)
 
         await send_message(interaction, message, ephemeral=True)
+
+    @app_commands.command(
+        name="permit",
+        description="Permit a user, role, or 'everyone' to join your voice channel."
+    )
+    @app_commands.describe(target="A user mention, a role mention, or 'everyone'")
+    async def permit_command(self, interaction: discord.Interaction, target: str):
+        """
+        Usage: /voice permit <@User|@Role|everyone>
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        target_type = None
+        target_id = None
+
+        # Check if user typed 'everyone'
+        if target.lower() == "everyone":
+            target_type = "everyone"
+            target_id = channel.guild.default_role.id
+        else:
+            # Attempt to parse as a Role mention first
+            try:
+                role = await commands.RoleConverter().convert(interaction, target)
+                if role:
+                    target_type = "role"
+                    target_id = role.id
+            except commands.BadArgument:
+                # Not a valid role, let's try a member mention
+                try:
+                    member = await commands.MemberConverter().convert(interaction, target)
+                    if member:
+                        target_type = "user"
+                        target_id = member.id
+                except commands.BadArgument:
+                    pass  # We'll handle it if still None
+
+        if not target_type:
+            await send_message(
+                interaction,
+                "Invalid target. Please mention a user, a role, or type 'everyone'.",
+                ephemeral=True
+            )
+            return
+
+        # Store in DB so future channel creations also apply this setting
+        await store_permit_reject_in_db(
+            user_id=interaction.user.id,
+            target_id=target_id,
+            target_type=target_type,
+            action="permit"
+        )
+
+        # Apply changes immediately to the current channel
+        permission_change = {
+            "action": "permit",
+            "targets": [{"type": target_type, "id": target_id}]
+        }
+        await apply_permissions_changes(channel, permission_change)
+
+        await send_message(
+            interaction,
+            f"**{target}** has been permitted to join your channel.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="reject",
+        description="Reject a user, role, or 'everyone' from joining your voice channel."
+    )
+    @app_commands.describe(target="A user mention, a role mention, or 'everyone'")
+    async def reject_command(self, interaction: discord.Interaction, target: str):
+        """
+        Usage: /voice reject <@User|@Role|everyone>
+        """
+        channel = await get_user_channel(self.bot, interaction.user)
+        if not channel:
+            await send_message(interaction, "You don't own a channel.", ephemeral=True)
+            return
+
+        target_type = None
+        target_id = None
+
+        if target.lower() == "everyone":
+            target_type = "everyone"
+            target_id = channel.guild.default_role.id
+        else:
+            # Attempt to parse as a Role mention first
+            try:
+                role = await commands.RoleConverter().convert(interaction, target)
+                if role:
+                    target_type = "role"
+                    target_id = role.id
+            except commands.BadArgument:
+                # Not a valid role, let's try a member mention
+                try:
+                    member = await commands.MemberConverter().convert(interaction, target)
+                    if member:
+                        target_type = "user"
+                        target_id = member.id
+                except commands.BadArgument:
+                    pass
+
+        if not target_type:
+            await send_message(
+                interaction,
+                "Invalid target. Please mention a user, a role, or type 'everyone'.",
+                ephemeral=True
+            )
+            return
+
+        # Store in DB for future channel creations
+        await store_permit_reject_in_db(
+            user_id=interaction.user.id,
+            target_id=target_id,
+            target_type=target_type,
+            action="reject"
+        )
+
+        # Apply changes to the current channel
+        permission_change = {
+            "action": "reject",
+            "targets": [{"type": target_type, "id": target_id}]
+        }
+        await apply_permissions_changes(channel, permission_change)
+
+        await send_message(
+            interaction,
+            f"**{target}** has been rejected from joining your channel.",
+            ephemeral=True
+        )
         
     # ---------------------------
     #  Admin Commands

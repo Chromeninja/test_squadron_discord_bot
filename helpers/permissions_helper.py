@@ -28,6 +28,32 @@ FEATURE_CONFIG = {
     },
 }
 
+async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: str, action: str):
+    """
+    Inserts or replaces a permit/reject entry in the channel_permissions table.
+    action should be 'permit' or 'reject'.
+    """
+    async with Database.get_connection() as db:
+        await db.execute("""
+            INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, target_id, target_type, action))
+        await db.commit()
+
+async def fetch_permit_reject_entries(user_id: int):
+    """
+    Returns all saved permit/reject entries for the given user as a list of tuples:
+    (target_id, target_type, permission)
+    """
+    async with Database.get_connection() as db:
+        cursor = await db.execute("""
+            SELECT target_id, target_type, permission
+            FROM channel_permissions
+            WHERE user_id = ?
+        """, (user_id,))
+        rows = await cursor.fetchall()
+    return rows
+
 async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict):
     """
     Applies basic permission changes like 'permit' or 'reject' or 'lock' or 'unlock'.

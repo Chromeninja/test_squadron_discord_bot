@@ -24,7 +24,7 @@ from helpers.voice_utils import (
     apply_voice_feature_toggle,
     create_voice_settings_embed,
 )
-from helpers.permissions_helper import apply_permissions_changes
+from helpers.permissions_helper import apply_permissions_changes, store_permit_reject_in_db
 from helpers.discord_api import edit_channel
 
 logger = get_logger(__name__)
@@ -643,6 +643,7 @@ class SelectUserView(View):
         targets = []
         for user in self.user_select.values:
             targets.append({"type": "user", "id": user.id})
+            await store_permit_reject_in_db(interaction.user.id, user.id, "user", self.action)
 
         permission_change = {
             "action": self.action,
@@ -690,6 +691,7 @@ class SelectRoleView(View):
         targets = []
         for role in self.role_select.values:
             targets.append({"type": "role", "id": role.id})
+            await store_permit_reject_in_db(interaction.user.id, role.id, "role", self.action)
 
         permission_change = {
             "action": self.action,
