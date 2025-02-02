@@ -227,7 +227,6 @@ class Voice(commands.GroupCog, name="voice"):
                         final_overwrites[target] = ow
 
                 # --- Apply Additional Voice Feature Settings in Batch ---
-                # Define a helper to process a table of feature settings.
                 async def apply_feature(table_name: str, feature_key: str):
                     async with Database.get_connection() as db:
                         column_map = {
@@ -237,14 +236,17 @@ class Voice(commands.GroupCog, name="voice"):
                         }
 
                         column_name = column_map.get(feature_key, f"{feature_key}_enabled")
-
                         cursor = await db.execute(
                             f"SELECT target_id, target_type, {column_name} FROM {table_name} WHERE user_id = ?",
                             (member.id,)
                         )
                         entries = await cursor.fetchall()
                     for target_id, target_type, enabled in entries:
-                        # For PTT, if your FEATURE_CONFIG in voice_utils indicates inversion, handle that in your logic.
+                        # Convert the stored value to a Boolean.
+                        enabled = bool(enabled)
+                        logger.info(f"{feature_key.capitalize()} setting for target {target_id} ({target_type}) is stored as: {enabled}")
+                        
+                        # Determine the target object.
                         target = None
                         if target_type == "user":
                             target = new_channel.guild.get_member(target_id)
@@ -252,23 +254,27 @@ class Voice(commands.GroupCog, name="voice"):
                             target = new_channel.guild.get_role(target_id)
                         elif target_type == "everyone":
                             target = new_channel.guild.default_role
-                        if target:
-                            # Instead of calling apply_voice_feature_toggle (which does its own edit),
-                            # we update the final_overwrites dictionary.
-                            from helpers.voice_utils import FEATURE_CONFIG
-                            cfg = FEATURE_CONFIG.get(feature_key)
-                            if not cfg:
-                                continue
-                            prop = cfg["overwrite_property"]
-                            # Determine the final value.
-                            final_value = enabled
-                            if cfg.get("inverted", False):
-                                final_value = not enabled
-                            ow = final_overwrites.get(target, discord.PermissionOverwrite())
-                            setattr(ow, prop, final_value)
-                            final_overwrites[target] = ow
+                        if target is None:
+                            logger.warning(f"Could not find target {target_id} of type {target_type}")
+                            continue
 
-                # Process the three feature settings (PTT, Priority Speaker, Soundboard)
+                        from helpers.voice_utils import FEATURE_CONFIG
+                        cfg = FEATURE_CONFIG.get(feature_key)
+                        if not cfg:
+                            logger.warning(f"No configuration found for feature {feature_key}")
+                            continue
+                        prop = cfg["overwrite_property"]
+                        # Determine the final value (invert if needed)
+                        final_value = enabled
+                        if cfg.get("inverted", False):
+                            final_value = not enabled
+
+                        # Get or create the permission overwrite for this target.
+                        ow = final_overwrites.get(target, discord.PermissionOverwrite())
+                        setattr(ow, prop, final_value)
+                        final_overwrites[target] = ow
+
+                # Process feature settings for PTT, Priority Speaker, and Soundboard
                 await apply_feature("channel_ptt_settings", "ptt")
                 await apply_feature("channel_priority_speaker_settings", "priority_speaker")
                 await apply_feature("channel_soundboard_settings", "soundboard")
