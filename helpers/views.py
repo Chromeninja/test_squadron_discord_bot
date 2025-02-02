@@ -1,9 +1,18 @@
 # helpers/views.py
+"""
+Interactive Views Module
+
+This module contains all the interactive UI components (buttons, selects, and modals)
+used for verification, channel settings, permit/reject actions, and feature toggles.
+These views interact with other helper modules to perform operations such as sending
+messages, applying permission changes, and updating channel settings.
+"""
 
 import discord
 from discord.ui import View, Select, Button, UserSelect, RoleSelect
 from discord import SelectOption, Interaction
-from helpers.discord_api import send_message
+
+from helpers.discord_api import send_message, edit_channel
 from helpers.embeds import create_token_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
@@ -25,10 +34,8 @@ from helpers.voice_utils import (
     create_voice_settings_embed,
 )
 from helpers.permissions_helper import apply_permissions_changes, store_permit_reject_in_db
-from helpers.discord_api import edit_channel
 
 logger = get_logger(__name__)
-
 
 # -------------------------
 # Verification Buttons
@@ -36,6 +43,10 @@ logger = get_logger(__name__)
 class VerificationView(View):
     """
     View containing interactive buttons for the verification process.
+    
+    Contains two buttons:
+      - Get Token: Generates and sends a verification token.
+      - Verify: Opens a modal to collect the user's RSI handle.
     """
     def __init__(self, bot):
         super().__init__(timeout=None)
@@ -58,6 +69,12 @@ class VerificationView(View):
         self.add_item(self.verify_button)
 
     async def get_token_button_callback(self, interaction: Interaction):
+        """
+        Callback for the 'Get Token' button.
+        
+        Checks rate limits, generates a token, logs the attempt,
+        and sends an embed with the token information.
+        """
         member = interaction.user
         rate_limited, wait_until = check_rate_limit(member.id)
         if rate_limited:
@@ -82,6 +99,11 @@ class VerificationView(View):
             )
 
     async def verify_button_callback(self, interaction: Interaction):
+        """
+        Callback for the 'Verify' button.
+        
+        Checks rate limits and, if permitted, sends the HandleModal for user verification.
+        """
         member = interaction.user
         rate_limited, wait_until = check_rate_limit(member.id)
         if rate_limited:
@@ -99,15 +121,17 @@ class VerificationView(View):
 # -------------------------
 class ChannelSettingsView(View):
     """
-    Main view for channel settings with 2 big dropdowns:
-    - Channel Settings (Name, Limit, Game, List, Reset)
-    - Channel Permissions (Lock, Unlock, Permit, Reject, PTT, etc.)
+    Main view for channel settings.
+
+    Contains two dropdown menus:
+      - Channel Settings: Options include Name, Limit, Game, List, and Reset.
+      - Channel Permissions: Options include Lock, Unlock, Permit, Reject, PTT, Kick, Priority Speaker, and Soundboard.
     """
     def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
 
-        # Channel Settings Select
+        # Dropdown for channel settings.
         self.channel_settings_select = Select(
             placeholder="Channel Settings",
             min_values=1,
@@ -123,7 +147,7 @@ class ChannelSettingsView(View):
         self.channel_settings_select.callback = self.channel_settings_callback
         self.add_item(self.channel_settings_select)
 
-        # Channel Permissions Select (2 parts)
+        # Dropdown for channel permissions (Part 1).
         self.channel_permissions_select_1 = Select(
             placeholder="Channel Permissions (1/2)",
             min_values=1,
@@ -140,6 +164,7 @@ class ChannelSettingsView(View):
         self.channel_permissions_select_1.callback = self.channel_permissions_callback
         self.add_item(self.channel_permissions_select_1)
 
+        # Dropdown for channel permissions (Part 2).
         self.channel_permissions_select_2 = Select(
             placeholder="Channel Permissions (2/2)",
             min_values=1,
@@ -155,6 +180,9 @@ class ChannelSettingsView(View):
         self.add_item(self.channel_permissions_select_2)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensure that the interacting user owns a voice channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You cannot interact with this. You don't own a channel.", ephemeral=True)
@@ -162,6 +190,11 @@ class ChannelSettingsView(View):
         return True
 
     async def channel_settings_callback(self, interaction: Interaction):
+        """
+        Handle selections from the channel settings dropdown.
+
+        Depending on the selection, open the appropriate modal or display current settings.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -188,38 +221,40 @@ class ChannelSettingsView(View):
 
                 await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(interaction.user.id, channel_name=game_name)
-
-                e = discord.Embed(description=f"Channel name set to your current game: **{game_name}**.", color=discord.Color.green())
+                e = discord.Embed(
+                    description=f"Channel name set to your current game: **{game_name}**.",
+                    color=discord.Color.green()
+                )
                 await send_message(interaction, "", embed=e, ephemeral=True)
-
             elif selected == "list":
                 settings = await fetch_channel_settings(self.bot, interaction)
                 if not settings:
                     return
                 formatted = format_channel_settings(settings, interaction)
-
                 embed = create_voice_settings_embed(
                     settings=settings,
                     formatted=formatted,
                     title="Channel Settings & Permissions",
                     footer="Use /voice commands or the dropdown menu to adjust these settings."
                 )
-
                 await send_message(interaction, "", embed=embed, ephemeral=True)
-
             elif selected == "reset":
                 await interaction.response.send_modal(ResetSettingsConfirmationModal(self.bot))
             else:
                 await send_message(interaction, "Unknown option selected.", ephemeral=True)
 
-            # re-edit original to preserve the updated view
+            # Update the original message to preserve the view.
             await interaction.message.edit(view=self)
-
         except Exception as e:
             logger.exception(f"Error in channel_settings_callback: {e}")
             await send_message(interaction, "An error occurred.", ephemeral=True)
 
     async def channel_permissions_callback(self, interaction: Interaction):
+        """
+        Handle selections from the channel permissions dropdown.
+
+        Depending on the selection, either display an additional view or apply permission changes immediately.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -239,7 +274,6 @@ class ChannelSettingsView(View):
                 view=view,
                 ephemeral=True
             )
-
         elif selected in ["lock", "unlock"]:
             lock = (selected == "lock")
             permission_change = {
@@ -250,38 +284,39 @@ class ChannelSettingsView(View):
             await update_channel_settings(interaction.user.id, lock=1 if lock else 0)
             status = "locked" if lock else "unlocked"
             await send_message(interaction, f"Your voice channel has been {status}.", ephemeral=True)
-
         elif selected == "ptt":
             view = FeatureToggleView(self.bot, feature_name="ptt")
             await send_message(interaction, "Do you want to enable or disable PTT?", view=view, ephemeral=True)
-
         elif selected == "kick":
             view = KickUserSelectView(self.bot)
             await send_message(interaction, "Select a user to kick:", view=view, ephemeral=True)
-
         elif selected == "priority_speaker":
-            # We handle the fact that "everyone" is not desired
             view = FeatureToggleView(self.bot, feature_name="priority_speaker", no_everyone=True)
             await send_message(interaction, "Enable or disable Priority Speaker?", view=view, ephemeral=True)
-
         elif selected == "soundboard":
             view = FeatureToggleView(self.bot, feature_name="soundboard")
             await send_message(interaction, "Enable or disable Soundboard?", view=view, ephemeral=True)
-
         else:
             await send_message(interaction, "Unknown option.", ephemeral=True)
 
-        # re-edit the original to preserve updated view
-        await interaction.message.edit(view=self)
+        try:
+            await interaction.message.edit(view=self)
+        except discord.errors.NotFound:
+            pass
 
 
+# ----------------------------
+# Kick User Selection View
+# ----------------------------
 class KickUserSelectView(View):
     """
-    Allows selection of exactly one user to kick, with an optional reject toggle.
+    View that allows the channel owner to select a user to kick,
+    with an optional button to also reject them from rejoining.
     """
     def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
+
         self.user_select = UserSelect(
             placeholder="Select user to kick",
             min_values=1,
@@ -298,6 +333,9 @@ class KickUserSelectView(View):
         self.add_item(self.reject_button)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensures the user owns a channel before interaction.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -305,6 +343,10 @@ class KickUserSelectView(View):
         return True
 
     async def user_select_callback(self, interaction: Interaction):
+        """
+        Callback for user selection. Verifies the selected user is in the channel
+        and then kicks them.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -316,24 +358,20 @@ class KickUserSelectView(View):
 
         target_user = self.user_select.values[0]
         if target_user not in channel.members:
-            await send_message(
-                interaction,
-                f"{target_user.display_name} is not in your channel.",
-                ephemeral=True
-            )
+            await send_message(interaction, f"{target_user.display_name} is not in your channel.", ephemeral=True)
             return
 
         try:
-            await target_user.move_to(None)  # Kick
-            await send_message(
-                interaction,
-                f"{target_user.display_name} was kicked from your channel.",
-                ephemeral=True
-            )
+            await target_user.move_to(None)  # Kick the user.
+            await send_message(interaction, f"{target_user.display_name} was kicked from your channel.", ephemeral=True)
         except Exception as e:
             await send_message(interaction, f"Failed to kick user: {e}", ephemeral=True)
 
     async def reject_button_callback(self, interaction: Interaction):
+        """
+        Callback for rejecting a user after kicking them.
+        Updates the channel's permission overwrites to prevent the user from rejoining.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -357,27 +395,21 @@ class KickUserSelectView(View):
 
         try:
             await edit_channel(channel, overwrites=overwrites)
-            await send_message(
-                interaction,
-                f"{target_user.display_name} was kicked and rejected from rejoining.",
-                ephemeral=True
-            )
+            await send_message(interaction, f"{target_user.display_name} was kicked and rejected from rejoining.", ephemeral=True)
         except Exception as e:
-            await send_message(
-                interaction,
-                f"Kicked but failed to reject rejoining: {e}",
-                ephemeral=True
-            )
+            await send_message(interaction, f"Kicked but failed to reject rejoining: {e}", ephemeral=True)
 
 
 # ----------------------------
-# UNIFIED FeatureToggleView
-# (PTT, Priority Speaker, Soundboard)
+# Unified Feature Toggle Views
+# (Handles PTT, Priority Speaker, and Soundboard toggles)
 # ----------------------------
 class FeatureToggleView(View):
     """
-    A single view that asks "enable or disable?" then lets you select a target (user, role, or everyone).
-    'no_everyone' = True means we omit 'everyone' from the list (e.g., for priority_speaker).
+    A unified view for toggling a feature (PTT, Priority Speaker, or Soundboard).
+
+    Presents a select menu to choose between enabling or disabling the feature.
+    The 'no_everyone' flag can be set to exclude the 'Everyone' option.
     """
     def __init__(self, bot, feature_name: str, no_everyone: bool = False):
         super().__init__(timeout=None)
@@ -398,6 +430,10 @@ class FeatureToggleView(View):
         self.add_item(self.toggle_select)
 
     async def toggle_select_callback(self, interaction: Interaction):
+        """
+        Callback for the toggle select.
+        Determines if the feature should be enabled or disabled and shows the target selection view.
+        """
         enable = (self.toggle_select.values[0] == "enable")
         view = FeatureTargetView(self.bot, self.feature_name, enable, self.no_everyone)
         await send_message(
@@ -410,8 +446,7 @@ class FeatureToggleView(View):
 
 class FeatureTargetView(View):
     """
-    Let the user pick "User", "Role", or "Everyone" (unless 'no_everyone' = True)
-    for the chosen feature (PTT, Priority, Soundboard).
+    A view that lets the user choose a target type (User, Role, or Everyone) for the feature toggle.
     """
     def __init__(self, bot, feature_name: str, enable: bool, no_everyone: bool):
         super().__init__(timeout=None)
@@ -425,7 +460,6 @@ class FeatureTargetView(View):
             SelectOption(label="Role", value="role"),
         ]
         if not no_everyone:
-            # Only add "Everyone" if not restricting it
             options.append(SelectOption(label="Everyone", value="everyone"))
 
         self.target_select = Select(
@@ -438,6 +472,9 @@ class FeatureTargetView(View):
         self.add_item(self.target_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensures the interacting user owns a channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -445,6 +482,12 @@ class FeatureTargetView(View):
         return True
 
     async def target_select_callback(self, interaction: Interaction):
+        """
+        Callback for target selection.
+        
+        If 'everyone' is selected, applies the feature toggle immediately;
+        otherwise, displays the appropriate user or role select view.
+        """
         selection = self.target_select.values[0]
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
@@ -480,9 +523,10 @@ class FeatureTargetView(View):
         except discord.errors.NotFound:
             pass
 
+
 class FeatureUserSelectView(View):
     """
-    Let the user pick multiple users for a feature toggle (PTT, Priority, Soundboard).
+    A view for selecting one or more users for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
     def __init__(self, bot, feature_name: str, enable: bool):
         super().__init__(timeout=None)
@@ -499,6 +543,9 @@ class FeatureUserSelectView(View):
         self.add_item(self.user_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Checks that the interacting user owns a channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -506,6 +553,10 @@ class FeatureUserSelectView(View):
         return True
 
     async def user_select_callback(self, interaction: Interaction):
+        """
+        Callback for when users are selected.
+        Stores the feature setting for each selected user and applies it to the channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -522,9 +573,10 @@ class FeatureUserSelectView(View):
         except discord.errors.NotFound:
             pass
 
+
 class FeatureRoleSelectView(View):
     """
-    Let the user pick multiple roles for a feature toggle (PTT, Priority, Soundboard).
+    A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
     def __init__(self, bot, feature_name: str, enable: bool):
         super().__init__(timeout=None)
@@ -541,6 +593,9 @@ class FeatureRoleSelectView(View):
         self.add_item(self.role_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Checks that the interacting user owns a channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -548,6 +603,10 @@ class FeatureRoleSelectView(View):
         return True
 
     async def role_select_callback(self, interaction: Interaction):
+        """
+        Callback for when roles are selected.
+        Stores the feature setting for each selected role and applies it to the channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -566,12 +625,13 @@ class FeatureRoleSelectView(View):
 
 
 # ======================================
-#  Permit/Reject Classes
+# Permit/Reject Classes
 # ======================================
 class TargetTypeSelectView(View):
     """
-    Allows selecting user or role for 'permit'/'reject' actions.
-    (Removed 'everyone' from these options.)
+    View to select the target type for permit/reject actions.
+    
+    Only offers 'User' and 'Role' options.
     """
     def __init__(self, bot, action: str):
         super().__init__(timeout=None)
@@ -582,7 +642,6 @@ class TargetTypeSelectView(View):
             SelectOption(label="User", value="user", description="Select specific user(s)"),
             SelectOption(label="Role", value="role", description="Select a role"),
         ]
-
         self.select = Select(
             placeholder="Select Target Type",
             min_values=1,
@@ -593,6 +652,9 @@ class TargetTypeSelectView(View):
         self.add_item(self.select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensures the interacting user owns a channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -600,31 +662,26 @@ class TargetTypeSelectView(View):
         return True
 
     async def select_callback(self, interaction: Interaction):
+        """
+        Callback for target type selection.
+        Depending on the selection, shows either a user or role selection view.
+        """
         choice = self.select.values[0]
         if choice == "user":
             view = SelectUserView(self.bot, action=self.action)
-            await send_message(
-                interaction,
-                f"Select user(s) to {self.action}:",
-                ephemeral=True,
-                view=view
-            )
-        else:  # "role"
+            await send_message(interaction, f"Select user(s) to {self.action}:", ephemeral=True, view=view)
+        else:
             view = SelectRoleView(self.bot, action=self.action)
-            await send_message(
-                interaction,
-                f"Select role(s) to {self.action}:",
-                ephemeral=True,
-                view=view
-            )
+            await send_message(interaction, f"Select role(s) to {self.action}:", ephemeral=True, view=view)
         try:
             await interaction.message.edit(view=None)
         except discord.errors.NotFound:
             pass
 
+
 class SelectUserView(View):
     """
-    Let user pick multiple users to 'permit' or 'reject'.
+    View for selecting multiple users to apply permit/reject actions.
     """
     def __init__(self, bot, action: str):
         super().__init__(timeout=None)
@@ -640,6 +697,9 @@ class SelectUserView(View):
         self.add_item(self.user_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensure the user owns a channel before interacting.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -647,6 +707,10 @@ class SelectUserView(View):
         return True
 
     async def user_select_callback(self, interaction: Interaction):
+        """
+        Callback for when users are selected.
+        Stores the permit/reject settings in the database and applies the changes to the channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -663,19 +727,16 @@ class SelectUserView(View):
         }
         await apply_permissions_changes(channel, permission_change)
 
-        await send_message(
-            interaction,
-            f"Selected user(s) have been {self.action}ed.",
-            ephemeral=True
-        )
+        await send_message(interaction, f"Selected user(s) have been {self.action}ed.", ephemeral=True)
         try:
             await interaction.message.edit(view=None)
         except discord.errors.NotFound:
             pass
 
+
 class SelectRoleView(View):
     """
-    Let user pick multiple roles to 'permit' or 'reject'.
+    View for selecting multiple roles to apply permit/reject actions.
     """
     def __init__(self, bot, action: str):
         super().__init__(timeout=None)
@@ -691,6 +752,9 @@ class SelectRoleView(View):
         self.add_item(self.role_select)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Ensure the user owns a channel before interacting.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -698,6 +762,10 @@ class SelectRoleView(View):
         return True
 
     async def role_select_callback(self, interaction: Interaction):
+        """
+        Callback for when roles are selected.
+        Stores the permit/reject settings in the database and applies the changes to the channel.
+        """
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -714,11 +782,7 @@ class SelectRoleView(View):
         }
         await apply_permissions_changes(channel, permission_change)
 
-        await send_message(
-            interaction,
-            f"Selected role(s) have been {self.action}ed.",
-            ephemeral=True
-        )
+        await send_message(interaction, f"Selected role(s) have been {self.action}ed.", ephemeral=True)
         try:
             await interaction.message.edit(view=None)
         except discord.errors.NotFound:
