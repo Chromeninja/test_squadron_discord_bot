@@ -73,19 +73,20 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
             if target_type == 'user':
                 member = channel.guild.get_member(target_id)
                 if member:
-                    overwrite = overwrites.get(member, discord.PermissionOverwrite())
-                    overwrite.connect = desired_connect
-                    overwrites[member] = overwrite
+                    ow = overwrites.get(member, discord.PermissionOverwrite())
+                    ow.connect = desired_connect
+                    overwrites[member] = ow
             elif target_type == 'role':
                 role = channel.guild.get_role(target_id)
                 if role:
-                    overwrite = overwrites.get(role, discord.PermissionOverwrite())
-                    overwrite.connect = desired_connect
-                    overwrites[role] = overwrite
+                    ow = overwrites.get(role, discord.PermissionOverwrite())
+                    ow.connect = desired_connect
+                    overwrites[role] = ow
             elif target_type == 'everyone':
-                overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
-                overwrite.connect = desired_connect
-                overwrites[channel.guild.default_role] = overwrite
+                default_role = channel.guild.default_role
+                ow = overwrites.get(default_role, discord.PermissionOverwrite())
+                ow.connect = desired_connect
+                overwrites[default_role] = ow
 
     elif action in ['lock', 'unlock']:
         desired_connect = (action != 'lock')
@@ -95,19 +96,20 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
             if target_type == 'user':
                 member = channel.guild.get_member(target_id)
                 if member:
-                    overwrite = overwrites.get(member, discord.PermissionOverwrite())
-                    overwrite.connect = desired_connect
-                    overwrites[member] = overwrite
+                    ow = overwrites.get(member, discord.PermissionOverwrite())
+                    ow.connect = desired_connect
+                    overwrites[member] = ow
             elif target_type == 'role':
                 role = channel.guild.get_role(target_id)
                 if role:
-                    overwrite = overwrites.get(role, discord.PermissionOverwrite())
-                    overwrite.connect = desired_connect
-                    overwrites[role] = overwrite
+                    ow = overwrites.get(role, discord.PermissionOverwrite())
+                    ow.connect = desired_connect
+                    overwrites[role] = ow
             elif target_type == 'everyone':
-                overwrite = overwrites.get(channel.guild.default_role, discord.PermissionOverwrite())
-                overwrite.connect = desired_connect
-                overwrites[channel.guild.default_role] = overwrite
+                default_role = channel.guild.default_role
+                ow = overwrites.get(default_role, discord.PermissionOverwrite())
+                ow.connect = desired_connect
+                overwrites[default_role] = ow
     else:
         logger.warning(f"Unknown action: {action}")
         return
@@ -124,10 +126,10 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
                 owner_id = row[0]
                 owner = channel.guild.get_member(owner_id)
                 if owner:
-                    overwrite = overwrites.get(owner, discord.PermissionOverwrite())
-                    overwrite.manage_channels = True
-                    overwrite.connect = True
-                    overwrites[owner] = overwrite
+                    ow = overwrites.get(owner, discord.PermissionOverwrite())
+                    ow.manage_channels = True
+                    ow.connect = True
+                    overwrites[owner] = ow
     except Exception as e:
         logger.error(f"Failed to set owner permissions: {e}")
 
@@ -178,3 +180,23 @@ async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int,
     except Exception as e:
         logger.exception(f"Failed to update channel permissions for '{channel.name}': {e}")
         raise
+
+async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChannel):
+    """
+    Fetches all stored permit/reject entries for the given user and applies them to the provided channel.
+    """
+    entries = await fetch_permit_reject_entries(user_id)
+    for target_id, target_type, permission in entries:
+        permission_change = {
+            "action": permission,
+            "targets": [{"type": target_type, "id": target_id}]
+        }
+        try:
+            await apply_permissions_changes(channel, permission_change)
+            logger.info(
+                f"Applied {permission} for target {target_id} ({target_type}) on channel '{channel.name}'."
+            )
+        except Exception as e:
+            logger.error(
+                f"Error applying {permission} for target {target_id} on channel '{channel.name}': {e}"
+            )

@@ -11,7 +11,7 @@ from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.views import ChannelSettingsView
-from helpers.permissions_helper import update_channel_owner, apply_permissions_changes, fetch_permit_reject_entries
+from helpers.permissions_helper import update_channel_owner, apply_permissions_changes, store_permit_reject_in_db
 from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
@@ -156,7 +156,8 @@ class Voice(commands.GroupCog, name="voice"):
             current_time = int(time.time())
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    "SELECT last_created FROM voice_cooldowns WHERE user_id = ?", (member.id,)
+                    "SELECT last_created FROM voice_cooldowns WHERE user_id = ?",
+                    (member.id,)
                 )
                 cooldown_row = await cursor.fetchone()
                 if cooldown_row:
@@ -192,18 +193,91 @@ class Voice(commands.GroupCog, name="voice"):
 
                 new_channel = await join_to_create_channel.clone(name=channel_name)
 
-                # Prepare edits in one go
+                # Build initial overwrites based on the cloned channel.
+                final_overwrites = new_channel.overwrites.copy()
+                # Ensure the channel owner has manage_channels and connect.
+                final_overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+                # Apply user limit if set.
                 edit_kwargs = {}
-                overwrites = new_channel.overwrites.copy()
-                overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
-
                 if settings_row and settings_row[1] is not None:
                     edit_kwargs['user_limit'] = settings_row[1]
 
-                edit_kwargs['overwrites'] = overwrites
+                # --- Apply Lock Setting ---
+                if settings_row and settings_row[2] == 1:
+                    default_role = new_channel.guild.default_role
+                    ow = final_overwrites.get(default_role, discord.PermissionOverwrite())
+                    ow.connect = False
+                    final_overwrites[default_role] = ow
 
+                # --- Apply Stored Permit/Reject Settings ---
+                from helpers.permissions_helper import fetch_permit_reject_entries
+                permit_entries = await fetch_permit_reject_entries(member.id)
+                for target_id, target_type, perm_action in permit_entries:
+                    desired_connect = (perm_action == "permit")
+                    target = None
+                    if target_type == "user":
+                        target = new_channel.guild.get_member(target_id)
+                    elif target_type == "role":
+                        target = new_channel.guild.get_role(target_id)
+                    elif target_type == "everyone":
+                        target = new_channel.guild.default_role
+                    if target:
+                        ow = final_overwrites.get(target, discord.PermissionOverwrite())
+                        ow.connect = desired_connect
+                        final_overwrites[target] = ow
+
+                # --- Apply Additional Voice Feature Settings in Batch ---
+                # Define a helper to process a table of feature settings.
+                async def apply_feature(table_name: str, feature_key: str):
+                    async with Database.get_connection() as db:
+                        column_map = {
+                            "ptt": "ptt_enabled",
+                            "priority_speaker": "priority_enabled",
+                            "soundboard": "soundboard_enabled"
+                        }
+
+                        column_name = column_map.get(feature_key, f"{feature_key}_enabled")
+
+                        cursor = await db.execute(
+                            f"SELECT target_id, target_type, {column_name} FROM {table_name} WHERE user_id = ?",
+                            (member.id,)
+                        )
+                        entries = await cursor.fetchall()
+                    for target_id, target_type, enabled in entries:
+                        # For PTT, if your FEATURE_CONFIG in voice_utils indicates inversion, handle that in your logic.
+                        target = None
+                        if target_type == "user":
+                            target = new_channel.guild.get_member(target_id)
+                        elif target_type == "role":
+                            target = new_channel.guild.get_role(target_id)
+                        elif target_type == "everyone":
+                            target = new_channel.guild.default_role
+                        if target:
+                            # Instead of calling apply_voice_feature_toggle (which does its own edit),
+                            # we update the final_overwrites dictionary.
+                            from helpers.voice_utils import FEATURE_CONFIG
+                            cfg = FEATURE_CONFIG.get(feature_key)
+                            if not cfg:
+                                continue
+                            prop = cfg["overwrite_property"]
+                            # Determine the final value.
+                            final_value = enabled
+                            if cfg.get("inverted", False):
+                                final_value = not enabled
+                            ow = final_overwrites.get(target, discord.PermissionOverwrite())
+                            setattr(ow, prop, final_value)
+                            final_overwrites[target] = ow
+
+                # Process the three feature settings (PTT, Priority Speaker, Soundboard)
+                await apply_feature("channel_ptt_settings", "ptt")
+                await apply_feature("channel_priority_speaker_settings", "priority_speaker")
+                await apply_feature("channel_soundboard_settings", "soundboard")
+
+                # --- Apply All Updates in a Single Edit Call ---
+                edit_kwargs['overwrites'] = final_overwrites
                 await move_member(member, new_channel)
                 await edit_channel(new_channel, **edit_kwargs)
+                logger.info(f"Applied all permission and feature settings to '{new_channel.name}' in one batch.")
 
                 # Store channel and cooldown
                 async with Database.get_connection() as db:
@@ -219,28 +293,7 @@ class Voice(commands.GroupCog, name="voice"):
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(f"Created voice channel '{new_channel.name}' for {member.display_name}")
 
-                # Apply lock if user has it enabled
-                if settings_row and settings_row[2] == 1:
-                    lock_overwrites = new_channel.overwrites.copy()
-                    default_role = new_channel.guild.default_role
-                    overwrite = lock_overwrites.get(default_role, discord.PermissionOverwrite())
-                    overwrite.connect = False
-                    lock_overwrites[default_role] = overwrite
-                    await edit_channel(new_channel, overwrites=lock_overwrites)
-                    logger.info(
-                        f"Re-applied lock setting for {member.display_name}'s channel: '{new_channel.name}'."
-                    )
-                
-                #Permit / reject
-                permit_rows = await fetch_permit_reject_entries(member.id)
-                for (target_id, target_type, perm_action) in permit_rows:
-                    permission_change = {
-                        "action": perm_action,
-                        "targets": [{"type": target_type, "id": target_id}]
-                    }
-                    await apply_permissions_changes(new_channel, permission_change)
-
-                # Send settings view
+                # --- Send Settings View ---
                 try:
                     view = ChannelSettingsView(self.bot)
                     await channel_send_message(

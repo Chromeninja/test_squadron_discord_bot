@@ -475,7 +475,10 @@ class FeatureTargetView(View):
                 ephemeral=True,
                 view=view
             )
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
 
 class FeatureUserSelectView(View):
     """
@@ -514,7 +517,10 @@ class FeatureUserSelectView(View):
 
         msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected user(s)."
         await send_message(interaction, msg, ephemeral=True)
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
 
 class FeatureRoleSelectView(View):
     """
@@ -553,7 +559,10 @@ class FeatureRoleSelectView(View):
 
         msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected role(s)."
         await send_message(interaction, msg, ephemeral=True)
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
 
 
 # ======================================
@@ -608,7 +617,10 @@ class TargetTypeSelectView(View):
                 ephemeral=True,
                 view=view
             )
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
 
 class SelectUserView(View):
     """
@@ -656,7 +668,10 @@ class SelectUserView(View):
             f"Selected user(s) have been {self.action}ed.",
             ephemeral=True
         )
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
 
 class SelectRoleView(View):
     """
@@ -704,4 +719,7 @@ class SelectRoleView(View):
             f"Selected role(s) have been {self.action}ed.",
             ephemeral=True
         )
-        await interaction.message.edit(view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except discord.errors.NotFound:
+            pass
