@@ -2,7 +2,7 @@
 
 import yaml
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 class ConfigLoader:
     """

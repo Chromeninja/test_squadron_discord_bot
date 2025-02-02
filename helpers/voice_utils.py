@@ -3,22 +3,15 @@
 import discord
 from helpers.database import Database
 from helpers.logger import get_logger
-from helpers.discord_api import send_message, send_message
+from helpers.discord_api import send_message, edit_channel
+from helpers.permissions_helper import FEATURE_CONFIG
 
 logger = get_logger(__name__)
 
 async def get_user_channel(bot, member):
     """
     Retrieves the voice channel owned by the user.
-
-    Args:
-        bot: The bot instance.
-        member: The Discord member.
-
-    Returns:
-        The voice channel owned by the user, or None if not found.
     """
-    # Fetch the channel ID from the database
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
@@ -28,8 +21,6 @@ async def get_user_channel(bot, member):
         if row:
             channel_id = row[0]
             channel = bot.get_channel(channel_id)
-
-            # Attempt to fetch channel if not cached
             if channel is None:
                 try:
                     channel = await bot.fetch_channel(channel_id)
@@ -48,12 +39,6 @@ async def get_user_channel(bot, member):
 def get_user_game_name(member):
     """
     Retrieves the name of the game the user is currently playing.
-
-    Args:
-        member: The Discord member.
-
-    Returns:
-        The name of the game the user is playing, or None if not playing any.
     """
     for activity in member.activities:
         if activity.type == discord.ActivityType.playing:
@@ -62,11 +47,7 @@ def get_user_game_name(member):
 
 async def update_channel_settings(user_id, **kwargs):
     """
-    Updates the channel settings for a user.
-
-    Args:
-        user_id (int): The Discord user ID.
-        **kwargs: The settings to update (channel_name, user_limit, lock).
+    Updates the channel settings (channel_name, user_limit, lock) for a user in DB.
     """
     fields = []
     values = []
@@ -85,7 +66,6 @@ async def update_channel_settings(user_id, **kwargs):
         return
 
     values.append(user_id)
-
     query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ?"
 
     async with Database.get_connection() as db:
@@ -93,164 +73,95 @@ async def update_channel_settings(user_id, **kwargs):
         await db.execute(query, tuple(values))
         await db.commit()
 
-async def set_channel_permission(user_id, target_id, target_type, permission):
+# -------------------------------------------------------------------------
+# UNIFIED FEATURE TOGGLE: ptt, priority_speaker, soundboard
+# -------------------------------------------------------------------------
+
+async def set_voice_feature_setting(feature: str, user_id: int, target_id: int, target_type: str, enable: bool):
+    """
+    Inserts or updates the setting in the respective DB table for the given feature.
+    feature can be "ptt", "priority_speaker", or "soundboard".
+    """
+    cfg = FEATURE_CONFIG.get(feature)
+    if not cfg:
+        logger.error(f"Unknown feature: {feature}")
+        return
+
+    db_table = cfg["db_table"]
+    db_column = cfg["db_column"]
+
+    t_id = target_id if target_id else 0
+
+    query = f"""
+        INSERT OR REPLACE INTO {db_table} (user_id, target_id, target_type, {db_column})
+        VALUES (?, ?, ?, ?)
+    """
     async with Database.get_connection() as db:
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, target_id, target_type, permission)
-        )
+        await db.execute(query, (user_id, t_id, target_type, enable))
         await db.commit()
 
-async def remove_channel_permission(user_id, target_id, target_type):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            DELETE FROM channel_permissions
-            WHERE user_id = ? AND target_id = ? AND target_type = ?
-            """,
-            (user_id, target_id, target_type)
-        )
-        await db.commit()
+async def apply_voice_feature_toggle(channel: discord.VoiceChannel, feature: str, target, enable: bool):
+    """
+    Applies the actual Overwrite on the channel for the given feature (ptt, priority_speaker, soundboard).
+    'target' can be a discord.Member, discord.Role, or default_role for "everyone".
+    """
+    cfg = FEATURE_CONFIG.get(feature)
+    if not cfg:
+        logger.error(f"Unknown feature: {feature}")
+        return
 
-async def get_channel_permissions(user_id):
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT target_id, target_type, permission
-            FROM channel_permissions
-            WHERE user_id = ?
-            """,
-            (user_id,)
-        )
-        return await cursor.fetchall()
+    overwrites = channel.overwrites.copy()
+    prop = cfg["overwrite_property"]
+    final_value = enable
+    if cfg["inverted"]:
+        final_value = not enable
 
-async def set_ptt_setting(user_id, target_id, target_type, ptt_enabled):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO channel_ptt_settings
-            (user_id, target_id, target_type, ptt_enabled)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, target_id if target_id is not None else 0, target_type, ptt_enabled)
-        )
-        await db.commit()
+    # If 'target' is a single user or role or default_role
+    overwrite = overwrites.get(target, discord.PermissionOverwrite())
+    setattr(overwrite, prop, final_value)
+    overwrites[target] = overwrite
 
-async def remove_ptt_setting(user_id, target_id, target_type):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            DELETE FROM channel_ptt_settings
-            WHERE user_id = ? AND target_id = ? AND target_type = ?
-            """,
-            (user_id, target_id, target_type)
-        )
-        await db.commit()
+    # Ensure channel owner can still manage channels
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel.id,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                owner_id = row[0]
+                owner = channel.guild.get_member(owner_id)
+                if owner:
+                    ow = overwrites.get(owner, discord.PermissionOverwrite())
+                    ow.manage_channels = True
+                    ow.connect = True
+                    overwrites[owner] = ow
+    except Exception as e:
+        logger.error(f"Failed to set owner perms: {e}")
 
-async def get_ptt_settings(user_id):
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT target_id, target_type, ptt_enabled
-            FROM channel_ptt_settings
-            WHERE user_id = ?
-            """,
-            (user_id,)
-        )
-        return await cursor.fetchall()
+    try:
+        await edit_channel(channel, overwrites=overwrites)
+        logger.info(f"Applied feature '{feature}'={enable} to channel '{channel.name}'.")
+    except Exception as e:
+        logger.exception(f"Failed to apply feature '{feature}' to channel '{channel.name}': {e}")
 
-# ======================
-# Priority Speaker
-# ======================
-async def set_priority_speaker_setting(user_id, target_id, target_type, priority_enabled: bool):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO channel_priority_speaker_settings 
-            (user_id, target_id, target_type, priority_enabled)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, target_id if target_id else 0, target_type, priority_enabled)
-        )
-        await db.commit()
 
-async def remove_priority_speaker_setting(user_id, target_id, target_type):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            DELETE FROM channel_priority_speaker_settings
-            WHERE user_id = ? AND target_id = ? AND target_type = ?
-            """,
-            (user_id, target_id, target_type)
-        )
-        await db.commit()
+# ------------------------------
+#  Fetch & Format Channel Settings
+# ------------------------------
 
-async def get_priority_speaker_settings(user_id: int):
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT target_id, target_type, priority_enabled
-            FROM channel_priority_speaker_settings
-            WHERE user_id = ?
-            """,
-            (user_id,)
-        )
-        return await cursor.fetchall()
-
-# ======================
-# Soundboard
-# ======================
-async def set_soundboard_setting(user_id, target_id, target_type, soundboard_enabled: bool):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO channel_soundboard_settings 
-            (user_id, target_id, target_type, soundboard_enabled)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, target_id if target_id else 0, target_type, soundboard_enabled)
-        )
-        await db.commit()
-
-async def remove_soundboard_setting(user_id, target_id, target_type):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            DELETE FROM channel_soundboard_settings
-            WHERE user_id = ? AND target_id = ? AND target_type = ?
-            """,
-            (user_id, target_id, target_type)
-        )
-        await db.commit()
-
-async def get_soundboard_settings(user_id: int):
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT target_id, target_type, soundboard_enabled
-            FROM channel_soundboard_settings
-            WHERE user_id = ?
-            """,
-            (user_id,)
-        )
-        return await cursor.fetchall()
-
-async def fetch_channel_settings(bot, interaction):
+async def fetch_channel_settings(bot, interaction, allow_inactive=False):
     """
     Fetch channel settings and permissions for the user's channel.
-
-    Returns:
-        A dictionary of channel settings and permissions, or None if the user doesn't own a channel.
+    If allow_inactive=True, we return DB info even if there's no active channel.
     """
     channel = await get_user_channel(bot, interaction.user)
-    if not channel:
+    
+    if not channel and not allow_inactive:
         await send_message(interaction, "You don't own a channel.", ephemeral=True)
         return None
 
-    # Fetch basic channel settings
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
@@ -258,35 +169,31 @@ async def fetch_channel_settings(bot, interaction):
         )
         row = await cursor.fetchone()
 
-        channel_name = row[0] if (row and row[0]) else channel.name
-        user_limit = row[1] if row else channel.user_limit
-        lock_state = "Locked" if (row and row[2] == 1) else "Unlocked"
+    if not row:
+        return None
 
-    # Fetch permissions, PTT, Priority Speaker, and Soundboard settings
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
-            (interaction.user.id,)
-        )
-        perm_rows = await cursor.fetchall()
+    channel_name = None
+    user_limit = None
+    lock_state = "Unlocked"
 
-        cursor = await db.execute(
-            "SELECT target_id, target_type, ptt_enabled FROM channel_ptt_settings WHERE user_id = ?",
-            (interaction.user.id,)
-        )
-        ptt_rows = await cursor.fetchall()
+    db_channel_name = row[0] # None if not set
+    db_user_limit  = row[1] # 0=unlimited
+    db_lock        = row[2] # 0=unlocked, 1=locked
 
-        cursor = await db.execute(
-            "SELECT target_id, target_type, priority_enabled FROM channel_priority_speaker_settings WHERE user_id = ?",
-            (interaction.user.id,)
-        )
-        priority_rows = await cursor.fetchall()
+    if channel:
+        channel_name = db_channel_name if db_channel_name else channel.name
+        user_limit   = db_user_limit  if db_user_limit  else channel.user_limit
+    else:
+        channel_name = db_channel_name or f"{interaction.user.display_name}'s Channel"
+        user_limit   = db_user_limit  or "No Limit"
 
-        cursor = await db.execute(
-            "SELECT target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
-            (interaction.user.id,)
-        )
-        soundboard_rows = await cursor.fetchall()
+    lock_state = "Locked" if db_lock == 1 else "Unlocked"
+
+    # Fetch separate tables for permission, ptt, priority, soundboard
+    perm_rows = await _fetch_settings_table("channel_permissions", interaction.user.id)
+    ptt_rows = await _fetch_settings_table("channel_ptt_settings", interaction.user.id)
+    priority_rows = await _fetch_settings_table("channel_priority_speaker_settings", interaction.user.id)
+    soundboard_rows = await _fetch_settings_table("channel_soundboard_settings", interaction.user.id)
 
     return {
         "channel_name": channel_name,
@@ -298,47 +205,78 @@ async def fetch_channel_settings(bot, interaction):
         "soundboard_rows": soundboard_rows,
     }
 
+async def _fetch_settings_table(table_name: str, user_id: int):
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            f"SELECT target_id, target_type, * FROM {table_name} WHERE user_id = ?",
+            (user_id,)
+        )
+        all_rows = await cursor.fetchall()
+
+    results = []
+    for row in all_rows:
+        feature_bool = row[-1] 
+        target_id = row[0]
+        target_type = row[1]
+        results.append((target_id, target_type, feature_bool))
+    return results
+
+def create_voice_settings_embed(settings, formatted, title: str, footer: str) -> discord.Embed:
+    embed = discord.Embed(
+        title=title,
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="🗨️ Channel Name", value=settings['channel_name'], inline=False)
+    embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
+    embed.add_field(name="👥 User Limit", value=str(settings["user_limit"]), inline=True)
+    embed.add_field(name="✅ Permits/Rejects", value="\n".join(formatted["permission_lines"]), inline=False)
+    embed.add_field(name="🎙️ PTT Settings", value="\n".join(formatted["ptt_lines"]), inline=False)
+    embed.add_field(name="📢 Priority Speaker", value="\n".join(formatted["priority_lines"]), inline=False)
+    embed.add_field(name="🔊 Soundboard", value="\n".join(formatted["soundboard_lines"]), inline=False)
+    embed.set_footer(text=footer)
+    return embed
+
 def format_channel_settings(settings, interaction):
     """
-    Formats channel settings into a dictionary of lines for embedding.
-
-    Args:
-        settings: The dictionary returned by `fetch_channel_settings`.
-        interaction: The Discord interaction for accessing guild members/roles.
-
-    Returns:
-        A dictionary of formatted text lines.
+    Formats channel settings into text lines for embedding.
     """
-    def format_target(target_id, target_type):
-        if target_type == "user":
-            user = interaction.guild.get_member(target_id)
-            return user.mention if user else f"User ID: {target_id}"
-        elif target_type == "role":
-            role = interaction.guild.get_role(target_id)
-            return role.mention if role else f"Role ID: {target_id}"
-        elif target_type == "everyone":
+    def format_target(tid, ttype):
+        if ttype == "user":
+            user = interaction.guild.get_member(tid)
+            return user.mention if user else f"User ID: {tid}"
+        elif ttype == "role":
+            role = interaction.guild.get_role(tid)
+            return role.mention if role else f"Role ID: {tid}"
+        elif ttype == "everyone":
             return "**Everyone**"
-        return f"Unknown: {target_id}"
+        return f"Unknown: {tid}"
 
-    permission_lines = [
-        f"- {format_target(target_id, target_type)} => **{permission}**"
-        for target_id, target_type, permission in settings["perm_rows"]
-    ] or ["No custom permissions set."]
+    permission_lines = []
+    for (tid, ttype, perm) in settings["perm_rows"]:
+        permission_lines.append(f"- {format_target(tid, ttype)} => **{perm}**")
+    if not permission_lines:
+        permission_lines = ["No custom permissions set."]
 
-    ptt_lines = [
-        f"- {format_target(target_id, target_type)} => **PTT {'Enabled' if ptt_enabled else 'Disabled'}**"
-        for target_id, target_type, ptt_enabled in settings["ptt_rows"]
-    ] or ["PTT is not configured."]
+    ptt_lines = []
+    for (tid, ttype, enabled) in settings["ptt_rows"]:
+        text = "Enabled" if enabled else "Disabled"
+        ptt_lines.append(f"- {format_target(tid, ttype)} => **PTT {text}**")
+    if not ptt_lines:
+        ptt_lines = ["PTT is not configured."]
 
-    priority_lines = [
-        f"- {format_target(target_id, target_type)} => **PrioritySpeaker {'Enabled' if priority_enabled else 'Disabled'}**"
-        for target_id, target_type, priority_enabled in settings["priority_rows"]
-    ] or ["No priority speakers set."]
+    priority_lines = []
+    for (tid, ttype, enabled) in settings["priority_rows"]:
+        text = "Enabled" if enabled else "Disabled"
+        priority_lines.append(f"- {format_target(tid, ttype)} => **PrioritySpeaker {text}**")
+    if not priority_lines:
+        priority_lines = ["No priority speakers set."]
 
-    soundboard_lines = [
-        f"- {format_target(target_id, target_type)} => **Soundboard {'Enabled' if sb_enabled else 'Disabled'}**"
-        for target_id, target_type, sb_enabled in settings["soundboard_rows"]
-    ] or ["Soundboard settings not customized."]
+    soundboard_lines = []
+    for (tid, ttype, enabled) in settings["soundboard_rows"]:
+        text = "Enabled" if enabled else "Disabled"
+        soundboard_lines.append(f"- {format_target(tid, ttype)} => **Soundboard {text}**")
+    if not soundboard_lines:
+        soundboard_lines = ["Soundboard settings not customized."]
 
     return {
         "permission_lines": permission_lines,
