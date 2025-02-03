@@ -38,32 +38,48 @@ from config.config_loader import ConfigLoader
 
 logger = get_logger(__name__)
 
-# Custom select for roles with filtering based on allowed role IDs.
-class RoleSelectWithFilter(Select):
-    def __init__(self, *, allowed_roles: list, placeholder="Select role(s)", min_values=1, max_values=25, custom_id: str = None, **kwargs):
-        # Ensure a custom_id is provided and is at least 25 characters long.
-        base = "role_select_filter_"
-        if custom_id is None or len(custom_id) < 25:
+# --------------------------------------------------------------------------
+# Custom select for roles with optional filtering based on allowed role IDs.
+# If allowed_roles is provided (a list of role IDs), only roles in that list will be displayed.
+# Otherwise, all roles in the guild will be shown.
+# --------------------------------------------------------------------------
+class FilteredRoleSelect(Select):
+    def __init__(
+        self,
+        *,
+        allowed_roles: list = None,
+        placeholder: str = "Select role(s)",
+        min_values: int = 1,
+        max_values: int = 25,
+        custom_id: str = None,
+        **kwargs,
+    ):
+        base = "filtered_role_select_"
+        if custom_id is None or len(custom_id) < len(base):
             extra = "x" * (25 - len(base))
             custom_id = base + extra
         super().__init__(placeholder=placeholder, min_values=min_values, max_values=max_values, options=[], custom_id=custom_id, **kwargs)
         self.allowed_roles = allowed_roles
 
-    def refresh_options(self, guild) -> None:
-        # Get roles from the guild whose IDs are in allowed_roles.
-        filtered_options = [
-            SelectOption(label=role.name, value=str(role.id))
-            for role in guild.roles if role.id in self.allowed_roles
-        ]
+    def refresh_options(self, guild: discord.Guild) -> None:
+        if self.allowed_roles is None:
+            filtered_options = [
+                SelectOption(label=role.name, value=str(role.id))
+                for role in guild.roles
+            ]
+        else:
+            filtered_options = [
+                SelectOption(label=role.name, value=str(role.id))
+                for role in guild.roles if role.id in self.allowed_roles
+            ]
         if not filtered_options:
-            logger.warning("RoleSelectWithFilter: No matching roles found; adding fallback option.")
-            # Set a fallback option with a value that is at least 25 characters.
+            logger.warning("FilteredRoleSelect: No matching roles found; adding fallback option.")
             filtered_options = [SelectOption(label="No selectable roles available", value="no_selectable_roles_available")]
             self.disabled = True
         else:
             self.disabled = False
         self.options = filtered_options
-        logger.debug(f"RoleSelectWithFilter options refreshed: {[opt.label for opt in self.options]}")
+        logger.debug(f"FilteredRoleSelect options refreshed: {[opt.label for opt in self.options]}")
 
 # -------------------------
 # Verification Buttons
@@ -121,10 +137,7 @@ class VerificationView(View):
             await send_message(interaction, "", embed=embed, ephemeral=True)
             logger.info(f"Sent verification token to user '{member.display_name}'.")
         except Exception as e:
-            logger.exception(
-                f"Failed to send verification token to user '{member.display_name}': {e}",
-                extra={'user_id': member.id}
-            )
+            logger.exception(f"Failed to send verification token to user '{member.display_name}': {e}", extra={'user_id': member.id})
 
     async def verify_button_callback(self, interaction: Interaction):
         """
@@ -143,7 +156,6 @@ class VerificationView(View):
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
 
-
 # -------------------------
 # Channel Settings + Permissions
 # -------------------------
@@ -159,7 +171,6 @@ class ChannelSettingsView(View):
         super().__init__(timeout=None)
         self.bot = bot
 
-        # Dropdown for channel settings.
         self.channel_settings_select = Select(
             placeholder="Channel Settings",
             min_values=1,
@@ -175,7 +186,6 @@ class ChannelSettingsView(View):
         self.channel_settings_select.callback = self.channel_settings_callback
         self.add_item(self.channel_settings_select)
 
-        # Dropdown for channel permissions (Part 1).
         self.channel_permissions_select_1 = Select(
             placeholder="Channel Permissions (1/2)",
             min_values=1,
@@ -192,7 +202,6 @@ class ChannelSettingsView(View):
         self.channel_permissions_select_1.callback = self.channel_permissions_callback
         self.add_item(self.channel_permissions_select_1)
 
-        # Dropdown for channel permissions (Part 2).
         self.channel_permissions_select_2 = Select(
             placeholder="Channel Permissions (2/2)",
             min_values=1,
@@ -332,7 +341,6 @@ class ChannelSettingsView(View):
         except discord.errors.NotFound:
             pass
 
-
 # ----------------------------
 # Kick User Selection View
 # ----------------------------
@@ -390,7 +398,7 @@ class KickUserSelectView(View):
             return
 
         try:
-            await target_user.move_to(None)  # Kick the user.
+            await target_user.move_to(None)
             await send_message(interaction, f"{target_user.display_name} was kicked from your channel.", ephemeral=True)
         except Exception as e:
             await send_message(interaction, f"Failed to kick user: {e}", ephemeral=True)
@@ -426,7 +434,6 @@ class KickUserSelectView(View):
             await send_message(interaction, f"{target_user.display_name} was kicked and rejected from rejoining.", ephemeral=True)
         except Exception as e:
             await send_message(interaction, f"Kicked but failed to reject rejoining: {e}", ephemeral=True)
-
 
 # ----------------------------
 # Unified Feature Toggle Views
@@ -470,7 +477,6 @@ class FeatureToggleView(View):
             ephemeral=True,
             view=view
         )
-
 
 class FeatureTargetView(View):
     """
@@ -551,7 +557,6 @@ class FeatureTargetView(View):
         except discord.errors.NotFound:
             pass
 
-
 class FeatureUserSelectView(View):
     """
     A view for selecting one or more users for a feature toggle (PTT, Priority Speaker, or Soundboard).
@@ -601,29 +606,6 @@ class FeatureUserSelectView(View):
         except discord.errors.NotFound:
             pass
 
-class FilteredRoleSelect(Select):
-    def __init__(self, *, allowed_roles: list, placeholder="Select role(s)", min_values=1, max_values=25, custom_id: str = None):
-        base = "role_select_filter_"
-        if custom_id is None or len(custom_id) < 25:
-            extra = "x" * (25 - len(base))
-            custom_id = base + extra
-        super().__init__(placeholder=placeholder, min_values=min_values, max_values=max_values, options=[], custom_id=custom_id)
-        self.allowed_roles = allowed_roles
-
-    def refresh_options(self, guild) -> None:
-        filtered_options = [
-            SelectOption(label=role.name, value=str(role.id))
-            for role in guild.roles if role.id in self.allowed_roles
-        ]
-        if not filtered_options:
-            logger.warning("FilteredRoleSelect: No matching roles found; adding fallback option.")
-            filtered_options = [SelectOption(label="No selectable roles available", value="no_selectable_roles_available")]
-            self.disabled = True
-        else:
-            self.disabled = False
-        self.options = filtered_options
-        logger.debug(f"FilteredRoleSelect options refreshed: {[opt.label for opt in self.options]}")
-
 class FeatureRoleSelectView(View):
     """
     A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
@@ -661,19 +643,28 @@ class FeatureRoleSelectView(View):
             if not channel:
                 await send_message(interaction, "You don't own a channel.", ephemeral=True)
                 return
+            targets = []
             for role_id_str in self.role_select.values:
                 try:
                     role_id = int(role_id_str)
                 except ValueError:
                     await send_message(interaction, "No selectable roles available.", ephemeral=True)
                     return
-                await set_voice_feature_setting(self.feature_name, interaction.user.id, role_id, "role", self.enable)
-                await apply_voice_feature_toggle(channel, self.feature_name, interaction.guild.get_role(role_id), self.enable)
-            msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected role(s)."
-            await send_message(interaction, msg, ephemeral=True)
+                targets.append({"type": "role", "id": role_id})
+                await store_permit_reject_in_db(interaction.user.id, role_id, "role", self.action)
+            permission_change = {
+                "action": self.action,
+                "targets": targets
+            }
+            await apply_permissions_changes(channel, permission_change)
+            await send_message(interaction, f"Selected role(s) have been {self.action}ed.", ephemeral=True)
+            try:
+                await interaction.message.edit(view=None)
+            except discord.errors.NotFound:
+                pass
         except Exception as e:
             logger.exception(f"Error in FeatureRoleSelectView callback: {e}", extra={'user_id': interaction.user.id})
-            
+
 # ======================================
 # Permit/Reject Classes
 # ======================================
@@ -686,7 +677,7 @@ class TargetTypeSelectView(View):
     def __init__(self, bot, action: str):
         super().__init__(timeout=None)
         self.bot = bot
-        self.action = action  # 'permit' or 'reject'
+        self.action = action
 
         options = [
             SelectOption(label="User", value="user", description="Select specific user(s)"),
@@ -728,7 +719,6 @@ class TargetTypeSelectView(View):
         except discord.errors.NotFound:
             pass
 
-
 class SelectUserView(View):
     """
     View for selecting multiple users to apply permit/reject actions.
@@ -769,19 +759,16 @@ class SelectUserView(View):
         for user in self.user_select.values:
             targets.append({"type": "user", "id": user.id})
             await store_permit_reject_in_db(interaction.user.id, user.id, "user", self.action)
-
         permission_change = {
             "action": self.action,
             "targets": targets
         }
         await apply_permissions_changes(channel, permission_change)
-
         await send_message(interaction, f"Selected user(s) have been {self.action}ed.", ephemeral=True)
         try:
             await interaction.message.edit(view=None)
         except discord.errors.NotFound:
             pass
-
 
 class SelectRoleView(View):
     """
@@ -791,11 +778,9 @@ class SelectRoleView(View):
         super().__init__(timeout=None)
         self.bot = bot
         self.action = action
-        
         config = ConfigLoader.load_config()
         allowed_roles = config.get("selectable_roles", [])
-        
-        self.role_select = RoleSelectWithFilter(
+        self.role_select = FilteredRoleSelect(
             allowed_roles=allowed_roles,
             placeholder="Select role(s)",
             min_values=1,
@@ -826,7 +811,6 @@ class SelectRoleView(View):
                 return
             targets.append({"type": "role", "id": role_id})
             await store_permit_reject_in_db(interaction.user.id, role_id, "role", self.action)
-
         permission_change = {
             "action": self.action,
             "targets": targets
