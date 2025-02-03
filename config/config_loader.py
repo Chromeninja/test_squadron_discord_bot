@@ -84,6 +84,15 @@ class ConfigLoader:
                     logging.error(f"All role IDs in {key} must be integers.")
                     raise
 
+        # Convert selectable_roles from config to a list of integers if present
+        if 'selectable_roles' in cls._config:
+            try:
+                cls._config['selectable_roles'] = [int(role_id) for role_id in cls._config['selectable_roles']]
+                logging.debug(f"Converted selectable_roles to list of integers: {cls._config['selectable_roles']}")
+            except ValueError:
+                logging.error("All selectable_roles must be integers.")
+                raise
+
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
         """
