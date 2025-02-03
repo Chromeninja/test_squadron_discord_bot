@@ -42,14 +42,25 @@ async def create_voice_channel(
 
 async def delete_channel(channel: discord.abc.GuildChannel):
     async def _task():
-        await channel.delete()
+        # Check if the channel still exists before deleting
+        if channel is None:
+            logger.warning("Attempted to delete a channel that no longer exists.")
+            return
+        try:
+            await channel.guild.fetch_channel(channel.id)  # Explicit check if the channel exists
+            await channel.delete()
+            logger.info(f"Deleted channel '{channel.name}' successfully.")
+        except discord.NotFound:
+            logger.warning(f"Channel '{channel.id}' not found. It may have already been deleted.")
+        except discord.Forbidden:
+            logger.error(f"Bot lacks permissions to delete channel '{channel.id}'.")
+        except discord.HTTPException as e:
+            logger.error(f"HTTP error while deleting channel '{channel.id}': {e}")
 
     try:
         await enqueue_task(_task)
-        logger.info(f"Enqueued channel delete for '{channel.name}'.")
     except Exception as e:
-        logger.error(f"Failed to enqueue delete for channel '{channel.name}': {e}")
-        raise
+        logger.error(f"Failed to enqueue delete task for channel '{channel.id}': {e}")
 
 async def edit_channel(channel: discord.abc.GuildChannel, **kwargs):
     async def _task():
