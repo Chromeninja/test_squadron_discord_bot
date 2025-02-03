@@ -19,7 +19,7 @@ from helpers.discord_api import (
 logger = get_logger(__name__)
 
 # Regular expression to validate RSI handle format
-RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9_]{1,60}$')
+RSI_HANDLE_REGEX = re.compile(r'^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$')
 
 class HandleModal(Modal, title="Verification"):
     """
@@ -52,7 +52,7 @@ class HandleModal(Modal, title="Verification"):
         # Validate RSI handle format
         if not RSI_HANDLE_REGEX.match(rsi_handle_input):
             embed = create_error_embed(
-                "Invalid RSI Handle format. Please use only letters, numbers, and underscores, up to 60 characters."
+                "Invalid RSI Handle. Use letters, numbers, _, -, and spaces. Max 60 chars (e.g., 'TEST-B3st_123')."
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.warning("Invalid RSI handle format.", extra={'user_id': member.id})
