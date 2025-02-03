@@ -41,8 +41,8 @@ logger = get_logger(__name__)
 # Custom select for roles with filtering based on allowed role IDs.
 class RoleSelectWithFilter(Select):
     def __init__(self, *, allowed_roles: list, placeholder="Select role(s)", min_values=1, max_values=25, custom_id: str = None, **kwargs):
-        # Ensure a custom_id is provided and is at least 25 characters long.
-        base = "role_select_filter_"
+            # Ensure a custom_id is provided and is at least 25 characters long.
+            base = "role_select_filter_"
         if custom_id is None or len(custom_id) < 25:
             extra = "x" * (25 - len(base))
             custom_id = base + extra
