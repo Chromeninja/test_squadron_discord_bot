@@ -137,11 +137,12 @@ class Voice(commands.GroupCog, name="voice"):
                 row = await cursor.fetchone()
                 owner_id = row[0] if row else None
 
-                if len(before.channel.members) == 0:
+                if before.channel and len(before.channel.members) == 0:
                     try:
-                        await before.guild.fetch_channel(before.channel.id)  # Explicitly check if the channel still exists
+                        guild = before.channel.guild
+                        await guild.fetch_channel(before.channel.id)
                         await delete_channel(before.channel)
-                        self.managed_voice_channels.remove(before.channel.id)
+                        self.managed_voice_channels.discard(before.channel.id)
                         await db.execute(
                             "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
                             (before.channel.id,)
