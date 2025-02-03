@@ -37,6 +37,19 @@ from helpers.permissions_helper import apply_permissions_changes, store_permit_r
 
 logger = get_logger(__name__)
 
+class RoleSelectWithFilter(RoleSelect):
+    def __init__(self, *, allowed_roles: list, **kwargs):
+        super().__init__(**kwargs)
+        self.allowed_roles = allowed_roles
+
+    def _get_filtered_options(self, guild) -> list:
+        # Get all roles from the guild whose IDs are in the allowed list.
+        filtered = [role for role in guild.roles if role.id in self.allowed_roles]
+        return [SelectOption(label=role.name, value=str(role.id)) for role in filtered]
+
+    def refresh_options(self, guild):
+        self.options = self._get_filtered_options(guild)
+        
 # -------------------------
 # Verification Buttons
 # -------------------------
@@ -573,6 +586,7 @@ class FeatureUserSelectView(View):
         except discord.errors.NotFound:
             pass
 
+from config.config_loader import ConfigLoader
 
 class FeatureRoleSelectView(View):
     """
@@ -583,46 +597,39 @@ class FeatureRoleSelectView(View):
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
-
-        self.role_select = RoleSelect(
+        
+        # Retrieve allowed role IDs from config
+        config = ConfigLoader.load_config()
+        allowed_roles = config.get("selectable_roles", [])
+        
+        self.role_select = RoleSelectWithFilter(
+            allowed_roles=allowed_roles,
             placeholder="Select role(s)",
             min_values=1,
             max_values=25
         )
         self.role_select.callback = self.role_select_callback
         self.add_item(self.role_select)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """
-        Checks that the interacting user owns a channel.
-        """
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return False
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Refresh the select options with the roles from the current guild.
+        self.role_select.refresh_options(interaction.guild)
         return True
 
-    async def role_select_callback(self, interaction: Interaction):
-        """
-        Callback for when roles are selected.
-        Stores the feature setting for each selected role and applies it to the channel.
-        """
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return
-
-        for role in self.role_select.values:
-            await set_voice_feature_setting(self.feature_name, interaction.user.id, role.id, "role", self.enable)
-            await apply_voice_feature_toggle(channel, self.feature_name, role, self.enable)
-
+    async def role_select_callback(self, interaction: discord.Interaction):
+        # Process the selected roles (note: values are strings; convert them to int)
+        for role_id_str in self.role_select.values:
+            role_id = int(role_id_str)
+            # Call your helper functions to set the feature setting and apply the toggle.
+            await set_voice_feature_setting(self.feature_name, interaction.user.id, role_id, "role", self.enable)
+            channel = await get_user_channel(self.bot, interaction.user)
+            await apply_voice_feature_toggle(channel, self.feature_name, interaction.guild.get_role(role_id), self.enable)
         msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected role(s)."
         await send_message(interaction, msg, ephemeral=True)
         try:
             await interaction.message.edit(view=None)
         except discord.errors.NotFound:
             pass
-
 
 # ======================================
 # Permit/Reject Classes
@@ -742,46 +749,40 @@ class SelectRoleView(View):
         super().__init__(timeout=None)
         self.bot = bot
         self.action = action
-
-        self.role_select = RoleSelect(
+        
+        config = ConfigLoader.load_config()
+        allowed_roles = config.get("selectable_roles", [])
+        
+        self.role_select = RoleSelectWithFilter(
+            allowed_roles=allowed_roles,
             placeholder="Select role(s)",
             min_values=1,
             max_values=25
         )
         self.role_select.callback = self.role_select_callback
         self.add_item(self.role_select)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """
-        Ensure the user owns a channel before interacting.
-        """
-        channel = await get_user_channel(self.bot, interaction.user)
-        if not channel:
-            await send_message(interaction, "You don't own a channel.", ephemeral=True)
-            return False
+        
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        self.role_select.refresh_options(interaction.guild)
         return True
 
-    async def role_select_callback(self, interaction: Interaction):
-        """
-        Callback for when roles are selected.
-        Stores the permit/reject settings in the database and applies the changes to the channel.
-        """
+    async def role_select_callback(self, interaction: discord.Interaction):
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
 
         targets = []
-        for role in self.role_select.values:
-            targets.append({"type": "role", "id": role.id})
-            await store_permit_reject_in_db(interaction.user.id, role.id, "role", self.action)
+        for role_id_str in self.role_select.values:
+            role_id = int(role_id_str)
+            targets.append({"type": "role", "id": role_id})
+            await store_permit_reject_in_db(interaction.user.id, role_id, "role", self.action)
 
         permission_change = {
             "action": self.action,
             "targets": targets
         }
         await apply_permissions_changes(channel, permission_change)
-
         await send_message(interaction, f"Selected role(s) have been {self.action}ed.", ephemeral=True)
         try:
             await interaction.message.edit(view=None)
