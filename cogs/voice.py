@@ -138,14 +138,18 @@ class Voice(commands.GroupCog, name="voice"):
                 owner_id = row[0] if row else None
 
                 if len(before.channel.members) == 0:
-                    await delete_channel(before.channel)
-                    self.managed_voice_channels.remove(before.channel.id)
-                    await db.execute(
-                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                        (before.channel.id,)
-                    )
-                    await db.commit()
-                    logger.info(f"Deleted empty voice channel '{before.channel.name}'")
+                    try:
+                        await before.guild.fetch_channel(before.channel.id)  # Explicitly check if the channel still exists
+                        await delete_channel(before.channel)
+                        self.managed_voice_channels.remove(before.channel.id)
+                        await db.execute(
+                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                            (before.channel.id,)
+                        )
+                        await db.commit()
+                        logger.info(f"Deleted empty voice channel '{before.channel.name}'")
+                    except discord.NotFound:
+                        logger.warning(f"Channel '{before.channel.id}' not found. Likely already deleted by admin reset.")
                 else:
                     if member.id == owner_id:
                         logger.info(f"Owner '{member.display_name}' left '{before.channel.name}'. Ownership can be claimed.")
@@ -661,9 +665,10 @@ class Voice(commands.GroupCog, name="voice"):
         if channel:
             try:
                 await delete_channel(channel)
+                self.managed_voice_channels.discard(channel.id)  # Ensure the bot forgets about the deleted channel
                 logger.info(f"Deleted {user.display_name}'s active voice channel as part of admin reset.")
-            except Exception as e:
-                logger.exception(f"Error deleting channel for {user.display_name}: {e}")
+            except discord.NotFound:
+                logger.warning(f"Channel '{channel.id}' not found. It may have already been deleted.")
 
         await send_message(interaction, f"{user.display_name}'s voice channel data has been reset to default settings.", ephemeral=True)
         logger.info(f"{interaction.user.display_name} reset {user.display_name}'s voice channel.")
