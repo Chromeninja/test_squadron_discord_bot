@@ -65,7 +65,8 @@ def _build_queue_listener(log_queue: queue.Queue, log_level: int) -> logging.han
         when='midnight',
         interval=1,
         backupCount=30,
-        utc=True
+        utc=True,
+        encoding="utf-8"
     )
     file_handler.suffix = "%Y-%m-%d"
     file_handler.setLevel(log_level)
