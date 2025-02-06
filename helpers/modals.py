@@ -111,7 +111,6 @@ class HandleModal(Modal, title="Verification"):
                 embed = create_cooldown_embed(wait_until)
                 await followup_send_message(interaction, "", embed=embed, ephemeral=True)
                 logger.info("User exceeded verification attempts. Cooldown enforced.", extra={'user_id': member.id})
-                return
             else:
                 error_msg = []
                 if verify_value_check is None:
@@ -122,8 +121,7 @@ class HandleModal(Modal, title="Verification"):
                 embed = create_error_embed("\n".join(error_msg))
                 await followup_send_message(interaction, "", embed=embed, ephemeral=True)
                 logger.info("User failed verification.", extra={'user_id': member.id, 'remaining_attempts': remaining_attempts})
-                return
-
+            return
         # Verification successful
         assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)

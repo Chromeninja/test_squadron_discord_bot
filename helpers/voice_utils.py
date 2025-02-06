@@ -40,10 +40,14 @@ def get_user_game_name(member):
     """
     Retrieves the name of the game the user is currently playing.
     """
-    for activity in member.activities:
-        if activity.type == discord.ActivityType.playing:
-            return activity.name
-    return None
+    return next(
+        (
+            activity.name
+            for activity in member.activities
+            if activity.type == discord.ActivityType.playing
+        ),
+        None,
+    )
 
 async def update_channel_settings(user_id, **kwargs):
     """
@@ -90,7 +94,7 @@ async def set_voice_feature_setting(feature: str, user_id: int, target_id: int, 
     db_table = cfg["db_table"]
     db_column = cfg["db_column"]
 
-    t_id = target_id if target_id else 0
+    t_id = target_id or 0
 
     query = f"""
         INSERT OR REPLACE INTO {db_table} (user_id, target_id, target_type, {db_column})
@@ -112,10 +116,7 @@ async def apply_voice_feature_toggle(channel: discord.VoiceChannel, feature: str
 
     overwrites = channel.overwrites.copy()
     prop = cfg["overwrite_property"]
-    final_value = enable
-    if cfg["inverted"]:
-        final_value = not enable
-
+    final_value = not enable if cfg["inverted"] else enable
     # If 'target' is a single user or role or default_role
     overwrite = overwrites.get(target, discord.PermissionOverwrite())
     setattr(overwrite, prop, final_value)
@@ -131,8 +132,7 @@ async def apply_voice_feature_toggle(channel: discord.VoiceChannel, feature: str
             row = await cursor.fetchone()
             if row:
                 owner_id = row[0]
-                owner = channel.guild.get_member(owner_id)
-                if owner:
+                if owner := channel.guild.get_member(owner_id):
                     ow = overwrites.get(owner, discord.PermissionOverwrite())
                     ow.manage_channels = True
                     ow.connect = True
@@ -181,8 +181,8 @@ async def fetch_channel_settings(bot, interaction, allow_inactive=False):
     db_lock        = row[2] # 0=unlocked, 1=locked
 
     if channel:
-        channel_name = db_channel_name if db_channel_name else channel.name
-        user_limit   = db_user_limit  if db_user_limit  else channel.user_limit
+        channel_name = db_channel_name or channel.name
+        user_limit   = db_user_limit or channel.user_limit
     else:
         channel_name = db_channel_name or f"{interaction.user.display_name}'s Channel"
         user_limit   = db_user_limit  or "No Limit"
@@ -213,13 +213,7 @@ async def _fetch_settings_table(table_name: str, user_id: int):
         )
         all_rows = await cursor.fetchall()
 
-    results = []
-    for row in all_rows:
-        feature_bool = row[-1] 
-        target_id = row[0]
-        target_type = row[1]
-        results.append((target_id, target_type, feature_bool))
-    return results
+    return [(row[0], row[1], row[-1]) for row in all_rows]
 
 def create_voice_settings_embed(settings, formatted, title: str, footer: str) -> discord.Embed:
     embed = discord.Embed(

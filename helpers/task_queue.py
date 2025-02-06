@@ -38,8 +38,7 @@ async def run_task(task):
         task (Callable): An asynchronous callable representing the task.
     """
     try:
-        result = await task()
-        return result
+        return await task()
     except Exception as e:
         logger.exception(f"Exception in task: {e}")
         return None

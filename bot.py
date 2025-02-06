@@ -167,12 +167,11 @@ class MyBot(commands.Bot):
             return
 
         bot_member = guild.me
-        missing_permissions = [
-            perm for perm in required_permissions 
+        if missing_permissions := [
+            perm
+            for perm in required_permissions
             if not getattr(bot_member.guild_permissions, perm, False)
-        ]
-
-        if missing_permissions:
+        ]:
             logger.warning(
                 f"Missing permissions in guild '{guild.name}': {', '.join(missing_permissions)}"
             )
@@ -187,7 +186,7 @@ class MyBot(commands.Bot):
         if not self.guilds:
             logger.warning("Bot is not in any guild. Skipping role cache.")
             return
-        
+
         guild = self.guilds[0]
         role_ids = [
             self.BOT_VERIFIED_ROLE_ID,
@@ -196,8 +195,7 @@ class MyBot(commands.Bot):
             self.NON_MEMBER_ROLE_ID
         ]
         for role_id in role_ids:
-            role = guild.get_role(role_id)
-            if role:
+            if role := guild.get_role(role_id):
                 self.role_cache[role_id] = role
             else:
                 logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
@@ -213,8 +211,7 @@ class MyBot(commands.Bot):
         # Validate roles in the guild
         valid_roles = []
         for role_id in combined_role_ids:
-            role = guild.get_role(role_id)
-            if role:
+            if role := guild.get_role(role_id):
                 valid_roles.append(role_id)
             else:
                 logger.warning(f"Role ID {role_id} not found in guild '{guild.name}'.")
@@ -231,8 +228,7 @@ class MyBot(commands.Bot):
 
         # Apply permissions to each command
         for cmd_name in restricted_commands:
-            command = self.tree.get_command(cmd_name, guild=guild)
-            if command:
+            if command := self.tree.get_command(cmd_name, guild=guild):
                 try:
                     await self.tree.set_permissions(guild, command, permissions)
                     logger.info(f"Permissions set for command '{cmd_name}' in guild '{guild.name}'.")

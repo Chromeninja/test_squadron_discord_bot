@@ -474,8 +474,7 @@ class Voice(commands.GroupCog, name="voice"):
             await db.commit()
 
         overwrites = channel.overwrites.copy()
-        old_overwrite = overwrites.get(interaction.user, None)
-        if old_overwrite:
+        if old_overwrite := overwrites.get(interaction.user, None):
             old_overwrite.manage_channels = False
             overwrites[interaction.user] = old_overwrite
 
@@ -499,11 +498,13 @@ class Voice(commands.GroupCog, name="voice"):
         Displays a help embed with available voice commands.
         """
         excluded_commands = {"setup", "admin_reset", "admin_list"}
-        commands_list = []
-        for command in self.walk_app_commands():
-            if command.parent and command.parent.name == "voice" and command.name not in excluded_commands:
-                commands_list.append(f"**/voice {command.name}** - {command.description}")
-
+        commands_list = [
+            f"**/voice {command.name}** - {command.description}"
+            for command in self.walk_app_commands()
+            if command.parent
+            and command.parent.name == "voice"
+            and command.name not in excluded_commands
+        ]
         if not commands_list:
             await send_message(interaction, "No voice commands available.", ephemeral=True)
             return
@@ -555,7 +556,7 @@ class Voice(commands.GroupCog, name="voice"):
         Only bot admins can execute this command.
         """
         member = interaction.user
-        if not any(r.id in self.bot_admin_role_ids for r in member.roles):
+        if all(r.id not in self.bot_admin_role_ids for r in member.roles):
             await send_message(interaction, "Only bot admins can set up the bot.", ephemeral=True)
             return
 
@@ -610,9 +611,6 @@ class Voice(commands.GroupCog, name="voice"):
 
         channel = await get_user_channel(self.bot, member)
         if channel:
-            if not channel:
-                return
-
             if not self.join_to_create_channel_ids:
                 logger.error("No join-to-create channel configured.")
                 return
@@ -683,7 +681,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         admin_role_ids = self.bot_admin_role_ids + self.lead_moderator_role_ids
         user_roles = [role.id for role in interaction.user.roles]
-        if not any(role_id in user_roles for role_id in admin_role_ids):
+        if all(role_id not in user_roles for role_id in admin_role_ids):
             await send_message(interaction, "You do not have permission to use this command.", ephemeral=True)
             return
 

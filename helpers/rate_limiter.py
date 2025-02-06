@@ -30,17 +30,13 @@ def check_rate_limit(user_id: int) -> Tuple[bool, int]:
                           and the second element is the timestamp when cooldown ends.
     """
     current_time = time.time()
-    attempt_info = user_verification_attempts.get(user_id)
-
-    if attempt_info:
+    if attempt_info := user_verification_attempts.get(user_id):
         elapsed_time = current_time - attempt_info['first_attempt']
         if elapsed_time > RATE_LIMIT_WINDOW:
             # Reset the count if the window has passed
             attempt_info = {'count': 0, 'first_attempt': current_time}
-        else:
-            if attempt_info['count'] >= MAX_ATTEMPTS:
-                wait_until = int(attempt_info['first_attempt'] + RATE_LIMIT_WINDOW)
-                return True, wait_until
+        elif attempt_info['count'] >= MAX_ATTEMPTS:
+            return True, int(attempt_info['first_attempt'] + RATE_LIMIT_WINDOW)
     else:
         attempt_info = {'count': 0, 'first_attempt': current_time}
 
@@ -83,17 +79,14 @@ def get_remaining_attempts(user_id: int) -> int:
         int: Number of remaining attempts.
     """
     current_time = time.time()
-    attempt_info = user_verification_attempts.get(user_id)
-
-    if attempt_info:
-        elapsed_time = current_time - attempt_info['first_attempt']
-        if elapsed_time > RATE_LIMIT_WINDOW:
-            return MAX_ATTEMPTS
-        else:
-            remaining_attempts = MAX_ATTEMPTS - attempt_info['count']
-            return remaining_attempts
-    else:
+    if not (attempt_info := user_verification_attempts.get(user_id)):
         return MAX_ATTEMPTS
+    elapsed_time = current_time - attempt_info['first_attempt']
+    return (
+        MAX_ATTEMPTS
+        if elapsed_time > RATE_LIMIT_WINDOW
+        else MAX_ATTEMPTS - attempt_info['count']
+    )
 
 def reset_attempts(user_id: int):
     """
@@ -110,10 +103,11 @@ def cleanup_attempts():
     Cleans up expired rate-limiting data.
     """
     current_time = time.time()
-    expired_users = []
-    for user_id, attempt_info in user_verification_attempts.items():
-        if current_time - attempt_info['first_attempt'] > RATE_LIMIT_WINDOW:
-            expired_users.append(user_id)
+    expired_users = [
+        user_id
+        for user_id, attempt_info in user_verification_attempts.items()
+        if current_time - attempt_info['first_attempt'] > RATE_LIMIT_WINDOW
+    ]
     for user_id in expired_users:
         del user_verification_attempts[user_id]
     logger.debug("Cleaned up expired rate-limiting data.")
