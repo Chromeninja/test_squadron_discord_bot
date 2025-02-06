@@ -85,11 +85,10 @@ def extract_handle(html_content: str) -> Optional[str]:
     logger.debug("Extracting cased handle from profile HTML.")
     soup = BeautifulSoup(html_content, 'lxml')
 
-    # Specifically target the <strong class="value"> element following the <span class="label">Handle name</span>
-    handle_paragraph = soup.find('p', class_='entry', string=lambda text: text and 'Handle name' in text)
-    if handle_paragraph:
-        handle_strong = handle_paragraph.find('strong', class_='value')
-        if handle_strong:
+    if handle_paragraph := soup.find(
+        'p', class_='entry', string=lambda text: text and 'Handle name' in text
+    ):
+        if handle_strong := handle_paragraph.find('strong', class_='value'):
             cased_handle = handle_strong.get_text(strip=True)
             logger.debug(f"Extracted cased handle: {cased_handle}")
             return cased_handle
@@ -98,8 +97,7 @@ def extract_handle(html_content: str) -> Optional[str]:
     for p in soup.find_all('p', class_='entry'):
         label = p.find('span', class_='label')
         if label and label.get_text(strip=True) == 'Handle name':
-            handle_strong = p.find('strong', class_='value')
-            if handle_strong:
+            if handle_strong := p.find('strong', class_='value'):
                 cased_handle = handle_strong.get_text(strip=True)
                 logger.debug(f"Extracted cased handle: {cased_handle}")
                 return cased_handle
@@ -123,11 +121,10 @@ def parse_rsi_organizations(html_content: str) -> dict:
     main_org_name = ""
     affiliates = []
 
-    # Locate the main organization section
-    main_org_section = soup.find('div', class_='box-content org main visibility-V')
-    if main_org_section:
-        a_tag = main_org_section.find('a', class_='value')
-        if a_tag:
+    if main_org_section := soup.find(
+        'div', class_='box-content org main visibility-V'
+    ):
+        if a_tag := main_org_section.find('a', class_='value'):
             main_org_name = a_tag.get_text(strip=True)
             logger.debug(f"Main organization found: {main_org_name}")
         else:
@@ -135,12 +132,11 @@ def parse_rsi_organizations(html_content: str) -> dict:
     else:
         logger.warning("Main organization section not found.")
 
-    # Locate all affiliate organization sections
-    affiliates_sections = soup.find_all('div', class_='box-content org affiliation visibility-V')
-    if affiliates_sections:
+    if affiliates_sections := soup.find_all(
+        'div', class_='box-content org affiliation visibility-V'
+    ):
         for aff_section in affiliates_sections:
-            a_tag = aff_section.find('a', class_='value')
-            if a_tag:
+            if a_tag := aff_section.find('a', class_='value'):
                 affiliate_name = a_tag.get_text(strip=True)
                 affiliates.append(affiliate_name)  # Removed the condition here
                 logger.debug(f"Affiliate organization found: {affiliate_name}")
@@ -239,8 +235,7 @@ def extract_bio(html_content: str) -> Optional[str]:
     """
     logger.debug("Extracting bio from profile HTML.")
     soup = BeautifulSoup(html_content, 'lxml')
-    bio_div = soup.select_one("div.entry.bio div.value")
-    if bio_div:
+    if bio_div := soup.select_one("div.entry.bio div.value"):
         bio_text = bio_div.get_text(separator=" ", strip=True)
         logger.debug(f"Bio extracted: {bio_text}")
         return bio_text

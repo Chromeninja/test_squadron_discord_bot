@@ -71,14 +71,12 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
             target_id = target.get('id')
 
             if target_type == 'user':
-                member = channel.guild.get_member(target_id)
-                if member:
+                if member := channel.guild.get_member(target_id):
                     ow = overwrites.get(member, discord.PermissionOverwrite())
                     ow.connect = desired_connect
                     overwrites[member] = ow
             elif target_type == 'role':
-                role = channel.guild.get_role(target_id)
-                if role:
+                if role := channel.guild.get_role(target_id):
                     ow = overwrites.get(role, discord.PermissionOverwrite())
                     ow.connect = desired_connect
                     overwrites[role] = ow
@@ -94,14 +92,12 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
             target_type = target.get('type')
             target_id = target.get('id')
             if target_type == 'user':
-                member = channel.guild.get_member(target_id)
-                if member:
+                if member := channel.guild.get_member(target_id):
                     ow = overwrites.get(member, discord.PermissionOverwrite())
                     ow.connect = desired_connect
                     overwrites[member] = ow
             elif target_type == 'role':
-                role = channel.guild.get_role(target_id)
-                if role:
+                if role := channel.guild.get_role(target_id):
                     ow = overwrites.get(role, discord.PermissionOverwrite())
                     ow.connect = desired_connect
                     overwrites[role] = ow
@@ -124,8 +120,7 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
             row = await cursor.fetchone()
             if row:
                 owner_id = row[0]
-                owner = channel.guild.get_member(owner_id)
-                if owner:
+                if owner := channel.guild.get_member(owner_id):
                     ow = overwrites.get(owner, discord.PermissionOverwrite())
                     ow.manage_channels = True
                     ow.connect = True
@@ -166,8 +161,7 @@ async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int,
     """
     overwrites = channel.overwrites.copy()
 
-    previous_owner = channel.guild.get_member(previous_owner_id)
-    if previous_owner:
+    if previous_owner := channel.guild.get_member(previous_owner_id):
         overwrites.pop(previous_owner, None)
 
     new_owner = channel.guild.get_member(new_owner_id)

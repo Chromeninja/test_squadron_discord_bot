@@ -40,7 +40,7 @@ def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
     Returns:
         Tuple[bool, str]: Indicates if the token is valid and an accompanying message.
     """
-    token = str(token).zfill(4)
+    token = token.zfill(4)
     user_token_info = token_store.get(user_id)
     if not user_token_info:
         return False, "No token found for this user. Please generate a new token."
