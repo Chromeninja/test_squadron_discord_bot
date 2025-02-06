@@ -534,7 +534,7 @@ class FeatureTargetView(View):
             target_id = 0
             await set_voice_feature_setting(self.feature_name, interaction.user.id, target_id, target_type, self.enable)
             await apply_voice_feature_toggle(channel, self.feature_name, target, self.enable)
-            msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for everyone."
+            msg = f"{self.feature_name.replace('_', ' ').title()} has been {'enabled' if self.enable else 'disabled'} for everyone."
             await send_message(interaction, msg, ephemeral=True)
         elif selection == "user":
             view = FeatureUserSelectView(self.bot, self.feature_name, self.enable)
@@ -545,8 +545,10 @@ class FeatureTargetView(View):
                 view=view
             )
         else:  # 'role'
-            action = "permit" if self.enable else "reject"
-            view = FeatureRoleSelectView(self.bot, self.feature_name, self.enable, action=action)
+            if self.feature_name in ["permit", "reject"]:
+                view = TargetTypeSelectView(self.bot, action=self.feature_name)
+            else:
+                view = FeatureRoleSelectView(self.bot, self.feature_name, self.enable)
             await send_message(
                 interaction,
                 f"Select role(s) to {'enable' if self.enable else 'disable'} {self.feature_name} for:",
@@ -611,7 +613,7 @@ class FeatureRoleSelectView(View):
     """
     A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
-    def __init__(self, bot, feature_name: str, enable: bool, action: str):
+    def __init__(self, bot, feature_name: str, enable: bool):
         super().__init__(timeout=None)
         self.bot = bot
         self.feature_name = feature_name
@@ -631,7 +633,6 @@ class FeatureRoleSelectView(View):
         )
         self.role_select.callback = self.role_select_callback
         self.add_item(self.role_select)
-        # Optionally refresh options once if a guild is available:
         if self.bot.guilds:
             self.role_select.refresh_options(self.bot.guilds[0])
 
@@ -640,6 +641,10 @@ class FeatureRoleSelectView(View):
         return True
 
     async def role_select_callback(self, interaction: Interaction) -> None:
+        """
+        Callback for role selection.
+        Instead of applying "permit/reject", it now properly enables/disables the selected feature.
+        """
         try:
             channel = await get_user_channel(self.bot, interaction.user)
             if not channel:
@@ -653,13 +658,25 @@ class FeatureRoleSelectView(View):
                     await send_message(interaction, "No selectable roles available.", ephemeral=True)
                     return
                 targets.append({"type": "role", "id": role_id})
-                await store_permit_reject_in_db(interaction.user.id, role_id, "role", self.action)
-            permission_change = {
-                "action": self.action,
-                "targets": targets
-            }
-            await apply_permissions_changes(channel, permission_change)
-            await send_message(interaction, f"Selected role(s) have been {self.action}ed.", ephemeral=True)
+
+                # Store the feature setting in the database for future reference
+                await set_voice_feature_setting(
+                    feature=self.feature_name,
+                    user_id=interaction.user.id,
+                    target_id=role_id,
+                    target_type="role",
+                    enable=self.enable
+                )
+
+            # Apply the actual permission change to the channel
+            for target in targets:
+                if role := interaction.guild.get_role(target["id"]):
+                    await apply_voice_feature_toggle(channel, self.feature_name, role, self.enable)
+
+            msg = f"{self.feature_name.replace('_', ' ').title()} has been {'enabled' if self.enable else 'disabled'} for selected role(s)."
+            await send_message(interaction, msg, ephemeral=True)
+
+            # Remove the selection UI after it's done
             try:
                 await interaction.message.edit(view=None)
             except discord.errors.NotFound:

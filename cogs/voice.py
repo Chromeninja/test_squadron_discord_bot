@@ -253,9 +253,6 @@ class Voice(commands.GroupCog, name="voice"):
                         enabled = bool(enabled)
                         logger.info(f"{feature_key.capitalize()} setting for target {target_id} ({target_type}) is stored as: {enabled}")
 
-                        if feature_key == "soundboard":
-                            continue
-
                         # Process PTT and Priority Speaker settings.
                         target = None
                         if target_type == "user":
@@ -274,9 +271,7 @@ class Voice(commands.GroupCog, name="voice"):
                             logger.warning(f"No configuration found for feature {feature_key}")
                             continue
                         prop = cfg["overwrite_property"]
-                        final_value = enabled
-                        if cfg.get("inverted", False):
-                            final_value = not enabled
+                        final_value = not enabled if cfg.get("inverted", False) else enabled
                         ow = final_overwrites.get(target, discord.PermissionOverwrite())
                         setattr(ow, prop, final_value)
                         final_overwrites[target] = ow
