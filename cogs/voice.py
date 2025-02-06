@@ -271,7 +271,7 @@ class Voice(commands.GroupCog, name="voice"):
                             logger.warning(f"No configuration found for feature {feature_key}")
                             continue
                         prop = cfg["overwrite_property"]
-                        final_value = enabled if not cfg.get("inverted", False) else not enabled
+                        final_value = not enabled if cfg.get("inverted", False) else enabled
                         ow = final_overwrites.get(target, discord.PermissionOverwrite())
                         setattr(ow, prop, final_value)
                         final_overwrites[target] = ow
