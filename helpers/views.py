@@ -670,8 +670,7 @@ class FeatureRoleSelectView(View):
 
             # Apply the actual permission change to the channel
             for target in targets:
-                role = interaction.guild.get_role(target["id"])
-                if role:
+                if role := interaction.guild.get_role(target["id"]):
                     await apply_voice_feature_toggle(channel, self.feature_name, role, self.enable)
 
             msg = f"{self.feature_name.replace('_', ' ').title()} has been {'enabled' if self.enable else 'disabled'} for selected role(s)."
