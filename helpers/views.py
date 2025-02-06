@@ -545,7 +545,8 @@ class FeatureTargetView(View):
                 view=view
             )
         else:  # 'role'
-            view = FeatureRoleSelectView(self.bot, self.feature_name, self.enable)
+            action = "permit" if self.enable else "reject"
+            view = FeatureRoleSelectView(self.bot, self.feature_name, self.enable, action=action)
             await send_message(
                 interaction,
                 f"Select role(s) to {'enable' if self.enable else 'disable'} {self.feature_name} for:",
@@ -610,11 +611,12 @@ class FeatureRoleSelectView(View):
     """
     A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
-    def __init__(self, bot, feature_name: str, enable: bool):
+    def __init__(self, bot, feature_name: str, enable: bool, action: str):
         super().__init__(timeout=None)
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
+        self.action = action
         
         # Retrieve allowed role IDs from config
         config = ConfigLoader.load_config()
