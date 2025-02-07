@@ -73,6 +73,9 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
         value=f"```diff\n+ {token}\n```\n*On mobile, hold to copy*",
         inline=False
     )
+
+    embed.set_footer(text="By verifying, you consent to storing your RSI handle and verification status for role assignment purposes.")
+
     return embed
 
 def create_error_embed(message: str) -> discord.Embed:
