@@ -618,7 +618,6 @@ class FeatureRoleSelectView(View):
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
-        self.action = action
         
         # Retrieve allowed role IDs from config
         config = ConfigLoader.load_config()
