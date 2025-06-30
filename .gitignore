@@ -120,7 +120,6 @@ logs/
 *.log
 
 # Discord bot specific
-config.yaml
 *.db
 
 # Ignore all .env files
