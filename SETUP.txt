@@ -50,9 +50,6 @@ AFFILIATE_ROLE_ID=your_affiliate_role_id NON_MEMBER_ROLE_ID=your_non_member_role
 
 ## 🎉 You're All Set!
 
-The bot should now be running locally. If you encounter any issues, check out the `TROUBLESHOOTING.txt` for common problems and solutions.
+The bot should now be running locally.
 
 Happy Testing! 🚀
-
-
-
