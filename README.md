@@ -45,7 +45,6 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
   - **`__init__.py`**: Reserved for future data storage needs.
 - **`requirements.txt`**: Lists the dependencies required for the project.
 - **`SETUP.txt`**: Guide on setting up the bot locally, including instructions for configuring environment variables.
-- **`TROUBLESHOOTING.txt`**: Common issues and how to fix them.
 - **`Commands.txt`**: List of available commands.
 
 ## 🛠️ Getting Started
