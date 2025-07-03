@@ -242,3 +242,8 @@ def extract_bio(html_content: str) -> Optional[str]:
     else:
         logger.warning("Bio section not found in profile HTML.")
     return None
+
+
+async def lookup_rsi_user(user_handle: str, http_client: HTTPClient) -> Tuple[Optional[int], Optional[str]]:
+    """Lookup RSI organization status for a handle."""
+    return await is_valid_rsi_handle(user_handle, http_client)

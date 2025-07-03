@@ -87,10 +87,11 @@ class FilteredRoleSelect(Select):
 class VerificationView(View):
     """
     View containing interactive buttons for the verification process.
-    
-    Contains two buttons:
+
+    Contains three buttons:
       - Get Token: Generates and sends a verification token.
       - Verify: Opens a modal to collect the user's RSI handle.
+      - Re-Check: Re-checks a user's org status and updates roles.
     """
     def __init__(self, bot):
         super().__init__(timeout=None)
@@ -111,6 +112,14 @@ class VerificationView(View):
         )
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
+
+        self.recheck_button = Button(
+            label="Re-Check",
+            style=discord.ButtonStyle.secondary,
+            custom_id="verify:recheck"
+        )
+        self.recheck_button.callback = self.recheck_button_callback
+        self.add_item(self.recheck_button)
 
     async def get_token_button_callback(self, interaction: Interaction):
         """
@@ -155,6 +164,17 @@ class VerificationView(View):
 
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
+
+    async def recheck_button_callback(self, interaction: Interaction):
+        """
+        Callback for the 'Re-Check' button. Delegates handling to the
+        VerificationCog if available.
+        """
+        cog = self.bot.get_cog("VerificationCog")
+        if cog and hasattr(cog, "recheck_button"):
+            await cog.recheck_button(interaction)
+        else:
+            await send_message(interaction, "Re-check feature unavailable.", ephemeral=True)
 
 # -------------------------
 # Channel Settings + Permissions

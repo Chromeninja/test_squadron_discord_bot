@@ -29,14 +29,21 @@ class Database:
     @classmethod
     async def _create_tables(cls, db):
         # Create verification table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS verification (
                 user_id INTEGER PRIMARY KEY,
                 rsi_handle TEXT NOT NULL,
                 membership_status TEXT NOT NULL,
-                last_updated INTEGER NOT NULL
+                last_updated INTEGER NOT NULL,
+                last_recheck INTEGER DEFAULT 0
             )
-        """)
+            """
+        )
+        try:
+            await db.execute("ALTER TABLE verification ADD COLUMN last_recheck INTEGER DEFAULT 0")
+        except Exception:
+            pass
         # Create or update voice tables
         # In _create_tables method
         await db.execute("""

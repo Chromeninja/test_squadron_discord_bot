@@ -4,10 +4,15 @@ import discord
 from discord.ext import commands
 import json
 import os
+import time
+from aiolimiter import AsyncLimiter
 
 from helpers.embeds import create_verification_embed
 from helpers.views import VerificationView
 from helpers.logger import get_logger
+from helpers.database import Database
+from helpers.role_helper import reverify_member
+from verification.rsi_verification import lookup_rsi_user
 
 logger = get_logger(__name__)
 
@@ -23,8 +28,13 @@ class VerificationCog(commands.Cog):
             bot (commands.Bot): The bot instance.
         """
         self.bot = bot
+        self.rsi_limiter = AsyncLimiter(1, 1)
         # Schedule the verification message to be sent after the bot is ready
         self.bot.loop.create_task(self.wait_and_send_verification_message())
+
+    async def cog_load(self):
+        """Register the persistent verification view when the cog loads."""
+        self.bot.add_view(VerificationView(self.bot))
 
     async def wait_and_send_verification_message(self):
         """
@@ -85,6 +95,52 @@ class VerificationCog(commands.Cog):
             logger.error("Bot lacks permission to send messages in the verification channel.")
         except discord.HTTPException as e:
             logger.exception(f"Failed to send verification message: {e}")
+
+    async def recheck_button(self, interaction: discord.Interaction):
+        """Handle the Re-Check button interaction."""
+        await interaction.response.defer(ephemeral=True)
+
+        user_id = interaction.user.id
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT rsi_handle, last_recheck FROM verification WHERE user_id = ?",
+                (user_id,)
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            await interaction.followup.send("You are not verified yet.", ephemeral=True)
+            return
+
+        rsi_handle, last_recheck = row
+        now = int(time.time())
+        if last_recheck and now - last_recheck < 300:
+            remaining = 300 - (now - last_recheck)
+            await interaction.followup.send(
+                f"Please wait {remaining} seconds before re-checking again.",
+                ephemeral=True,
+            )
+            return
+
+        async with Database.get_connection() as db:
+            await db.execute(
+                "UPDATE verification SET last_recheck = ? WHERE user_id = ?",
+                (now, user_id),
+            )
+            await db.commit()
+
+        async with self.rsi_limiter:
+            verify_value, cased_handle = await lookup_rsi_user(rsi_handle, self.bot.http_client)
+
+        if verify_value is None or cased_handle is None:
+            await interaction.followup.send(
+                "Failed to look up your RSI status. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        await reverify_member(interaction.user, verify_value, cased_handle, self.bot)
+        await interaction.followup.send("Re-check complete.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     """

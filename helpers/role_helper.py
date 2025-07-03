@@ -49,8 +49,8 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, last_recheck)
+            VALUES (?, ?, ?, ?, 0)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
@@ -124,6 +124,10 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
+
+async def reverify_member(member: discord.Member, verify_value: int, cased_handle: str, bot) -> str:
+    """Reassign roles and nickname based on updated verification."""
+    return await assign_roles(member, verify_value, cased_handle, bot)
 
 def can_modify_nickname(member: discord.Member) -> bool:
     """
