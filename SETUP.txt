@@ -1,52 +1,43 @@
-# Setup Guide for TEST Squadron Discord Bot
-
-Ready to get the **TEST Squadron Discord Bot** up and running on your local machine? Follow these steps to set things up.
+# Setup Guide for TEST Squadron Discord Bot (Linux)
+Ready to get the **TEST Squadron Discord Bot** up and running on your Ubuntu (WSL or native) environment? Follow these steps to set things up.
 
 ## 📝 Prerequisites
-
 Before you start, make sure you have the following installed:
 
-- **Python 3.8+**: [Download Python](https://www.python.org/downloads/)
-- **Git**: [Download Git](https://git-scm.com/downloads)
-- **Discord Bot Token**: Make sure you've created a bot on the Discord Developer Portal and have your token handy.
+- **Python 3.8+**: Included on most modern Linux distributions; if missing, install via your package manager.  
+- **Git**: Install with `sudo apt update && sudo apt install git -y`  
+- **Discord Bot Token**: Have your bot’s token from the [Discord Developer Portal](https://discord.com/developers/applications).
 
 ## 📦 Cloning the Repository
-
-1. Open your terminal or command prompt.
-2. Clone the repo:
-   ```bash
-   git clone https://github.com/yourusername/test-squadron-discord-bot.git
-
-2. Clone the repo:git clone https://github.com/yourusername/test-squadron-discord-bot.git
+1. Open your terminal.
+2. Clone the repo: git clone https://github.com/yourusername/test-squadron-discord-bot.git
 3. Navigate into the project directory: cd test-squadron-discord-bot
 
 
-## 🔧 Setting Up the Environment
+## 🔧 Installing and Enabling venv
+1. Ensure the venv module is available:
+  sudo apt update
+  sudo apt install python3-venv -y
 
-1. **Create a Virtual Environment** (optional but recommended):python -m venv venv
-2. **Activate the Virtual Environment**:
-  venv\Scripts\activate
-3. **Install Dependencies**:pip install -r requirements.txt
+## 🛠️ Setting Up the Virtual Environment
+1. **Create a Virtual Environment**:python3 -m venv venv
+2. **Activate the Virtual Environment**:source venv/bin/activate
+3. **Install Dependencies**:
+  ```pip install --upgrade pip
+  pip install -r requirements.txt```
 
 ## 🗝️ Configuring Environment Variables
-
 1. **Create a `.env` File** in the root directory: touch .env
 2. **Add the Following Variables** to `.env`:
 DISCORD_TOKEN=your_discord_bot_token_here
-VERIFICATION_CHANNEL_ID=your_verification_channel_id
-BOT_VERIFIED_ROLE_ID=your_bot_verified_role_id MAIN_ROLE_ID=your_main_role_id
-AFFILIATE_ROLE_ID=your_affiliate_role_id NON_MEMBER_ROLE_ID=your_non_member_role_id
-- Replace each placeholder with your actual IDs.
 
 ## 🏃 Running the Bot
-
-1. **Ensure Your Virtual Environment is Active**:source venv/bin/activate # macOS/Linux venv\Scripts\activate # Windows
+1. **Ensure your virtual environment is active** ((venv) prefix in prompt).
 2. **Start the Bot**: python bot.py
 3. **Verify It's Working**:
-
-- Go to your Discord server.
-- Navigate to the verification channel.
-- You should see the verification message with the "Get Token" and "Verify" buttons.
+  - Go to your Discord server.
+  - Navigate to the verification channel.
+  - You should see the verification message with the "Get Token" and "Verify" buttons.
 
 ## 🎉 You're All Set!
 
