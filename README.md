@@ -73,3 +73,17 @@ Since this is a private repo for our dev team, feel free to fork and make change
 3. **Commit Your Changes**
 4. **Push to the Branch**
 5. **Open a Pull Request**
+
+## 🔧 Development Setup
+
+Install the regular and development dependencies:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+```
+
+Run the tests with:
+
+```bash
+pytest
+```
