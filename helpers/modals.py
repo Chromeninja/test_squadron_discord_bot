@@ -8,7 +8,7 @@ from helpers.embeds import create_error_embed, create_success_embed, create_cool
 from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
-from helpers.role_helper import assign_roles
+from helpers.role_helper import assign_roles, get_welcome_description
 from helpers.logger import get_logger
 from helpers.voice_utils import get_user_channel, update_channel_settings
 from helpers.discord_api import (
@@ -127,37 +127,8 @@ class HandleModal(Modal, title="Verification"):
         clear_token(member.id)
         reset_attempts(member.id)
 
-        # Send customized success message based on role
-        if assigned_role_type == 'main':
-            description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
-                "Fly safe! <:o7:1332572027877593148>"
-            )
-        elif assigned_role_type == 'affiliate':
-            description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
-                "**Instructions:**\n"
-                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
-                "<:o7:1332572027877593148>"
-            )
-        elif assigned_role_type == 'non_member':
-            description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
-                "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
-                "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. "
-                "You will need to reverify to update your roles once approved.*\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1332572027877593148>"
-            )
-        else:
-            description = "Welcome to the server! You can verify again after 3 hours if needed."
-
+        # Build role-specific success message
+        description = get_welcome_description(assigned_role_type)
         embed = create_success_embed(description)
 
         # 9) Send follow-up success

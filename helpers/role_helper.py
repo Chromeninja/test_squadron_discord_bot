@@ -49,8 +49,8 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, last_recheck)
+            VALUES (?, ?, ?, ?, 0)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
@@ -124,6 +124,41 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
     return assigned_role_type
+
+async def reverify_member(member: discord.Member, verify_value: int, cased_handle: str, bot) -> str:
+    """Reassign roles and nickname based on updated verification."""
+    return await assign_roles(member, verify_value, cased_handle, bot)
+
+def get_welcome_description(role_type: str) -> str:
+    """Return the role-specific welcome description used after verification."""
+    if role_type == 'main':
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
+            "Fly safe! <:o7:1332572027877593148>"
+        )
+    if role_type == 'affiliate':
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
+            "**Instructions:**\n"
+            ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+            "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
+            "<:o7:1332572027877593148>"
+        )
+    if role_type == 'non_member':
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
+            "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
+            "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+            "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. "
+            "You will need to reverify to update your roles once approved.*\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1332572027877593148>"
+        )
+    return "Welcome to the server! You can verify again after 3 hours if needed."
 
 def can_modify_nickname(member: discord.Member) -> bool:
     """

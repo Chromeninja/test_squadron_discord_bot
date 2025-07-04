@@ -33,6 +33,9 @@ voice:
   cooldown_seconds: 5  # Cooldown period in seconds
   expiry_days: 30  # Expiry period for voice channel data in days
 
+verification:
+  recheck_cooldown_seconds: 300  # Cooldown for using the re-check button
+
 
 database:
   path: "TESTDatabase.db"
