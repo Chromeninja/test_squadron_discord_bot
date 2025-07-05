@@ -165,7 +165,7 @@ class VerificationView(View):
         await interaction.response.send_modal(modal)
 
     async def recheck_button_callback(self, interaction: Interaction):
-        verification_cog = self.bot.get_cog("verification")
+        verification_cog = self.bot.get_cog("VerificationCog")
         if verification_cog:
             await verification_cog.recheck_button(interaction)
 
