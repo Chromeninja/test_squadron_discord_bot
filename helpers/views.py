@@ -112,6 +112,14 @@ class VerificationView(View):
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
 
+        self.recheck_button = Button(
+            label="Re-Check",
+            style=discord.ButtonStyle.secondary,
+            custom_id="verification_recheck_button"
+        )
+        self.recheck_button.callback = self.recheck_button_callback
+        self.add_item(self.recheck_button)
+
     async def get_token_button_callback(self, interaction: Interaction):
         """
         Callback for the 'Get Token' button.
@@ -155,6 +163,11 @@ class VerificationView(View):
 
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
+
+    async def recheck_button_callback(self, interaction: Interaction):
+        verification_cog = self.bot.get_cog("verification")
+        if verification_cog:
+            await verification_cog.recheck_button(interaction)
 
 # -------------------------
 # Channel Settings + Permissions

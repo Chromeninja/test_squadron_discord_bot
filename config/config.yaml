@@ -3,6 +3,7 @@ bot:
 rate_limits:
   max_attempts: 5
   window_seconds: 1800  # 30 min
+  recheck_window_seconds: 300
 organization:
   name: "TEST Squadron - Best Squardon!" 
 
