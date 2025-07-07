@@ -5,7 +5,7 @@ from discord.ui import Modal, TextInput
 import re
 
 from helpers.embeds import create_error_embed, create_success_embed, create_cooldown_embed
-from helpers.rate_limiter import log_attempt, get_remaining_attempts, check_rate_limit, reset_attempts
+from helpers.rate_limiter import rate_limiter
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
@@ -47,6 +47,16 @@ class HandleModal(Modal, title="Verification"):
         logger.debug("Deferred response for HandleModal verification.", extra={'user_id': interaction.user.id})
 
         member = interaction.user
+
+        rate_limited, wait_until = rate_limiter.is_limited(member.id)
+        if rate_limited:
+            embed = create_cooldown_embed(wait_until)
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            logger.info("User reached max verification attempts.", extra={'user_id': member.id})
+            return
+
+        rate_limiter.record_attempt(member.id)
+
         rsi_handle_input = self.rsi_handle.value.strip()
 
         # Validate RSI handle format
@@ -97,15 +107,12 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("Verification failed: token not found in bio.", extra={'user_id': member.id})
             return
 
-        # 6) Log attempt & check if user exceeded max attempts
-        log_attempt(member.id)
-
         # Check if verification failed
         if verify_value_check is None or not token_verify:
-            remaining_attempts = get_remaining_attempts(member.id)
+            remaining_attempts = rate_limiter.remaining_attempts(member.id)
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
-                _, wait_until = check_rate_limit(member.id)
+                _, wait_until = rate_limiter.is_limited(member.id)
 
                 # Create and send the cooldown embed
                 embed = create_cooldown_embed(wait_until)
@@ -125,7 +132,7 @@ class HandleModal(Modal, title="Verification"):
         # Verification successful
         assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)
-        reset_attempts(member.id)
+        rate_limiter.reset_user(member.id)
 
         # Send customized success message based on role
         if assigned_role_type == 'main':

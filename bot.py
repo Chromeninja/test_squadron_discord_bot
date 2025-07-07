@@ -11,7 +11,7 @@ from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
 from helpers.views import VerificationView
-from helpers.rate_limiter import cleanup_attempts
+from helpers.rate_limiter import rate_limiter
 from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.task_queue import start_task_workers, task_queue
@@ -251,11 +251,11 @@ class MyBot(commands.Bot):
 
     async def attempts_cleanup_task(self):
         """
-        Periodically cleans up expired rate-limiting data.
+        Periodically resets verification attempt counters.
         """
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
-            cleanup_attempts()
+            rate_limiter.reset_all()
 
     @property
     def uptime(self) -> str:

@@ -15,7 +15,7 @@ from discord import SelectOption, Interaction
 from helpers.discord_api import send_message, edit_channel
 from helpers.embeds import create_token_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
-from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.rate_limiter import rate_limiter
 from helpers.modals import (
     HandleModal,
     NameModal,
@@ -120,17 +120,17 @@ class VerificationView(View):
         and sends an embed with the token information.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = rate_limiter.is_limited(member.id)
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)
             logger.info("User reached max verification attempts.", extra={'user_id': member.id})
             return
 
+        rate_limiter.record_attempt(member.id)
         token = generate_token(member.id)
         expires_at = token_store[member.id]['expires_at']
         expires_unix = int(expires_at)
-        log_attempt(member.id)
 
         embed = create_token_embed(token, expires_unix)
         try:
@@ -146,7 +146,7 @@ class VerificationView(View):
         Checks rate limits and, if permitted, sends the HandleModal for user verification.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = rate_limiter.is_limited(member.id)
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)

@@ -7,7 +7,7 @@ from discord import app_commands
 
 from config.config_loader import ConfigLoader
 
-from helpers.rate_limiter import reset_attempts, reset_all_attempts
+from helpers.rate_limiter import rate_limiter
 from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.logger import get_logger
 from helpers.discord_api import send_message
@@ -43,7 +43,7 @@ class Admin(commands.Cog):
         Accessible only by Bot Admins.
         """
         logger.info(f"'reset-all' command triggered by user {interaction.user.id}.")  # Log command trigger
-        reset_all_attempts()
+        rate_limiter.reset_all()
         clear_all_tokens()
         await send_message(interaction, "✅ Reset verification timers for all members.", ephemeral=True)
         logger.info("Reset-all command completed successfully.", extra={'user_id': interaction.user.id})
@@ -59,7 +59,7 @@ class Admin(commands.Cog):
         Accessible by Bot Admins and Lead Moderators.
         """
         logger.info(f"'reset-user' command triggered by user {interaction.user.id} for member {member.id}.")  # Log command trigger
-        reset_attempts(member.id)
+        rate_limiter.reset_user(member.id)
         clear_token(member.id)
         await send_message(interaction, f"✅ Reset verification timer for {member.mention}.", ephemeral=True)
         logger.info("Reset-user command completed successfully.", extra={
