@@ -66,6 +66,7 @@ class Database:
                 SELECT user_id, 'recheck', 1, last_recheck FROM verification WHERE last_recheck > 0
                 """
             )
+            await db.commit()
             await db.execute("ALTER TABLE verification DROP COLUMN last_recheck")
 
         # Create or update voice tables
