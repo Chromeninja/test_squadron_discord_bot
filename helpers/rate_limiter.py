@@ -29,6 +29,7 @@ async def check_rate_limit(user_id: int, action: str = "verification") -> Tuple[
         attempts, first = row
         if now - first >= window:
             await Database.reset_rate_limit(user_id, action)
+            return False, 0
         elif attempts >= max_attempts:
             logger.info("Rate limit hit.", extra={'user_id': user_id, 'action': action})
             return True, first + window
