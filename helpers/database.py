@@ -68,6 +68,7 @@ class Database:
             )
             await db.commit()
             await db.execute("ALTER TABLE verification DROP COLUMN last_recheck")
+            await db.commit()
 
         # Create or update voice tables
         # In _create_tables method
