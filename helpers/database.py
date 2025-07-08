@@ -2,6 +2,7 @@
 
 import aiosqlite
 import asyncio
+import time
 from typing import Optional
 from helpers.logger import get_logger
 from contextlib import asynccontextmanager
@@ -29,14 +30,46 @@ class Database:
     @classmethod
     async def _create_tables(cls, db):
         # Create verification table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS verification (
                 user_id INTEGER PRIMARY KEY,
                 rsi_handle TEXT NOT NULL,
                 membership_status TEXT NOT NULL,
                 last_updated INTEGER NOT NULL
             )
-        """)
+            """
+        )
+        cursor = await db.execute("PRAGMA table_info(verification)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        last_recheck_exists = "last_recheck" in columns
+        if last_recheck_exists:
+            logger.info("Found legacy last_recheck column; will migrate data.")
+
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                user_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                attempt_count INTEGER DEFAULT 0,
+                first_attempt INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, action),
+                FOREIGN KEY (user_id) REFERENCES verification(user_id)
+            )
+            """
+        )
+
+        if last_recheck_exists:
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO rate_limits(user_id, action, attempt_count, first_attempt)
+                SELECT user_id, 'recheck', 1, last_recheck FROM verification WHERE last_recheck > 0
+                """
+            )
+            await db.commit()
+            await db.execute("ALTER TABLE verification DROP COLUMN last_recheck")
+            await db.commit()
+
         # Create or update voice tables
         # In _create_tables method
         await db.execute("""
@@ -120,3 +153,40 @@ class Database:
             await cls.initialize()
         async with aiosqlite.connect(cls._db_path) as db:
             yield db
+
+    @classmethod
+    async def fetch_rate_limit(cls, user_id: int, action: str):
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT attempt_count, first_attempt FROM rate_limits WHERE user_id = ? AND action = ?",
+                (user_id, action),
+            )
+            return await cursor.fetchone()
+
+    @classmethod
+    async def increment_rate_limit(cls, user_id: int, action: str):
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO rate_limits(user_id, action, attempt_count, first_attempt)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(user_id, action) DO UPDATE SET attempt_count=attempt_count+1
+                """,
+                (user_id, action, now),
+            )
+            await db.commit()
+
+    @classmethod
+    async def reset_rate_limit(cls, user_id: Optional[int] = None, action: Optional[str] = None):
+        async with cls.get_connection() as db:
+            if user_id is None:
+                await db.execute("DELETE FROM rate_limits")
+            elif action is None:
+                await db.execute("DELETE FROM rate_limits WHERE user_id = ?", (user_id,))
+            else:
+                await db.execute(
+                    "DELETE FROM rate_limits WHERE user_id = ? AND action = ?",
+                    (user_id, action),
+                )
+            await db.commit()

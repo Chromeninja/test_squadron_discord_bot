@@ -140,3 +140,15 @@ def can_modify_nickname(member: discord.Member) -> bool:
     can_modify = bot_member.top_role > member.top_role
     logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
     return can_modify
+
+
+async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple:
+    """Re-check a member's roles based on their RSI handle."""
+    from verification.rsi_verification import is_valid_rsi_handle
+
+    verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, bot.http_client)
+    if verify_value is None or cased_handle is None:
+        return False, "unknown", "Failed to verify RSI handle."
+
+    role_type = await assign_roles(member, verify_value, cased_handle, bot)
+    return True, role_type, None

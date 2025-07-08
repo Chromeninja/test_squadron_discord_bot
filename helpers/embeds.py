@@ -126,3 +126,34 @@ def create_cooldown_embed(wait_until: int) -> discord.Embed:
     color = 0xFFA500  # Orange
     thumbnail_url = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
     return create_embed(title, description, color, thumbnail_url)
+
+
+def build_welcome_description(role_type: str) -> str:
+    """Return a role-specific welcome message."""
+    if role_type == "main":
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to make the most of your experience!\n\n"
+            "Fly safe! <:o7:1332572027877593148>"
+        )
+    if role_type == "affiliate":
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "Your support helps us grow and excel. We encourage you to set **TEST** as your MAIN Org to show your loyalty.\n\n"
+            "**Instructions:**\n"
+            ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
+            "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
+            "<:o7:1332572027877593148>"
+        )
+    if role_type == "non_member":
+        return (
+            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
+            "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
+            "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
+            "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+            "*Click **Enlist Now!**. Test membership requests are usually approved within 24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to get involved! <:o7:1332572027877593148>"
+        )
+    return "Welcome to the server! You can verify again after 3 hours if needed."

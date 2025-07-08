@@ -112,6 +112,14 @@ class VerificationView(View):
         self.verify_button.callback = self.verify_button_callback
         self.add_item(self.verify_button)
 
+        self.recheck_button = Button(
+            label="Re-Check",
+            style=discord.ButtonStyle.secondary,
+            custom_id="verification_recheck_button"
+        )
+        self.recheck_button.callback = self.recheck_button_callback
+        self.add_item(self.recheck_button)
+
     async def get_token_button_callback(self, interaction: Interaction):
         """
         Callback for the 'Get Token' button.
@@ -120,7 +128,7 @@ class VerificationView(View):
         and sends an embed with the token information.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)
@@ -130,7 +138,7 @@ class VerificationView(View):
         token = generate_token(member.id)
         expires_at = token_store[member.id]['expires_at']
         expires_unix = int(expires_at)
-        log_attempt(member.id)
+        await log_attempt(member.id, "verification")
 
         embed = create_token_embed(token, expires_unix)
         try:
@@ -146,7 +154,7 @@ class VerificationView(View):
         Checks rate limits and, if permitted, sends the HandleModal for user verification.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)
@@ -155,6 +163,19 @@ class VerificationView(View):
 
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
+
+    async def recheck_button_callback(self, interaction: Interaction):
+        verification_cog = self.bot.get_cog("VerificationCog")
+        if verification_cog:
+            await verification_cog.recheck_button(interaction)
+        else:
+            # Log a warning and inform the user
+            import logging
+            logging.warning("VerificationCog is missing. Cannot process recheck_button.")
+            await interaction.response.send_message(
+                "Verification system is currently unavailable. Please try again later.",
+                ephemeral=True
+            )
 
 # -------------------------
 # Channel Settings + Permissions

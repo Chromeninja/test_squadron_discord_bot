@@ -5,9 +5,19 @@ from discord.ext import commands
 import json
 import os
 
-from helpers.embeds import create_verification_embed
+from helpers.database import Database
+from helpers.embeds import (
+    create_verification_embed,
+    create_error_embed,
+    create_success_embed,
+    create_cooldown_embed,
+    build_welcome_description,
+)
 from helpers.views import VerificationView
 from helpers.logger import get_logger
+from helpers.discord_api import followup_send_message
+from helpers.role_helper import reverify_member
+from helpers.rate_limiter import check_rate_limit, log_attempt
 
 logger = get_logger(__name__)
 
@@ -85,6 +95,40 @@ class VerificationCog(commands.Cog):
             logger.error("Bot lacks permission to send messages in the verification channel.")
         except discord.HTTPException as e:
             logger.exception(f"Failed to send verification message: {e}")
+
+    async def recheck_button(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        member = interaction.user
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT rsi_handle FROM verification WHERE user_id = ?",
+                (member.id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                embed = create_error_embed("You are not verified yet. Please click Verify first.")
+                await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+                return
+            rsi_handle = row[0]
+
+        rate_limited, wait_until = await check_rate_limit(member.id, "recheck")
+        if rate_limited:
+            embed = create_cooldown_embed(wait_until)
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        success, role_type, error_msg = await reverify_member(member, rsi_handle, self.bot)
+        if not success:
+            embed = create_error_embed(error_msg or "Re-check failed. Please try again later.")
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        await log_attempt(member.id, "recheck")
+
+        description = build_welcome_description(role_type)
+        embed = create_success_embed(description)
+        await followup_send_message(interaction, "", embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     """
