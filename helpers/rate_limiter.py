@@ -62,8 +62,12 @@ async def cleanup_attempts():
     now = int(time.time())
     async with Database.get_connection() as db:
         await db.execute(
-            "DELETE FROM rate_limits WHERE (? - first_attempt) > CASE action WHEN 'recheck' THEN ? ELSE ? END",
-            (now, RECHECK_WINDOW, RATE_LIMIT_WINDOW),
+            "DELETE FROM rate_limits WHERE action = 'recheck' AND (? - first_attempt) > ?",
+            (now, RECHECK_WINDOW),
+        )
+        await db.execute(
+            "DELETE FROM rate_limits WHERE action != 'recheck' AND (? - first_attempt) > ?",
+            (now, RATE_LIMIT_WINDOW),
         )
         await db.commit()
     logger.debug("Cleaned up expired rate-limiting data.")
