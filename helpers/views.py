@@ -168,6 +168,14 @@ class VerificationView(View):
         verification_cog = self.bot.get_cog("VerificationCog")
         if verification_cog:
             await verification_cog.recheck_button(interaction)
+        else:
+            # Log a warning and inform the user
+            import logging
+            logging.warning("VerificationCog is missing. Cannot process recheck_button.")
+            await interaction.response.send_message(
+                "Verification system is currently unavailable. Please try again later.",
+                ephemeral=True
+            )
 
 # -------------------------
 # Channel Settings + Permissions
