@@ -98,14 +98,14 @@ class HandleModal(Modal, title="Verification"):
             return
 
         # 6) Log attempt & check if user exceeded max attempts
-        log_attempt(member.id)
+        await log_attempt(member.id, "verification")
 
         # Check if verification failed
         if verify_value_check is None or not token_verify:
-            remaining_attempts = get_remaining_attempts(member.id)
+            remaining_attempts = await get_remaining_attempts(member.id, "verification")
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
-                _, wait_until = check_rate_limit(member.id)
+                _, wait_until = await check_rate_limit(member.id, "verification")
 
                 # Create and send the cooldown embed
                 embed = create_cooldown_embed(wait_until)
@@ -125,7 +125,7 @@ class HandleModal(Modal, title="Verification"):
         # Verification successful
         assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)
-        reset_attempts(member.id)
+        await reset_attempts(member.id)
 
         # Send customized success message based on role
         if assigned_role_type == 'main':

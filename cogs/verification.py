@@ -4,9 +4,7 @@ import discord
 from discord.ext import commands
 import json
 import os
-import time
 
-from config.config_loader import ConfigLoader
 from helpers.database import Database
 from helpers.embeds import (
     create_verification_embed,
@@ -19,6 +17,7 @@ from helpers.views import VerificationView
 from helpers.logger import get_logger
 from helpers.discord_api import followup_send_message
 from helpers.role_helper import reverify_member
+from helpers.rate_limiter import check_rate_limit, log_attempt
 
 logger = get_logger(__name__)
 
@@ -101,11 +100,9 @@ class VerificationCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         member = interaction.user
 
-        config = ConfigLoader.load_config()
-        cooldown = config['rate_limits'].get('recheck_window_seconds', 300)
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT rsi_handle, last_recheck FROM verification WHERE user_id = ?",
+                "SELECT rsi_handle FROM verification WHERE user_id = ?",
                 (member.id,)
             )
             row = await cursor.fetchone()
@@ -113,12 +110,11 @@ class VerificationCog(commands.Cog):
                 embed = create_error_embed("You are not verified yet. Please click Verify first.")
                 await followup_send_message(interaction, "", embed=embed, ephemeral=True)
                 return
-            rsi_handle, last_recheck = row
-            last_recheck = last_recheck or 0
+            rsi_handle = row[0]
 
-        now = int(time.time())
-        if now - last_recheck < cooldown:
-            embed = create_cooldown_embed(last_recheck + cooldown)
+        rate_limited, wait_until = await check_rate_limit(member.id, "recheck")
+        if rate_limited:
+            embed = create_cooldown_embed(wait_until)
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
@@ -128,12 +124,7 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        async with Database.get_connection() as db:
-            await db.execute(
-                "UPDATE verification SET last_recheck = ? WHERE user_id = ?",
-                (now, member.id),
-            )
-            await db.commit()
+        await log_attempt(member.id, "recheck")
 
         description = build_welcome_description(role_type)
         embed = create_success_embed(description)

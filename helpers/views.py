@@ -128,7 +128,7 @@ class VerificationView(View):
         and sends an embed with the token information.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)
@@ -138,7 +138,7 @@ class VerificationView(View):
         token = generate_token(member.id)
         expires_at = token_store[member.id]['expires_at']
         expires_unix = int(expires_at)
-        log_attempt(member.id)
+        await log_attempt(member.id, "verification")
 
         embed = create_token_embed(token, expires_unix)
         try:
@@ -154,7 +154,7 @@ class VerificationView(View):
         Checks rate limits and, if permitted, sends the HandleModal for user verification.
         """
         member = interaction.user
-        rate_limited, wait_until = check_rate_limit(member.id)
+        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await send_message(interaction, "", embed=embed, ephemeral=True)
