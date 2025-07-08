@@ -60,16 +60,19 @@ async def reset_attempts(user_id: int):
 
 async def cleanup_attempts():
     now = int(time.time())
-    async with Database.get_connection() as db:
-        await db.execute(
-            "DELETE FROM rate_limits WHERE action = 'recheck' AND (? - first_attempt) > ?",
-            (now, RECHECK_WINDOW),
-        )
-        await db.execute(
-            "DELETE FROM rate_limits WHERE action != 'recheck' AND (? - first_attempt) > ?",
-            (now, RATE_LIMIT_WINDOW),
-        )
-        await db.commit()
+    try:
+        async with Database.get_connection() as db:
+            await db.execute(
+                "DELETE FROM rate_limits WHERE action = 'recheck' AND (? - first_attempt) > ?",
+                (now, RECHECK_WINDOW),
+            )
+            await db.execute(
+                "DELETE FROM rate_limits WHERE action != 'recheck' AND (? - first_attempt) > ?",
+                (now, RATE_LIMIT_WINDOW),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to cleanup rate limit attempts: {e}")
     logger.debug("Cleaned up expired rate-limiting data.")
 
 
