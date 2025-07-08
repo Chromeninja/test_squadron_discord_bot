@@ -10,21 +10,24 @@ Before you start, make sure you have the following installed:
 
 ## 📦 Cloning the Repository
 1. Open your terminal.
-2. Clone the repo: git clone https://github.com/yourusername/test-squadron-discord-bot.git
+2. Clone the repo: 
+    git clone https://github.com/yourusername/test-squadron-discord-bot.git
 3. Navigate into the project directory: cd test-squadron-discord-bot
 
 
 ## 🔧 Installing and Enabling venv
 1. Ensure the venv module is available:
-  sudo apt update
-  sudo apt install python3-venv -y
+    sudo apt update
+    sudo apt install python3-venv -y
 
 ## 🛠️ Setting Up the Virtual Environment
-1. **Create a Virtual Environment**:python3 -m venv venv
-2. **Activate the Virtual Environment**:source venv/bin/activate
+1. **Create a Virtual Environment**:
+    python3 -m venv venv
+2. **Activate the Virtual Environment**:
+    source venv/bin/activate
 3. **Install Dependencies**:
-  ```pip install --upgrade pip
-  pip install -r requirements.txt```
+    pip install --upgrade pip
+    pip install -r requirements.txt
 
 ## 🗝️ Configuring Environment Variables
 1. **Create a `.env` File** in the root directory: touch .env
