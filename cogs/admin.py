@@ -15,6 +15,7 @@ from helpers.rate_limiter import reset_attempts, reset_all_attempts
 from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.logger import get_logger
 from helpers.discord_api import send_message
+from helpers.database import Database
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -114,24 +115,33 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
         logger = logging.getLogger(__name__)
-        if member.guild_id != interaction.guild_id:
-            await interaction.response.send_message(f"{member.display_name} is not in this server.", ephemeral=True)
+        if member.guild.id != interaction.guild.id:
+            await interaction.response.send_message(
+                f"{member.display_name} is not in this server.",
+                ephemeral=True
+            )
             return
-        db = self.bot.db
-        cursor = await db.execute(
-            "SELECT rsi_handle, membership_status, last_updated FROM verification WHERE user_id = ?",
-            (member.id,)
-        )
-        row = await cursor.fetchone()
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT rsi_handle, membership_status, last_updated "
+                "FROM verification WHERE user_id = ?",
+                (member.id,)
+            )
+            row = await cursor.fetchone()
         if not row:
-            await interaction.response.send_message(f"{member.display_name} is not verified.", ephemeral=True)
+            await interaction.response.send_message(
+                f"{member.mention} is not verified yet.",
+                ephemeral=True
+            )
             return
-        # row_factory is not set; row is (rsi_handle, membership_status, last_updated)
         old_role, timestamp = row[1], row[2]
         date_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M UTC")
         success, new_role, error_msg = await reverify_member(member, row[0], self.bot)
         if not success:
-            await interaction.response.send_message(error_msg or "Re-check failed.", ephemeral=True)
+            await interaction.response.send_message(
+                error_msg or "Re-check failed.",
+                ephemeral=True
+            )
         else:
             await interaction.response.send_message(
                 f"{member.display_name} is now {new_role} (was {old_role} on {date_str})",
@@ -141,7 +151,7 @@ class Admin(commands.Cog):
             "Admin %s rechecked %s in guild %s: success=%s old=%s new=%s",
             interaction.user.id,
             member.id,
-            interaction.guild_id,
+            interaction.guild.id,
             success,
             old_role,
             new_role,
