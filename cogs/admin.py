@@ -4,6 +4,10 @@ import discord
 import os
 from discord.ext import commands
 from discord import app_commands
+import logging
+from datetime import datetime
+from helpers.role_helper import reverify_member
+from config import CONFIG
 
 from config.config_loader import ConfigLoader
 
@@ -104,6 +108,44 @@ class Admin(commands.Cog):
         except Exception as e:
             logger.exception(f"Failed to send logs: {e}", extra={'user_id': interaction.user.id})
             await send_message(interaction, "❌ Failed to retrieve logs.", ephemeral=True)
+
+    @app_commands.command(name="recheck-user", description="Force a verification re-check for a user (Bot Admins only).")
+    @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
+    @app_commands.guild_only()
+    async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
+        logger = logging.getLogger(__name__)
+        if member.guild_id != interaction.guild_id:
+            await interaction.response.send_message(f"{member.display_name} is not in this server.", ephemeral=True)
+            return
+        db = self.bot.db
+        cursor = await db.execute(
+            "SELECT rsi_handle, membership_status, last_updated FROM verification WHERE user_id = ?",
+            (member.id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            await interaction.response.send_message(f"{member.display_name} is not verified.", ephemeral=True)
+            return
+        # row_factory is not set; row is (rsi_handle, membership_status, last_updated)
+        old_role, timestamp = row[1], row[2]
+        date_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M UTC")
+        success, new_role, error_msg = await reverify_member(member, row[0], self.bot)
+        if not success:
+            await interaction.response.send_message(error_msg or "Re-check failed.", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                f"{member.display_name} is now {new_role} (was {old_role} on {date_str})",
+                ephemeral=True
+            )
+        logger.info(
+            "Admin %s rechecked %s in guild %s: success=%s old=%s new=%s",
+            interaction.user.id,
+            member.id,
+            interaction.guild_id,
+            success,
+            old_role,
+            new_role,
+        )
 
     # Error handling for permissions and other issues
     @reset_all.error
