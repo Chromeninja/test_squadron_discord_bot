@@ -114,7 +114,6 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
-        logger = logging.getLogger(__name__)
         if member.guild.id != interaction.guild.id:
             await interaction.response.send_message(
                 f"{member.display_name} is not in this server.",
