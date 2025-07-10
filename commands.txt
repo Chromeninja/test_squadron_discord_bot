@@ -23,4 +23,5 @@
 - **/voice reset** - Reset your channel settings to default.
 - **/voice claim** - Claim ownership of a voice channel if the original owner left.
 - **/voice help** - Show help for voice commands.
-- **/voice admin_reset [user]** - Admin command to reset a user's voice channel. Only for Bot Admins and Lead Moderators.- **/voice owner** - List all voice channels managed by the bot and their owners.
+- **/voice admin_reset [user]** - Admin command to reset a user's voice channel. Only for Bot Admins and Lead Moderators.
+- **/voice owner** - List all voice channels managed by the bot and their owners.
