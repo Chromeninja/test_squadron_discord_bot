@@ -161,6 +161,7 @@ class Admin(commands.Cog):
     @reset_all.error
     @reset_user.error
     @status.error
+    @recheck_user.error
     @view_logs.error
     async def admin_command_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingAnyRole):
