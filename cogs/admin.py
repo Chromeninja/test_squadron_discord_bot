@@ -4,6 +4,10 @@ import discord
 import os
 from discord.ext import commands
 from discord import app_commands
+import logging
+from datetime import datetime
+from helpers.role_helper import reverify_member
+from config import CONFIG
 
 from config.config_loader import ConfigLoader
 
@@ -11,6 +15,7 @@ from helpers.rate_limiter import reset_attempts, reset_all_attempts
 from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.logger import get_logger
 from helpers.discord_api import send_message
+from helpers.database import Database
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -105,10 +110,57 @@ class Admin(commands.Cog):
             logger.exception(f"Failed to send logs: {e}", extra={'user_id': interaction.user.id})
             await send_message(interaction, "❌ Failed to retrieve logs.", ephemeral=True)
 
+    @app_commands.command(name="recheck-user", description="Force a verification re-check for a user (Bot Admins only).")
+    @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
+    @app_commands.guild_only()
+    async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
+        if member.guild.id != interaction.guild.id:
+            await interaction.response.send_message(
+                f"{member.display_name} is not in this server.",
+                ephemeral=True
+            )
+            return
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT rsi_handle, membership_status, last_updated "
+                "FROM verification WHERE user_id = ?",
+                (member.id,)
+            )
+            row = await cursor.fetchone()
+        if not row:
+            await interaction.response.send_message(
+                f"{member.mention} is not verified yet.",
+                ephemeral=True
+            )
+            return
+        old_role, timestamp = row[1], row[2]
+        date_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M UTC")
+        success, new_role, error_msg = await reverify_member(member, row[0], self.bot)
+        if not success:
+            await interaction.response.send_message(
+                error_msg or "Re-check failed.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"{member.display_name} is now {new_role} (was {old_role} on {date_str})",
+                ephemeral=True
+            )
+        logger.info(
+            "Admin %s rechecked %s in guild %s: success=%s old=%s new=%s",
+            interaction.user.id,
+            member.id,
+            interaction.guild.id,
+            success,
+            old_role,
+            new_role,
+        )
+
     # Error handling for permissions and other issues
     @reset_all.error
     @reset_user.error
     @status.error
+    @recheck_user.error
     @view_logs.error
     async def admin_command_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingAnyRole):
