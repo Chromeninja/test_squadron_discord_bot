@@ -123,7 +123,7 @@ class HandleModal(Modal, title="Verification"):
                 logger.info("User failed verification.", extra={'user_id': member.id, 'remaining_attempts': remaining_attempts})
             return
         # Verification successful
-        assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
+        old_status, assigned_role_type = await assign_roles(member, verify_value_check, cased_handle, self.bot)
         clear_token(member.id)
         await reset_attempts(member.id)
 
@@ -168,6 +168,9 @@ class HandleModal(Modal, title="Verification"):
                 'rsi_handle': cased_handle,
                 'assigned_role': assigned_role_type
             })
+            # Announce in channels
+            from helpers.announcement import send_verification_announcements
+            await send_verification_announcements(self.bot, member, old_status, assigned_role_type, is_recheck=False)
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
 

@@ -118,17 +118,28 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        success, role_type, error_msg = await reverify_member(member, rsi_handle, self.bot)
-        if not success:
-            embed = create_error_embed(error_msg or "Re-check failed. Please try again later.")
+        result = await reverify_member(member, rsi_handle, self.bot)
+        if not result[0]:
+            embed = create_error_embed(result[2] or "Re-check failed. Please try again later.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
+        old_status, new_status = result[1], result[2]
         await log_attempt(member.id, "recheck")
 
-        description = build_welcome_description(role_type)
+        description = build_welcome_description(new_status)
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+
+        from helpers.announcement import send_verification_announcements
+        await send_verification_announcements(
+            self.bot,
+            member,
+            old_status,
+            new_status,
+            is_recheck=True,
+            by_admin=False
+        )
 
 async def setup(bot: commands.Bot):
     """

@@ -10,7 +10,18 @@ from helpers.discord_api import add_roles, remove_roles, edit_member
 
 logger = get_logger(__name__)
 
-async def assign_roles(member: discord.Member, verify_value: int, cased_handle: str, bot) -> str:
+async def assign_roles(member: discord.Member, verify_value: int, cased_handle: str, bot):
+    # Fetch previous status before DB update
+    prev_status = None
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            "SELECT membership_status FROM verification WHERE user_id = ?",
+            (member.id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            prev_status = row[0]
+
     bot_verified_role = bot.role_cache.get(bot.BOT_VERIFIED_ROLE_ID)
     main_role = bot.role_cache.get(bot.MAIN_ROLE_ID)
     affiliate_role = bot.role_cache.get(bot.AFFILIATE_ROLE_ID)
@@ -45,7 +56,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     }
     membership_status = membership_status_map.get(verify_value, 'unknown')
 
-    # Use the correct method to get a database connection
+    # Update DB
     async with Database.get_connection() as db:
         await db.execute(
             """
@@ -68,7 +79,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
             roles_to_remove.append(role)
             logger.debug(f"Scheduling role for removal: {role.name}")
 
-    # Enqueue role removal tasks
+    # Enqueue removals
     if roles_to_remove:
         async def remove_task():
             try:
@@ -82,7 +93,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         
         await enqueue_task(remove_task)
 
-    # Enqueue role addition tasks
+    # Enqueue additions
     if roles_to_add:
         async def add_task():
             nonlocal assigned_role_type 
@@ -102,7 +113,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     else:
         logger.error("No valid roles to add.", extra={'user_id': member.id})
 
-    # Enqueue nickname change task
+    # Enqueue nickname change
     if can_modify_nickname(member):
         async def nickname_task():
             try:
@@ -123,7 +134,8 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     else:
         logger.warning("Cannot change nickname due to role hierarchy.", extra={'user_id': member.id})
 
-    return assigned_role_type
+    # Return old and new status
+    return prev_status or 'unknown', assigned_role_type
 
 def can_modify_nickname(member: discord.Member) -> bool:
     """
