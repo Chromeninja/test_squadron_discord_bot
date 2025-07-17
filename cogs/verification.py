@@ -124,7 +124,11 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        old_status, new_status = result[1], result[2]
+        status_tuple = result[1]
+        if isinstance(status_tuple, tuple):
+            old_status, new_status = status_tuple
+        else:
+            old_status = new_status = status_tuple
         await log_attempt(member.id, "recheck")
 
         description = build_welcome_description(new_status)
