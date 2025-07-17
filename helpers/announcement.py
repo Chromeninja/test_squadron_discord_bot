@@ -30,9 +30,9 @@ async def send_verification_announcements(
 
     # Helper for pretty status string
     def status_str(s):
-        if s == "main": return "**TEST Main** <:BESTSquad:1332572087524790334>"
+        if s == "main": return "**TEST Main**"
         if s == "affiliate": return "**TEST Affiliate**"
-        if s == "non_member": return "*Not a Member* :sob:"
+        if s == "non_member": return "*Not a Member*"
         return str(s)
 
     if not is_recheck:
@@ -46,13 +46,13 @@ async def send_verification_announcements(
         elif new_status == "affiliate":
             public_message = (
                 f"🤝 Welcome {member.mention} who has joined TEST as an**Affiliate ORG!**\n"
-                f"_We're happy to have you as a friend of TEST!_"
+                f"_We're happy to have you here and hope you set TEST as your Main Org!_"
             )
-        elif new_status == "non_member":
-            public_message = (
-                f"👋 Welcome {member.mention} who is **not yet a member of TEST** 😢\n"
-                f"Maybe next time! 🚀"
-            )
+        #elif new_status == "non_member":
+        #    public_message = (
+        #        f"👋 Welcome {member.mention} who is **not yet a member of TEST** YET!\n"
+        #       f"Join Test and re-check to get your Org tag! 🚀"
+        #    )
     else:
         # Re-check transitions
         # Affiliate or Non-Member ➔ Main
@@ -63,16 +63,16 @@ async def send_verification_announcements(
                 f"**Welcome home!**"
             )
         # Main ➔ Affiliate
-        elif (old_status == "main" and new_status == "affiliate"):
-            public_message = (
-                f"😱 **Shame!** {member.mention} dropped TEST as their **Main Org!**\n"
-                f"_SET TEST AS MAIN!_"
-            )
+        #elif (old_status == "main" and new_status == "affiliate"):
+        #    public_message = (
+        #        f"😱 **Shame!** {member.mention} dropped TEST as their **Main Org!**\n"
+        #        f"_SET TEST AS MAIN!_"
+        #    )
         # Non-Member ➔ Affiliate (promotion to affiliate)
         elif (old_status == "non_member" and new_status == "affiliate"):
             public_message = (
                 f"🤝 Welcome {member.mention} who has joined TEST as their **Affiliate ORG!**\n"
-                f"_Glad to have you among our allies!_"
+                f"_Glad to have you here hope you set TEST as your MAIN Org!_"
             )
         # Main or Affiliate ➔ Non-Member: NO public message
         # Affiliate ➔ Affiliate or Main ➔ Main or Non-Member ➔ Non-Member: NO public message
