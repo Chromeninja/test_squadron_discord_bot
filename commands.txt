@@ -7,6 +7,7 @@
 - **/reload-config** - Reload the bot's configuration. Only for Bot Admins.
 - **/status** - Check the status of the bot.
 - **/view-logs** - View recent bot logs. Bot Admins and Lead Moderators.
+- **/recheck-user [member]** – Manually trigger a verification re-check for a user. Bot Admins only; bypasses cooldown.
 
 ## Voice Commands
 

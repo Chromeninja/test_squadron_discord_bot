@@ -205,7 +205,7 @@ class MyBot(commands.Bot):
         Applies slash command permissions so only 'bot_admins' or 'lead_moderators' can see/use certain commands.
         """
         # Define the restricted commands and combine role IDs
-        restricted_commands = ["reset-all", "reset-user", "status", "view-logs"]
+        restricted_commands = ["reset-all", "reset-user", "status", "view-logs", "recheck-user"]
         combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
 
         # Validate roles in the guild
