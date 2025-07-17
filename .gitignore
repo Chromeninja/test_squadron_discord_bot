@@ -136,3 +136,4 @@ venv/
 #other
 all_code.txt
 verification_message_id.json
+config/config.yaml
