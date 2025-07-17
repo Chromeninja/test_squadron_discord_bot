@@ -114,12 +114,7 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
-        if member.guild.id != interaction.guild.id:
-            await interaction.response.send_message(
-                f"{member.display_name} is not in this server.",
-                ephemeral=True
-            )
-            return
+        # Remove this redundant check - guild-only commands ensure member is from same guild
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT rsi_handle, membership_status, last_updated "
