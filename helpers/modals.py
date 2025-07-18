@@ -170,7 +170,15 @@ class HandleModal(Modal, title="Verification"):
                 'assigned_role': assigned_role_type
             })
             # Announce in channels
-            await send_verification_announcements(self.bot, member, old_status, assigned_role_type, is_recheck=False)
+            admin_display = getattr(interaction.user, "display_name", str(interaction.user))
+            await send_verification_announcements(
+                self.bot,
+                member,
+                old_status,
+                new_status,
+                is_recheck=True,
+                by_admin=admin_display
+            )
         except Exception as e:
             logger.exception(f"Failed to send verification success message: {e}", extra={'user_id': member.id})
 

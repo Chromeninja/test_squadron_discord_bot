@@ -136,13 +136,14 @@ class VerificationCog(commands.Cog):
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
 
+        admin_display = getattr(interaction.user, "display_name", str(interaction.user))
         await send_verification_announcements(
             self.bot,
             member,
             old_status,
             new_status,
             is_recheck=True,
-            by_admin=False
+            by_admin=admin_display
         )
 
 async def setup(bot: commands.Bot):

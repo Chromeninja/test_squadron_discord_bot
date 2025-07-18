@@ -85,18 +85,18 @@ async def send_verification_announcements(
 
     # Leadership/admin channel always logs
     log_action = "re-checked" if is_recheck else "verified"
-    admin_phrase = " (admin initiated)" if by_admin else ""
+    admin_phrase = f" (**{by_admin}** Initiated)" if isinstance(by_admin, str) and by_admin else (" (admin initiated)" if by_admin else "")
     if lead_channel:
         try:
             if is_recheck:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.display_name} {log_action}{admin_phrase}: **{status_str(old_status)}** → **{status_str(new_status)}**"
+                    f"🗂️ {member.mention} {log_action}{admin_phrase}: **{status_str(old_status)}** → **{status_str(new_status)}**"
                 )
             else:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.display_name} verified as {status_str(new_status)}"
+                    f"🗂️ {member.mention} verified as {status_str(new_status)}"
                 )
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")

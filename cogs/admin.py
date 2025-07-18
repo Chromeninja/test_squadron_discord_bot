@@ -139,13 +139,14 @@ class Admin(commands.Cog):
             old_status = new_status = status_tuple
 
         # Announce to channels
+        admin_display = getattr(interaction.user, "display_name", str(interaction.user))
         await send_verification_announcements(
             self.bot,
             member,
             old_status,
             new_status,
             is_recheck=True,
-            by_admin=True
+            by_admin=admin_display
         )
 
         await interaction.response.send_message(
