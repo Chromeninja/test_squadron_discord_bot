@@ -18,6 +18,7 @@ from helpers.logger import get_logger
 from helpers.discord_api import followup_send_message
 from helpers.role_helper import reverify_member
 from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.announcement import send_verification_announcements
 
 logger = get_logger(__name__)
 
@@ -135,7 +136,6 @@ class VerificationCog(commands.Cog):
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
 
-        from helpers.announcement import send_verification_announcements
         await send_verification_announcements(
             self.bot,
             member,

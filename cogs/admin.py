@@ -16,11 +16,11 @@ from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.logger import get_logger
 from helpers.discord_api import send_message
 from helpers.database import Database
+from helpers.announcement import send_verification_announcements
 
-# Initialize logger
+# Load Config
 logger = get_logger(__name__)
 
-# Access configuration values from config.yaml
 config = ConfigLoader.load_config()
 
 class Admin(commands.Cog):
@@ -35,11 +35,9 @@ class Admin(commands.Cog):
 
         logger.info(f"Tracking bot admin roles: {self.BOT_ADMIN_ROLE_IDS}")
         logger.info(f"Tracking lead moderator roles: {self.LEAD_MODERATOR_ROLE_IDS}")
-        
-        logger.info("Admin cog initialized.")  # Log cog initialization
+        logger.info("Admin cog initialized.")
 
     @app_commands.command(name="reset-all", description="Reset verification timers for all members.")
-    #@app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def reset_all(self, interaction: discord.Interaction):
@@ -55,7 +53,6 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="reset-user", description="Reset verification timer for a specific user.")
     @app_commands.describe(member="The member whose timer you want to reset.")
-    #@app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'], *config['roles']['lead_moderators'])
     async def reset_user(self, interaction: discord.Interaction, member: discord.Member):
@@ -73,7 +70,6 @@ class Admin(commands.Cog):
         })
 
     @app_commands.command(name="status", description="Check the status of the bot.")
-    #@app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'], *config['roles']['lead_moderators'])
     async def status(self, interaction: discord.Interaction):
@@ -87,7 +83,6 @@ class Admin(commands.Cog):
         logger.info("Status command completed successfully.", extra={'user_id': interaction.user.id})
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
-    #@app_commands.default_permissions()
     @app_commands.guild_only()
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def view_logs(self, interaction: discord.Interaction):
@@ -114,7 +109,6 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
-        # Remove this redundant check - guild-only commands ensure member is from same guild
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT rsi_handle, membership_status, last_updated "
@@ -130,28 +124,44 @@ class Admin(commands.Cog):
             return
         old_role, timestamp = row[1], row[2]
         date_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M UTC")
-        success, new_role, error_msg = await reverify_member(member, row[0], self.bot)
+        success, status_tuple, error_msg = await reverify_member(member, row[0], self.bot)
         if not success:
             await interaction.response.send_message(
                 error_msg or "Re-check failed.",
                 ephemeral=True
             )
+            return
+
+        # Unpack statuses
+        if isinstance(status_tuple, tuple):
+            old_status, new_status = status_tuple
         else:
-            await interaction.response.send_message(
-                f"{member.display_name} is now {new_role} (was {old_role} on {date_str})",
-                ephemeral=True
-            )
+            old_status = new_status = status_tuple
+
+        # Announce to channels
+        await send_verification_announcements(
+            self.bot,
+            member,
+            old_status,
+            new_status,
+            is_recheck=True,
+            by_admin=True
+        )
+
+        await interaction.response.send_message(
+            f"{member.display_name} is now {new_status} (was {old_status} on {date_str})",
+            ephemeral=True
+        )
         logger.info(
             "Admin %s rechecked %s in guild %s: success=%s old=%s new=%s",
             interaction.user.id,
             member.id,
             interaction.guild.id,
             success,
-            old_role,
-            new_role,
+            old_status,
+            new_status,
         )
 
-    # Error handling for permissions and other issues
     @reset_all.error
     @reset_user.error
     @status.error
@@ -177,6 +187,6 @@ class Admin(commands.Cog):
             await send_message(interaction, "An error occurred while processing the command.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    logger.info("Setting up Admin cog.")  # Log cog setup
+    logger.info("Setting up Admin cog.")
     await bot.add_cog(Admin(bot))
-    logger.info("Admin cog successfully added.")  # Log cog added confirmation
+    logger.info("Admin cog successfully added.")
