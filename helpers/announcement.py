@@ -1,8 +1,10 @@
 # helpers/announcement.py
 
 import discord
+import random
 from helpers.discord_api import channel_send_message
 from helpers.logger import get_logger
+from helpers.announcement_templates import MAIN_TEMPLATES, AFFILIATE_TEMPLATES
 
 logger = get_logger(__name__)
 
@@ -35,47 +37,10 @@ async def send_verification_announcements(
         if s == "non_member": return "*Not a Member*"
         return str(s)
 
-    if not is_recheck:
-        # Initial verification
-        if new_status == "main":
-            public_message = (
-                f"🎉 Welcome {member.mention} who has joined TEST as their **MAIN ORG**! "
-                "<:BESTSquad:1332572087524790334>\n"
-                f"**Let's give a big welcome!**"
-            )
-        elif new_status == "affiliate":
-            public_message = (
-                f"🤝 Welcome {member.mention} who has joined TEST as an**Affiliate ORG!**\n"
-                f"_We're happy to have you here and hope you set TEST as your Main Org!_"
-            )
-        #elif new_status == "non_member":
-        #    public_message = (
-        #        f"👋 Welcome {member.mention} who is **not yet a member of TEST** YET!\n"
-        #       f"Join Test and re-check to get your Org tag! 🚀"
-        #    )
-    else:
-        # Re-check transitions
-        # Affiliate or Non-Member ➔ Main
-        if (old_status in ("affiliate", "non_member") and new_status == "main"):
-            public_message = (
-                f"🎊 **Congrats** to {member.mention} for making the decision to set TEST as their **Main Org!** "
-                "<:BESTSquad:1332572087524790334>\n"
-                f"**Welcome home!**"
-            )
-        # Main ➔ Affiliate
-        #elif (old_status == "main" and new_status == "affiliate"):
-        #    public_message = (
-        #        f"😱 **Shame!** {member.mention} dropped TEST as their **Main Org!**\n"
-        #        f"_SET TEST AS MAIN!_"
-        #    )
-        # Non-Member ➔ Affiliate (promotion to affiliate)
-        elif (old_status == "non_member" and new_status == "affiliate"):
-            public_message = (
-                f"🤝 Welcome {member.mention} who has joined TEST as their **Affiliate ORG!**\n"
-                f"_Glad to have you here hope you set TEST as your MAIN Org!_"
-            )
-        # Main or Affiliate ➔ Non-Member: NO public message
-        # Affiliate ➔ Affiliate or Main ➔ Main or Non-Member ➔ Non-Member: NO public message
+    if new_status == "main":
+        public_message = random.choice(MAIN_TEMPLATES).format(member=member)
+    elif new_status == "affiliate":
+        public_message = random.choice(AFFILIATE_TEMPLATES).format(member=member)
 
     if public_channel and public_message:
         try:
