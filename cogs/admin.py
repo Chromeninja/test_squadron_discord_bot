@@ -109,6 +109,7 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
+        await interaction.response.defer(thinking=True, ephemeral=True)
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT rsi_handle, membership_status, last_updated "
@@ -117,7 +118,7 @@ class Admin(commands.Cog):
             )
             row = await cursor.fetchone()
         if not row:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"{member.mention} is not verified yet.",
                 ephemeral=True
             )
@@ -126,7 +127,7 @@ class Admin(commands.Cog):
         date_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M UTC")
         success, status_tuple, error_msg = await reverify_member(member, row[0], self.bot)
         if not success:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 error_msg or "Re-check failed.",
                 ephemeral=True
             )
@@ -139,7 +140,7 @@ class Admin(commands.Cog):
             old_status = new_status = status_tuple
 
         # Announce to channels
-        admin_display = getattr(interaction.user, "display_name", str(interaction.user))
+        admin_display = interaction.user.mention
         await send_verification_announcements(
             self.bot,
             member,
@@ -149,7 +150,7 @@ class Admin(commands.Cog):
             by_admin=admin_display
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"{member.display_name} is now {new_status} (was {old_status} on {date_str})",
             ephemeral=True
         )

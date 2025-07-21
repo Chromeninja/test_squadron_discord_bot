@@ -36,18 +36,24 @@ async def send_verification_announcements(
         if s == "non_member": return "*Not a Member*"
         return str(s)
 
-    if new_status == "main":
-        public_embed = discord.Embed(
-            title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Main Verified",
-            description=random.choice(MAIN_TEMPLATES).format(member=member),
-            color=discord.Color.gold()
+    should_announce_public = (
+            (not is_recheck) or
+            (is_recheck and old_status != new_status)
         )
-    elif new_status == "affiliate":
-        public_embed = discord.Embed(
-            title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Affiliate Verified",
-            description=random.choice(AFFILIATE_TEMPLATES).format(member=member),
-            color=discord.Color.yellow()
-        )
+
+    if should_announce_public:
+        if new_status == "main":
+            public_embed = discord.Embed(
+                title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Main Verified",
+                description=random.choice(MAIN_TEMPLATES).format(member=member),
+                color=discord.Color.gold()
+            )
+        elif new_status == "affiliate":
+            public_embed = discord.Embed(
+                title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Affiliate Verified",
+                description=random.choice(AFFILIATE_TEMPLATES).format(member=member),
+                color=discord.Color.yellow()
+            )
 
     if public_channel and public_embed:
         try:
