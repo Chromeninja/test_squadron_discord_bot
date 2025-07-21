@@ -1,3 +1,7 @@
+#config/config-example.yaml
+# This is an example configuration file for the Test Squadron Discord Bot.
+# Copy this file to config/config.yaml and modify it with your settings.
+
 bot:
   prefix: []
 rate_limits:
@@ -9,6 +13,8 @@ organization:
 
 channels:
   verification_channel_id: 1313551608491282543  # Replace with your verification channel ID
+  public_announcement_channel_id: 1395475641805176952   # Replace with your public announcement channel ID
+  leadership_announcement_channel_id: 1395475681512652944 # Replace with your leadership announcement channel ID
 
 roles:
   bot_verified_role_id: 1313551309869416528     # Replace with your BotVerified role ID
