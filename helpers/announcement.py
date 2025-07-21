@@ -28,9 +28,8 @@ async def send_verification_announcements(
     old_status = (old_status or '').lower()
     new_status = (new_status or '').lower()
 
-    public_message = None
+    public_embed = None
 
-    # Helper for pretty status string
     def status_str(s):
         if s == "main": return "**TEST Main**"
         if s == "affiliate": return "**TEST Affiliate**"
@@ -38,13 +37,21 @@ async def send_verification_announcements(
         return str(s)
 
     if new_status == "main":
-        public_message = random.choice(MAIN_TEMPLATES).format(member=member)
+        public_embed = discord.Embed(
+            title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Main Verified",
+            description=random.choice(MAIN_TEMPLATES).format(member=member),
+            color=discord.Color.gold()
+        )
     elif new_status == "affiliate":
-        public_message = random.choice(AFFILIATE_TEMPLATES).format(member=member)
+        public_embed = discord.Embed(
+            title="<:test:230176729380028417> <:best:230176763173535745> TEST Membership Update - Affiliate Verified",
+            description=random.choice(AFFILIATE_TEMPLATES).format(member=member),
+            color=discord.Color.yellow()
+        )
 
-    if public_channel and public_message:
+    if public_channel and public_embed:
         try:
-            await channel_send_message(public_channel, public_message)
+            await channel_send_message(public_channel, content=None, embed=public_embed)
         except Exception as e:
             logger.warning(f"Could not send announcement to public channel: {e}")
 
