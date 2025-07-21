@@ -33,8 +33,7 @@ async def send_verification_announcements(
     def status_str(s):
         if s == "main": return "**TEST Main**"
         if s == "affiliate": return "**TEST Affiliate**"
-        if s == "non_member": return "*Not a Member*"
-        return str(s)
+        return "*Not a Member*" if s == "non_member" else str(s)
 
     should_announce_public = (
             (not is_recheck) or
