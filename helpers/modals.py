@@ -175,8 +175,8 @@ class HandleModal(Modal, title="Verification"):
                 self.bot,
                 member,
                 old_status,
-                new_status,
-                is_recheck=True,
+                assigned_role_type,
+                is_recheck=False,
                 by_admin=admin_display
             )
         except Exception as e:
