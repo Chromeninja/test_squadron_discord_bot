@@ -141,6 +141,7 @@ class Admin(commands.Cog):
 
         # Announce to channels
         admin_display = interaction.user.mention
+
         await send_verification_announcements(
             self.bot,
             member,

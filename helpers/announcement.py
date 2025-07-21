@@ -14,7 +14,7 @@ async def send_verification_announcements(
     old_status: str,
     new_status: str,
     is_recheck: bool,
-    by_admin: bool = False
+    by_admin: str = None
 ):
     config = bot.config
     public_channel_id = config['channels'].get('public_announcement_channel_id')
@@ -36,9 +36,9 @@ async def send_verification_announcements(
         return "*Not a Member*" if s == "non_member" else str(s)
 
     should_announce_public = (
-            (not is_recheck) or
-            (is_recheck and old_status != new_status)
-        )
+        (not is_recheck) or
+        (is_recheck and old_status != new_status)
+    )
 
     if should_announce_public:
         if new_status == "main":
@@ -62,12 +62,18 @@ async def send_verification_announcements(
 
     # Leadership/admin channel always logs
     log_action = "re-checked" if is_recheck else "verified"
+    admin_phrase = ""
+
+    # Show (AdminName Initiated) only if it's set and not a self-action
+    if is_recheck and by_admin and by_admin != member.display_name:
+        admin_phrase = f" (**{by_admin}** Initiated)"
+
     if lead_channel:
         try:
             if is_recheck:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.mention} {log_action}: **{status_str(old_status)}** → **{status_str(new_status)}**"
+                    f"🗂️ {member.mention} {log_action}{admin_phrase}: **{status_str(old_status)}** → **{status_str(new_status)}**"
                 )
             else:
                 await channel_send_message(
