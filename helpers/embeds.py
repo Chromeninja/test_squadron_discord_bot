@@ -60,7 +60,7 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
         "*If you see a \"Restricted Access\" message, please log in to your RSI account\n"
         ":two: Add the PIN to your **Short Bio** field.\n"
         ":three: Scroll down and click **Apply All Changes**.\n"
-        ":four: Return here and click the 'Verify' button below.\n\n"
+        ":four: Return here and click the 'Verify' button above.\n\n"
         "If you don't have an account, feel free to [enlist here](https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).\n\n"
         ":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
     ).format(expires_unix=expires_unix)
