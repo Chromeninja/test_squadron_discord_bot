@@ -26,6 +26,7 @@ async def send_verification_announcements(
             member = await guild.fetch_member(member.id)
         except Exception as e:
             logger.warning(f"Failed to fetch full member object for {member.id}: {e}")
+            return
 
     public_channel = guild.get_channel(public_channel_id) if public_channel_id else None
     lead_channel = guild.get_channel(lead_channel_id) if lead_channel_id else None
