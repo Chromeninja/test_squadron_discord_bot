@@ -25,6 +25,6 @@ AFFILIATE_TEMPLATES = [
     "🤝 {member.mention} is now affiliated with TEST Squadron!\nNext up: set TEST as your Main Org and join 23K+ TESTies. <:o7:230350970641448960>",
     "👋 {member.mention} is now part of TEST as an affiliate!\nFeeling at home? Upgrade to TEST Main for full TEST Squadron glory.<:glory:230350900806418432>",
     "🔗 {member.mention} has affiliated with TEST!\nOne step closer! Make TEST your **main org** to dive into missions, mining, beer, etc.<:drunk:230350842467844096>",
-    "🌠 {member.mention} officially joined TEST as an affiliate!\nTake the final step: select TEST as your Main Org and unleash true chaos. :o7:230350970641448960",
+    "🌠 {member.mention} officially joined TEST as an affiliate!\nTake the final step: select TEST as your Main Org and unleash true chaos. <:o7:230350970641448960>",
     "🛰️ {member.mention} now flies in league with TEST as an affiliate!\nMain Org is where the real fun happens, SET TEST as Main next. <:glory:230350900806418432>",
 ]
