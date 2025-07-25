@@ -139,7 +139,12 @@ class MyBot(commands.Bot):
         """
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
-        
+        for guild in self.guilds:
+            try:
+                await guild.chunk(cache=True)
+                logger.info(f"Chunked members for guild '{guild.name}' ({guild.id})")
+            except Exception as e:
+                logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
 

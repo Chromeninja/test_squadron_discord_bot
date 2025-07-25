@@ -21,6 +21,12 @@ async def send_verification_announcements(
     lead_channel_id = config['channels'].get('leadership_announcement_channel_id')
     guild = member.guild
 
+    if not isinstance(member, discord.Member) or guild.get_member(member.id) is None:
+        try:
+            member = await guild.fetch_member(member.id)
+        except Exception as e:
+            logger.warning(f"Failed to fetch full member object for {member.id}: {e}")
+
     public_channel = guild.get_channel(public_channel_id) if public_channel_id else None
     lead_channel = guild.get_channel(lead_channel_id) if lead_channel_id else None
 

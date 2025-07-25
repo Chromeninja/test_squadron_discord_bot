@@ -153,6 +153,7 @@ async def send_message_task(
             "content": content,
             "ephemeral": ephemeral,
             "embed": embed,
+            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
         }
         if view is not None:
             kwargs["view"] = view
@@ -187,6 +188,7 @@ async def followup_send_message_task(
             "content": content,
             "ephemeral": ephemeral,
             "embed": embed,
+            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
         }
         if view is not None:
             kwargs["view"] = view
@@ -219,7 +221,10 @@ async def channel_send_message_task(
     view: discord.ui.View
 ):
     try:
-        kwargs = {"content": content}
+        kwargs = {
+            "content": content,
+            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
+        }
         if embed is not None:
             kwargs["embed"] = embed
         if view is not None:
