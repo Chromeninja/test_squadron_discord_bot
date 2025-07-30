@@ -42,3 +42,7 @@ voice:
 
 database:
   path: "TESTDatabase.db"
+
+bulk_announcement:
+  hour_utc: 18
+  minute_utc: 0
