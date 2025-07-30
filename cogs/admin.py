@@ -140,7 +140,7 @@ class Admin(commands.Cog):
             old_status = new_status = status_tuple
 
         # Announce to channels
-        admin_display = interaction.user.mention
+        admin_display = interaction.user.display_name
 
         await send_verification_announcements(
             self.bot,

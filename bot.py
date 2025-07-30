@@ -117,6 +117,10 @@ class MyBot(commands.Bot):
         # Register the persistent VerificationView
         self.add_view(VerificationView(self))
 
+        # Register the daily bulk announcer cog
+        from helpers.announcement import DailyBulkAnnouncer
+        await self.add_cog(DailyBulkAnnouncer(self))
+
         # Sync the command tree after loading all cogs
         try:
             await self.tree.sync()
@@ -147,7 +151,7 @@ class MyBot(commands.Bot):
                 logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
-
+            
     async def check_bot_permissions(self, guild: discord.Guild):
         """
         Checks if the bot has all the required permissions in the specified guild.
