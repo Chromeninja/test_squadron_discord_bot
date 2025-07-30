@@ -2,8 +2,7 @@
 
 import discord
 import datetime
-from discord.ext import tasks
-from discord.ext import commands
+from discord.ext import tasks, commands
 
 from helpers.discord_api import channel_send_message
 from helpers.logger import get_logger
@@ -69,13 +68,29 @@ class DailyBulkAnnouncer(commands.Cog):
         self.bot = bot
         config = bot.config
         bulk_cfg = config.get('bulk_announcement', {})
-        hour = bulk_cfg.get('hour_utc', 18)
-        minute = bulk_cfg.get('minute_utc', 0)
+        # Validate hour and minute
+        try:
+            hour = int(bulk_cfg.get('hour_utc', 18))
+            if not (0 <= hour < 24):
+                raise ValueError
+        except Exception:
+            logger.warning("Invalid hour_utc in config. Falling back to 18.")
+            hour = 18
+        try:
+            minute = int(bulk_cfg.get('minute_utc', 0))
+            if not (0 <= minute < 60):
+                raise ValueError
+        except Exception:
+            logger.warning("Invalid minute_utc in config. Falling back to 0.")
+            minute = 0
         self.send_daily_welcome.change_interval(
             time=datetime.time(hour=hour, minute=minute, tzinfo=datetime.timezone.utc)
         )
         self.send_daily_welcome.reconnect = False
         self.send_daily_welcome.start()
+
+    def cog_unload(self):
+        self.send_daily_welcome.cancel()
 
     @tasks.loop()
     async def send_daily_welcome(self):
@@ -96,36 +111,49 @@ class DailyBulkAnnouncer(commands.Cog):
             logger.info("No new TEST Main or Affiliate members to welcome today.")
             return
 
-        channel_id = self.bot.config['channels']['public_announcement_channel_id']
+        channel_id = self.bot.config['channels'].get('public_announcement_channel_id')
+        if not channel_id:
+            logger.warning("DailyBulkAnnouncer: public_announcement_channel_id missing in config.")
+            return
         channel = self.bot.get_channel(channel_id)
         if not channel:
             logger.warning("DailyBulkAnnouncer: Could not find public announcement channel.")
             return
 
-        msg_parts = []
+        # Message batching (80 mentions per message max)
+        MAX_MENTIONS_PER_MESSAGE = 80
+
+        # Main members batching
         if mains:
             mentions = [channel.guild.get_member(uid).mention for uid in mains if channel.guild.get_member(uid)]
-            if mentions:
-                msg_parts.append(
+            for i in range(0, len(mentions), MAX_MENTIONS_PER_MESSAGE):
+                batch = mentions[i:i+MAX_MENTIONS_PER_MESSAGE]
+                msg = (
                     "🎉 **Welcome the following new members to TEST Main:**\n"
-                    f"{chr(10).join(mentions)}\n\n"
+                    f"{chr(10).join(batch)}\n\n"
                     "You made the best possible decision. 🍻"
                 )
+                try:
+                    await channel.send(msg)
+                    logger.info(f"Daily TEST Main welcome message sent for batch {i//MAX_MENTIONS_PER_MESSAGE + 1}.")
+                except Exception as e:
+                    logger.warning(f"Failed to send daily main welcome message batch {i//MAX_MENTIONS_PER_MESSAGE + 1}: {e}")
+
+        # Affiliate members batching
         if affiliates:
             mentions = [channel.guild.get_member(uid).mention for uid in affiliates if channel.guild.get_member(uid)]
-            if mentions:
-                msg_parts.append(
+            for i in range(0, len(mentions), MAX_MENTIONS_PER_MESSAGE):
+                batch = mentions[i:i+MAX_MENTIONS_PER_MESSAGE]
+                msg = (
                     "👋 **Welcome our new TEST Affiliates:**\n"
-                    f"{chr(10).join(mentions)}\n\n"
+                    f"{chr(10).join(batch)}\n\n"
                     "Next step: Set TEST as your Main Org for full glory!"
                 )
-
-        if msg_parts:
-            try:
-                await channel.send("\n\n".join(msg_parts))
-                logger.info("Daily TEST Main/Affiliate welcome message sent.")
-            except Exception as e:
-                logger.warning(f"Failed to send daily welcome message: {e}")
+                try:
+                    await channel.send(msg)
+                    logger.info(f"Daily TEST Affiliate welcome message sent for batch {i//MAX_MENTIONS_PER_MESSAGE + 1}.")
+                except Exception as e:
+                    logger.warning(f"Failed to send daily affiliate welcome message batch {i//MAX_MENTIONS_PER_MESSAGE + 1}: {e}")
 
     @send_daily_welcome.before_loop
     async def before_daily(self):
