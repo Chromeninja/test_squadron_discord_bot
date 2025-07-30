@@ -15,7 +15,6 @@ from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.task_queue import start_task_workers, task_queue
-from helpers.announcement import DailyBulkAnnouncer
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -118,6 +117,10 @@ class MyBot(commands.Bot):
         # Register the persistent VerificationView
         self.add_view(VerificationView(self))
 
+        # Register the daily bulk announcer cog
+        from helpers.announcement import DailyBulkAnnouncer
+        await self.add_cog(DailyBulkAnnouncer(self))
+
         # Sync the command tree after loading all cogs
         try:
             await self.tree.sync()
@@ -148,9 +151,6 @@ class MyBot(commands.Bot):
                 logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
-
-        if not hasattr(bot, 'daily_bulk_announcer'):
-            bot.daily_bulk_announcer = DailyBulkAnnouncer(bot)
             
     async def check_bot_permissions(self, guild: discord.Guild):
         """

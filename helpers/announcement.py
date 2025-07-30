@@ -1,9 +1,9 @@
 # helpers/announcement.py
 
 import discord
-import random
-import asyncio
 import datetime
+from discord.ext import tasks
+from discord.ext import commands
 
 from helpers.discord_api import channel_send_message
 from helpers.logger import get_logger
@@ -59,7 +59,8 @@ async def send_verification_announcements(
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")
 
-class DailyBulkAnnouncer:
+
+class DailyBulkAnnouncer(commands.Cog):
     """
     Sends a once-daily bulk welcome for all new 'main' and 'affiliate' members.
     Announcement message is hardcoded here.
@@ -68,21 +69,15 @@ class DailyBulkAnnouncer:
         self.bot = bot
         config = bot.config
         bulk_cfg = config.get('bulk_announcement', {})
-        self.hour_utc = bulk_cfg.get('hour_utc', 18)
-        self.minute_utc = bulk_cfg.get('minute_utc', 0)
-        self.task = bot.loop.create_task(self._run_daily())
+        hour = bulk_cfg.get('hour_utc', 18)
+        minute = bulk_cfg.get('minute_utc', 0)
+        self.send_daily_welcome.change_interval(
+            time=datetime.time(hour=hour, minute=minute, tzinfo=datetime.timezone.utc)
+        )
+        self.send_daily_welcome.reconnect = False
+        self.send_daily_welcome.start()
 
-    async def _run_daily(self):
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            now = datetime.datetime.utcnow()
-            target = now.replace(hour=self.hour_utc, minute=self.minute_utc, second=0, microsecond=0)
-            if now >= target:
-                target += datetime.timedelta(days=1)
-            wait_seconds = (target - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-            await self.send_daily_welcome()
-
+    @tasks.loop()
     async def send_daily_welcome(self):
         async with Database.get_connection() as db:
             today_start = int(datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
@@ -131,3 +126,7 @@ class DailyBulkAnnouncer:
                 logger.info("Daily TEST Main/Affiliate welcome message sent.")
             except Exception as e:
                 logger.warning(f"Failed to send daily welcome message: {e}")
+
+    @send_daily_welcome.before_loop
+    async def before_daily(self):
+        await self.bot.wait_until_ready()
