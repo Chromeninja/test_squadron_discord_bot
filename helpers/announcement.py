@@ -1,10 +1,10 @@
 # helpers/announcement.py
 
-import discord
 import datetime
 import time
 from typing import Dict, List, Tuple
 
+import discord
 from discord.ext import tasks, commands
 
 from helpers.discord_api import channel_send_message
@@ -114,7 +114,7 @@ async def enqueue_verification_event(member: discord.Member, old_status: str, ne
             await db.execute(
                 "INSERT INTO announcement_events (user_id, old_status, new_status, event_type, created_at, announced_at) "
                 "VALUES (?, ?, ?, ?, ?, NULL)",
-                (member.id, old_status or "unknown", new_status or "unknown", et, now)
+                (member.id, old_status or "non_member", new_status or "", et, now),
             )
             await db.commit()
     except Exception as e:
@@ -129,7 +129,7 @@ class BulkAnnouncer(commands.Cog):
     Queue-driven announcer:
       • Enqueues events via enqueue_verification_event(...) when roles change.
       • Flushes once per day at configured UTC time.
-      • Also flushes whenever pending >= threshold (checked via lightweight poll).
+      • Also flushes whenever pending >= threshold (checked once per minute).
       • Batches by max mentions and character headroom to avoid 2000 char limit.
       • Announces 3 sections: joined_main, joined_affiliate, promoted_to_main.
     """
@@ -142,14 +142,13 @@ class BulkAnnouncer(commands.Cog):
         self.public_channel_id: int | None = chan_cfg.get("public_announcement_channel_id")
 
         bulk_cfg = cfg.get("bulk_announcement", {}) or {}
-        # Defaults chosen to be conservative on spam and char-limit
         self.hour_utc: int = int(bulk_cfg.get("hour_utc", 18))
         self.minute_utc: int = int(bulk_cfg.get("minute_utc", 0))
         self.threshold: int = int(bulk_cfg.get("threshold", 50))
         self.max_mentions_per_message: int = int(bulk_cfg.get("max_mentions_per_message", 50))
         self.max_chars_per_message: int = int(bulk_cfg.get("max_chars_per_message", 1800))
 
-        # Validate & clamp config
+        # Validate & clamp
         if not (0 <= self.hour_utc < 24):
             logger.warning("Invalid hour_utc in config; using 18")
             self.hour_utc = 18
@@ -163,13 +162,16 @@ class BulkAnnouncer(commands.Cog):
 
         # Daily timer
         self.daily_flush.change_interval(
-            time=datetime.time(hour=self.hour_utc, minute=self.minute_utc, tzinfo=datetime.timezone.utc)
+            time=datetime.time(
+                hour=self.hour_utc,
+                minute=self.minute_utc,
+                tzinfo=datetime.timezone.utc,
+            )
         )
         self.daily_flush.reconnect = False
 
         if self.public_channel_id:
             self.daily_flush.start()
-            # Lightweight threshold watcher (no busy loop; runs once/minute)
             self.threshold_watch.start()
         else:
             logger.warning("BulkAnnouncer disabled: public_announcement_channel_id not configured.")
@@ -238,6 +240,8 @@ class BulkAnnouncer(commands.Cog):
                 m = guild.get_member(uid)
                 if m:
                     id_mention_pairs.append((ev_id, m.mention))
+                else:
+                    id_mention_pairs.append((ev_id, f"<@{uid}>"))
 
             if not id_mention_pairs:
                 continue
@@ -307,20 +311,20 @@ class BulkAnnouncer(commands.Cog):
             return len(content)
 
         for ev_id, mention in id_mention_pairs:
-            # If adding this mention would exceed mention cap, flush current
+            # Enforce mention cap
             if len(current_mentions) >= max_mentions:
                 if current_mentions:
                     batches.append((current_ids, current_mentions))
                 current_ids, current_mentions = [], []
 
-            # If adding this mention would exceed char cap, flush current
+            # Enforce char cap (simulate before adding)
             if current_mentions:
                 prospective = current_mentions + [mention]
                 if msg_len(prospective) > max_chars:
                     batches.append((current_ids, current_mentions))
                     current_ids, current_mentions = [], []
 
-            # Add to current (safe now)
+            # Safe to add
             current_ids.append(ev_id)
             current_mentions.append(mention)
 
@@ -359,7 +363,9 @@ class BulkAnnouncer(commands.Cog):
         try:
             pending = await self._count_pending()
             if pending >= self.threshold:
-                logger.info(f"BulkAnnouncer: threshold reached ({pending} >= {self.threshold}); flushing.")
+                logger.info(
+                    f"BulkAnnouncer: threshold reached ({pending} >= {self.threshold}); flushing."
+                )
                 await self.flush_pending()
         except Exception as e:
             logger.warning(f"BulkAnnouncer threshold watch error: {e}")
