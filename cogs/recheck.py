@@ -50,6 +50,7 @@ class AutoRecheck(commands.Cog):
 
         try:
             now = int(time.time())
+            # Batch size cap from config
             rows = await Database.get_due_auto_rechecks(now, self.max_users_per_run)
             if not rows:
                 return
@@ -59,16 +60,15 @@ class AutoRecheck(commands.Cog):
                 return
 
             for user_id, rsi_handle, _prev_status in rows:
+                # Prune users who left
                 member = guild.get_member(int(user_id))
                 if member is None:
-                    # Double-check via API in case cache missed it
                     try:
                         member = await guild.fetch_member(int(user_id))
                     except discord.NotFound:
                         member = None
                     except discord.HTTPException:
                         member = None
-
                 if member is None:
                     try:
                         async with Database.get_connection() as db:
@@ -83,17 +83,21 @@ class AutoRecheck(commands.Cog):
                     verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, self.bot.http_client)
                     if verify_value is None or cased_handle is None:
                         delay = self._compute_backoff(user_id=user_id)
-                        await Database.upsert_auto_recheck_failure(
-                            user_id=int(user_id),
-                            next_retry_at=now + delay,
-                            now=now,
-                            error_msg="Fetch/parse failure"
-                        )
+                        try:
+                            await Database.upsert_auto_recheck_failure(
+                                user_id=int(user_id),
+                                next_retry_at=now + delay,
+                                now=now,
+                                error_msg="Fetch/parse failure",
+                                inc=True
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to schedule backoff for {user_id}: {e}")
                         continue
 
                     old_status, new_status = await assign_roles(member, verify_value, cased_handle, self.bot)
 
-                    # Leadership log only when it actually changed, to avoid noise
+                    # Only announce on change
                     if (old_status or "").lower() != (new_status or "").lower():
                         try:
                             await send_verification_announcements(
@@ -102,7 +106,7 @@ class AutoRecheck(commands.Cog):
                         except Exception as e:
                             logger.warning(f"Auto log failed for {user_id}: {e}")
 
-                    # Success path: assign_roles already refreshed next schedule
+                    # Success: assign_roles already refreshed next schedule
                 except Exception as e:
                     logger.warning(f"Auto recheck exception for {user_id}: {e}")
                     delay = self._compute_backoff(user_id=user_id)
@@ -111,7 +115,8 @@ class AutoRecheck(commands.Cog):
                             user_id=int(user_id),
                             next_retry_at=now + delay,
                             now=now,
-                            error_msg=str(e)[:500]
+                            error_msg=str(e)[:500],
+                            inc=True
                         )
                     except Exception:
                         pass

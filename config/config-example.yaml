@@ -50,3 +50,31 @@ bulk_announcement:
   threshold: 50                 # Flush immediately if pending queue >= this size
   max_mentions_per_message: 50  # Max mentions per Discord message (avoid spam & limits)
   max_chars_per_message: 1800   # Max characters per message (safe under Discord 2000-char cap)
+
+rsi:
+  # Polite client hints
+  user_agent: "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
+  # Global cap for ALL RSI HTTP calls (manual + auto)
+  requests_per_minute: 30
+
+auto_recheck:
+  enabled: true
+
+  # How often to recheck each category (days)
+  cadence_days:
+    main: 14
+    affiliate: 7
+    non_member: 3
+
+  # Spread scheduling to avoid thundering herds
+  jitter_hours: 12
+
+  # Batch processing
+  batch:
+    run_every_minutes: 60       # wake up hourly
+    max_users_per_run: 50       # re-check at most 50 users per run
+
+  # Backoff when RSI fetch fails (network, 5xx, etc.)
+  backoff:
+    base_minutes: 180           # 3 hours
+    max_minutes: 1440           # 24 hours

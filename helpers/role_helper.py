@@ -89,6 +89,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         except Exception as e:
             logger.warning(f"Failed to enqueue announcement event: {e}", extra={"user_id": member.id})
 
+        # Schedule next auto-recheck immediately after successful upsert and enqueuing announcement
         try:
             now = int(time.time())
             next_retry = _compute_next_recheck(bot, membership_status, now)
@@ -163,6 +164,12 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
     return prev_status or 'unknown', assigned_role_type
 
 def can_modify_nickname(member: discord.Member) -> bool:
+    """
+    Strict nickname guard:
+    - False for guild owner
+    - False if bot lacks Manage Nicknames permission
+    - False if bot.top_role <= member.top_role
+    """
     guild = member.guild
     bot_member = guild.me
 
@@ -170,11 +177,11 @@ def can_modify_nickname(member: discord.Member) -> bool:
     if member.id == guild.owner_id:
         return False
 
-    # Discord also blocks if the bot lacks Manage Nicknames
-    if not guild.me.guild_permissions.manage_nicknames:
+    # Bot must have Manage Nicknames permission.
+    if not bot_member.guild_permissions.manage_nicknames:
         return False
 
-    # Discord blocks if the member is above or equal to the bot in hierarchy
+    # Bot must be higher in role hierarchy than the member.
     if not (bot_member.top_role > member.top_role):
         return False
 
