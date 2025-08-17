@@ -75,12 +75,15 @@ def _classify_event(old_status: str, new_status: str) -> str | None:
     """
     Map a status transition to an announceable event type.
     """
-    o = (old_status or "unknown").lower()
-    n = (new_status or "unknown").lower()
+    o = (old_status or "").lower().strip()
+    n = (new_status or "").lower().strip()
 
-    if n == "main" and o in {"unknown", "non_member"}:
+    if not o or not n or o == n:
+        return None
+
+    if n == "main" and o == "non_member":
         return "joined_main"
-    if n == "affiliate" and o in {"unknown", "non_member"}:
+    if n == "affiliate" and o == "non_member":
         return "joined_affiliate"
     if o == "affiliate" and n == "main":
         return "promoted_to_main"
@@ -163,10 +166,13 @@ class BulkAnnouncer(commands.Cog):
             time=datetime.time(hour=self.hour_utc, minute=self.minute_utc, tzinfo=datetime.timezone.utc)
         )
         self.daily_flush.reconnect = False
-        self.daily_flush.start()
 
-        # Lightweight threshold watcher (no busy loop; runs once/minute)
-        self.threshold_watch.start()
+        if self.public_channel_id:
+            self.daily_flush.start()
+            # Lightweight threshold watcher (no busy loop; runs once/minute)
+            self.threshold_watch.start()
+        else:
+            logger.warning("BulkAnnouncer disabled: public_announcement_channel_id not configured.")
 
     def cog_unload(self):
         self.daily_flush.cancel()
@@ -211,21 +217,15 @@ class BulkAnnouncer(commands.Cog):
         announced_ids: List[int] = []
 
         sections = [
-            (
-                "joined_main",
-                "🍻 **New TEST Main members reporting in!**",
-                "Welcome to TEST Squadron BEST Squadron!"
-            ),
-            (
-                "joined_affiliate",
-                "🤝 **New Citizens joined TEST as Affiliates!**",
-                "Great to have you aboard! Ready to go all-in? Set TEST as your **Main Org**"
-            ),
-            (
-                "promoted_to_main",
-                "⬆️ **Promotions: Affiliate → TEST Main**",
-                "From affiliate to all-in TEST Member! o7 🍻"
-            ),
+            ("joined_main",
+             "🍻 **New TEST Main reporting in!**",
+             "You made the right call. Welcome to TEST Squadron — BEST Squadron."),
+            ("joined_affiliate",
+             "🤝 **New TEST Affiliates**",
+             "Glad to have you aboard! Ready to go all-in? Set TEST as your **Main Org** to fully commit to the BEST SQUADRON."),
+            ("promoted_to_main",
+             "⬆️ **Promotions: Affiliate → TEST Main**",
+             "o7 and welcome to the big chair. 🍻"),
         ]
         
         for key, header, footer in sections:

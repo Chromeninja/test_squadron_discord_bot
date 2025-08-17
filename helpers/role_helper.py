@@ -75,7 +75,7 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
 
         # After DB commit succeeds enqueue announcement event
         try:
-            await enqueue_verification_event(member, prev_status or "unknown", membership_status)
+            await enqueue_verification_event(member, prev_status or "", membership_status)
         except Exception as e:
             logger.warning(f"Failed to enqueue announcement event: {e}", extra={'user_id': member.id})
 
