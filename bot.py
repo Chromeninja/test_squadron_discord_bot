@@ -15,6 +15,7 @@ from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
 from helpers.database import Database
 from helpers.task_queue import start_task_workers, task_queue
+from helpers.announcement import BulkAnnouncer
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -93,6 +94,9 @@ class MyBot(commands.Bot):
         """
         # Initialize the database
         await Database.initialize()
+
+        # Add the BulkAnnouncer cog after DB is initialized
+        await self.add_cog(BulkAnnouncer(self))
         
         # Start the task queue workers
         await start_task_workers(num_workers=2)  # Adjust the number of workers as needed
@@ -116,10 +120,6 @@ class MyBot(commands.Bot):
 
         # Register the persistent VerificationView
         self.add_view(VerificationView(self))
-
-        # Register the daily bulk announcer cog
-        from helpers.announcement import DailyBulkAnnouncer
-        await self.add_cog(DailyBulkAnnouncer(self))
 
         # Sync the command tree after loading all cogs
         try:

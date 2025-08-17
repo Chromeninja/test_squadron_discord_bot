@@ -7,6 +7,7 @@ from helpers.database import Database
 from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
 from helpers.discord_api import add_roles, remove_roles, edit_member
+from helpers.announcement import enqueue_verification_event
 
 logger = get_logger(__name__)
 
@@ -71,6 +72,12 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         )
         await db.commit()
         logger.info(f"Stored verification data for user {member.display_name} ({member.id})")
+
+        # After DB commit succeeds enqueue announcement event
+        try:
+            await enqueue_verification_event(member, prev_status or "unknown", membership_status)
+        except Exception as e:
+            logger.warning(f"Failed to enqueue announcement event: {e}", extra={'user_id': member.id})
 
     # Identify roles to remove
     conflicting_roles = [main_role, affiliate_role, non_member_role]
