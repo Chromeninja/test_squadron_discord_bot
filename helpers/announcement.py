@@ -93,7 +93,11 @@ def _classify_event(old_status: str, new_status: str) -> str | None:
 async def enqueue_verification_event(member: discord.Member, old_status: str, new_status: str):
     """
     Append an announceable verification event to the durable queue.
-    Idempotent for identical pending event_type per user.
+
+    Coalescing behavior:
+      • Remove any other pending events for this user first (ensures 1 pending/user).
+      • Insert only the newest event. This prevents double-announcements
+        when a user moves quickly (non_member → affiliate → main).
     """
     et = _classify_event(old_status, new_status)
     if not et:
@@ -102,19 +106,17 @@ async def enqueue_verification_event(member: discord.Member, old_status: str, ne
     now = int(time.time())
     try:
         async with Database.get_connection() as db:
-            # Dedupe: skip if an identical pending event already exists
-            cur = await db.execute(
-                "SELECT id FROM announcement_events "
-                "WHERE user_id = ? AND event_type = ? AND announced_at IS NULL",
-                (member.id, et)
+            # Coalesce: drop older pending events for this user
+            await db.execute(
+                "DELETE FROM announcement_events WHERE user_id = ? AND announced_at IS NULL",
+                (member.id,),
             )
-            if await cur.fetchone():
-                return
 
+            # Insert the latest event
             await db.execute(
                 "INSERT INTO announcement_events (user_id, old_status, new_status, event_type, created_at, announced_at) "
                 "VALUES (?, ?, ?, ?, ?, NULL)",
-                (member.id, old_status or "non_member", new_status or "", et, now),
+                (member.id, (old_status or "non_member"), (new_status or ""), et, now),
             )
             await db.commit()
     except Exception as e:
@@ -132,6 +134,8 @@ class BulkAnnouncer(commands.Cog):
       • Also flushes whenever pending >= threshold (checked once per minute).
       • Batches by max mentions and character headroom to avoid 2000 char limit.
       • Announces 3 sections: joined_main, joined_affiliate, promoted_to_main.
+      • On flush, dedupes to the latest event per user and then DELETES pending rows
+        for those users (keeping the table lean: only not-yet-announced events).
     """
 
     def __init__(self, bot):
@@ -193,7 +197,7 @@ class BulkAnnouncer(commands.Cog):
 
         async with Database.get_connection() as db:
             cur = await db.execute(
-                "SELECT id, user_id, event_type FROM announcement_events "
+                "SELECT id, user_id, event_type, created_at FROM announcement_events "
                 "WHERE announced_at IS NULL "
                 "ORDER BY created_at ASC"
             )
@@ -203,14 +207,20 @@ class BulkAnnouncer(commands.Cog):
             logger.info("BulkAnnouncer: no pending announcements to flush.")
             return False
 
+        latest_by_user: Dict[int, tuple] = {}  # user_id -> (id, event_type, created_at)
+        for _id, user_id, et, ts in rows:
+            prev = latest_by_user.get(user_id)
+            if (prev is None) or (ts >= prev[2]):
+                latest_by_user[user_id] = (_id, et, ts)
+
         events_by_type: Dict[str, List[Tuple[int, int]]] = {
             "joined_main": [],
             "joined_affiliate": [],
             "promoted_to_main": [],
         }
-        for _id, user_id, et in rows:
+        for user_id, (ev_id, et, _) in latest_by_user.items():
             if et in events_by_type:
-                events_by_type[et].append((_id, user_id))
+                events_by_type[et].append((ev_id, user_id))
 
         guild = channel.guild
         allowed = discord.AllowedMentions(users=True, roles=False, everyone=False)
@@ -226,8 +236,8 @@ class BulkAnnouncer(commands.Cog):
              "🤝 **New TEST Affiliates**",
              "Glad to have you aboard! Ready to go all-in? Set TEST as your **Main Org** to fully commit to the BEST SQUADRON."),
             ("promoted_to_main",
-             "⬆️ **Promotions: Affiliate → TEST Main**",
-             "o7 and welcome to the big chair. 🍻"),
+             "⬆️ **Promotion from TEST Affiliate → TEST Main**",
+             "o7 and welcome fully to TEST BEST 🍻"),
         ]
         
         for key, header, footer in sections:
@@ -235,13 +245,14 @@ class BulkAnnouncer(commands.Cog):
             if not items:
                 continue
 
+            # Build (id, mention) list with fallback mention
             id_mention_pairs: List[Tuple[int, str]] = []
+            user_ids_in_section: List[int] = []
             for ev_id, uid in items:
                 m = guild.get_member(uid)
-                if m:
-                    id_mention_pairs.append((ev_id, m.mention))
-                else:
-                    id_mention_pairs.append((ev_id, f"<@{uid}>"))
+                mention = m.mention if m else f"<@{uid}>"
+                id_mention_pairs.append((ev_id, mention))
+                user_ids_in_section.append(uid)
 
             if not id_mention_pairs:
                 continue
@@ -257,12 +268,14 @@ class BulkAnnouncer(commands.Cog):
                 try:
                     await channel.send(content, allowed_mentions=allowed)
                     sent_any = True
-                    announced_ids.extend(batch_ids)
                 except Exception as e:
                     logger.warning(f"BulkAnnouncer: failed sending a batch for {key}: {e}")
 
+            # Track users for deletion
+            announced_ids.extend(user_ids_in_section)
+
+        # 4) Delete all pending rows for the announced users (keep table lean)
         if announced_ids:
-            now = int(time.time())
             try:
                 async with Database.get_connection() as db:
                     CHUNK = 500
@@ -270,12 +283,13 @@ class BulkAnnouncer(commands.Cog):
                         chunk = announced_ids[i:i+CHUNK]
                         qmarks = ",".join("?" for _ in chunk)
                         await db.execute(
-                            f"UPDATE announcement_events SET announced_at = ? WHERE id IN ({qmarks})",
-                            (now, *chunk)
+                            f"DELETE FROM announcement_events "
+                            f"WHERE announced_at IS NULL AND user_id IN ({qmarks})",
+                            (*chunk,),
                         )
                     await db.commit()
             except Exception as e:
-                logger.warning(f"BulkAnnouncer: failed to mark events announced: {e}")
+                logger.warning(f"BulkAnnouncer: failed to delete announced events: {e}")
 
         return sent_any
 
