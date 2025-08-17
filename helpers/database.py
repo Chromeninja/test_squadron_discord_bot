@@ -142,6 +142,19 @@ class Database:
             )
         """)
        
+        # Auto-recheck scheduler state
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS auto_recheck_state (
+                user_id INTEGER PRIMARY KEY,
+                last_auto_recheck INTEGER DEFAULT 0,
+                next_retry_at INTEGER DEFAULT 0,
+                fail_count INTEGER DEFAULT 0,
+                last_error TEXT
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ars_next ON auto_recheck_state(next_retry_at)")
+        await db.commit()
+
         # Create announcement_events table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS announcement_events (
@@ -207,3 +220,58 @@ class Database:
                     (user_id, action),
                 )
             await db.commit()
+
+    @classmethod
+    async def upsert_auto_recheck_success(cls, user_id: int, next_retry_at: int, now: int, new_fail_count: int = 0):
+        async with cls.get_connection() as db:
+            await db.execute("""
+                INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
+                VALUES (?, ?, ?, ?, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    last_auto_recheck=excluded.last_auto_recheck,
+                    next_retry_at=excluded.next_retry_at,
+                    fail_count=excluded.fail_count,
+                    last_error=NULL
+            """, (user_id, now, next_retry_at, new_fail_count))
+            await db.commit()
+
+    @classmethod
+    async def upsert_auto_recheck_failure(cls, user_id: int, next_retry_at: int, now: int, error_msg: str, inc: bool = True):
+        async with cls.get_connection() as db:
+            if inc:
+                await db.execute("""
+                    INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
+                    VALUES (?, ?, ?, 1, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        last_auto_recheck=excluded.last_auto_recheck,
+                        next_retry_at=excluded.next_retry_at,
+                        fail_count=fail_count+1,
+                        last_error=excluded.last_error
+                """, (user_id, now, next_retry_at, error_msg[:500]))
+            else:
+                await db.execute("""
+                    INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
+                    VALUES (?, ?, ?, 0, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        last_auto_recheck=excluded.last_auto_recheck,
+                        next_retry_at=excluded.next_retry_at,
+                        last_error=excluded.last_error
+                """, (user_id, now, next_retry_at, error_msg[:500]))
+            await db.commit()
+
+    @classmethod
+    async def get_due_auto_rechecks(cls, now: int, limit: int):
+        """
+        Returns list of (user_id, rsi_handle, membership_status) that are due for auto recheck.
+        If a user has no row in auto_recheck_state, treat as due (bootstrap on first touch).
+        """
+        async with cls.get_connection() as db:
+            cursor = await db.execute("""
+                SELECT v.user_id, v.rsi_handle, v.membership_status
+                FROM verification v
+                LEFT JOIN auto_recheck_state s ON s.user_id = v.user_id
+                WHERE COALESCE(s.next_retry_at, 0) <= ?
+                ORDER BY COALESCE(s.last_auto_recheck, 0) ASC
+                LIMIT ?
+            """, (now, limit))
+            return await cursor.fetchall()

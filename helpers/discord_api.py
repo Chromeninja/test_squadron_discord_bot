@@ -114,7 +114,17 @@ async def remove_roles(member: discord.Member, *roles, reason: str = None):
 
 async def edit_member(member: discord.Member, **kwargs):
     async def _task():
-        await member.edit(**kwargs)
+        try:
+            await member.edit(**kwargs)
+        except discord.Forbidden:
+            # Don’t bubble up; just log. This covers owner / hierarchy / missing perms.
+            logger.warning(f"Forbidden editing '{member.display_name}' with {kwargs} (likely hierarchy/owner).")
+        except discord.NotFound:
+            logger.warning(f"Member {member.id} not found while editing (left the guild?).")
+        except discord.HTTPException as e:
+            logger.error(f"HTTP error editing member {member.id}: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error editing member {member.id}: {e}")
 
     try:
         await enqueue_task(_task)
