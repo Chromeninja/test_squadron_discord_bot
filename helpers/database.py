@@ -141,6 +141,23 @@ class Database:
                 PRIMARY KEY (user_id, target_id, target_type)
             )
         """)
+       
+        # Create announcement_events table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS announcement_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                old_status TEXT NOT NULL,
+                new_status TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                announced_at INTEGER
+            );
+            """
+        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ae_pending ON announcement_events(announced_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ae_created ON announcement_events(created_at)")
+
         await db.commit()
 
     @classmethod
