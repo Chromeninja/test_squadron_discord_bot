@@ -87,6 +87,7 @@ class AutoRecheck(commands.Cog):
 
     async def _handle_recheck(self, member: discord.Member, user_id: int, rsi_handle: str, now: int) -> None:
         try:
+            # Validate handle and fetch current status
             verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, self.bot.http_client)
             if verify_value is None or cased_handle is None:
                 # transient fetch/parse failure: schedule backoff
@@ -101,8 +102,10 @@ class AutoRecheck(commands.Cog):
                 )
                 return
 
+            # Apply roles; get (old_status, new_status)
             old_status, new_status = await assign_roles(member, verify_value, cased_handle, self.bot)
 
+            # Announce only if membership status changed
             if (old_status or "").lower() != (new_status or "").lower():
                 try:
                     await send_verification_announcements(
@@ -111,19 +114,17 @@ class AutoRecheck(commands.Cog):
                 except Exception as e:
                     logger.warning(f"Auto announce failed for {user_id}: {e}")
 
-            try:
-                next_retry = int(time.time())
-                next_retry = next_retry + max(1, self.backoff_base_m)
-                await Database.upsert_auto_recheck_success(
-                    user_id=int(user_id),
-                    next_retry_at=next_retry,
-                    now=int(time.time()),
-                    new_fail_count=0
-                )
-            except Exception as e:
-                logger.warning(f"Failed to schedule next success recheck for {user_id}: {e}")
+            # Schedule next success recheck using minutes → seconds
+            next_retry = now + max(1, self.backoff_base_m * 60)
+            await Database.upsert_auto_recheck_success(
+                user_id=int(user_id),
+                next_retry_at=next_retry,
+                now=now,
+                new_fail_count=0
+            )
 
         except NotFoundError:
+            # RSI 404 → username changed / profile gone: remove from tracking
             try:
                 async with Database.get_connection() as db:
                     await db.execute("DELETE FROM verification WHERE user_id = ?", (int(user_id),))
@@ -131,7 +132,9 @@ class AutoRecheck(commands.Cog):
                     await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to prune departed user {user_id}: {e}")
+
         except Exception as e:
+            # Other errors → exponential backoff and record error
             logger.warning(f"Auto recheck exception for {user_id}: {e}")
             current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
             delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
