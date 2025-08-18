@@ -91,6 +91,10 @@ class Admin(commands.Cog):
         log_file_path = os.path.join('logs', 'bot.log')
         try:
             if not os.path.exists(log_file_path):
+                logger.warning(
+                    f"Log file not found at '{log_file_path}'. "
+                    "Possible reasons: misconfiguration, missing file, or permission issue."
+                )
                 await send_message(interaction, "ℹ️ No log file found yet.", ephemeral=True)
                 return
 
