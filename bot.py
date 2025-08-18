@@ -103,7 +103,8 @@ class MyBot(commands.Bot):
         await start_task_workers(num_workers=2)  # Adjust the number of workers as needed
         
         # Initialize the HTTP client session
-        await self.http_client.init_session()
+        # We use _get_session to ensure the HTTP client is initialized
+        await self.http_client._get_session()
 
         for extension in initial_extensions:
             try:

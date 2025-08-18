@@ -170,8 +170,7 @@ class VerificationView(View):
             await verification_cog.recheck_button(interaction)
         else:
             # Log a warning and inform the user
-            import logging
-            logging.warning("VerificationCog is missing. Cannot process recheck_button.")
+            logger.warning("VerificationCog is missing. Cannot process recheck_button.")
             await interaction.response.send_message(
                 "Verification system is currently unavailable. Please try again later.",
                 ephemeral=True

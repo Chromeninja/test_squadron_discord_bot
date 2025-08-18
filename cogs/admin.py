@@ -7,7 +7,6 @@ from discord import app_commands
 import logging
 from datetime import datetime
 from helpers.role_helper import reverify_member
-from config import CONFIG
 
 from config.config_loader import ConfigLoader
 
@@ -106,7 +105,7 @@ class Admin(commands.Cog):
             await send_message(interaction, "❌ Failed to retrieve logs.", ephemeral=True)
 
     @app_commands.command(name="recheck-user", description="Force a verification re-check for a user (Bot Admins only).")
-    @app_commands.checks.has_any_role(*CONFIG['roles']['bot_admins'])
+    @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
         await interaction.response.defer(thinking=True, ephemeral=True)

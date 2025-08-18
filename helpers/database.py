@@ -15,6 +15,19 @@ class Database:
     _initialized = False
 
     @classmethod
+    async def get_auto_recheck_fail_count(cls, user_id: int) -> int:
+        """
+        Return the current fail_count for a user in auto_recheck_state, or 0 if no row.
+        """
+        async with cls.get_connection() as db:
+            cur = await db.execute(
+                "SELECT fail_count FROM auto_recheck_state WHERE user_id = ?",
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+    @classmethod
     async def initialize(cls, db_path: Optional[str] = None):
         async with cls._lock:
             if cls._initialized:
