@@ -182,10 +182,7 @@ def can_modify_nickname(member: discord.Member) -> bool:
         return False
 
     # Bot must be higher in role hierarchy than the member.
-    if not (bot_member.top_role > member.top_role):
-        return False
-
-    return True
+    return bot_member.top_role > member.top_role
 
 
 async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple:

@@ -82,7 +82,8 @@ class AutoRecheck(commands.Cog):
                 try:
                     verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, self.bot.http_client)
                     if verify_value is None or cased_handle is None:
-                        delay = self._compute_backoff(user_id=user_id)
+                        current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
+                        delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
                         try:
                             await Database.upsert_auto_recheck_failure(
                                 user_id=int(user_id),
@@ -109,7 +110,8 @@ class AutoRecheck(commands.Cog):
                     # Success: assign_roles already refreshed next schedule
                 except Exception as e:
                     logger.warning(f"Auto recheck exception for {user_id}: {e}")
-                    delay = self._compute_backoff(user_id=user_id)
+                    current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
+                    delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
                     try:
                         await Database.upsert_auto_recheck_failure(
                             user_id=int(user_id),
