@@ -28,7 +28,11 @@ class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.BOT_ADMIN_ROLE_IDS = getattr(self.bot, "BOT_ADMIN_ROLE_IDS", [])
+        if not hasattr(self.bot, "BOT_ADMIN_ROLE_IDS"):
+            logger.warning("BOT_ADMIN_ROLE_IDS attribute missing from bot. Defaulting to empty list.")
         self.LEAD_MODERATOR_ROLE_IDS = getattr(self.bot, "LEAD_MODERATOR_ROLE_IDS", [])
+        if not hasattr(self.bot, "LEAD_MODERATOR_ROLE_IDS"):
+            logger.warning("LEAD_MODERATOR_ROLE_IDS attribute missing from bot. Defaulting to empty list.")
 
         logger.info(f"Tracking bot admin roles: {self.BOT_ADMIN_ROLE_IDS}")
         logger.info(f"Tracking lead moderator roles: {self.LEAD_MODERATOR_ROLE_IDS}")
