@@ -2,114 +2,57 @@
 
 import aiohttp
 import asyncio
-import random
 from typing import Optional
-from aiolimiter import AsyncLimiter
-
-from config.config_loader import ConfigLoader
 from helpers.logger import get_logger
 
-# Initialize logger
 logger = get_logger(__name__)
 
+
+class NotFoundError(Exception):
+    """Raised when a 404 is encountered and the caller should treat the resource as gone."""
+    pass
+
 class HTTPClient:
-    """
-    HTTP client for making asynchronous HTTP requests with a single ClientSession.
-    Adds polite UA, per-host rate limit, and bounded retries.
-    """
+    def __init__(self, timeout: int = 15, concurrency: int = 8):
+        self._timeout = aiohttp.ClientTimeout(total=timeout)
+        self._sem = asyncio.Semaphore(concurrency)
+        self._session: Optional[aiohttp.ClientSession] = None
 
-    def __init__(self):
-        self.session: Optional[aiohttp.ClientSession] = None
-        self._limiter: Optional[AsyncLimiter] = None
-        self._ua: str = "TEST-Squadron-Verification-Bot/1.0"
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=self._timeout, raise_for_status=False)
+        return self._session
 
-    async def init_session(self):
-        """
-        Initializes the ClientSession. Safe to call multiple times; will no-op if already initialized.
-        """
-        if self.session is not None:
-            return
-
-        cfg = ConfigLoader.load_config()
-        rsi_cfg = (cfg or {}).get("rsi", {}) or {}
-        rpm = int(rsi_cfg.get("requests_per_minute", 30))
-        self._ua = rsi_cfg.get("user_agent") or self._ua
-
-        # limiter applies across all fetches (manual + auto)
-        self._limiter = AsyncLimiter(max_rate=max(1, rpm), time_period=60)
-
-        connector = aiohttp.TCPConnector(limit_per_host=10)
-        timeout = aiohttp.ClientTimeout(total=15)
-        headers = {
-            "User-Agent": self._ua,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.7",
-            "Cache-Control": "no-cache"
-        }
-        self.session = aiohttp.ClientSession(connector=connector, timeout=timeout, headers=headers)
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def fetch_html(self, url: str) -> Optional[str]:
         """
-        Fetches HTML content from a given URL asynchronously with retries & rate-limiting.
-
-        Returns:
-            Optional[str]: The fetched HTML content as a string, or None if failed.
+        GET HTML with light rate limiting and clear error semantics:
+          - 200: returns text
+          - 404: raises NotFoundError (caller can prune / stop retrying)
+          - Other 4xx/5xx: returns None (transient or generic failure)
         """
-        if self.session is None or self._limiter is None:
-            logger.error("HTTPClient session not initialized.")
-            return None
-
-        # Bounded exponential backoff with jitter
-        attempts = 0
-        max_attempts = 3
-        base = 0.6
-
-        while attempts < max_attempts:
-            attempts += 1
+        async with self._sem:
+            session = await self._get_session()
             try:
-                async with self._limiter:
-                    async with self.session.get(url) as response:
-                        status = response.status
-                        if status == 200:
-                            return await response.text()
-
-                        # 5xx -> transient, raise to trigger retry
-                        if status >= 500:
-                            logger.warning(f"Fetch {url} attempt {attempts} -> HTTP {status} (server error), will retry")
-                            raise aiohttp.ClientResponseError(
-                                response.request_info, response.history, status=response.status
-                            )
-
-                        # 4xx -> client error, do not retry
-                        if 400 <= status < 500:
-                            logger.warning(f"Fetch {url} -> HTTP {status} (client error), not retrying")
-                            return None
-
-                        # any other status -> treat as failure without retry
-                        logger.warning(f"Fetch {url} -> unexpected HTTP {status}")
-                        return None
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                if attempts >= max_attempts:
-                    logger.error(f"Failed to fetch {url} after {attempts} attempts: {e}")
+                async with session.get(url, headers={"User-Agent": "Mozilla/5.0 TESTBot"}) as resp:
+                    status = resp.status
+                    if status == 200:
+                        text = await resp.text()
+                        logger.debug(f"Fetched {url} ({len(text)} bytes)")
+                        return text
+                    if status == 404:
+                        logger.warning(f"Fetch {url} -> HTTP 404 (client error), not retrying")
+                        # This is a permanent "gone" state for RSI handles; let callers react accordingly.
+                        raise NotFoundError("404")
+                    # Treat other statuses as transient / generic failures
+                    logger.warning(f"HTTP {status} for {url}")
                     return None
-                # jittered exponential backoff
-                sleep_s = base * (2 ** (attempts - 1)) + random.uniform(0, 0.4)
-                await asyncio.sleep(sleep_s)
-            except Exception as e:
-                logger.exception(f"Unexpected exception fetching {url}: {e}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout while fetching {url}")
                 return None
-
-        return None
-
-    async def close(self):
-        """
-        Closes the HTTP client session.
-        """
-        if self.session is not None:
-            try:
-                await self.session.close()
-            except Exception:
-                logger.exception("Error while closing HTTP session")
-            finally:
-                self.session = None
-                self._limiter = None
+            except aiohttp.ClientError as e:
+                logger.warning(f"Client error while fetching {url}: {e}")
+                return None

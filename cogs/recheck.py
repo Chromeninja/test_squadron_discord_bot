@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 from helpers.logger import get_logger
 from helpers.database import Database
 from verification.rsi_verification import is_valid_rsi_handle
+from helpers.http_helper import NotFoundError
 from helpers.role_helper import assign_roles
 from helpers.announcement import send_verification_announcements
 
@@ -85,39 +86,55 @@ class AutoRecheck(commands.Cog):
         return member
 
     async def _handle_recheck(self, member: discord.Member, user_id: int, rsi_handle: str, now: int) -> None:
-        """Per-user recheck with robust error handling and backoff scheduling."""
         try:
+            # Validate handle and fetch current status
             verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, self.bot.http_client)
             if verify_value is None or cased_handle is None:
-                # schedule failure with exponential backoff (fail_count + 1)
+                # transient fetch/parse failure: schedule backoff
                 current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
                 delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
-                try:
-                    await Database.upsert_auto_recheck_failure(
-                        user_id=int(user_id),
-                        next_retry_at=now + delay,
-                        now=now,
-                        error_msg="Fetch/parse failure",
-                        inc=True
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to schedule backoff for {user_id}: {e}")
+                await Database.upsert_auto_recheck_failure(
+                    user_id=int(user_id),
+                    next_retry_at=now + delay,
+                    now=now,
+                    error_msg="Fetch/parse failure",
+                    inc=True
+                )
                 return
 
-            # assign_roles returns (old_status, new_status_str)
+            # Apply roles; get (old_status, new_status)
             old_status, new_status = await assign_roles(member, verify_value, cased_handle, self.bot)
 
-            # Only announce on change
+            # Announce only if membership status changed
             if (old_status or "").lower() != (new_status or "").lower():
                 try:
                     await send_verification_announcements(
                         self.bot, member, old_status, new_status, is_recheck=True, by_admin="auto"
                     )
                 except Exception as e:
-                    logger.warning(f"Auto log failed for {user_id}: {e}")
+                    logger.warning(f"Auto announce failed for {user_id}: {e}")
 
-            # Success: assign_roles already refreshed next schedule
+            # Schedule next success recheck using minutes → seconds
+            next_retry = now + max(1, self.backoff_base_m * 60)
+            await Database.upsert_auto_recheck_success(
+                user_id=int(user_id),
+                next_retry_at=next_retry,
+                now=now,
+                new_fail_count=0
+            )
+
+        except NotFoundError:
+            # RSI 404 → username changed / profile gone: remove from tracking
+            try:
+                async with Database.get_connection() as db:
+                    await db.execute("DELETE FROM verification WHERE user_id = ?", (int(user_id),))
+                    await db.execute("DELETE FROM auto_recheck_state WHERE user_id = ?", (int(user_id),))
+                    await db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to prune departed user {user_id}: {e}")
+
         except Exception as e:
+            # Other errors → exponential backoff and record error
             logger.warning(f"Auto recheck exception for {user_id}: {e}")
             current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
             delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)

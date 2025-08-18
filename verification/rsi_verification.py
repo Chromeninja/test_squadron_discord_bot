@@ -5,7 +5,7 @@ import re
 from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 from config.config_loader import ConfigLoader
-from helpers.http_helper import HTTPClient
+from helpers.http_helper import HTTPClient, NotFoundError
 
 config = ConfigLoader.load_config()
 
@@ -35,7 +35,12 @@ async def is_valid_rsi_handle(user_handle: str, http_client: HTTPClient) -> Tupl
     # Fetch organization data
     org_url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
     logger.debug(f"Fetching organization data from URL: {org_url}")
-    org_html = await http_client.fetch_html(org_url)
+    try:
+        org_html = await http_client.fetch_html(org_url)
+    except NotFoundError:
+        logger.error(f"Handle not found (404): {user_handle}")
+        # Let the caller decide to prune records.
+        raise
     if not org_html:
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
         return None, None

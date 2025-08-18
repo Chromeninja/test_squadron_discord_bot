@@ -64,13 +64,24 @@ async def delete_channel(channel: discord.abc.GuildChannel):
 
 async def edit_channel(channel: discord.abc.GuildChannel, **kwargs):
     async def _task():
-        await channel.edit(**kwargs)
+        # Verify channel still exists; skip if it doesn't
+        try:
+            await channel.guild.fetch_channel(channel.id)
+        except discord.NotFound:
+            logger.warning(f"Channel '{channel.id}' not found while editing; skipping.")
+            return
+        try:
+            await channel.edit(**kwargs)
+        except discord.Forbidden:
+            logger.error(f"Forbidden editing channel '{channel.id}'.")
+        except discord.HTTPException as e:
+            logger.error(f"HTTP error while editing channel '{channel.id}': {e}")
 
     try:
         await enqueue_task(_task)
-        logger.info(f"Enqueued edit for channel '{channel.name}' with {kwargs}.")
+        logger.info(f"Enqueued edit for channel '{getattr(channel,'name',channel.id)}' with {kwargs}.")
     except Exception as e:
-        logger.error(f"Failed to enqueue edit for channel '{channel.name}': {e}")
+        logger.error(f"Failed to enqueue edit for channel '{getattr(channel,'name',channel.id)}': {e}")
         raise
 
 async def move_member(member: discord.Member, channel: discord.VoiceChannel):
