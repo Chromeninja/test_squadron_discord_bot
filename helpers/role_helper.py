@@ -2,6 +2,7 @@
 
 import time
 import discord
+import random
 
 from helpers.database import Database
 from helpers.logger import get_logger
@@ -10,6 +11,16 @@ from helpers.discord_api import add_roles, remove_roles, edit_member
 from helpers.announcement import enqueue_verification_event
 
 logger = get_logger(__name__)
+
+def _compute_next_recheck(bot, new_status: str, now: int) -> int:
+    cfg = (bot.config or {}).get("auto_recheck", {}) or {}
+    cadence_map = (cfg.get("cadence_days") or {})
+    jitter_h = int((cfg.get("jitter_hours") or 0))
+    days = int(cadence_map.get(new_status or "", 0))  # default 0 -> skip if unknown
+    if days <= 0:
+        return 0
+    jitter = random.randint(-jitter_h * 3600, jitter_h * 3600) if jitter_h > 0 else 0
+    return now + days * 86400 + jitter
 
 async def assign_roles(member: discord.Member, verify_value: int, cased_handle: str, bot):
     # Fetch previous status before DB update
@@ -78,6 +89,15 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
         except Exception as e:
             logger.warning(f"Failed to enqueue announcement event: {e}", extra={"user_id": member.id})
 
+        # Schedule next auto-recheck immediately after successful upsert and enqueuing announcement
+        try:
+            now = int(time.time())
+            next_retry = _compute_next_recheck(bot, membership_status, now)
+            if next_retry > 0:
+                await Database.upsert_auto_recheck_success(member.id, next_retry_at=next_retry, now=now, new_fail_count=0)
+        except Exception as e:
+            logger.warning(f"Failed to update auto recheck schedule for {member.id}: {e}")
+
     # Identify roles to remove
     conflicting_roles = [main_role, affiliate_role, non_member_role]
     for role in conflicting_roles:
@@ -145,19 +165,24 @@ async def assign_roles(member: discord.Member, verify_value: int, cased_handle: 
 
 def can_modify_nickname(member: discord.Member) -> bool:
     """
-    Checks if the bot can modify the member's nickname based on role hierarchy.
-
-    Args:
-        member (discord.Member): The member to check.
-
-    Returns:
-        bool: True if the bot can modify, False otherwise.
+    Strict nickname guard:
+    - False for guild owner
+    - False if bot lacks Manage Nicknames permission
+    - False if bot.top_role <= member.top_role
     """
     guild = member.guild
     bot_member = guild.me
-    can_modify = bot_member.top_role > member.top_role
-    logger.debug(f"Can modify nickname: {can_modify} (Bot Top Role: {bot_member.top_role}, Member Top Role: {member.top_role})")
-    return can_modify
+
+    # Cannot edit the guild owner, ever.
+    if member.id == guild.owner_id:
+        return False
+
+    # Bot must have Manage Nicknames permission.
+    if not bot_member.guild_permissions.manage_nicknames:
+        return False
+
+    # Bot must be higher in role hierarchy than the member.
+    return bot_member.top_role > member.top_role
 
 
 async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple:

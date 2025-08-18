@@ -53,7 +53,8 @@ intents.presences = True # Needed for member presence updates
 initial_extensions = [
     'cogs.verification',
     'cogs.admin',
-    'cogs.voice'
+    'cogs.voice',
+    'cogs.recheck',
 ]
 
 class MyBot(commands.Bot):
