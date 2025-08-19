@@ -232,13 +232,13 @@ class BulkAnnouncer(commands.Cog):
         sections = [
             ("joined_main",
              "🍻 **New TEST Main reporting in!**",
-             "You made the right call. Welcome to TEST Squadron — BEST Squadron."),
+             "You made the right call. Welcome to TEST Squadron — BEST Squardon."),
             ("joined_affiliate",
              "🤝 **New TEST Affiliates**",
-             "Glad to have you aboard! Ready to go all-in? Set TEST as your **Main Org** to fully commit to the BEST SQUADRON."),
+             "Glad to have you aboard! Ready to go all-in? Set TEST as your **Main Org** to fully commit to the Best Squardon."),
             ("promoted_to_main",
              "⬆️ **Promotion from TEST Affiliate → TEST Main**",
-             "o7 and welcome fully to TEST BEST 🍻"),
+             "o7 and welcome fully to TEST Squadron — BEST Squardon. 🍻"),
         ]
         
         for key, header, footer in sections:
@@ -296,7 +296,7 @@ class BulkAnnouncer(commands.Cog):
 
     # ---------- Internal helpers ----------
     def _compose_message(self, header: str, mentions: List[str], footer: str) -> str:
-        body = "\n".join(mentions)
+        body = ",".join(mentions)
         parts = [header, body]
         if footer:
             parts.extend(["", footer])
