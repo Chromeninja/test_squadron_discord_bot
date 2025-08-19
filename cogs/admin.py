@@ -15,15 +15,14 @@ from helpers.discord_api import send_message
 from helpers.database import Database
 from helpers.role_helper import reverify_member
 from helpers.announcement import send_verification_announcements
+from helpers.permissions_helper import resolve_role_ids_for_guild, app_command_check_configured_roles
 
 logger = get_logger(__name__)
 config = ConfigLoader.load_config()
 
 
 class Admin(commands.Cog):
-    """
-    Admin commands for managing the bot, including restarting, resetting, etc.
-    """
+    """Admin commands for managing the bot."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -33,13 +32,28 @@ class Admin(commands.Cog):
         self.LEAD_MODERATOR_ROLE_IDS = getattr(self.bot, "LEAD_MODERATOR_ROLE_IDS", [])
         if not hasattr(self.bot, "LEAD_MODERATOR_ROLE_IDS"):
             logger.warning("LEAD_MODERATOR_ROLE_IDS attribute missing from bot. Defaulting to empty list.")
-
         logger.info(f"Tracking bot admin roles: {self.BOT_ADMIN_ROLE_IDS}")
         logger.info(f"Tracking lead moderator roles: {self.LEAD_MODERATOR_ROLE_IDS}")
+        # Permission strategy: runtime @has_any_role checks are authoritative.
+        # We log missing configured role IDs for operator visibility.
+
+        # Resolve configured role IDs against available guilds and log missing ones.
+        try:
+            if self.bot.guilds:
+                for guild in self.bot.guilds:
+                    resolved_bot_admins, missing_bot_admins = resolve_role_ids_for_guild(guild, self.BOT_ADMIN_ROLE_IDS)
+                    resolved_leads, missing_leads = resolve_role_ids_for_guild(guild, self.LEAD_MODERATOR_ROLE_IDS)
+                    if missing_bot_admins:
+                        logger.warning(f"BOT_ADMIN_ROLE IDs missing in guild '{guild.name}' ({guild.id}): {missing_bot_admins}")
+                    if missing_leads:
+                        logger.warning(f"LEAD_MODERATOR_ROLE IDs missing in guild '{guild.name}' ({guild.id}): {missing_leads}")
+        except Exception as e:
+            logger.debug(f"Role validation failed at init: {e}")
         logger.info("Admin cog initialized.")
 
     @app_commands.command(name="reset-all", description="Reset verification timers for all members.")
     @app_commands.guild_only()
+    @app_command_check_configured_roles(config['roles']['bot_admins'])
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def reset_all(self, interaction: discord.Interaction):
         """
@@ -54,6 +68,7 @@ class Admin(commands.Cog):
     @app_commands.command(name="reset-user", description="Reset verification timer for a specific user.")
     @app_commands.describe(member="The member whose timer you want to reset.")
     @app_commands.guild_only()
+    @app_command_check_configured_roles(config['roles']['bot_admins'] + config['roles']['lead_moderators'])
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'], *config['roles']['lead_moderators'])
     async def reset_user(self, interaction: discord.Interaction, member: discord.Member):
         """
@@ -70,6 +85,7 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="status", description="Check the status of the bot.")
     @app_commands.guild_only()
+    @app_command_check_configured_roles(config['roles']['bot_admins'] + config['roles']['lead_moderators'])
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'], *config['roles']['lead_moderators'])
     async def status(self, interaction: discord.Interaction):
         """
@@ -82,6 +98,7 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
     @app_commands.guild_only()
+    @app_command_check_configured_roles(config['roles']['bot_admins'])
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     async def view_logs(self, interaction: discord.Interaction):
         """
@@ -116,6 +133,7 @@ class Admin(commands.Cog):
             await send_message(interaction, "❌ Failed to retrieve logs.", ephemeral=True)
 
     @app_commands.command(name="recheck-user", description="Force a verification re-check for a user (Bot Admins only).")
+    @app_command_check_configured_roles(config['roles']['bot_admins'])
     @app_commands.checks.has_any_role(*config['roles']['bot_admins'])
     @app_commands.guild_only()
     async def recheck_user(self, interaction: discord.Interaction, member: discord.Member):
