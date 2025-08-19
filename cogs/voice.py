@@ -68,6 +68,7 @@ class Voice(commands.GroupCog, name="voice"):
         self.voice_category_id = None
         self.managed_voice_channels = set()
         self.last_channel_edit = {}
+        self._voice_event_locks = {}
 
     async def cog_load(self):
         """
@@ -273,33 +274,37 @@ class Voice(commands.GroupCog, name="voice"):
         """
         logger.debug(f"Voice state update for {member.display_name}: before={before.channel}, after={after.channel}")
 
-        # Handle user leaving a managed channel.
-        if before.channel and before.channel.id in self.managed_voice_channels:
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
-                    (before.channel.id,)
-                )
-                row = await cursor.fetchone()
-                owner_id = row[0] if row else None
+        # Serialize voice events per guild to avoid races during channel create/delete operations.
+        guild = member.guild
+        lock = self._voice_event_locks.setdefault(guild.id, asyncio.Lock())
+        async with lock:
+            # Handle user leaving a managed channel.
+            if before.channel and before.channel.id in self.managed_voice_channels:
+                async with Database.get_connection() as db:
+                    cursor = await db.execute(
+                        "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (before.channel.id,)
+                    )
+                    row = await cursor.fetchone()
+                    owner_id = row[0] if row else None
 
-                if before.channel and len(before.channel.members) == 0:
-                    try:
-                        guild = before.channel.guild
-                        await guild.fetch_channel(before.channel.id)
-                        await delete_channel(before.channel)
-                        self.managed_voice_channels.discard(before.channel.id)
-                        await db.execute(
-                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                            (before.channel.id,)
-                        )
-                        await db.commit()
-                        logger.info(f"Deleted empty voice channel '{before.channel.name}'")
-                    except discord.NotFound:
-                        logger.warning(f"Channel '{before.channel.id}' not found. Likely already deleted by admin reset.")
-                else:
-                    if member.id == owner_id:
-                        logger.info(f"Owner '{member.display_name}' left '{before.channel.name}'. Ownership can be claimed.")
+                    if before.channel and len(before.channel.members) == 0:
+                        try:
+                            guild = before.channel.guild
+                            await guild.fetch_channel(before.channel.id)
+                            await delete_channel(before.channel)
+                            self.managed_voice_channels.discard(before.channel.id)
+                            await db.execute(
+                                "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                                (before.channel.id,)
+                            )
+                            await db.commit()
+                            logger.info(f"Deleted empty voice channel '{before.channel.name}'")
+                        except discord.NotFound:
+                            logger.warning(f"Channel '{before.channel.id}' not found. Likely already deleted by admin reset.")
+                    else:
+                        if member.id == owner_id:
+                            logger.info(f"Owner '{member.display_name}' left '{before.channel.name}'. Ownership can be claimed.")
 
         # Handle user joining a 'Join to Create' channel.
         if after.channel and after.channel.id in self.join_to_create_channel_ids:
