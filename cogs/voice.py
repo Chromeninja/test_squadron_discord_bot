@@ -87,12 +87,25 @@ class Voice(commands.GroupCog, name="voice"):
 
             cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels")
             rows = await cursor.fetchall()
-            for (channel_id,) in rows:
-                self.bot.loop.create_task(self.cleanup_voice_channel(channel_id))
+            channel_ids = [channel_id for (channel_id,) in rows]
+            self.bot.loop.create_task(self._reconcile_on_ready(channel_ids))
 
-        logger.info("Voice cog loaded with 'delete all managed channels' configuration.")
+        logger.info("Voice cog loaded and reconciling managed voice channels.")
         self.bot.loop.create_task(self.channel_data_cleanup_loop())
         logger.info("Started voice channel data cleanup task.")
+
+    async def _reconcile_on_ready(self, channel_ids: list):
+        """
+        Wait until the bot is ready, then reconcile the provided channel IDs.
+        This avoids acting on stale/empty caches during cog_load.
+        """
+        await self.bot.wait_until_ready()
+        # Reconcile each stored channel
+        for cid in channel_ids:
+            try:
+                await self.reconcile_voice_channel(cid)
+            except Exception as e:
+                logger.exception(f"Error reconciling channel ID {cid}: {e}")
 
     async def cleanup_voice_channel(self, channel_id):
         """
@@ -103,7 +116,7 @@ class Voice(commands.GroupCog, name="voice"):
                 channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
                 if channel:
                     logger.info(f"Deleting managed voice channel: {channel.name} (ID: {channel.id})")
-                    await channel.delete()
+                    await delete_channel(channel)
                 else:
                     logger.warning(f"Channel with ID {channel_id} not found.")
             except discord.NotFound:
@@ -116,6 +129,139 @@ class Voice(commands.GroupCog, name="voice"):
                 await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
                 await db.commit()
                 logger.info(f"Removed channel ID {channel_id} from the database.")
+
+    async def reconcile_voice_channel(self, channel_id: int):
+        """
+        Startup reconciliation for a stored managed channel.
+
+        - If the channel no longer exists -> drop the DB row.
+        - If the channel exists and has members -> keep managing it.
+        - If the channel exists but is empty -> delete the channel and drop the DB row.
+        """
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+            row = await cursor.fetchone()
+            owner_id = row[0] if row else None
+
+        channel = None
+        try:
+            channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+        except discord.NotFound:
+            channel = None
+        except Exception as e:
+            logger.warning(f"Failed to fetch channel ID {channel_id} during reconciliation: {e}")
+
+        logger.info(f"Reconciling stored channel ID {channel_id}, owner={owner_id}")
+
+        # Channel doesn't exist -> remove stale DB row
+        if not channel:
+            async with Database.get_connection() as db:
+                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                await db.commit()
+            self.managed_voice_channels.discard(channel_id)
+            logger.info(f"Removed stale DB entry for missing channel ID {channel_id}.")
+            return
+
+        # Channel exists
+        try:
+            member_count = len(channel.members)
+        except Exception:
+            member_count = 0
+
+        # If channel has active members, resume management
+        if member_count > 0:
+            self.managed_voice_channels.add(channel.id)
+            logger.info(f"Resuming management of existing channel '{channel.name}' (ID: {channel.id}) with {member_count} member(s).")
+            return
+
+        # Member cache may not be ready immediately after startup. If the DB lists an owner,
+        # check whether the owner is actually connected to this channel (try a few times).
+        if owner_id:
+            tries = 5
+            for attempt in range(tries):
+                try:
+                    owner = channel.guild.get_member(owner_id) or await channel.guild.fetch_member(owner_id)
+                except discord.NotFound:
+                    owner = None
+                except Exception:
+                    owner = None
+
+                if owner and owner.voice and owner.voice.channel and owner.voice.channel.id == channel.id:
+                    # Owner is present in the channel — resume management.
+                    self.managed_voice_channels.add(channel.id)
+                    logger.info(f"Resuming management of channel '{channel.name}' (ID: {channel.id}) because owner is present.")
+                    return
+
+                # Re-check members list briefly to account for chunking delays.
+                try:
+                    member_count = len(channel.members)
+                except Exception:
+                    member_count = 0
+                if member_count > 0:
+                    self.managed_voice_channels.add(channel.id)
+                    logger.info(f"Resuming management of existing channel '{channel.name}' (ID: {channel.id}) after members appeared.")
+                    return
+
+                await asyncio.sleep(2)
+
+        # Channel exists but appears empty — schedule a delayed re-check before deleting
+        logger.info(f"Channel '{channel.name}' (ID: {channel.id}) appears empty on reconciliation; scheduling re-check before deletion.")
+        # Schedule a delayed check to avoid acting on transient empty views
+        self.bot.loop.create_task(self._schedule_deletion_if_still_empty(channel.id, delay=30))
+
+    async def _schedule_deletion_if_still_empty(self, channel_id: int, delay: int = 30):
+        """
+        Wait `delay` seconds and delete the channel only if it is still empty and not occupied by its owner.
+        Uses the existing cleanup_voice_channel helper to perform the deletion and DB cleanup.
+        """
+        await asyncio.sleep(delay)
+        try:
+            channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+        except discord.NotFound:
+            channel = None
+        except Exception as e:
+            logger.warning(f"Error fetching channel ID {channel_id} during scheduled deletion check: {e}")
+            channel = None
+
+        if not channel:
+            # Nothing to do; ensure DB row removed.
+            async with Database.get_connection() as db:
+                await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+                await db.commit()
+            self.managed_voice_channels.discard(channel_id)
+            logger.info(f"Scheduled deletion: removed stale DB entry for missing channel ID {channel_id}.")
+            return
+
+        # If members appeared, resume management
+        try:
+            member_count = len(channel.members)
+        except Exception:
+            member_count = 0
+
+        owner_present = False
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
+            row = await cursor.fetchone()
+            owner_id = row[0] if row else None
+        if owner_id:
+            try:
+                owner = channel.guild.get_member(owner_id) or await channel.guild.fetch_member(owner_id)
+            except Exception:
+                owner = None
+            if owner and owner.voice and owner.voice.channel and owner.voice.channel.id == channel.id:
+                owner_present = True
+
+        if member_count > 0 or owner_present:
+            self.managed_voice_channels.add(channel.id)
+            logger.info(f"Scheduled deletion canceled: channel '{channel.name}' (ID: {channel.id}) is now occupied; resuming management.")
+            return
+
+        # Still empty -> perform deletion & DB cleanup
+        logger.info(f"Scheduled deletion: channel '{channel.name}' (ID: {channel.id}) still empty after {delay}s; deleting.")
+        try:
+            await self.cleanup_voice_channel(channel.id)
+        except Exception as e:
+            logger.exception(f"Error during scheduled cleanup of channel ID {channel.id}: {e}")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
@@ -314,8 +460,9 @@ class Voice(commands.GroupCog, name="voice"):
                 except Exception as e:
                     logger.exception(f"Error sending settings view to '{new_channel.name}': {e}")
 
-                # Wait until the channel is empty before finishing.
-                await self._wait_for_channel_empty(new_channel)
+                # Wait for the channel to become empty in the background so we don't block the
+                # on_voice_state_update listener and delay other voice events.
+                self.bot.loop.create_task(self._wait_for_channel_empty(new_channel))
             except Exception as e:
                 logger.exception(f"Error creating voice channel for {member.display_name}: {e}")
 
@@ -368,12 +515,25 @@ class Voice(commands.GroupCog, name="voice"):
 
     async def _wait_for_channel_empty(self, channel: discord.VoiceChannel):
         """
-        Waits until the provided channel is empty (no members).
+        Wait until the provided channel is empty (no members). Runs in background.
+
+        This implementation is resilient: it exits if the bot is shutting down or
+        if the channel is deleted or becomes unavailable.
         """
-        while True:
+        while not self.bot.is_closed():
             await asyncio.sleep(5)
-            if len(channel.members) == 0:
-                break
+            # Channel might have been deleted; try to resolve it safely.
+            try:
+                ch = channel.guild.get_channel(channel.id) or await channel.guild.fetch_channel(channel.id)
+            except discord.NotFound:
+                return
+            except Exception:
+                ch = None
+            if not ch:
+                return
+            # If no members remain, exit and allow the scheduled cleanup or other flows to handle deletion.
+            if not ch.members:
+                return
 
     # ---------------------------
     # Slash Commands
@@ -531,10 +691,7 @@ class Voice(commands.GroupCog, name="voice"):
                 message += f"- {channel.name} (Owner: {owner.display_name})\n"
             elif channel:
                 message += f"- {channel.name} (Owner: Unknown)\n"
-                async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (channel_id,))
-                    await db.commit()
-                self.managed_voice_channels.discard(channel_id)
+                logger.info(f"Voice owner listing: channel '{channel.name}' (ID: {channel_id}) has no known owner; leaving DB entry for manual/admin review.")
 
         await send_message(interaction, message, ephemeral=True)
         

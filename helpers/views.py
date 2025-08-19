@@ -188,13 +188,15 @@ class ChannelSettingsView(View):
       - Channel Permissions: Options include Lock, Unlock, Permit, Reject, PTT, Kick, Priority Speaker, and Soundboard.
     """
     def __init__(self, bot):
+        # This view is persistent across restarts (timeout=None) and must have stable custom_ids
         super().__init__(timeout=None)
         self.bot = bot
-
+        # Add a stable custom_id so the bot can restore this persistent view after a restart
         self.channel_settings_select = Select(
             placeholder="Channel Settings",
             min_values=1,
             max_values=1,
+            custom_id="channel_settings_select_main",
             options=[
                 SelectOption(label="Name", value="name", description="Change the name of the channel", emoji="✏️"),
                 SelectOption(label="Limit", value="limit", description="Limit how many users can join", emoji="🔢"),
@@ -316,8 +318,7 @@ class ChannelSettingsView(View):
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
-
-        dropdown_trigger = interaction.data['custom_id']
+        dropdown_trigger = getattr(getattr(interaction, "component", None), "custom_id", None) or interaction.data
         if dropdown_trigger == "channel_permissions_select_1":
             selected = self.channel_permissions_select_1.values[0]
         else:
@@ -370,7 +371,8 @@ class KickUserSelectView(View):
     with an optional button to also reject them from rejoining.
     """
     def __init__(self, bot):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
 
         self.user_select = UserSelect(
@@ -467,7 +469,8 @@ class FeatureToggleView(View):
     The 'no_everyone' flag can be set to exclude the 'Everyone' option.
     """
     def __init__(self, bot, feature_name: str, no_everyone: bool = False):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.feature_name = feature_name
         self.no_everyone = no_everyone
@@ -503,7 +506,8 @@ class FeatureTargetView(View):
     A view that lets the user choose a target type (User, Role, or Everyone) for the feature toggle.
     """
     def __init__(self, bot, feature_name: str, enable: bool, no_everyone: bool):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
@@ -585,7 +589,8 @@ class FeatureUserSelectView(View):
     A view for selecting one or more users for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
     def __init__(self, bot, feature_name: str, enable: bool):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
@@ -634,7 +639,8 @@ class FeatureRoleSelectView(View):
     A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
     def __init__(self, bot, feature_name: str, enable: bool):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.feature_name = feature_name
         self.enable = enable
@@ -713,7 +719,8 @@ class TargetTypeSelectView(View):
     Only offers 'User' and 'Role' options.
     """
     def __init__(self, bot, action: str):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.action = action
 
@@ -762,7 +769,8 @@ class SelectUserView(View):
     View for selecting multiple users to apply permit/reject actions.
     """
     def __init__(self, bot, action: str):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.action = action
         self.user_select = UserSelect(
@@ -813,7 +821,8 @@ class SelectRoleView(View):
     View for selecting multiple roles to apply permit/reject actions.
     """
     def __init__(self, bot, action: str):
-        super().__init__(timeout=None)
+        # temporary helper view -> finite timeout
+        super().__init__(timeout=180)
         self.bot = bot
         self.action = action
         config = ConfigLoader.load_config()

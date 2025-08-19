@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
-from helpers.views import VerificationView
+from helpers.views import VerificationView, ChannelSettingsView
 from helpers.rate_limiter import cleanup_attempts
 from helpers.logger import get_logger
 from helpers.database import Database
@@ -122,6 +122,8 @@ class MyBot(commands.Bot):
 
         # Register the persistent VerificationView
         self.add_view(VerificationView(self))
+        # Register the persistent ChannelSettingsView so dropdowns remain usable after a restart
+        self.add_view(ChannelSettingsView(self))
 
         # Sync the command tree after loading all cogs
         try:
