@@ -208,6 +208,15 @@ class Database:
 
         await db.commit()
 
+        # Persisted warnings: track guilds we've already reported missing configured roles
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS missing_role_warnings (
+                guild_id INTEGER PRIMARY KEY,
+                reported_at INTEGER NOT NULL
+            )
+        """)
+        await db.commit()
+
     @classmethod
     @asynccontextmanager
     async def get_connection(cls):
@@ -227,6 +236,27 @@ class Database:
                 (user_id, action),
             )
             return await cursor.fetchone()
+
+    @classmethod
+    async def has_reported_missing_roles(cls, guild_id: int) -> bool:
+        """Return True if we've previously recorded a missing-role warning for this guild."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM missing_role_warnings WHERE guild_id = ?",
+                (guild_id,)
+            )
+            return (await cursor.fetchone()) is not None
+
+    @classmethod
+    async def mark_reported_missing_roles(cls, guild_id: int):
+        """Record that we've warned about missing configured roles for this guild."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO missing_role_warnings (guild_id, reported_at) VALUES (?, ?)",
+                (guild_id, now),
+            )
+            await db.commit()
 
     @classmethod
     async def increment_rate_limit(cls, user_id: int, action: str):

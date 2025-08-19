@@ -84,12 +84,12 @@ class MyBot(commands.Bot):
         # Initialize the HTTP client
         self.http_client = HTTPClient()
 
-    # Initialize role cache
-    self.role_cache = {}
-    # Track guilds we've already warned about missing configured roles
-    # to avoid repeated WARNING logs on every restart. Subsequent
-    # occurrences will be logged at INFO instead.
-    self._missing_role_warned_guilds = set()
+        # Initialize role cache
+        self.role_cache = {}
+        # Track guilds we've already warned about missing configured roles
+        # to avoid repeated WARNING logs on every restart. Subsequent
+        # occurrences will be logged at INFO instead.
+        self._missing_role_warned_guilds = set()
 
     async def setup_hook(self):
         """Load cogs, initialize services, and sync commands."""
@@ -204,9 +204,20 @@ class MyBot(commands.Bot):
             if role := guild.get_role(role_id):
                 self.role_cache[role_id] = role
             else:
-                if guild.id not in self._missing_role_warned_guilds:
+                # Persist suppression across restarts: only WARN the first time
+                # across all runs unless DB entry is cleared.
+                try:
+                    reported = await Database.has_reported_missing_roles(guild.id)
+                except Exception:
+                    reported = False
+                if not reported and guild.id not in self._missing_role_warned_guilds:
                     logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
                     self._missing_role_warned_guilds.add(guild.id)
+                    try:
+                        await Database.mark_reported_missing_roles(guild.id)
+                    except Exception:
+                        # Non-fatal: if DB write fails, continue but don't raise
+                        logger.debug("Failed to persist missing-role warning for guild %s", guild.id)
                 else:
                     logger.info(f"Role with ID {role_id} not found in guild '{guild.name}' (already reported).")
     async def set_admin_command_permissions(self, guild: discord.Guild):
@@ -223,9 +234,17 @@ class MyBot(commands.Bot):
                 valid_roles.append(role_id)
             else:
                 # Missing configured role is not fatal; log for operator visibility.
-                if guild.id not in self._missing_role_warned_guilds:
+                try:
+                    reported = await Database.has_reported_missing_roles(guild.id)
+                except Exception:
+                    reported = False
+                if not reported and guild.id not in self._missing_role_warned_guilds:
                     logger.warning(f"Configured role ID {role_id} not found in guild '{guild.name}'.")
                     self._missing_role_warned_guilds.add(guild.id)
+                    try:
+                        await Database.mark_reported_missing_roles(guild.id)
+                    except Exception:
+                        logger.debug("Failed to persist missing-role warning for guild %s", guild.id)
                 else:
                     logger.info(f"Configured role ID {role_id} not found in guild '{guild.name}' (already reported).")
 
