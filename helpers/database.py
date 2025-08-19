@@ -80,7 +80,29 @@ class Database:
                 """
             )
             await db.commit()
-            await db.execute("ALTER TABLE verification DROP COLUMN last_recheck")
+            # Safe SQLite migration: some SQLite versions/environments don't support
+            # ALTER TABLE ... DROP COLUMN. Instead, create a temp table with the
+            # desired schema, copy rows (excluding the legacy column), drop the
+            # old table and rename the temp table.
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS verification_tmp (
+                    user_id INTEGER PRIMARY KEY,
+                    rsi_handle TEXT NOT NULL,
+                    membership_status TEXT NOT NULL,
+                    last_updated INTEGER NOT NULL
+                )
+            """)
+            # Copy data from old table excluding last_recheck. Use INSERT OR REPLACE
+            # so the operation is effectively idempotent if run multiple times.
+            await db.execute("""
+                INSERT OR REPLACE INTO verification_tmp (user_id, rsi_handle, membership_status, last_updated)
+                SELECT user_id, rsi_handle, membership_status, last_updated FROM verification
+            """)
+            await db.commit()
+            # Replace the old table with the temp table. Use IF EXISTS to be
+            # tolerant of repeated runs.
+            await db.execute("DROP TABLE IF EXISTS verification")
+            await db.execute("ALTER TABLE verification_tmp RENAME TO verification")
             await db.commit()
 
         # Create or update voice tables
