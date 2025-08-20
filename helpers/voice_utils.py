@@ -27,9 +27,16 @@ async def get_user_channel(bot, user: discord.abc.User):
                 try:
                     channel = await bot.fetch_channel(channel_id)
                 except discord.NotFound:
-                    logger.warning(f"Channel with ID {channel_id} not found.")
-                    # Optional: clear stale mapping so future checks don't keep failing
-                    # await update_channel_settings(user.id, channel_id=None)
+                    logger.warning(f"Channel with ID {channel_id} not found. Removing stale DB mapping.")
+                    try:
+                        # Remove stale mapping so future checks don't keep trying to fetch
+                        await db.execute(
+                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                            (channel_id,),
+                        )
+                        await db.commit()
+                    except Exception as e:
+                        logger.exception(f"Failed to remove stale channel mapping {channel_id}: {e}")
                     return None
                 except discord.HTTPException as e:
                     logger.exception(f"Failed to fetch channel {channel_id}: {e}")

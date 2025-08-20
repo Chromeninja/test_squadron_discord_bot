@@ -2,6 +2,7 @@
 
 import time
 import random
+import asyncio
 
 import discord
 from discord.ext import commands, tasks
@@ -75,6 +76,18 @@ class AutoRecheck(commands.Cog):
                 member = await guild.fetch_member(int(user_id))
             except (discord.NotFound, discord.HTTPException):
                 member = None
+
+        # If member not found, allow a short delay and retry once to avoid
+        # pruning during transient cache misses.
+        if member is None:
+            await asyncio.sleep(1)
+            # Retry the same lookup strategy once more
+            member = guild.get_member(int(user_id))
+            if member is None:
+                try:
+                    member = await guild.fetch_member(int(user_id))
+                except (discord.NotFound, discord.HTTPException):
+                    member = None
 
         if member is None:
             try:
