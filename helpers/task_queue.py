@@ -1,7 +1,6 @@
-# helpers/task_queue.py
+# Helpers/task_queue.py
 
 import asyncio
-import time
 from helpers.logger import get_logger
 from aiolimiter import AsyncLimiter
 
@@ -11,6 +10,7 @@ logger = get_logger(__name__)
 task_queue = asyncio.Queue()
 
 api_limiter = AsyncLimiter(max_rate=45, time_period=1)
+
 
 async def worker():
     """
@@ -30,6 +30,7 @@ async def worker():
         finally:
             task_queue.task_done()
 
+
 async def run_task(task):
     """
     Executes the given task.
@@ -42,6 +43,7 @@ async def run_task(task):
     except Exception as e:
         logger.exception(f"Exception in task: {e}")
         return None
+
 
 async def enqueue_task(task):
     """
@@ -62,6 +64,7 @@ async def enqueue_task(task):
     await task_queue.put(wrapped_task)
     logger.debug("Task enqueued.")
     return future
+
 
 async def start_task_workers(num_workers=2):
     """

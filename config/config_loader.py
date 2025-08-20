@@ -1,13 +1,15 @@
-# config/config_loader.py
+# Config/config_loader.py
 
 import yaml
 import logging
 from typing import Any, Dict
 
+
 class ConfigLoader:
     """
     Singleton class to load and provide access to configuration data.
     """
+
     _config: Dict[str, Any] = {}
 
     @classmethod
@@ -23,7 +25,7 @@ class ConfigLoader:
         """
         if not cls._config:
             try:
-                with open(config_path, 'r', encoding='utf-8') as file:
+                with open(config_path, "r", encoding="utf-8") as file:
                     cls._config = yaml.safe_load(file)
                 logging.info("Configuration loaded successfully.")
 
@@ -40,28 +42,37 @@ class ConfigLoader:
                 logging.error(f"Error parsing the configuration file: {e}")
                 raise
             except UnicodeDecodeError as e:
-                logging.error(f"Encoding error while reading the configuration file: {e}")
+                logging.error(
+                    f"Encoding error while reading the configuration file: {e}"
+                )
                 raise
         return cls._config
 
     @classmethod
     def _validate_logging_level(cls):
-        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        logging_config = cls._config.get('logging', {})
-        level = logging_config.get('level', 'INFO').upper()
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        logging_config = cls._config.get("logging", {})
+        level = logging_config.get("level", "INFO").upper()
         if level not in valid_levels:
-            logging.warning(f"Invalid logging level '{level}' in config. Defaulting to 'INFO'.")
-            cls._config['logging']['level'] = 'INFO'
+            logging.warning(
+                f"Invalid logging level '{level}' in config. Defaulting to 'INFO'."
+            )
+            cls._config["logging"]["level"] = "INFO"
 
     @classmethod
     def _convert_role_ids_to_int(cls):
         """
         Converts all role IDs in the configuration from strings to integers.
         """
-        roles = cls._config.get('roles', {})
+        roles = cls._config.get("roles", {})
 
         # Define keys that should be single role IDs
-        single_role_keys = ['bot_verified_role_id', 'main_role_id', 'affiliate_role_id', 'non_member_role_id']
+        single_role_keys = [
+            "bot_verified_role_id",
+            "main_role_id",
+            "affiliate_role_id",
+            "non_member_role_id",
+        ]
 
         for key in single_role_keys:
             if key in roles:
@@ -72,8 +83,8 @@ class ConfigLoader:
                     logging.error(f"Role ID for {key} must be an integer.")
                     raise
 
-        # Define keys that are lists of role IDs
-        list_role_keys = ['bot_admins', 'lead_moderators']
+                    # Define keys that are lists of role IDs
+        list_role_keys = ["bot_admins", "lead_moderators"]
 
         for key in list_role_keys:
             if key in roles:
@@ -84,11 +95,15 @@ class ConfigLoader:
                     logging.error(f"All role IDs in {key} must be integers.")
                     raise
 
-        # Convert selectable_roles from config to a list of integers if present
-        if 'selectable_roles' in cls._config:
+                    # Convert selectable_roles from config to a list of integers if present
+        if "selectable_roles" in cls._config:
             try:
-                cls._config['selectable_roles'] = [int(role_id) for role_id in cls._config['selectable_roles']]
-                logging.debug(f"Converted selectable_roles to list of integers: {cls._config['selectable_roles']}")
+                cls._config["selectable_roles"] = [
+                    int(role_id) for role_id in cls._config["selectable_roles"]
+                ]
+                logging.debug(
+                    f"Converted selectable_roles to list of integers: {cls._config['selectable_roles']}"
+                )
             except ValueError:
                 logging.error("All selectable_roles must be integers.")
                 raise

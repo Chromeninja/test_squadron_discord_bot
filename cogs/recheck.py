@@ -1,4 +1,4 @@
-# cogs/recheck.py
+# Cogs/recheck.py
 
 import time
 import random
@@ -15,6 +15,7 @@ from helpers.announcement import send_verification_announcements
 
 logger = get_logger(__name__)
 
+
 class AutoRecheck(commands.Cog):
     """
     Periodically re-checks verified members in small batches.
@@ -24,16 +25,16 @@ class AutoRecheck(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         cfg = (bot.config or {}).get("auto_recheck", {}) or {}
-        batch_cfg = (cfg.get("batch") or {})
+        batch_cfg = cfg.get("batch") or {}
         self.enabled = bool(cfg.get("enabled", True))
         self.run_every_minutes = int(batch_cfg.get("run_every_minutes", 60))
         self.max_users_per_run = int(batch_cfg.get("max_users_per_run", 50))
 
-        backoff = (cfg.get("backoff") or {})
+        backoff = cfg.get("backoff") or {}
         self.backoff_base_m = int(backoff.get("base_minutes", 180))
         self.backoff_max_m = int(backoff.get("max_minutes", 1440))
 
-        # dynamic loop interval
+        # Dynamic loop interval
         if self.enabled:
             self.recheck_loop.change_interval(minutes=max(1, self.run_every_minutes))
             self.recheck_loop.start()
@@ -64,7 +65,9 @@ class AutoRecheck(commands.Cog):
                 continue
             await self._handle_recheck(member, user_id, rsi_handle, now)
 
-    async def _fetch_member_or_prune(self, guild: discord.Guild, user_id: int) -> discord.Member | None:
+    async def _fetch_member_or_prune(
+        self, guild: discord.Guild, user_id: int
+    ) -> discord.Member | None:
         """Return member if present; otherwise prune their records and return None."""
         member = guild.get_member(int(user_id))
         if member is None:
@@ -76,8 +79,13 @@ class AutoRecheck(commands.Cog):
         if member is None:
             try:
                 async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM verification WHERE user_id = ?", (int(user_id),))
-                    await db.execute("DELETE FROM auto_recheck_state WHERE user_id = ?", (int(user_id),))
+                    await db.execute(
+                        "DELETE FROM verification WHERE user_id = ?", (int(user_id),)
+                    )
+                    await db.execute(
+                        "DELETE FROM auto_recheck_state WHERE user_id = ?",
+                        (int(user_id),),
+                    )
                     await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to prune departed user {user_id}: {e}")
@@ -85,12 +93,16 @@ class AutoRecheck(commands.Cog):
 
         return member
 
-    async def _handle_recheck(self, member: discord.Member, user_id: int, rsi_handle: str, now: int) -> None:
+    async def _handle_recheck(
+        self, member: discord.Member, user_id: int, rsi_handle: str, now: int
+    ) -> None:
         try:
             # Validate handle and fetch current status
-            verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, self.bot.http_client)
+            verify_value, cased_handle = await is_valid_rsi_handle(
+                rsi_handle, self.bot.http_client
+            )
             if verify_value is None or cased_handle is None:
-                # transient fetch/parse failure: schedule backoff
+                # Transient fetch/parse failure: schedule backoff
                 current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
                 delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
                 await Database.upsert_auto_recheck_failure(
@@ -98,37 +110,49 @@ class AutoRecheck(commands.Cog):
                     next_retry_at=now + delay,
                     now=now,
                     error_msg="Fetch/parse failure",
-                    inc=True
+                    inc=True,
                 )
                 return
 
-            # Apply roles; get (old_status, new_status)
-            old_status, new_status = await assign_roles(member, verify_value, cased_handle, self.bot)
+                # Apply roles; get (old_status, new_status)
+            old_status, new_status = await assign_roles(
+                member, verify_value, cased_handle, self.bot
+            )
 
             # Announce only if membership status changed
             if (old_status or "").lower() != (new_status or "").lower():
                 try:
                     await send_verification_announcements(
-                        self.bot, member, old_status, new_status, is_recheck=True, by_admin="auto"
+                        self.bot,
+                        member,
+                        old_status,
+                        new_status,
+                        is_recheck=True,
+                        by_admin="auto",
                     )
                 except Exception as e:
                     logger.warning(f"Auto announce failed for {user_id}: {e}")
 
-            # Schedule next success recheck using minutes → seconds
+                    # Schedule next success recheck using minutes → seconds
             next_retry = now + max(1, self.backoff_base_m * 60)
             await Database.upsert_auto_recheck_success(
                 user_id=int(user_id),
                 next_retry_at=next_retry,
                 now=now,
-                new_fail_count=0
+                new_fail_count=0,
             )
 
         except NotFoundError:
             # RSI 404 → username changed / profile gone: remove from tracking
             try:
                 async with Database.get_connection() as db:
-                    await db.execute("DELETE FROM verification WHERE user_id = ?", (int(user_id),))
-                    await db.execute("DELETE FROM auto_recheck_state WHERE user_id = ?", (int(user_id),))
+                    await db.execute(
+                        "DELETE FROM verification WHERE user_id = ?", (int(user_id),)
+                    )
+                    await db.execute(
+                        "DELETE FROM auto_recheck_state WHERE user_id = ?",
+                        (int(user_id),),
+                    )
                     await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to prune departed user {user_id}: {e}")
@@ -144,7 +168,7 @@ class AutoRecheck(commands.Cog):
                     next_retry_at=now + delay,
                     now=now,
                     error_msg=str(e)[:500],
-                    inc=True
+                    inc=True,
                 )
             except Exception:
                 pass
@@ -157,8 +181,9 @@ class AutoRecheck(commands.Cog):
         base = self.backoff_base_m * 60
         cap = self.backoff_max_m * 60
         exp = base * (2 ** max(0, int(fail_count) - 1))
-        jitter = random.randint(0, 600)  # up to +10m
+        jitter = random.randint(0, 600)  # Up to +10m
         return min(exp + jitter, cap)
+
 
 async def setup(bot: commands.Bot):
     if (bot.config or {}).get("auto_recheck", {}).get("enabled", True):

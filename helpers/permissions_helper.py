@@ -1,4 +1,4 @@
-"""Permission utilities: role resolution and small app-command checks."""
+#Helpers/permissions_helper.py
 
 import discord
 from typing import Iterable, List, Tuple

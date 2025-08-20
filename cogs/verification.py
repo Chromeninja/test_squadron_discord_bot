@@ -1,4 +1,4 @@
-# cogs/verification.py
+# Cogs/verification.py
 
 import discord
 from discord.ext import commands
@@ -22,10 +22,12 @@ from helpers.announcement import send_verification_announcements
 
 logger = get_logger(__name__)
 
+
 class VerificationCog(commands.Cog):
     """
     Cog to handle user verification within the Discord server.
     """
+
     def __init__(self, bot: commands.Bot):
         """
         Initializes the VerificationCog with the bot instance.
@@ -52,31 +54,37 @@ class VerificationCog(commands.Cog):
         logger.info("Starting to send verification message...")
         channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
         if channel is None:
-            logger.error(f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}.")
+            logger.error(
+                f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}."
+            )
             return
         else:
-            logger.info(f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})")
+            logger.info(
+                f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
+            )
 
-        # Load the message ID from a file
+            # Load the message ID from a file
         message_id = None
-        message_id_file = 'verification_message_id.json'
+        message_id_file = "verification_message_id.json"
         if os.path.exists(message_id_file):
-            with open(message_id_file, 'r') as f:
+            with open(message_id_file, "r") as f:
                 data = json.load(f)
-                message_id = data.get('message_id')
+                message_id = data.get("message_id")
 
         if message_id:
             try:
                 # Try to fetch the message
-                verification_message = await channel.fetch_message(message_id)
-                logger.info(f"Verification message already exists with ID: {message_id}")
+                await channel.fetch_message(message_id)
+                logger.info(
+                    f"Verification message already exists with ID: {message_id}"
+                )
                 return  # Message already exists, no need to send a new one
             except discord.NotFound:
                 logger.info("Verification message not found, will send a new one.")
             except Exception as e:
                 logger.error(f"Error fetching verification message: {e}")
 
-        # Create the verification embed
+                # Create the verification embed
         embed = create_verification_embed()
 
         # Initialize the verification view with buttons
@@ -86,14 +94,18 @@ class VerificationCog(commands.Cog):
         try:
             logger.info("Attempting to send the verification embed...")
             sent_message = await channel.send(embed=embed, view=view)
-            logger.info(f"Sent verification message in channel. Message ID: {sent_message.id}")
+            logger.info(
+                f"Sent verification message in channel. Message ID: {sent_message.id}"
+            )
 
             # Save the message ID to the file
-            with open(message_id_file, 'w') as f:
-                json.dump({'message_id': sent_message.id}, f)
+            with open(message_id_file, "w") as f:
+                json.dump({"message_id": sent_message.id}, f)
 
         except discord.Forbidden:
-            logger.error("Bot lacks permission to send messages in the verification channel.")
+            logger.error(
+                "Bot lacks permission to send messages in the verification channel."
+            )
         except discord.HTTPException as e:
             logger.exception(f"Failed to send verification message: {e}")
 
@@ -103,13 +115,16 @@ class VerificationCog(commands.Cog):
 
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT rsi_handle FROM verification WHERE user_id = ?",
-                (member.id,)
+                "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
             )
             row = await cursor.fetchone()
             if not row:
-                embed = create_error_embed("You are not verified yet. Please click Verify first.")
-                await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+                embed = create_error_embed(
+                    "You are not verified yet. Please click Verify first."
+                )
+                await followup_send_message(
+                    interaction, "", embed=embed, ephemeral=True
+                )
                 return
             rsi_handle = row[0]
 
@@ -121,7 +136,9 @@ class VerificationCog(commands.Cog):
 
         result = await reverify_member(member, rsi_handle, self.bot)
         if not result[0]:
-            embed = create_error_embed(result[2] or "Re-check failed. Please try again later.")
+            embed = create_error_embed(
+                result[2] or "Re-check failed. Please try again later."
+            )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
@@ -143,8 +160,9 @@ class VerificationCog(commands.Cog):
             old_status,
             new_status,
             is_recheck=True,
-            by_admin=admin_display
+            by_admin=admin_display,
         )
+
 
 async def setup(bot: commands.Bot):
     """

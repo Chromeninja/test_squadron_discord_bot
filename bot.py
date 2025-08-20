@@ -1,4 +1,4 @@
-# bot.py
+# Bot.py
 
 import discord
 from discord.ext import commands
@@ -27,35 +27,38 @@ load_dotenv()
 config = ConfigLoader.load_config()
 
 # Load sensitive information from .env
-TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     logger.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
-# Access configuration values from config.yaml
-PREFIX = config['bot']['prefix']
-VERIFICATION_CHANNEL_ID = config['channels']['verification_channel_id']
-BOT_VERIFIED_ROLE_ID = config['roles']['bot_verified_role_id']
-MAIN_ROLE_ID = config['roles']['main_role_id']
-AFFILIATE_ROLE_ID = config['roles']['affiliate_role_id']
-NON_MEMBER_ROLE_ID = config['roles']['non_member_role_id']
-BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('bot_admins', [])]
-LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config['roles'].get('lead_moderators', [])]
+    # Access configuration values from config.yaml
+PREFIX = config["bot"]["prefix"]
+VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
+BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
+MAIN_ROLE_ID = config["roles"]["main_role_id"]
+AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
+NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
+BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("bot_admins", [])]
+LEAD_MODERATOR_ROLE_IDS = [
+    int(role_id) for role_id in config["roles"].get("lead_moderators", [])
+]
 
 intents = discord.Intents.default()
 intents.guilds = True  # Needed for guild-related events
 intents.members = True  # Needed for member-related events
 intents.message_content = True  # Needed for reading message content
 intents.voice_states = True  # Needed for voice state updates
-intents.presences = True # Needed for member presence updates
+intents.presences = True  # Needed for member presence updates
 
 # List of initial extensions to load
 initial_extensions = [
-    'cogs.verification',
-    'cogs.admin',
-    'cogs.voice',
-    'cogs.recheck',
+    "cogs.verification",
+    "cogs.admin",
+    "cogs.voice",
+    "cogs.recheck",
 ]
+
 
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
@@ -87,8 +90,8 @@ class MyBot(commands.Bot):
         # Initialize role cache
         self.role_cache = {}
         # Track guilds we've already warned about missing configured roles
-        # to avoid repeated WARNING logs on every restart. Subsequent
-        # occurrences will be logged at INFO instead.
+        # To avoid repeated WARNING logs on every restart. Subsequent
+        # Occurrences will be logged at INFO instead.
         self._missing_role_warned_guilds = set()
 
     async def setup_hook(self):
@@ -98,10 +101,12 @@ class MyBot(commands.Bot):
 
         # Add the BulkAnnouncer cog after DB is initialized
         await self.add_cog(BulkAnnouncer(self))
-        
+
         # Start the task queue workers
-        await start_task_workers(num_workers=2)  # Adjust the number of workers as needed
-        
+        await start_task_workers(
+            num_workers=2
+        )  # Adjust the number of workers as needed
+
         # Initialize the HTTP client session
         # We use _get_session to ensure the HTTP client is initialized
         await self.http_client._get_session()
@@ -113,7 +118,7 @@ class MyBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Failed to load extension {extension}: {e}")
 
-        # Cache roles after bot is ready
+                # Cache roles after bot is ready
         self.loop.create_task(self.cache_roles())
 
         # Start cleanup tasks
@@ -132,14 +137,16 @@ class MyBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
-        # Set command permissions for each guild
+            # Set command permissions for each guild
         for guild in self.guilds:
             await self.set_admin_command_permissions(guild)
-        
-         # Log all loaded commands after the setup
+
+            # Log all loaded commands after the setup
         logger.info("Registered commands: ")
         for command in self.tree.walk_commands():
-            logger.info(f"- Command: {command.name}, Description: {command.description}")
+            logger.info(
+                f"- Command: {command.name}, Description: {command.description}"
+            )
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -153,7 +160,7 @@ class MyBot(commands.Bot):
                 logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
-            
+
     async def check_bot_permissions(self, guild: discord.Guild):
         """Verify required guild-level permissions and log any missing ones."""
         required_permissions = [
@@ -171,7 +178,9 @@ class MyBot(commands.Bot):
         ]
 
         if not guild or not guild.me:
-            logger.warning("Bot permissions cannot be checked because the bot is not in the guild or the guild is None.")
+            logger.warning(
+                "Bot permissions cannot be checked because the bot is not in the guild or the guild is None."
+            )
             return
 
         bot_member = guild.me
@@ -184,7 +193,9 @@ class MyBot(commands.Bot):
                 f"Missing permissions in guild '{guild.name}': {', '.join(missing_permissions)}"
             )
         else:
-            logger.info(f"All required permissions are present in guild '{guild.name}'.")
+            logger.info(
+                f"All required permissions are present in guild '{guild.name}'."
+            )
 
     async def cache_roles(self):
         """Cache commonly used Role objects from the first guild."""
@@ -198,39 +209,53 @@ class MyBot(commands.Bot):
             self.BOT_VERIFIED_ROLE_ID,
             self.MAIN_ROLE_ID,
             self.AFFILIATE_ROLE_ID,
-            self.NON_MEMBER_ROLE_ID
+            self.NON_MEMBER_ROLE_ID,
         ]
         for role_id in role_ids:
             if role := guild.get_role(role_id):
                 self.role_cache[role_id] = role
             else:
                 # Persist suppression across restarts: only WARN the first time
-                # across all runs unless DB entry is cleared.
+                # Across all runs unless DB entry is cleared.
                 try:
                     reported = await Database.has_reported_missing_roles(guild.id)
                 except Exception:
                     reported = False
                 if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+                    logger.warning(
+                        f"Role with ID {role_id} not found in guild '{guild.name}'."
+                    )
                     self._missing_role_warned_guilds.add(guild.id)
                     try:
                         await Database.mark_reported_missing_roles(guild.id)
                     except Exception:
                         # Non-fatal: if DB write fails, continue but don't raise
-                        logger.debug("Failed to persist missing-role warning for guild %s", guild.id)
+                        logger.debug(
+                            "Failed to persist missing-role warning for guild %s",
+                            guild.id,
+                        )
                 else:
-                    logger.info(f"Role with ID {role_id} not found in guild '{guild.name}' (already reported).")
+                    logger.info(
+                        f"Role with ID {role_id} not found in guild '{guild.name}' (already reported)."
+                    )
+
     async def set_admin_command_permissions(self, guild: discord.Guild):
         """Attempt per-command role permissions; fall back to runtime checks."""
 
         # Define the restricted commands and combine role IDs
-        restricted_commands = ["reset-all", "reset-user", "status", "view-logs", "recheck-user"]
+        restricted_commands = [
+            "reset-all",
+            "reset-user",
+            "status",
+            "view-logs",
+            "recheck-user",
+        ]
         combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
 
-    # Build list of configured role IDs that exist in this guild; log missing.
+        # Build list of configured role IDs that exist in this guild; log missing.
         valid_roles = []
         for role_id in combined_role_ids:
-            if role := guild.get_role(role_id):
+            if guild.get_role(role_id):
                 valid_roles.append(role_id)
             else:
                 # Missing configured role is not fatal; log for operator visibility.
@@ -239,27 +264,48 @@ class MyBot(commands.Bot):
                 except Exception:
                     reported = False
                 if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(f"Configured role ID {role_id} not found in guild '{guild.name}'.")
+                    logger.warning(
+                        f"Configured role ID {role_id} not found in guild '{guild.name}'."
+                    )
                     self._missing_role_warned_guilds.add(guild.id)
                     try:
                         await Database.mark_reported_missing_roles(guild.id)
                     except Exception:
-                        logger.debug("Failed to persist missing-role warning for guild %s", guild.id)
+                        logger.debug(
+                            "Failed to persist missing-role warning for guild %s",
+                            guild.id,
+                        )
                 else:
-                    logger.info(f"Configured role ID {role_id} not found in guild '{guild.name}' (already reported).")
+                    logger.info(
+                        f"Configured role ID {role_id} not found in guild '{guild.name}' (already reported)."
+                    )
 
-        # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
+                    # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
         if not valid_roles:
-            logger.info(f"No valid configured admin/lead-moderator roles present in guild '{guild.name}'. Skipping App Command permission setup and relying on runtime checks.")
+            logger.info(
+                (
+                    "No valid configured admin/lead-moderator roles present in guild '"
+                    + f"{guild.name}'. Skipping App Command permission setup and relying on runtime checks."
+                )
+            )
             return
 
-        # Only attempt App Command permission flow if the discord module and tree
-        # expose the required API. In many runtime environments this API is not
-        # present; in that case we skip attempting to set per-command permissions
-        # and rely on runtime decorator checks instead. This avoids noisy warnings
-        # during normal operation.
-        if not (hasattr(discord, 'AppCommandPermission') and hasattr(discord, 'AppCommandPermissionType') and hasattr(self.tree, 'set_permissions')):
-            logger.info("Per-command App Command permission API not available in this environment; skipping and relying on runtime decorator checks.")
+            # Only attempt App Command permission flow if the discord module and tree
+            # Expose the required API. In many runtime environments this API is not
+            # Present; in that case we skip attempting to set per-command permissions
+            # And rely on runtime decorator checks instead. This avoids noisy warnings
+            # During normal operation.
+        if not (
+            hasattr(discord, "AppCommandPermission")
+            and hasattr(discord, "AppCommandPermissionType")
+            and hasattr(self.tree, "set_permissions")
+        ):
+            logger.info(
+                (
+                    "Per-command App Command permission API not available in this environment; "
+                    "skipping and relying on runtime decorator checks."
+                )
+            )
             return
 
         try:
@@ -267,7 +313,7 @@ class MyBot(commands.Bot):
                 discord.AppCommandPermission(
                     type=discord.AppCommandPermissionType.ROLE,
                     id=role_id,
-                    permission=True
+                    permission=True,
                 )
                 for role_id in valid_roles
             ]
@@ -275,17 +321,31 @@ class MyBot(commands.Bot):
             for cmd_name in restricted_commands:
                 if command := self.tree.get_command(cmd_name, guild=guild):
                     try:
-                        # older discord.py: tree.set_permissions(guild, command, permissions)
+                        # Older discord.py: tree.set_permissions(guild, command, permissions)
                         await self.tree.set_permissions(guild, command, permissions)
-                        logger.info(f"App Command permissions set for '{cmd_name}' in guild '{guild.name}'.")
+                        logger.info(
+                            f"App Command permissions set for '{cmd_name}' in guild '{guild.name}'."
+                        )
                     except discord.HTTPException as e:
                         # Discord may reject the operation; log at INFO and continue
-                        logger.info(f"Discord rejected App Command permission update for '{cmd_name}' in guild '{guild.name}': {e}. Continuing with runtime checks.")
+                        logger.info(
+                            (
+                                f"Discord rejected App Command permission update for '{cmd_name}' "
+                                + f"in guild '{guild.name}': {e}. Continuing with runtime checks."
+                            )
+                        )
                 else:
-                    logger.debug(f"Command '{cmd_name}' not found in guild '{guild.name}'.")
+                    logger.debug(
+                        f"Command '{cmd_name}' not found in guild '{guild.name}'."
+                    )
         except Exception as e:
             # Catch-all: don't let permission setup break bot startup.
-            logger.info(f"Failed to set App Command permissions in guild '{guild.name}': {e}. Using runtime decorator checks instead.")
+            logger.info(
+                (
+                    f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
+                    + "Using runtime decorator checks instead."
+                )
+            )
 
     async def token_cleanup_task(self):
         """
@@ -302,7 +362,7 @@ class MyBot(commands.Bot):
         """
         while not self.is_closed():
             await asyncio.sleep(600)  # Run every 10 minutes
-            # cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
+            # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
             await cleanup_attempts()
 
     @property
@@ -335,7 +395,9 @@ class MyBot(commands.Bot):
         await self.http_client.close()
         await super().close()
 
-# Initialize the bot
+        # Initialize the bot
+
+
 bot = MyBot(command_prefix=PREFIX, intents=intents)
 
 # Run the bot
