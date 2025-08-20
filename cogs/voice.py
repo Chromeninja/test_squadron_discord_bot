@@ -74,8 +74,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Called when the cog is loaded.
         Fetch stored settings (such as join-to-create channel IDs and voice category)
-        and reconcile previously managed voice channels. Also, start a periodic
-        cleanup loop for stale channel data.
+    and reconcile previously managed voice channels.
         """
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -90,12 +89,16 @@ class Voice(commands.GroupCog, name="voice"):
             )
             if row := await cursor.fetchone():
                 self.voice_category_id = int(row[0])
-
         # Reconcile managed channels on startup (non-blocking)
+        # Use the central reconciliation routine which will inspect stored
+        # channels, keep those with members, delete empty channels, and
+        # remove DB rows for missing channels.
         self.bot.loop.create_task(self.reconcile_managed_channels())
-        logger.info("Voice cog loaded; scheduled reconciliation of managed voice channels.")
+        # Start periodic cleanup loop for stale voice channel data.
         self.bot.loop.create_task(self.channel_data_cleanup_loop())
-        logger.info("Started voice channel data cleanup task.")
+        logger.info(
+            "Voice cog loaded; scheduled reconciliation of managed voice channels."
+        )
 
     async def reconcile_managed_channels(self):
         """
