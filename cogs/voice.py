@@ -74,7 +74,7 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Called when the cog is loaded.
         Fetch stored settings (such as join-to-create channel IDs and voice category)
-        and schedule cleanup of previously managed voice channels. Also, start a periodic
+        and reconcile previously managed voice channels. Also, start a periodic
         cleanup loop for stale channel data.
         """
         async with Database.get_connection() as db:
@@ -91,29 +91,97 @@ class Voice(commands.GroupCog, name="voice"):
             if row := await cursor.fetchone():
                 self.voice_category_id = int(row[0])
 
+        # Reconcile managed channels on startup (non-blocking)
+        self.bot.loop.create_task(self.reconcile_managed_channels())
+        logger.info("Voice cog loaded; scheduled reconciliation of managed voice channels.")
+        self.bot.loop.create_task(self.channel_data_cleanup_loop())
+        logger.info("Started voice channel data cleanup task.")
+
+    async def reconcile_managed_channels(self):
+        """
+        Reconcile stored managed channels on startup:
+        - If a stored voice channel no longer exists -> delete the DB row.
+        - If it exists and is empty -> delete the channel, then delete the DB row.
+        - If it exists and has members -> keep it and add to self.managed_voice_channels.
+
+        Logs a summary of kept/removed/missing entries.
+        """
+        await self.bot.wait_until_ready()
+
+        kept = 0
+        removed_empty = 0
+        missing_cleaned = 0
+
+        # Snapshot stored channel IDs
+        async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT voice_channel_id FROM user_voice_channels"
             )
             rows = await cursor.fetchall()
-            channel_ids = [channel_id for (channel_id,) in rows]
-            self.bot.loop.create_task(self._reconcile_on_ready(channel_ids))
+            channel_ids = [cid for (cid,) in rows]
 
-        logger.info("Voice cog loaded and reconciling managed voice channels.")
-        self.bot.loop.create_task(self.channel_data_cleanup_loop())
-        logger.info("Started voice channel data cleanup task.")
-
-    async def _reconcile_on_ready(self, channel_ids: list):
-        """
-        Wait until the bot is ready, then reconcile the provided channel IDs.
-        This avoids acting on stale/empty caches during cog_load.
-        """
-        await self.bot.wait_until_ready()
-        # Reconcile each stored channel
-        for cid in channel_ids:
+        for channel_id in channel_ids:
+            channel = None
             try:
-                await self.reconcile_voice_channel(cid)
+                channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+            except discord.NotFound:
+                channel = None
             except Exception as e:
-                logger.exception(f"Error reconciling channel ID {cid}: {e}")
+                logger.warning(
+                    f"Reconcile: failed to fetch channel ID {channel_id}: {e}"
+                )
+                channel = None
+
+            if not channel:
+                # Channel missing -> remove DB row
+                async with Database.get_connection() as db:
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (channel_id,),
+                    )
+                    await db.commit()
+                self.managed_voice_channels.discard(channel_id)
+                missing_cleaned += 1
+                continue
+
+            # Channel exists; check members
+            try:
+                member_count = len(channel.members)
+            except Exception:
+                member_count = 0
+
+            if member_count > 0:
+                # Keep and manage
+                self.managed_voice_channels.add(channel.id)
+                kept += 1
+                continue
+
+            # Empty -> delete channel and DB row
+            try:
+                await delete_channel(channel)
+            except discord.NotFound:
+                pass
+            except discord.Forbidden:
+                logger.error(
+                    f"Reconcile: missing permissions to delete channel ID {channel.id}"
+                )
+            except discord.HTTPException as e:
+                logger.error(
+                    f"Reconcile: HTTP error deleting channel ID {channel.id}: {e}"
+                )
+            finally:
+                async with Database.get_connection() as db:
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (channel.id,),
+                    )
+                    await db.commit()
+                self.managed_voice_channels.discard(channel.id)
+                removed_empty += 1
+
+        logger.info(
+            f"Voice reconcile summary: kept={kept}, removed_empty={removed_empty}, missing_cleaned={missing_cleaned}"
+        )
 
     async def cleanup_voice_channel(self, channel_id):
         """
