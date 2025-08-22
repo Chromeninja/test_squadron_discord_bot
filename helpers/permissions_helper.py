@@ -1,26 +1,27 @@
 """Permission utilities for voice-channel management and role validation.
 
-Consolidated single implementation (duplicates removed) providing:
-  - FEATURE_CONFIG
-  - store_permit_reject_in_db
-  - fetch_permit_reject_entries
-  - apply_permissions_changes
-  - reset_channel_permissions
-  - update_channel_owner
-  - apply_permit_reject_settings
-  - resolve_role_ids_for_guild
-  - app_command_check_configured_roles
-Existing behavior and signatures preserved for import stability.
+Single canonical implementation providing (previous duplicates removed):
+    - FEATURE_CONFIG
+    - store_permit_reject_in_db
+    - fetch_permit_reject_entries
+    - apply_permissions_changes
+    - reset_channel_permissions
+    - update_channel_owner
+    - apply_permit_reject_settings
+    - resolve_role_ids_for_guild
+    - app_command_check_configured_roles
+Behavior and signatures preserved for existing call sites.
 """
 
+import logging
 from typing import Iterable, List, Tuple
+
 import discord
 
 from helpers.database import Database
-from helpers.logger import get_logger
 from helpers.discord_api import edit_channel
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 FEATURE_CONFIG = {
     "ptt": {
@@ -212,4 +213,17 @@ def app_command_check_configured_roles(role_ids: Iterable[int]):
         return True
 
     return app_commands.check(predicate)
+
+
+__all__ = [
+    "FEATURE_CONFIG",
+    "store_permit_reject_in_db",
+    "fetch_permit_reject_entries",
+    "apply_permissions_changes",
+    "reset_channel_permissions",
+    "update_channel_owner",
+    "apply_permit_reject_settings",
+    "resolve_role_ids_for_guild",
+    "app_command_check_configured_roles",
+]
 
