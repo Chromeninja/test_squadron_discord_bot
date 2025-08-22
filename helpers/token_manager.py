@@ -1,4 +1,4 @@
-# helpers/token_manager.py
+# Helpers/token_manager.py
 
 import secrets
 import time
@@ -13,6 +13,7 @@ token_store = {}
 
 TOKEN_EXPIRATION_TIME = 15 * 60  # 15 minutes in seconds
 
+
 def generate_token(user_id: int) -> str:
     """
     Generates a secure random 4-digit token for the user.
@@ -25,9 +26,10 @@ def generate_token(user_id: int) -> str:
     """
     token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
     expires_at = time.time() + TOKEN_EXPIRATION_TIME
-    token_store[user_id] = {'token': token, 'expires_at': expires_at}
-    logger.debug("Generated token for user.", extra={'user_id': user_id})
+    token_store[user_id] = {"token": token, "expires_at": expires_at}
+    logger.debug("Generated token for user.", extra={"user_id": user_id})
     return token
+
 
 def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
     """
@@ -44,14 +46,15 @@ def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
     user_token_info = token_store.get(user_id)
     if not user_token_info:
         return False, "No token found for this user. Please generate a new token."
-    if time.time() > user_token_info['expires_at']:
+    if time.time() > user_token_info["expires_at"]:
         del token_store[user_id]
-        logger.debug("Token expired for user.", extra={'user_id': user_id})
+        logger.debug("Token expired for user.", extra={"user_id": user_id})
         return False, "Your token has expired. Please generate a new token."
-    if user_token_info['token'] != token:
+    if user_token_info["token"] != token:
         return False, "Invalid token provided."
-    logger.debug("Token validated for user.", extra={'user_id': user_id})
+    logger.debug("Token validated for user.", extra={"user_id": user_id})
     return True, "Token is valid."
+
 
 def clear_token(user_id: int):
     """
@@ -62,16 +65,22 @@ def clear_token(user_id: int):
     """
     if user_id in token_store:
         del token_store[user_id]
-        logger.debug("Cleared token for user.", extra={'user_id': user_id})
+        logger.debug("Cleared token for user.", extra={"user_id": user_id})
+
 
 def cleanup_tokens():
     """
     Cleans up expired tokens from the token store.
     """
     current_time = time.time()
-    expired_users = [user_id for user_id, info in token_store.items() if current_time > info['expires_at']]
+    expired_users = [
+        user_id
+        for user_id, info in token_store.items()
+        if current_time > info["expires_at"]
+    ]
     for user_id in expired_users:
         del token_store[user_id]
+
 
 def clear_all_tokens():
     """

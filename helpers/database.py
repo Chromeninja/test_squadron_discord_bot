@@ -1,4 +1,4 @@
-# helpers/database.py
+# Helpers/database.py
 
 import aiosqlite
 import asyncio
@@ -8,6 +8,7 @@ from helpers.logger import get_logger
 from contextlib import asynccontextmanager
 
 logger = get_logger(__name__)
+
 
 class Database:
     _db_path: str = "TESTDatabase.db"
@@ -22,7 +23,7 @@ class Database:
         async with cls.get_connection() as db:
             cur = await db.execute(
                 "SELECT fail_count FROM auto_recheck_state WHERE user_id = ?",
-                (user_id,)
+                (user_id,),
             )
             row = await cur.fetchone()
             return int(row[0]) if row and row[0] is not None else 0
@@ -34,7 +35,7 @@ class Database:
                 return
             if db_path:
                 cls._db_path = db_path
-            # No need to keep the connection open after initialization
+                # No need to keep the connection open after initialization
             async with aiosqlite.connect(cls._db_path) as db:
                 await cls._create_tables(db)
             cls._initialized = True
@@ -80,42 +81,77 @@ class Database:
                 """
             )
             await db.commit()
-            await db.execute("ALTER TABLE verification DROP COLUMN last_recheck")
+            # Safe SQLite migration: some SQLite versions/environments don't support
+            # ALTER TABLE ... DROP COLUMN. Instead, create a temp table with the
+            # Desired schema, copy rows (excluding the legacy column), drop the
+            # Old table and rename the temp table.
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS verification_tmp (
+                    user_id INTEGER PRIMARY KEY,
+                    rsi_handle TEXT NOT NULL,
+                    membership_status TEXT NOT NULL,
+                    last_updated INTEGER NOT NULL
+                )
+            """
+            )
+            # Copy data from old table excluding last_recheck. Use INSERT OR REPLACE
+            # So the operation is effectively idempotent if run multiple times.
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO verification_tmp (user_id, rsi_handle, membership_status, last_updated)
+                SELECT user_id, rsi_handle, membership_status, last_updated FROM verification
+            """
+            )
+            await db.commit()
+            # Replace the old table with the temp table. Use IF EXISTS to be
+            # Tolerant of repeated runs.
+            await db.execute("DROP TABLE IF EXISTS verification")
+            await db.execute("ALTER TABLE verification_tmp RENAME TO verification")
             await db.commit()
 
-        # Create or update voice tables
-        # In _create_tables method
-        await db.execute("""
+            # Create or update voice tables
+            # In _create_tables method
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS user_voice_channels (
                 voice_channel_id INTEGER PRIMARY KEY,
                 owner_id INTEGER NOT NULL
             )
-        """)
+        """
+        )
         # Create voice cooldown table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS voice_cooldowns (
                 user_id INTEGER PRIMARY KEY,
                 last_created INTEGER NOT NULL
             )
-        """)
+        """
+        )
         # Create settings table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
-        """)
+        """
+        )
         # Create channel_settings table (with lock column)
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS channel_settings (
                 user_id INTEGER PRIMARY KEY,
                 channel_name TEXT,
                 user_limit INTEGER,
                 lock INTEGER DEFAULT 0
             )
-        """)
+        """
+        )
         # Create channel_permissions table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS channel_permissions (
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
@@ -123,9 +159,11 @@ class Database:
                 permission TEXT NOT NULL,   -- 'permit' or 'reject'
                 PRIMARY KEY (user_id, target_id, target_type)
             )
-        """)
+        """
+        )
         # Create channel_ptt_settings table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS channel_ptt_settings (
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
@@ -133,8 +171,10 @@ class Database:
                 ptt_enabled BOOLEAN NOT NULL,
                 PRIMARY KEY (user_id, target_id, target_type)
             )
-        """)
-        await db.execute("""
+        """
+        )
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings (
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
@@ -142,10 +182,12 @@ class Database:
                 priority_enabled BOOLEAN NOT NULL,
                 PRIMARY KEY (user_id, target_id, target_type)
             )
-        """)
+        """
+        )
 
         # Create channel_soundboard_settings table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS channel_soundboard_settings (
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
@@ -153,10 +195,12 @@ class Database:
                 soundboard_enabled BOOLEAN NOT NULL,
                 PRIMARY KEY (user_id, target_id, target_type)
             )
-        """)
-       
+        """
+        )
+
         # Auto-recheck scheduler state
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS auto_recheck_state (
                 user_id INTEGER PRIMARY KEY,
                 last_auto_recheck INTEGER DEFAULT 0,
@@ -164,12 +208,16 @@ class Database:
                 fail_count INTEGER DEFAULT 0,
                 last_error TEXT
             )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ars_next ON auto_recheck_state(next_retry_at)")
+        """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ars_next ON auto_recheck_state(next_retry_at)"
+        )
         await db.commit()
 
         # Create announcement_events table
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS announcement_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -181,9 +229,24 @@ class Database:
             );
             """
         )
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ae_pending ON announcement_events(announced_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ae_created ON announcement_events(created_at)")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ae_pending ON announcement_events(announced_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ae_created ON announcement_events(created_at)"
+        )
 
+        await db.commit()
+
+        # Persisted warnings: track guilds we've already reported missing configured roles
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS missing_role_warnings (
+                guild_id INTEGER PRIMARY KEY,
+                reported_at INTEGER NOT NULL
+            )
+        """
+        )
         await db.commit()
 
     @classmethod
@@ -207,6 +270,26 @@ class Database:
             return await cursor.fetchone()
 
     @classmethod
+    async def has_reported_missing_roles(cls, guild_id: int) -> bool:
+        """Return True if we've previously recorded a missing-role warning for this guild."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM missing_role_warnings WHERE guild_id = ?", (guild_id,)
+            )
+            return (await cursor.fetchone()) is not None
+
+    @classmethod
+    async def mark_reported_missing_roles(cls, guild_id: int):
+        """Record that we've warned about missing configured roles for this guild."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO missing_role_warnings (guild_id, reported_at) VALUES (?, ?)",
+                (guild_id, now),
+            )
+            await db.commit()
+
+    @classmethod
     async def increment_rate_limit(cls, user_id: int, action: str):
         now = int(time.time())
         async with cls.get_connection() as db:
@@ -221,12 +304,16 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def reset_rate_limit(cls, user_id: Optional[int] = None, action: Optional[str] = None):
+    async def reset_rate_limit(
+        cls, user_id: Optional[int] = None, action: Optional[str] = None
+    ):
         async with cls.get_connection() as db:
             if user_id is None:
                 await db.execute("DELETE FROM rate_limits")
             elif action is None:
-                await db.execute("DELETE FROM rate_limits WHERE user_id = ?", (user_id,))
+                await db.execute(
+                    "DELETE FROM rate_limits WHERE user_id = ?", (user_id,)
+                )
             else:
                 await db.execute(
                     "DELETE FROM rate_limits WHERE user_id = ? AND action = ?",
@@ -235,9 +322,12 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def upsert_auto_recheck_success(cls, user_id: int, next_retry_at: int, now: int, new_fail_count: int = 0):
+    async def upsert_auto_recheck_success(
+        cls, user_id: int, next_retry_at: int, now: int, new_fail_count: int = 0
+    ):
         async with cls.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
                 VALUES (?, ?, ?, ?, NULL)
                 ON CONFLICT(user_id) DO UPDATE SET
@@ -245,14 +335,24 @@ class Database:
                     next_retry_at=excluded.next_retry_at,
                     fail_count=excluded.fail_count,
                     last_error=NULL
-            """, (user_id, now, next_retry_at, new_fail_count))
+            """,
+                (user_id, now, next_retry_at, new_fail_count),
+            )
             await db.commit()
 
     @classmethod
-    async def upsert_auto_recheck_failure(cls, user_id: int, next_retry_at: int, now: int, error_msg: str, inc: bool = True):
+    async def upsert_auto_recheck_failure(
+        cls,
+        user_id: int,
+        next_retry_at: int,
+        now: int,
+        error_msg: str,
+        inc: bool = True,
+    ):
         async with cls.get_connection() as db:
             if inc:
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
                     VALUES (?, ?, ?, 1, ?)
                     ON CONFLICT(user_id) DO UPDATE SET
@@ -260,16 +360,21 @@ class Database:
                         next_retry_at=excluded.next_retry_at,
                         fail_count=fail_count+1,
                         last_error=excluded.last_error
-                """, (user_id, now, next_retry_at, error_msg[:500]))
+                """,
+                    (user_id, now, next_retry_at, error_msg[:500]),
+                )
             else:
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count, last_error)
                     VALUES (?, ?, ?, 0, ?)
                     ON CONFLICT(user_id) DO UPDATE SET
                         last_auto_recheck=excluded.last_auto_recheck,
                         next_retry_at=excluded.next_retry_at,
                         last_error=excluded.last_error
-                """, (user_id, now, next_retry_at, error_msg[:500]))
+                """,
+                    (user_id, now, next_retry_at, error_msg[:500]),
+                )
             await db.commit()
 
     @classmethod
@@ -279,12 +384,15 @@ class Database:
         If a user has no row in auto_recheck_state, treat as due (bootstrap on first touch).
         """
         async with cls.get_connection() as db:
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 SELECT v.user_id, v.rsi_handle, v.membership_status
                 FROM verification v
                 LEFT JOIN auto_recheck_state s ON s.user_id = v.user_id
                 WHERE COALESCE(s.next_retry_at, 0) <= ?
                 ORDER BY COALESCE(s.last_auto_recheck, 0) ASC
                 LIMIT ?
-            """, (now, limit))
+            """,
+                (now, limit),
+            )
             return await cursor.fetchall()

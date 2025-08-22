@@ -10,7 +10,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 - **Voice Channel Management:** Users can create, manage, and customize their own voice channels.
 - **Persistent Settings:** User channel settings are stored in a database for a consistent experience.
 - **Interactive Modals and Views:** Provides an interactive user experience with Discord's UI components.
-- **Automatic Cleanup:** Clears old messages in the verification channel on startup to keep things tidy.
+- **Persistent Verification Message:** The bot keeps a single verification message in the verification channel — it stores the message ID in `verification_message_id.json` and will reuse that message instead of creating duplicates. It does not currently delete old messages on startup.
 - **Error Handling and Logging:** Gracefully handles permission issues and logs errors for debugging.
 
 ## 📋 Project Structure
@@ -49,7 +49,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 
 ## 🛠️ Getting Started
 
-For detailed setup instructions, refer to the [Setup Guide](docs/build/html/setup.html) in the documentation.
+For detailed setup instructions, refer to `SETUP.txt` in the repository or the documentation source files under `docs/` (for example, `docs/verification_workflow.md`).
 
 ## 📄 Documentation
 
@@ -60,7 +60,9 @@ Comprehensive documentation is available and includes:
 - **Setup Instructions**: Instructions on setting up the bot locally.
 - **Troubleshooting**: Solutions to common issues.
 
-Access the full documentation [here](docs/build/html/index.html).
+Developer documentation source is included in the `docs/` directory (markdown files). The generated Sphinx HTML (`docs/build/html/...`) is not committed to this repository.
+
+If you prefer to view HTML docs locally, build them from the Sphinx sources on your machine (see "Building docs locally" below) — otherwise read the markdown files in `docs/`.
 
 ## 🤝 Contributing
 

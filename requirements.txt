@@ -7,3 +7,5 @@ lxml>=4.9.3,<5.0.0
 aiosqlite>=0.20.0,<1.0.0
 aiolimiter>=1.1.0,<2.0.0
 PyNaCl==1.5.0
+pytest>=8.2.0
+pytest-asyncio>=0.23.6

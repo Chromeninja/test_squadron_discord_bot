@@ -1,4 +1,4 @@
-# helpers/http_helper.py
+# Helpers/http_helper.py
 
 import aiohttp
 import asyncio
@@ -10,7 +10,9 @@ logger = get_logger(__name__)
 
 class NotFoundError(Exception):
     """Raised when a 404 is encountered and the caller should treat the resource as gone."""
+
     pass
+
 
 class HTTPClient:
     def __init__(self, timeout: int = 15, concurrency: int = 8):
@@ -20,7 +22,9 @@ class HTTPClient:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=self._timeout, raise_for_status=False)
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, raise_for_status=False
+            )
         return self._session
 
     async def close(self):
@@ -37,17 +41,21 @@ class HTTPClient:
         async with self._sem:
             session = await self._get_session()
             try:
-                async with session.get(url, headers={"User-Agent": "Mozilla/5.0 TESTBot"}) as resp:
+                async with session.get(
+                    url, headers={"User-Agent": "Mozilla/5.0 TESTBot"}
+                ) as resp:
                     status = resp.status
                     if status == 200:
                         text = await resp.text()
                         logger.debug(f"Fetched {url} ({len(text)} bytes)")
                         return text
                     if status == 404:
-                        logger.warning(f"Fetch {url} -> HTTP 404 (client error), not retrying")
+                        logger.warning(
+                            f"Fetch {url} -> HTTP 404 (client error), not retrying"
+                        )
                         # This is a permanent "gone" state for RSI handles; let callers react accordingly.
                         raise NotFoundError("404")
-                    # Treat other statuses as transient / generic failures
+                        # Treat other statuses as transient / generic failures
                     logger.warning(f"HTTP {status} for {url}")
                     return None
             except asyncio.TimeoutError:

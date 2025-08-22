@@ -1,4 +1,4 @@
-# helpers/announcement.py
+# Helpers/announcement.py
 
 import datetime
 import time
@@ -13,8 +13,9 @@ from helpers.database import Database
 
 logger = get_logger(__name__)
 
+
 # ----------------------------
-# Leadership log 
+# Leadership log
 # ----------------------------
 async def send_verification_announcements(
     bot,
@@ -22,30 +23,36 @@ async def send_verification_announcements(
     old_status: str,
     new_status: str,
     is_recheck: bool,
-    by_admin: str = None
+    by_admin: str = None,
 ):
     """
     Posts verification/re-check logs to leadership channel.
     """
     config = bot.config
-    lead_channel_id = config['channels'].get('leadership_announcement_channel_id')
+    lead_channel_id = config["channels"].get("leadership_announcement_channel_id")
     guild = member.guild
 
-    if not isinstance(member, discord.Member) or (guild and guild.get_member(member.id) is None):
+    if not isinstance(member, discord.Member) or (
+        guild and guild.get_member(member.id) is None
+    ):
         try:
             member = await guild.fetch_member(member.id)
         except Exception as e:
             logger.warning(f"Failed to fetch full member object for {member.id}: {e}")
             return
 
-    lead_channel = guild.get_channel(lead_channel_id) if (guild and lead_channel_id) else None
+    lead_channel = (
+        guild.get_channel(lead_channel_id) if (guild and lead_channel_id) else None
+    )
 
-    old_status = (old_status or '').lower()
-    new_status = (new_status or '').lower()
+    old_status = (old_status or "").lower()
+    new_status = (new_status or "").lower()
 
     def status_str(s):
-        if s == "main": return "**TEST Main**"
-        if s == "affiliate": return "**TEST Affiliate**"
+        if s == "main":
+            return "**TEST Main**"
+        if s == "affiliate":
+            return "**TEST Affiliate**"
         return "*Not a Member*" if s == "non_member" else str(s)
 
     log_action = "re-checked" if is_recheck else "verified"
@@ -58,20 +65,24 @@ async def send_verification_announcements(
             if is_recheck:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.mention} {log_action}{admin_phrase}: **{status_str(old_status)}** → **{status_str(new_status)}**"
+                    (
+                        f"🗂️ {member.mention} {log_action}{admin_phrase}: "
+                        + f"**{status_str(old_status)}** → **{status_str(new_status)}**"
+                    ),
                 )
             else:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.mention} verified as {status_str(new_status)}"
+                    f"🗂️ {member.mention} verified as {status_str(new_status)}",
                 )
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")
 
+            # ----------------------------
+            # Queue helpers
+            # ----------------------------
 
-# ----------------------------
-# Queue helpers
-# ----------------------------
+
 def _classify_event(old_status: str, new_status: str) -> str | None:
     """
     Map a status transition to an announceable event type.
@@ -91,7 +102,9 @@ def _classify_event(old_status: str, new_status: str) -> str | None:
     return None
 
 
-async def enqueue_verification_event(member: discord.Member, old_status: str, new_status: str):
+async def enqueue_verification_event(
+    member: discord.Member, old_status: str, new_status: str
+):
     """
     Append an announceable verification event to the durable queue.
 
@@ -115,18 +128,23 @@ async def enqueue_verification_event(member: discord.Member, old_status: str, ne
 
             # Insert the latest event
             await db.execute(
-                "INSERT INTO announcement_events (user_id, old_status, new_status, event_type, created_at, announced_at) "
-                "VALUES (?, ?, ?, ?, ?, NULL)",
+                (
+                    "INSERT INTO announcement_events (user_id, old_status, new_status, event_type, created_at, "
+                    "announced_at) VALUES (?, ?, ?, ?, ?, NULL)"
+                ),
                 (member.id, (old_status or "non_member"), (new_status or ""), et, now),
             )
             await db.commit()
     except Exception as e:
-        logger.warning(f"Failed to enqueue announcement event for user {member.id}: {e}")
+        logger.warning(
+            f"Failed to enqueue announcement event for user {member.id}: {e}"
+        )
+
+        # ----------------------------
+        # Bulk Announcer v2 (queue-driven)
+        # ----------------------------
 
 
-# ----------------------------
-# Bulk Announcer v2 (queue-driven)
-# ----------------------------
 class BulkAnnouncer(commands.Cog):
     """
     Queue-driven announcer:
@@ -144,14 +162,20 @@ class BulkAnnouncer(commands.Cog):
 
         cfg = bot.config or {}
         chan_cfg = cfg.get("channels", {}) or {}
-        self.public_channel_id: int | None = chan_cfg.get("public_announcement_channel_id")
+        self.public_channel_id: int | None = chan_cfg.get(
+            "public_announcement_channel_id"
+        )
 
         bulk_cfg = cfg.get("bulk_announcement", {}) or {}
         self.hour_utc: int = int(bulk_cfg.get("hour_utc", 18))
         self.minute_utc: int = int(bulk_cfg.get("minute_utc", 0))
         self.threshold: int = int(bulk_cfg.get("threshold", 50))
-        self.max_mentions_per_message: int = int(bulk_cfg.get("max_mentions_per_message", 50))
-        self.max_chars_per_message: int = int(bulk_cfg.get("max_chars_per_message", 1800))
+        self.max_mentions_per_message: int = int(
+            bulk_cfg.get("max_mentions_per_message", 50)
+        )
+        self.max_chars_per_message: int = int(
+            bulk_cfg.get("max_chars_per_message", 1800)
+        )
 
         # Validate & clamp
         if not (0 <= self.hour_utc < 24):
@@ -165,7 +189,7 @@ class BulkAnnouncer(commands.Cog):
         if self.max_chars_per_message > 1950:
             self.max_chars_per_message = 1950
 
-        # Daily timer
+            # Daily timer
         self.daily_flush.change_interval(
             time=datetime.time(
                 hour=self.hour_utc,
@@ -179,21 +203,30 @@ class BulkAnnouncer(commands.Cog):
             self.daily_flush.start()
             self.threshold_watch.start()
         else:
-            logger.warning("BulkAnnouncer disabled: public_announcement_channel_id not configured.")
+            logger.warning(
+                "BulkAnnouncer disabled: public_announcement_channel_id not configured."
+            )
 
     def cog_unload(self):
         self.daily_flush.cancel()
         self.threshold_watch.cancel()
 
-    # ---------- Public helpers ----------
+        # ---------- Public helpers ----------
+
     async def flush_pending(self) -> bool:
         """
         Flush all pending queued events into one digest (split into multiple messages as needed).
         Returns True if anything was sent.
         """
-        channel = self.bot.get_channel(self.public_channel_id) if self.public_channel_id else None
+        channel = (
+            self.bot.get_channel(self.public_channel_id)
+            if self.public_channel_id
+            else None
+        )
         if channel is None:
-            logger.warning("BulkAnnouncer: public_announcement_channel_id missing or channel not found.")
+            logger.warning(
+                "BulkAnnouncer: public_announcement_channel_id missing or channel not found."
+            )
             return False
 
         async with Database.get_connection() as db:
@@ -208,7 +241,7 @@ class BulkAnnouncer(commands.Cog):
             logger.info("BulkAnnouncer: no pending announcements to flush.")
             return False
 
-        latest_by_user: Dict[int, tuple] = {}  # user_id -> (id, event_type, created_at)
+        latest_by_user: Dict[int, tuple] = {}  # User_id -> (id, event_type, created_at)
         for _id, user_id, et, ts in rows:
             prev = latest_by_user.get(user_id)
             if (prev is None) or (ts >= prev[2]):
@@ -230,23 +263,32 @@ class BulkAnnouncer(commands.Cog):
         announced_ids: List[int] = []
 
         sections = [
-            ("joined_main",
-             "🍻 **New TEST Main reporting in!**",
-             "You made the right call. Welcome to TEST Squadron — BEST Squardon."),
-            ("joined_affiliate",
-             "🤝 **New TEST Affiliates**",
-             "Glad to have you aboard! Ready to go all-in? Set TEST as your **Main Org** to fully commit to the Best Squardon."),
-            ("promoted_to_main",
-             "⬆️ **Promotion from TEST Affiliate → TEST Main**",
-             "o7 and welcome fully to TEST Squadron — BEST Squardon. 🍻"),
+            (
+                "joined_main",
+                "🍻 **New TEST Main reporting in!**",
+                "You made the right call. Welcome to TEST Squadron — BEST Squardon.",
+            ),
+            (
+                "joined_affiliate",
+                "🤝 **New TEST Affiliates**",
+                (
+                    "Glad to have you aboard! Ready to go all-in? Set TEST as your "
+                    "**Main Org** to fully commit to the Best Squardon."
+                ),
+            ),
+            (
+                "promoted_to_main",
+                "⬆️ **Promotion from TEST Affiliate → TEST Main**",
+                "o7 and welcome fully to TEST Squadron — BEST Squardon. 🍻",
+            ),
         ]
-        
+
         for key, header, footer in sections:
             items = events_by_type.get(key, [])
             if not items:
                 continue
 
-            # Build (id, mention) list with fallback mention
+                # Build (id, mention) list with fallback mention
             id_mention_pairs: List[Tuple[int, str]] = []
             user_ids_in_section: List[int] = []
             for ev_id, uid in items:
@@ -263,25 +305,27 @@ class BulkAnnouncer(commands.Cog):
                 header=header,
                 footer=footer,
                 max_mentions=self.max_mentions_per_message,
-                max_chars=self.max_chars_per_message
+                max_chars=self.max_chars_per_message,
             ):
                 content = self._compose_message(header, batch_mentions, footer)
                 try:
                     await channel.send(content, allowed_mentions=allowed)
                     sent_any = True
                 except Exception as e:
-                    logger.warning(f"BulkAnnouncer: failed sending a batch for {key}: {e}")
+                    logger.warning(
+                        f"BulkAnnouncer: failed sending a batch for {key}: {e}"
+                    )
 
-            # Track users for deletion
+                    # Track users for deletion
             announced_ids.extend(user_ids_in_section)
 
-        # 4) Delete all pending rows for the announced users (keep table lean)
+            # 4) Delete all pending rows for the announced users (keep table lean)
         if announced_ids:
             try:
                 async with Database.get_connection() as db:
                     CHUNK = 500
                     for i in range(0, len(announced_ids), CHUNK):
-                        chunk = announced_ids[i:i+CHUNK]
+                        chunk = announced_ids[i : i + CHUNK]
                         qmarks = ",".join("?" for _ in chunk)
                         await db.execute(
                             f"DELETE FROM announcement_events "
@@ -294,7 +338,8 @@ class BulkAnnouncer(commands.Cog):
 
         return sent_any
 
-    # ---------- Internal helpers ----------
+        # ---------- Internal helpers ----------
+
     def _compose_message(self, header: str, mentions: List[str], footer: str) -> str:
         body = ",".join(mentions)
         parts = [header, body]
@@ -308,7 +353,7 @@ class BulkAnnouncer(commands.Cog):
         header: str,
         footer: str,
         max_mentions: int,
-        max_chars: int
+        max_chars: int,
     ) -> List[Tuple[List[int], List[str]]]:
         """
         Produces batches where each batch:
@@ -332,18 +377,18 @@ class BulkAnnouncer(commands.Cog):
                     batches.append((current_ids, current_mentions))
                 current_ids, current_mentions = [], []
 
-            # Enforce char cap (simulate before adding)
+                # Enforce char cap (simulate before adding)
             if current_mentions:
                 prospective = current_mentions + [mention]
                 if msg_len(prospective) > max_chars:
                     batches.append((current_ids, current_mentions))
                     current_ids, current_mentions = [], []
 
-            # Safe to add
+                    # Safe to add
             current_ids.append(ev_id)
             current_mentions.append(mention)
 
-        # Final batch
+            # Final batch
         if current_mentions:
             batches.append((current_ids, current_mentions))
 
@@ -357,7 +402,8 @@ class BulkAnnouncer(commands.Cog):
             row = await cur.fetchone()
             return int(row[0] if row and row[0] is not None else 0)
 
-    # ---------- Tasks ----------
+            # ---------- Tasks ----------
+
     @tasks.loop()
     async def daily_flush(self):
         """

@@ -1,4 +1,4 @@
-# helpers/discord_api.py
+# Helpers/discord_api.py
 
 import discord
 from functools import partial
@@ -16,21 +16,23 @@ Enqueues each call so they're rate-limited via task_queue.py.
 # Channel creation, deletion, editing, and moving members
 # -------------------------------------------------------------------------
 
+
 async def create_voice_channel(
     guild: discord.Guild,
     name: str,
     category: discord.CategoryChannel,
     *,
     user_limit: int = None,
-    overwrites: dict = None
+    overwrites: dict = None,
 ):
     async def _task():
         return await guild.create_voice_channel(
             name=name,
             category=category,
             user_limit=user_limit,
-            overwrites=overwrites or {}
+            overwrites=overwrites or {},
         )
+
     try:
         future = await enqueue_task(_task)
         channel = await future
@@ -40,6 +42,7 @@ async def create_voice_channel(
         logger.error(f"Failed to create voice channel '{name}': {e}")
         raise
 
+
 async def delete_channel(channel: discord.abc.GuildChannel):
     async def _task():
         # Check if the channel still exists before deleting
@@ -47,11 +50,15 @@ async def delete_channel(channel: discord.abc.GuildChannel):
             logger.warning("Attempted to delete a channel that no longer exists.")
             return
         try:
-            await channel.guild.fetch_channel(channel.id)  # Explicit check if the channel exists
+            await channel.guild.fetch_channel(
+                channel.id
+            )  # Explicit check if the channel exists
             await channel.delete()
             logger.info(f"Deleted channel '{channel.name}' successfully.")
         except discord.NotFound:
-            logger.warning(f"Channel '{channel.id}' not found. It may have already been deleted.")
+            logger.warning(
+                f"Channel '{channel.id}' not found. It may have already been deleted."
+            )
         except discord.Forbidden:
             logger.error(f"Bot lacks permissions to delete channel '{channel.id}'.")
         except discord.HTTPException as e:
@@ -61,6 +68,7 @@ async def delete_channel(channel: discord.abc.GuildChannel):
         await enqueue_task(_task)
     except Exception as e:
         logger.error(f"Failed to enqueue delete task for channel '{channel.id}': {e}")
+
 
 async def edit_channel(channel: discord.abc.GuildChannel, **kwargs):
     async def _task():
@@ -79,10 +87,15 @@ async def edit_channel(channel: discord.abc.GuildChannel, **kwargs):
 
     try:
         await enqueue_task(_task)
-        logger.info(f"Enqueued edit for channel '{getattr(channel,'name',channel.id)}' with {kwargs}.")
+        logger.info(
+            f"Enqueued edit for channel '{getattr(channel, 'name', channel.id)}' with {kwargs}."
+        )
     except Exception as e:
-        logger.error(f"Failed to enqueue edit for channel '{getattr(channel,'name',channel.id)}': {e}")
+        logger.error(
+            f"Failed to enqueue edit for channel '{getattr(channel, 'name', channel.id)}': {e}"
+        )
         raise
+
 
 async def move_member(member: discord.Member, channel: discord.VoiceChannel):
     async def _task():
@@ -95,9 +108,10 @@ async def move_member(member: discord.Member, channel: discord.VoiceChannel):
         logger.error(f"Failed to enqueue move for '{member.display_name}': {e}")
         raise
 
-# -------------------------------------------------------------------------
-# Roles / Member editing
-# -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Roles / Member editing
+        # -------------------------------------------------------------------------
+
 
 async def add_roles(member: discord.Member, *roles, reason: str = None):
     async def _task():
@@ -108,8 +122,11 @@ async def add_roles(member: discord.Member, *roles, reason: str = None):
         role_names = ", ".join(r.name for r in roles)
         logger.info(f"Enqueued add_roles for '{member.display_name}': {role_names}.")
     except Exception as e:
-        logger.error(f"Failed to enqueue add_roles for user '{member.display_name}': {e}")
+        logger.error(
+            f"Failed to enqueue add_roles for user '{member.display_name}': {e}"
+        )
         raise
+
 
 async def remove_roles(member: discord.Member, *roles, reason: str = None):
     async def _task():
@@ -120,8 +137,11 @@ async def remove_roles(member: discord.Member, *roles, reason: str = None):
         role_names = ", ".join(r.name for r in roles)
         logger.info(f"Enqueued remove_roles for '{member.display_name}': {role_names}.")
     except Exception as e:
-        logger.error(f"Failed to enqueue remove_roles for user '{member.display_name}': {e}")
+        logger.error(
+            f"Failed to enqueue remove_roles for user '{member.display_name}': {e}"
+        )
         raise
+
 
 async def edit_member(member: discord.Member, **kwargs):
     async def _task():
@@ -129,9 +149,13 @@ async def edit_member(member: discord.Member, **kwargs):
             await member.edit(**kwargs)
         except discord.Forbidden:
             # Don’t bubble up; just log. This covers owner / hierarchy / missing perms.
-            logger.warning(f"Forbidden editing '{member.display_name}' with {kwargs} (likely hierarchy/owner).")
+            logger.warning(
+                f"Forbidden editing '{member.display_name}' with {kwargs} (likely hierarchy/owner)."
+            )
         except discord.NotFound:
-            logger.warning(f"Member {member.id} not found while editing (left the guild?).")
+            logger.warning(
+                f"Member {member.id} not found while editing (left the guild?)."
+            )
         except discord.HTTPException as e:
             logger.error(f"HTTP error editing member {member.id}: {e}")
         except Exception as e:
@@ -144,16 +168,17 @@ async def edit_member(member: discord.Member, **kwargs):
         logger.error(f"Failed to enqueue edit for user '{member.display_name}': {e}")
         raise
 
-# -------------------------------------------------------------------------
-# Slash Command interaction responses
-# -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Slash Command interaction responses
+        # -------------------------------------------------------------------------
+
 
 async def send_message(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool = False,
     embed: discord.Embed = None,
-    view: discord.ui.View = None
+    view: discord.ui.View = None,
 ):
     """
     Sends an ephemeral (or public) message as the immediate slash command response
@@ -162,72 +187,92 @@ async def send_message(
     task = partial(send_message_task, interaction, content, ephemeral, embed, view)
     await enqueue_task(task)
 
+
 async def send_message_task(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool,
     embed: discord.Embed,
-    view: discord.ui.View
+    view: discord.ui.View,
 ):
     try:
         kwargs = {
             "content": content,
             "ephemeral": ephemeral,
             "embed": embed,
-            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
+            "allowed_mentions": discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            ),
         }
         if view is not None:
             kwargs["view"] = view
 
-        await interaction.response.send_message(**kwargs)
-        logger.info(f"Sent message to {interaction.user.display_name}: {content}")
+        if getattr(interaction.response, "is_done", lambda: False)():
+            await interaction.followup.send(**kwargs)
+            logger.info(
+                f"Sent follow-up message to {interaction.user.display_name}: {content}"
+            )
+        else:
+            await interaction.response.send_message(**kwargs)
+            logger.info(
+                f"Sent message to {interaction.user.display_name}: {content}"
+            )
     except Exception as e:
         logger.exception(f"Failed to send message: {e}")
+
 
 async def followup_send_message(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool = False,
     embed: discord.Embed = None,
-    view: discord.ui.View = None
+    view: discord.ui.View = None,
 ):
     """
     Sends a follow-up message after you've already responded or deferred the interaction.
     """
-    task = partial(followup_send_message_task, interaction, content, ephemeral, embed, view)
+    task = partial(
+        followup_send_message_task, interaction, content, ephemeral, embed, view
+    )
     await enqueue_task(task)
+
 
 async def followup_send_message_task(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool,
     embed: discord.Embed,
-    view: discord.ui.View
+    view: discord.ui.View,
 ):
     try:
         kwargs = {
             "content": content,
             "ephemeral": ephemeral,
             "embed": embed,
-            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
+            "allowed_mentions": discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            ),
         }
         if view is not None:
             kwargs["view"] = view
 
         await interaction.followup.send(**kwargs)
-        logger.info(f"Sent follow-up message to {interaction.user.display_name}: {content}")
+        logger.info(
+            f"Sent follow-up message to {interaction.user.display_name}: {content}"
+        )
     except Exception as e:
         logger.exception(f"Failed to send follow-up message: {e}")
 
-# -------------------------------------------------------------------------
-# Channel text sends (e.g., channel.send)
-# -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Channel text sends (e.g., channel.send)
+        # -------------------------------------------------------------------------
+
 
 async def channel_send_message(
     channel: discord.TextChannel,
     content: str,
     embed: discord.Embed = None,
-    view: discord.ui.View = None
+    view: discord.ui.View = None,
 ):
     """
     Enqueues a message to be sent to a specific channel.
@@ -235,16 +280,19 @@ async def channel_send_message(
     task = partial(channel_send_message_task, channel, content, embed, view)
     await enqueue_task(task)
 
+
 async def channel_send_message_task(
     channel: discord.TextChannel,
     content: str,
     embed: discord.Embed,
-    view: discord.ui.View
+    view: discord.ui.View,
 ):
     try:
         kwargs = {
             "content": content,
-            "allowed_mentions": discord.AllowedMentions(users=True, roles=False, everyone=False),
+            "allowed_mentions": discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            ),
         }
         if embed is not None:
             kwargs["embed"] = embed
@@ -256,14 +304,13 @@ async def channel_send_message_task(
     except Exception as e:
         logger.exception(f"Failed to send message to channel '{channel.name}': {e}")
 
-# -------------------------------------------------------------------------
-# Direct Messages (DM) to Members
-# -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Direct Messages (DM) to Members
+        # -------------------------------------------------------------------------
+
 
 async def send_direct_message(
-    member: discord.Member,
-    content: str,
-    embed: discord.Embed = None
+    member: discord.Member, content: str, embed: discord.Embed = None
 ):
     """
     Enqueues a direct message (DM) to a member.
@@ -271,10 +318,9 @@ async def send_direct_message(
     task = partial(send_direct_message_task, member, content, embed)
     await enqueue_task(task)
 
+
 async def send_direct_message_task(
-    member: discord.Member,
-    content: str,
-    embed: discord.Embed
+    member: discord.Member, content: str, embed: discord.Embed
 ):
     try:
         if embed is not None:
@@ -287,15 +333,16 @@ async def send_direct_message_task(
     except Exception as e:
         logger.exception(f"Failed to send DM to '{member.display_name}': {e}")
 
-# -------------------------------------------------------------------------
-# Editing Messages
-# -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Editing Messages
+        # -------------------------------------------------------------------------
+
 
 async def edit_message(
     interaction: discord.Interaction,
     content: str = None,
     embed: discord.Embed = None,
-    view: discord.ui.View = None
+    view: discord.ui.View = None,
 ):
     """
     Enqueues a message edit to be sent as part of a follow-up interaction.
@@ -303,11 +350,12 @@ async def edit_message(
     task = partial(edit_message_task, interaction, content, embed, view)
     await enqueue_task(task)
 
+
 async def edit_message_task(
     interaction: discord.Interaction,
     content: str = None,
     embed: discord.Embed = None,
-    view: discord.ui.View = None
+    view: discord.ui.View = None,
 ):
     try:
         kwargs = {}
@@ -320,13 +368,19 @@ async def edit_message_task(
 
         if not interaction.response.is_done():
             await interaction.response.send_message(**kwargs)
-            logger.info(f"Sent initial interaction response to {interaction.user.display_name}: {content}")
+            logger.info(
+                f"Sent initial interaction response to {interaction.user.display_name}: {content}"
+            )
         else:
             await interaction.edit_original_response(**kwargs)
-            logger.info(f"Edited interaction response for {interaction.user.display_name}: {content}")
+            logger.info(
+                f"Edited interaction response for {interaction.user.display_name}: {content}"
+            )
     except discord.NotFound as e:
         if "Unknown Webhook" in str(e):
-            logger.error("Attempted to edit a message using an unknown webhook. Interaction may have expired.")
+            logger.error(
+                "Attempted to edit a message using an unknown webhook. Interaction may have expired."
+            )
         else:
             logger.exception(f"Failed to edit message: {e}")
     except Exception as e:
