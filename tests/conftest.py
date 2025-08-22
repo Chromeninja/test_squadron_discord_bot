@@ -35,7 +35,6 @@ def mock_bot():
 async def temp_db(tmp_path):
     """Initialize Database to a temporary file for isolation across tests."""
     orig_path = Database._db_path
-    orig_init = Database._initialized
     Database._initialized = False
     db_file = tmp_path / "test.db"
     await Database.initialize(str(db_file))

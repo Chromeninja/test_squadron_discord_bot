@@ -18,14 +18,18 @@ async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot):
     async def spy_get(ix):
         called["get_token"] = True
         # Patch internals to avoid network/DB
-        monkeypatch.setattr("helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0)))
+        monkeypatch.setattr(
+            "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+        )
         monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
         monkeypatch.setattr("helpers.views.send_message", AsyncMock())
         return await orig_get(ix)
 
     async def spy_verify(ix):
         called["verify"] = True
-        monkeypatch.setattr("helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0)))
+        monkeypatch.setattr(
+            "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+        )
         return await orig_verify(ix)
 
     view.get_token_button.callback = spy_get

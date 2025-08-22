@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import AsyncMock
 
 from cogs import admin as admin_cog
 from tests.conftest import FakeInteraction, FakeUser
@@ -10,7 +9,9 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot):
     # Patch send_message to capture payload
     captured = {}
 
-    async def fake_send_message(interaction, content, ephemeral=False, embed=None, view=None):
+    async def fake_send_message(
+        interaction, content, ephemeral=False, embed=None, view=None
+    ):
         captured["content"] = content
         captured["ephemeral"] = ephemeral
         return None

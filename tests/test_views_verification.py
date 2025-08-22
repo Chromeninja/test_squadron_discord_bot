@@ -1,6 +1,5 @@
 import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from helpers.views import VerificationView
 from tests.conftest import FakeInteraction, FakeUser
@@ -11,7 +10,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mo
     view = VerificationView(mock_bot)
 
     # Patch rate limiter and attempt logging (avoid DB)
-    monkeypatch.setattr("helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0)))
+    monkeypatch.setattr(
+        "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+    )
     monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
 
     # Patch send_message to capture calls
@@ -33,7 +34,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mo
 @pytest.mark.asyncio
 async def test_verify_button_opens_modal_when_not_rate_limited(monkeypatch, mock_bot):
     view = VerificationView(mock_bot)
-    monkeypatch.setattr("helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0)))
+    monkeypatch.setattr(
+        "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+    )
 
     ix = FakeInteraction(FakeUser(8, "VerifUser"))
     await view.verify_button_callback(ix)

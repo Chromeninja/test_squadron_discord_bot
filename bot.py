@@ -32,7 +32,7 @@ if not TOKEN:
     logger.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
-    # Access configuration values from config.yaml
+# Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
 PREFIX = config["bot"]["prefix"]
 VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
 BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
@@ -40,9 +40,7 @@ MAIN_ROLE_ID = config["roles"]["main_role_id"]
 AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
 NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
 BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("bot_admins", [])]
-LEAD_MODERATOR_ROLE_IDS = [
-    int(role_id) for role_id in config["roles"].get("lead_moderators", [])
-]
+LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("lead_moderators", [])]
 
 intents = discord.Intents.default()
 intents.guilds = True  # Needed for guild-related events
@@ -118,16 +116,15 @@ class MyBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Failed to load extension {extension}: {e}")
 
-                # Cache roles after bot is ready
+        # Cache roles after bot is ready
         self.loop.create_task(self.cache_roles())
 
         # Start cleanup tasks
         self.loop.create_task(self.token_cleanup_task())
         self.loop.create_task(self.attempts_cleanup_task())
 
-        # Register the persistent VerificationView
+        # Register persistent views (must happen every startup for persistence to work)
         self.add_view(VerificationView(self))
-        # Register the persistent ChannelSettingsView so dropdowns remain usable after a restart
         self.add_view(ChannelSettingsView(self))
 
         # Sync the command tree after loading all cogs
@@ -137,16 +134,14 @@ class MyBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
-            # Set command permissions for each guild
+        # Set command permissions for each guild (always attempt regardless of sync result)
         for guild in self.guilds:
             await self.set_admin_command_permissions(guild)
 
-            # Log all loaded commands after the setup
+        # Log all loaded commands after the setup (deterministic ordering)
         logger.info("Registered commands: ")
         for command in self.tree.walk_commands():
-            logger.info(
-                f"- Command: {command.name}, Description: {command.description}"
-            )
+            logger.info(f"- Command: {command.name}, Description: {command.description}")
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -400,5 +395,6 @@ class MyBot(commands.Bot):
 
 bot = MyBot(command_prefix=PREFIX, intents=intents)
 
-# Run the bot
-bot.run(TOKEN)
+# Only auto-run if not in explicit dry-run context (dev_smoke_startup sets TESTBOT_DRY_RUN)
+if os.getenv("TESTBOT_DRY_RUN") != "1":
+    bot.run(TOKEN)

@@ -1,9 +1,5 @@
 import pytest
-
 from helpers.views import ChannelSettingsView
-
-
-import pytest
 
 
 @pytest.mark.asyncio

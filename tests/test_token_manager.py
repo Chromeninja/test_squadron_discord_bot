@@ -1,5 +1,4 @@
 import time
-import pytest
 
 from helpers import token_manager as tm
 
@@ -52,7 +51,7 @@ def test_clear_and_cleanup_tokens(monkeypatch):
     assert user_id not in tm.token_store
 
     # Recreate and expire, then cleanup
-    token = tm.generate_token(user_id)
+    tm.generate_token(user_id)
     expires_at = tm.token_store[user_id]["expires_at"]
     monkeypatch.setattr(time, "time", lambda: expires_at + 1)
     tm.cleanup_tokens()

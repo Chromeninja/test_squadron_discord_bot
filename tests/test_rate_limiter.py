@@ -1,7 +1,7 @@
 import time
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from helpers import rate_limiter as rl
 

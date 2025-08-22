@@ -58,12 +58,11 @@ class VerificationCog(commands.Cog):
                 f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}."
             )
             return
-        else:
-            logger.info(
-                f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
-            )
+        logger.info(
+            f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
+        )
 
-            # Load the message ID from a file
+        # Load the message ID from a file
         message_id = None
         message_id_file = "verification_message_id.json"
         if os.path.exists(message_id_file):
@@ -84,7 +83,7 @@ class VerificationCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error fetching verification message: {e}")
 
-                # Create the verification embed
+        # Create the verification embed
         embed = create_verification_embed()
 
         # Initialize the verification view with buttons
