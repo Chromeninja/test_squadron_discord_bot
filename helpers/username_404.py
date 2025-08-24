@@ -61,12 +61,9 @@ async def remove_bot_roles(member: discord.Member, bot):
 async def handle_username_404(bot, member: discord.Member, old_handle: str):
     """Unified, idempotent handler when an RSI Handle starts returning 404.
 
-    Legacy naming note:
-        Historically referred to as *username* 404. Module will be renamed
-        to handle_404 in future; keep import path for compatibility.
-        Terms:
-          - RSI Handle: unique identifier ("old_handle" here)
-          - Community Moniker: display name (not part of 404 detection)
+    Terms:
+        - RSI handle: unique identifier ("old_handle" here)
+        - Community moniker: display name (not part of 404 detection)
 
     Steps:
         1. Flag ``needs_reverify`` in DB (early exit if already flagged)

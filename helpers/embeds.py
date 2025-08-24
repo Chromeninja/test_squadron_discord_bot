@@ -87,10 +87,10 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
     )
 
     embed.set_footer(
-            text=(
-                "By verifying, you consent to storing your RSI handle and verification "
-                "status for role assignment purposes."
-            )
+        text=(
+            "By verifying, you consent to storing your RSI handle, community moniker (if found), "
+            "and verification status for role assignment and username syncing."
+        )
     )
 
     return embed

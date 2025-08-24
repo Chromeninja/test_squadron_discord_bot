@@ -33,7 +33,12 @@ if not TOKEN:
     raise ValueError("DISCORD_TOKEN not set.")
 
 # Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
-PREFIX = config["bot"]["prefix"]
+# Some deployments may accidentally supply an empty list / string; fall back to mention‑only behavior.
+raw_prefix = config["bot"].get("prefix")
+if not raw_prefix:  # empty list, empty string, None -> default
+    PREFIX = commands.when_mentioned
+else:
+    PREFIX = raw_prefix
 VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
 BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
 BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
@@ -63,30 +68,32 @@ class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+            super().__init__(*args, **kwargs)
 
-        # Assign the entire config to the bot instance
-        self.config = config
+            # Assign the entire config to the bot instance
+            self.config = config
 
-        # Pass role and channel IDs to the bot for use in cogs
-        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
-        self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
-        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
-        self.MAIN_ROLE_ID = MAIN_ROLE_ID
-        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
-        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
-        self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
-        self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
+            # Pass role and channel IDs to the bot for use in cogs
+            self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
+            self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
+            self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
+            self.MAIN_ROLE_ID = MAIN_ROLE_ID
+            self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
+            self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
+            self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
+            self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
 
-        # Initialize uptime tracking
-        self.start_time = time.monotonic()
+            # Initialize uptime tracking
+            self.start_time = time.monotonic()
 
-        # Initialize the HTTP client
-        self.http_client = HTTPClient()
+            # Initialize the HTTP client with configurable user-agent (falls back internally)
+            rsi_cfg = (self.config or {}).get("rsi", {}) or {}
+            ua = rsi_cfg.get("user_agent")
+            self.http_client = HTTPClient(user_agent=ua)
 
-        # Initialize role cache and warning tracking
-        self.role_cache = {}
-        self._missing_role_warned_guilds = set()
+            # Initialize role cache and warning tracking
+            self.role_cache = {}
+            self._missing_role_warned_guilds = set()
 
     async def setup_hook(self):
         """Load cogs, initialize services, and sync commands."""

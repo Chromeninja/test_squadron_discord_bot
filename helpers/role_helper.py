@@ -184,21 +184,22 @@ async def assign_roles(
         logger.error("No valid roles to add.", extra={"user_id": member.id})
 
         # Enqueue nickname change
-    # Determine nickname preference: prefer community_moniker if present & valid; else cased_handle
-    preferred_nick = None
-    if community_moniker:
-        # Truncate to 32
-        nick = community_moniker.strip()
-        if nick and nick.lower() != cased_handle.lower():
-            preferred_nick = nick
-    if not preferred_nick:
+    # Determine nickname preference (Discord nickname, not global username):
+    # Prefer moniker if present, non-empty, and different (case-insensitive) from handle; else fallback to handle.
+    if (
+        community_moniker
+        and (mn := community_moniker.strip())
+        and mn.lower() != cased_handle.lower()
+    ):
+        preferred_nick = mn
+    else:
         preferred_nick = cased_handle
 
     if preferred_nick and can_modify_nickname(member):
-        # Enforce max 32 chars with ellipsis if truncated
         nick_final = preferred_nick
+        # Discord hard limit: 32 characters. If over, keep first 31 and append a single ellipsis character (U+2026)
         if len(nick_final) > 32:
-            nick_final = nick_final[:29] + "..."
+            nick_final = nick_final[:31] + "…"
         if getattr(member, "nick", None) == nick_final:
             pass  # No change required
         else:

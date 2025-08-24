@@ -15,10 +15,26 @@ class NotFoundError(Exception):
 
 
 class HTTPClient:
-    def __init__(self, timeout: int = 15, concurrency: int = 8):
+    def __init__(
+        self,
+        timeout: int = 15,
+        concurrency: int = 8,
+        user_agent: Optional[str] = None,
+    ):
+        """Thin wrapper around aiohttp with a concurrency semaphore and
+        project‑specific error semantics.
+
+        Args:
+            timeout: Total request timeout seconds.
+            concurrency: Max in‑flight requests.
+            user_agent: Optional UA string. If not provided a conservative default
+                is used. Providing this allows operators to set a polite
+                identifying UA via config (see config.yaml rsi.user_agent).
+        """
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._sem = asyncio.Semaphore(concurrency)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._user_agent = user_agent or "Mozilla/5.0 TESTBot"
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -42,7 +58,7 @@ class HTTPClient:
             session = await self._get_session()
             try:
                 async with session.get(
-                    url, headers={"User-Agent": "Mozilla/5.0 TESTBot"}
+                    url, headers={"User-Agent": self._user_agent}
                 ) as resp:
                     status = resp.status
                     if status == 200:
