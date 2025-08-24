@@ -1,6 +1,7 @@
 # Helpers/database.py
 
 import aiosqlite
+import sqlite3
 import asyncio
 import time
 from typing import Optional
@@ -65,15 +66,21 @@ class Database:
                 await db.execute(
                     "ALTER TABLE verification ADD COLUMN needs_reverify INTEGER NOT NULL DEFAULT 0"
                 )
-            except Exception:
-                pass
+                logger.info("Added column verification.needs_reverify")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add needs_reverify column (maybe already exists): {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error adding needs_reverify column: {e}")
         if "needs_reverify_at" not in columns:
             try:
                 await db.execute(
                     "ALTER TABLE verification ADD COLUMN needs_reverify_at INTEGER"
                 )
-            except Exception:
-                pass
+                logger.info("Added column verification.needs_reverify_at")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add needs_reverify_at column (maybe already exists): {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error adding needs_reverify_at column: {e}")
         if last_recheck_exists:
             logger.info("Found legacy last_recheck column; will migrate data.")
 

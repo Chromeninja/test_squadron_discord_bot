@@ -81,8 +81,9 @@ async def assign_roles(
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
-                needs_reverify = 0,
-                needs_reverify_at = NULL
+                -- Only clear needs_reverify if it was previously set (successful re-verification)
+                needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
+                needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
             """,
             (member.id, cased_handle, membership_status, int(time.time())),
         )
