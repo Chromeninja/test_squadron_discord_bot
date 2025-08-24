@@ -35,6 +35,7 @@ if not TOKEN:
 # Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
 PREFIX = config["bot"]["prefix"]
 VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
+BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
 BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
 MAIN_ROLE_ID = config["roles"]["main_role_id"]
 AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
@@ -62,9 +63,6 @@ class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
     def __init__(self, *args, **kwargs):
-        """
-        Initializes the MyBot instance with specific role and channel IDs.
-        """
         super().__init__(*args, **kwargs)
 
         # Assign the entire config to the bot instance
@@ -72,6 +70,7 @@ class MyBot(commands.Bot):
 
         # Pass role and channel IDs to the bot for use in cogs
         self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
+        self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
         self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
         self.MAIN_ROLE_ID = MAIN_ROLE_ID
         self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
@@ -85,11 +84,8 @@ class MyBot(commands.Bot):
         # Initialize the HTTP client
         self.http_client = HTTPClient()
 
-        # Initialize role cache
+        # Initialize role cache and warning tracking
         self.role_cache = {}
-        # Track guilds we've already warned about missing configured roles
-        # To avoid repeated WARNING logs on every restart. Subsequent
-        # Occurrences will be logged at INFO instead.
         self._missing_role_warned_guilds = set()
 
     async def setup_hook(self):
