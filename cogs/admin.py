@@ -235,13 +235,24 @@ class Admin(commands.Cog):
         except Exception:
             date_str = "unknown"
 
-        success, status_tuple, error_msg = await reverify_member(
-            member, rsi_handle, self.bot
-        )
-        if not success:
+        from helpers.http_helper import NotFoundError
+        from helpers.username_404 import handle_username_404
+
+        try:
+            success, status_tuple, error_msg = await reverify_member(member, rsi_handle, self.bot)
+        except NotFoundError:
+            try:
+                await handle_username_404(self.bot, member, rsi_handle)
+            except Exception as e:
+                logger.warning(f"Unified 404 handler failed during admin recheck: {e}")
+            verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             await interaction.followup.send(
-                error_msg or "Re-check failed.", ephemeral=True
+                f"{member.mention} needs to re-verify in <#{verification_channel_id}> (Handle returned 404).", ephemeral=True
             )
+            return
+
+        if not success:
+            await interaction.followup.send(error_msg or "Re-check failed.", ephemeral=True)
             return
 
             # Unpack statuses (reverify_member may return a tuple or a single string)

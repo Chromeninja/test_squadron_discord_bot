@@ -156,19 +156,12 @@ class AutoRecheck(commands.Cog):
             )
 
         except NotFoundError:
-            # RSI 404 → username changed / profile gone: remove from tracking
+            from helpers.username_404 import handle_username_404
+
             try:
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        "DELETE FROM verification WHERE user_id = ?", (int(user_id),)
-                    )
-                    await db.execute(
-                        "DELETE FROM auto_recheck_state WHERE user_id = ?",
-                        (int(user_id),),
-                    )
-                    await db.commit()
+                await handle_username_404(self.bot, member, rsi_handle)
             except Exception as e:
-                logger.warning(f"Failed to prune departed user {user_id}: {e}")
+                logger.warning(f"Failed unified 404 handling for {user_id}: {e}")
 
         except Exception as e:
             # Other errors → exponential backoff and record error

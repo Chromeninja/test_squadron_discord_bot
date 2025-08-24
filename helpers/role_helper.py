@@ -80,7 +80,10 @@ async def assign_roles(
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
-                last_updated = excluded.last_updated
+                last_updated = excluded.last_updated,
+                -- Only clear needs_reverify if it was previously set (successful re-verification)
+                needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
+                needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
             """,
             (member.id, cased_handle, membership_status, int(time.time())),
         )
@@ -230,10 +233,18 @@ def can_modify_nickname(member: discord.Member) -> bool:
 
 
 async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple:
-    """Re-check a member's roles based on their RSI handle."""
-    from verification.rsi_verification import is_valid_rsi_handle
+    """Re-check a member's roles based on their RSI handle.
 
-    verify_value, cased_handle = await is_valid_rsi_handle(rsi_handle, bot.http_client)
+    Caller is responsible for catching NotFoundError (RSI 404) and invoking
+    unified remediation handler.
+    """
+    from verification.rsi_verification import is_valid_rsi_handle
+    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
+
+    verify_value, cased_handle = await is_valid_rsi_handle(
+        rsi_handle, bot.http_client
+    )  # May raise NotFoundError
+
     if verify_value is None or cased_handle is None:
         return False, "unknown", "Failed to verify RSI handle."
 

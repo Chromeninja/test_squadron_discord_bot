@@ -133,11 +133,26 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        result = await reverify_member(member, rsi_handle, self.bot)
-        if not result[0]:
+        from helpers.http_helper import NotFoundError
+        from helpers.username_404 import handle_username_404
+
+        try:
+            result = await reverify_member(member, rsi_handle, self.bot)
+        except NotFoundError:
+            # Invoke unified remediation then inform user
+            try:
+                await handle_username_404(self.bot, member, rsi_handle)
+            except Exception as e:
+                logger.warning(f"Unified 404 handler failed (button): {e}")
+            verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             embed = create_error_embed(
-                result[2] or "Re-check failed. Please try again later."
+                f"Your RSI Handle appears to have changed. Please re-verify in <#{verification_channel_id}>."
             )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        if not result[0]:
+            embed = create_error_embed(result[2] or "Re-check failed. Please try again later.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 

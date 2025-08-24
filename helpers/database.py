@@ -1,6 +1,7 @@
 # Helpers/database.py
 
 import aiosqlite
+import sqlite3
 import asyncio
 import time
 from typing import Optional
@@ -50,13 +51,36 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 rsi_handle TEXT NOT NULL,
                 membership_status TEXT NOT NULL,
-                last_updated INTEGER NOT NULL
+                last_updated INTEGER NOT NULL,
+                needs_reverify INTEGER NOT NULL DEFAULT 0,
+                needs_reverify_at INTEGER
             )
             """
         )
         cursor = await db.execute("PRAGMA table_info(verification)")
         columns = [row[1] for row in await cursor.fetchall()]
         last_recheck_exists = "last_recheck" in columns
+        # Backfill new columns if migration on existing DB
+        if "needs_reverify" not in columns:
+            try:
+                await db.execute(
+                    "ALTER TABLE verification ADD COLUMN needs_reverify INTEGER NOT NULL DEFAULT 0"
+                )
+                logger.info("Added column verification.needs_reverify")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add needs_reverify column (maybe already exists): {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error adding needs_reverify column: {e}")
+        if "needs_reverify_at" not in columns:
+            try:
+                await db.execute(
+                    "ALTER TABLE verification ADD COLUMN needs_reverify_at INTEGER"
+                )
+                logger.info("Added column verification.needs_reverify_at")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not add needs_reverify_at column (maybe already exists): {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error adding needs_reverify_at column: {e}")
         if last_recheck_exists:
             logger.info("Found legacy last_recheck column; will migrate data.")
 
@@ -91,7 +115,9 @@ class Database:
                     user_id INTEGER PRIMARY KEY,
                     rsi_handle TEXT NOT NULL,
                     membership_status TEXT NOT NULL,
-                    last_updated INTEGER NOT NULL
+                    last_updated INTEGER NOT NULL,
+                    needs_reverify INTEGER NOT NULL DEFAULT 0,
+                    needs_reverify_at INTEGER
                 )
             """
             )
@@ -390,9 +416,40 @@ class Database:
                 FROM verification v
                 LEFT JOIN auto_recheck_state s ON s.user_id = v.user_id
                 WHERE COALESCE(s.next_retry_at, 0) <= ?
+                  AND v.needs_reverify = 0
                 ORDER BY COALESCE(s.last_auto_recheck, 0) ASC
                 LIMIT ?
             """,
                 (now, limit),
             )
             return await cursor.fetchall()
+
+    # 404 username change helpers
+    @classmethod
+    async def flag_needs_reverify(cls, user_id: int, now: int) -> bool:
+        """Set needs_reverify flag. Returns True if row updated (was newly flagged)."""
+        async with cls.get_connection() as db:
+            cur = await db.execute(
+                "UPDATE verification SET needs_reverify=1, needs_reverify_at=? WHERE user_id=? AND needs_reverify=0",
+                (now, user_id),
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    @classmethod
+    async def clear_needs_reverify(cls, user_id: int):
+        async with cls.get_connection() as db:
+            await db.execute(
+                "UPDATE verification SET needs_reverify=0, needs_reverify_at=NULL WHERE user_id=?",
+                (user_id,),
+            )
+            await db.commit()
+
+    @classmethod
+    async def unschedule_auto_recheck(cls, user_id: int):
+        """Remove any auto-recheck state for a user (stop further auto checks)."""
+        async with cls.get_connection() as db:
+            await db.execute(
+                "DELETE FROM auto_recheck_state WHERE user_id = ?", (user_id,)
+            )
+            await db.commit()
