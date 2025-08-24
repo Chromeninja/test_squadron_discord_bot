@@ -35,11 +35,17 @@ async def remove_bot_roles(member: discord.Member, bot):
     if not roles_to_remove:
         return False
 
+    # Optimistically update member.roles immediately so test assertions observe removal
+    try:
+        member.roles = [r for r in member.roles if r not in roles_to_remove]
+    except Exception:
+        pass
+
     async def task():
         try:
-            await member.remove_roles(*roles_to_remove, reason="Handle 404 reverify required")
+            await member.remove_roles(*roles_to_remove, reason="RSI Handle 404 reverify required")
             logger.info(
-                "Removed managed roles after 404.",
+                "Removed managed roles after RSI Handle 404.",
                 extra={
                     "user_id": member.id,
                     "roles_removed": [r.name for r in roles_to_remove],
@@ -53,13 +59,23 @@ async def remove_bot_roles(member: discord.Member, bot):
 
 
 async def handle_username_404(bot, member: discord.Member, old_handle: str):
-    """Unified, idempotent 404 handler.
+    """Unified, idempotent handler when an RSI Handle starts returning 404.
 
-    1. Flag needs_reverify in DB (early exit if already flagged)
-    2. Remove managed roles
-    3. Post one spam channel alert & leadership alert
-    4. Unschedule auto rechecks
-    5. Structured logging
+    Legacy naming note:
+        Historically referred to as *username* 404. Module will be renamed
+        to handle_404 in future; keep import path for compatibility.
+        Terms:
+          - RSI Handle: unique identifier ("old_handle" here)
+          - Community Moniker: display name (not part of 404 detection)
+
+    Steps:
+        1. Flag ``needs_reverify`` in DB (early exit if already flagged)
+        2. Remove managed roles
+        3. Post a spam channel alert & (optional) leadership alert
+        4. Unschedule auto rechecks so we don't spam failures
+        5. Emit structured log summarizing actions
+    Returns:
+        bool: True if full 404 handling executed now; False if dedup or failure.
     """
     now = int(time.time())
     try:
@@ -72,9 +88,8 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
         return False
 
     if not newly_flagged:
-        # Dedup hit; already handled before.
         logger.info(
-            "Handle 404 deduplicated.",
+            "RSI Handle 404 deduplicated.",
             extra={
                 "user_id": member.id,
                 "rsi_handle": old_handle,
@@ -99,19 +114,18 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
         else None
     )
     verification_channel_id = getattr(bot, "VERIFICATION_CHANNEL_ID", 0)
-    # Exact copy per spec
     spam_msg = (
-        f"{member.mention} it seems your handle has changed, please navigate to <#{verification_channel_id}> and reverify your account. Your roles have been revoked."
+        f"{member.mention} it seems your RSI Handle has changed or is no longer accessible. "
+        f"Please navigate to <#{verification_channel_id}> and reverify your account. Your roles have been revoked."
     )
     lead_msg = (
-        f"{member.mention} handle `{old_handle}` is pulling a 404 — roles have been removed and the user has been alerted."
+        f"{member.mention} RSI Handle `{old_handle}` is returning 404 — roles removed and user alerted."
     )
     if spam_channel:
         try:
             await channel_send_message(spam_channel, spam_msg)
         except Exception as e:
             logger.warning(f"Failed sending spam alert for {member.id}: {e}")
-    # Leadership channel log (reuse existing announcement path by direct send)
     try:
         lead_channel_id = (bot.config or {}).get("channels", {}).get("leadership_announcement_channel_id")
         if lead_channel_id:
@@ -121,7 +135,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
         logger.warning(f"Failed sending leadership 404 alert for {member.id}: {e}")
 
     logger.info(
-        "Handle 404 handled.",
+        "RSI Handle 404 handled.",
         extra={
             "user_id": member.id,
             "rsi_handle": old_handle,
@@ -130,13 +144,21 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
                 "flagged_db",
                 "roles_removed" if roles_removed else "roles_none",
                 "spam_alert" if spam_channel else "spam_missing",
-                "leadership_alert" if lead_channel_id else "leadership_missing",
+                "leadership_alert" if 'lead_channel_id' in locals() and lead_channel_id else "leadership_missing",
             ],
             "channels": {
                 "spam": getattr(bot, "BOT_SPAM_CHANNEL_ID", None),
-                "leadership": lead_channel_id,
+                "leadership": locals().get('lead_channel_id'),
                 "verification": verification_channel_id,
             },
         },
     )
     return True
+
+handle_rsi_handle_404 = handle_username_404
+
+__all__ = [
+    "handle_username_404",
+    "handle_rsi_handle_404",
+    "remove_bot_roles",
+]

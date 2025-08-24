@@ -111,10 +111,10 @@ class AutoRecheck(commands.Cog):
     ) -> None:
         try:
             # Validate handle and fetch current status
-            verify_value, cased_handle = await is_valid_rsi_handle(
+            verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
                 rsi_handle, self.bot.http_client
             )
-            if verify_value is None or cased_handle is None:
+            if verify_value is None or cased_handle is None:  # moniker optional
                 # Transient fetch/parse failure: schedule backoff
                 current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
                 delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
@@ -126,10 +126,13 @@ class AutoRecheck(commands.Cog):
                     inc=True,
                 )
                 return
-
-                # Apply roles; get (old_status, new_status)
+            # Apply roles; get (old_status, new_status)
             old_status, new_status = await assign_roles(
-                member, verify_value, cased_handle, self.bot
+                member,
+                verify_value,
+                cased_handle,
+                self.bot,
+                community_moniker=community_moniker,
             )
 
             # Announce only if membership status changed

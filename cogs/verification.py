@@ -19,6 +19,8 @@ from helpers.discord_api import followup_send_message
 from helpers.role_helper import reverify_member
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.announcement import send_verification_announcements
+from helpers.http_helper import NotFoundError
+from helpers.username_404 import handle_username_404
 
 logger = get_logger(__name__)
 
@@ -109,9 +111,11 @@ class VerificationCog(commands.Cog):
             logger.exception(f"Failed to send verification message: {e}")
 
     async def recheck_button(self, interaction: discord.Interaction):
+        """Handle a user-initiated recheck via the verification view button."""
         await interaction.response.defer(ephemeral=True)
         member = interaction.user
 
+        # Fetch existing verification record
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
@@ -121,28 +125,25 @@ class VerificationCog(commands.Cog):
                 embed = create_error_embed(
                     "You are not verified yet. Please click Verify first."
                 )
-                await followup_send_message(
-                    interaction, "", embed=embed, ephemeral=True
-                )
+                await followup_send_message(interaction, "", embed=embed, ephemeral=True)
                 return
             rsi_handle = row[0]
 
+        # Rate limit check
         rate_limited, wait_until = await check_rate_limit(member.id, "recheck")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        from helpers.http_helper import NotFoundError
-        from helpers.username_404 import handle_username_404
-
+        # Attempt re-verification
         try:
             result = await reverify_member(member, rsi_handle, self.bot)
         except NotFoundError:
             # Invoke unified remediation then inform user
             try:
                 await handle_username_404(self.bot, member, rsi_handle)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover - best effort logging
                 logger.warning(f"Unified 404 handler failed (button): {e}")
             verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             embed = create_error_embed(
@@ -151,16 +152,17 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        if not result[0]:
-            embed = create_error_embed(result[2] or "Re-check failed. Please try again later.")
+        success, status_info, message = result
+        if not success:
+            embed = create_error_embed(message or "Re-check failed. Please try again later.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        status_tuple = result[1]
-        if isinstance(status_tuple, tuple):
-            old_status, new_status = status_tuple
+        if isinstance(status_info, tuple):
+            old_status, new_status = status_info
         else:
-            old_status = new_status = status_tuple
+            old_status = new_status = status_info
+
         await log_attempt(member.id, "recheck")
 
         description = build_welcome_description(new_status)

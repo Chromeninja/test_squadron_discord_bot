@@ -157,7 +157,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch):
 
     # Return successful verification
     async def fake_is_valid(_: str, __):
-        return 1, 'NewHandle'
+        return 1, 'NewHandle', None
     monkeypatch.setattr('verification.rsi_verification.is_valid_rsi_handle', fake_is_valid)
 
     ok, _role_type, _err = await reverify_member(member, 'OldOne', bot)

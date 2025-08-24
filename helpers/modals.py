@@ -73,10 +73,10 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Proceed with verification to get verify_value and cased_handle
-        verify_value, cased_handle = await is_valid_rsi_handle(
+        verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
             rsi_handle_input, self.bot.http_client
         )
-        if verify_value is None or cased_handle is None:
+        if verify_value is None or cased_handle is None:  # moniker optional
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check and try again."
             )
@@ -108,7 +108,7 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
-        verify_value_check, _ = await is_valid_rsi_handle(
+        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
             cased_handle, self.bot.http_client
         )
         if verify_value_check is None:
@@ -121,6 +121,10 @@ class HandleModal(Modal, title="Verification"):
                 extra={"user_id": member.id},
             )
             return
+
+        # Prefer moniker from second fetch if returned
+        if community_moniker_2:
+            community_moniker = community_moniker_2
 
         token_verify = await is_valid_rsi_bio(
             cased_handle, user_token_info["token"], self.bot.http_client
@@ -176,9 +180,14 @@ class HandleModal(Modal, title="Verification"):
                     },
                 )
             return
-            # Verification successful
+
+        # Verification successful
         old_status, assigned_role_type = await assign_roles(
-            member, verify_value_check, cased_handle, self.bot
+            member,
+            verify_value_check,
+            cased_handle,
+            self.bot,
+            community_moniker=community_moniker,
         )
         clear_token(member.id)
         await reset_attempts(member.id)
@@ -223,6 +232,10 @@ class HandleModal(Modal, title="Verification"):
                 "Welcome to the server! You can verify again after 3 hours if needed."
             )
 
+        if "We set your Discord username" not in description:
+            description += (
+                "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+            )
         embed = create_success_embed(description)
 
         # 9) Send follow-up success

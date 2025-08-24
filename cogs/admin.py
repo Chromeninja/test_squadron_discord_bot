@@ -210,27 +210,22 @@ class Admin(commands.Cog):
     ):
         await interaction.response.defer(thinking=True, ephemeral=True)
 
-        # Get the user's last known status + timestamp for human feedback
+        # Fetch last known verification row
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT rsi_handle, membership_status, last_updated "
-                "FROM verification WHERE user_id = ?",
+                "SELECT rsi_handle, membership_status, last_updated FROM verification WHERE user_id = ?",
                 (member.id,),
             )
             row = await cursor.fetchone()
 
         if not row:
-            await interaction.followup.send(
-                f"{member.mention} is not verified yet.", ephemeral=True
-            )
+            await interaction.followup.send(f"{member.mention} is not verified yet.", ephemeral=True)
             return
 
-        rsi_handle, old_status_record, last_ts = row[0], row[1], row[2]
+        rsi_handle, old_status_record, last_ts = row
         try:
             date_str = (
-                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC")
-                if last_ts
-                else "unknown"
+                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC") if last_ts else "unknown"
             )
         except Exception:
             date_str = "unknown"
@@ -241,13 +236,15 @@ class Admin(commands.Cog):
         try:
             success, status_tuple, error_msg = await reverify_member(member, rsi_handle, self.bot)
         except NotFoundError:
+            # Handle 404 (handle changed)
             try:
                 await handle_username_404(self.bot, member, rsi_handle)
             except Exception as e:
                 logger.warning(f"Unified 404 handler failed during admin recheck: {e}")
             verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             await interaction.followup.send(
-                f"{member.mention} needs to re-verify in <#{verification_channel_id}> (Handle returned 404).", ephemeral=True
+                f"{member.mention} needs to re-verify in <#{verification_channel_id}> (Handle returned 404).",
+                ephemeral=True,
             )
             return
 
@@ -255,14 +252,13 @@ class Admin(commands.Cog):
             await interaction.followup.send(error_msg or "Re-check failed.", ephemeral=True)
             return
 
-            # Unpack statuses (reverify_member may return a tuple or a single string)
+        # Determine old/new status
         if isinstance(status_tuple, tuple):
             old_status, new_status = status_tuple
         else:
             old_status = old_status_record or "unknown"
             new_status = status_tuple
 
-            # Announce to channels
         admin_display = interaction.user.display_name or interaction.user.name
         await send_verification_announcements(
             self.bot,

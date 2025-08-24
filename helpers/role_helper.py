@@ -25,7 +25,11 @@ def _compute_next_recheck(bot, new_status: str, now: int) -> int:
 
 
 async def assign_roles(
-    member: discord.Member, verify_value: int, cased_handle: str, bot
+    member: discord.Member,
+    verify_value: int,
+    cased_handle: str,
+    bot,
+    community_moniker: str | None = None,
 ):
     # Fetch previous status before DB update
     prev_status = None
@@ -75,17 +79,18 @@ async def assign_roles(
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, community_moniker)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
+                community_moniker = COALESCE(excluded.community_moniker, verification.community_moniker),
                 -- Only clear needs_reverify if it was previously set (successful re-verification)
                 needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
                 needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
             """,
-            (member.id, cased_handle, membership_status, int(time.time())),
+            (member.id, cased_handle, membership_status, int(time.time()), community_moniker),
         )
         await db.commit()
         logger.info(
@@ -179,27 +184,44 @@ async def assign_roles(
         logger.error("No valid roles to add.", extra={"user_id": member.id})
 
         # Enqueue nickname change
-    if can_modify_nickname(member):
+    # Determine nickname preference: prefer community_moniker if present & valid; else cased_handle
+    preferred_nick = None
+    if community_moniker:
+        # Truncate to 32
+        nick = community_moniker.strip()
+        if nick and nick.lower() != cased_handle.lower():
+            preferred_nick = nick
+    if not preferred_nick:
+        preferred_nick = cased_handle
 
-        async def nickname_task():
-            try:
-                await edit_member(member, nick=cased_handle[:32])
-                logger.info(
-                    "Nickname changed for user.",
-                    extra={"user_id": member.id, "new_nickname": cased_handle[:32]},
-                )
-            except discord.Forbidden:
-                logger.warning(
-                    "Bot lacks permission to change nickname due to role hierarchy.",
-                    extra={"user_id": member.id},
-                )
-            except Exception as e:
-                logger.exception(
-                    f"Unexpected error when changing nickname: {e}",
-                    extra={"user_id": member.id},
-                )
+    if preferred_nick and can_modify_nickname(member):
+        # Enforce max 32 chars with ellipsis if truncated
+        nick_final = preferred_nick
+        if len(nick_final) > 32:
+            nick_final = nick_final[:29] + "..."
+        if getattr(member, "nick", None) == nick_final:
+            pass  # No change required
+        else:
 
-        await enqueue_task(nickname_task)
+            async def nickname_task():
+                try:
+                    await edit_member(member, nick=nick_final)
+                    logger.info(
+                        "Nickname changed for user.",
+                        extra={"user_id": member.id, "new_nickname": nick_final},
+                    )
+                except discord.Forbidden:
+                    logger.warning(
+                        "Bot lacks permission to change nickname due to role hierarchy.",
+                        extra={"user_id": member.id},
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"Unexpected error when changing nickname: {e}",
+                        extra={"user_id": member.id},
+                    )
+
+            await enqueue_task(nickname_task)
     else:
         logger.warning(
             "Cannot change nickname due to role hierarchy.",
@@ -241,12 +263,14 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
     from verification.rsi_verification import is_valid_rsi_handle
     from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
 
-    verify_value, cased_handle = await is_valid_rsi_handle(
+    verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
         rsi_handle, bot.http_client
     )  # May raise NotFoundError
 
-    if verify_value is None or cased_handle is None:
+    if verify_value is None or cased_handle is None:  # moniker optional
         return False, "unknown", "Failed to verify RSI handle."
 
-    role_type = await assign_roles(member, verify_value, cased_handle, bot)
+    role_type = await assign_roles(
+        member, verify_value, cased_handle, bot, community_moniker=community_moniker
+    )
     return True, role_type, None
