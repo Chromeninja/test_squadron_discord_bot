@@ -115,8 +115,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
     try:
         lead_channel_id = (bot.config or {}).get("channels", {}).get("leadership_announcement_channel_id")
         if lead_channel_id:
-            lead_channel = member.guild.get_channel(lead_channel_id)
-            if lead_channel:
+            if lead_channel := member.guild.get_channel(lead_channel_id):
                 await channel_send_message(lead_channel, lead_msg)
     except Exception as e:
         logger.warning(f"Failed sending leadership 404 alert for {member.id}: {e}")
