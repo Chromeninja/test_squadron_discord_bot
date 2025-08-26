@@ -191,8 +191,9 @@ def _sanitize_moniker(moniker: str) -> str:
     """
     if not moniker:
         return ""
-    allowed = set(string.printable) | {" ", "\t"}
-    cleaned = "".join(ch for ch in moniker if ch in allowed and ch != "\x0b" and ch != "\x0c")
+    # Use Python's printable set directly; exclude vertical tab and form feed for safety.
+    allowed = set(string.printable)
+    cleaned = "".join(ch for ch in moniker if ch in allowed and ch not in {"\x0b", "\x0c"})
     # Remove zero-width space explicitly then strip outer whitespace
     return cleaned.replace("\u200b", "").strip()
 

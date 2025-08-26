@@ -86,7 +86,7 @@ async def assign_roles(
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
-                community_moniker = COALESCE(excluded.community_moniker, verification.community_moniker),
+                community_moniker = excluded.community_moniker,
                 -- Only clear needs_reverify if it was previously set (successful re-verification)
                 needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
                 needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END

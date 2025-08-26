@@ -252,8 +252,19 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
 
     # Footer
     handle = cs.handle_after or cs.handle_before or 'No Handle'
-    # Use timezone-aware UTC datetime for clarity
-    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    # Use ChangeSet.started_at (when processing began) for consistent timing; fallback to current UTC
+    try:
+        started_at = getattr(cs, 'started_at', None)
+        if started_at:
+            if getattr(started_at, 'tzinfo', None) is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            else:
+                started_at = started_at.astimezone(timezone.utc)
+            timestamp = started_at.strftime('%Y-%m-%d %H:%M:%S UTC')
+        else:
+            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    except Exception:
+        timestamp = 'Unknown'
     footer_text = f"{cs.user_id} • {handle} • {timestamp}"
     if handle and handle != 'No Handle':
         try:

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional, Set, Dict, Any, TypedDict, List
+from dataclasses import dataclass, asdict
+from typing import Optional, Set, Dict, Any, List
 import discord
 
 from helpers.database import Database
@@ -54,7 +54,8 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     return MemberSnapshot(status=status, moniker=moniker, handle=handle, username=username, roles=roles)
 
 
-class MemberSnapshotDiff(TypedDict):
+@dataclass
+class MemberSnapshotDiff:
     status_before: str
     status_after: str
     moniker_before: Optional[str]
@@ -65,6 +66,26 @@ class MemberSnapshotDiff(TypedDict):
     username_after: Optional[str]
     roles_added: List[str]
     roles_removed: List[str]
+
+    # Backwards‑compatibility helpers (dict-like access in existing callers)
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    def items(self):  # type: ignore[override]
+        return self.to_dict().items()
+
+    def get(self, key: str, default=None):
+        return getattr(self, key, default)
+
+    # Mapping compatibility for existing dict-style usage
+    def __getitem__(self, key: str):  # pragma: no cover (thin wrapper)
+        return getattr(self, key)
+
+    def __setitem__(self, key: str, value):  # pragma: no cover
+        setattr(self, key, value)
+
+    def __contains__(self, key: str):  # pragma: no cover
+        return hasattr(self, key)
 
 
 def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnapshotDiff:
