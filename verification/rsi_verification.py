@@ -2,6 +2,7 @@
 
 import logging
 import re
+import string
 from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 from config.config_loader import ConfigLoader
@@ -179,12 +180,20 @@ def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional
     return sanitized
 
 
+MIN_PRINTABLE_ASCII = 32
+MAX_PRINTABLE_ASCII = 126
+
 def _sanitize_moniker(moniker: str) -> str:
-    """Remove control/zero-width characters and trim whitespace."""
+    """Remove control / zero-width characters and trim whitespace.
+
+    Accept characters that are in Python's string.printable OR are standard space/tab.
+    Explicitly drop other control characters and zero-width spaces.
+    """
     if not moniker:
         return ""
-    # Remove zero-width & control chars (except common whitespace)
-    cleaned = "".join(ch for ch in moniker if (32 <= ord(ch) <= 126) or ch in " \t")
+    allowed = set(string.printable) | {" ", "\t"}
+    cleaned = "".join(ch for ch in moniker if ch in allowed and ch != "\x0b" and ch != "\x0c")
+    # Remove zero-width space explicitly then strip outer whitespace
     return cleaned.replace("\u200b", "").strip()
 
 

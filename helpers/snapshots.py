@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Set, Dict, Any
+from typing import Optional, Set, Dict, Any, TypedDict, List
 import discord
 
 from helpers.database import Database
@@ -54,21 +54,34 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     return MemberSnapshot(status=status, moniker=moniker, handle=handle, username=username, roles=roles)
 
 
-def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> Dict[str, Any]:
-    roles_added = sorted(list(after.roles - before.roles))
-    roles_removed = sorted(list(before.roles - after.roles))
-    return {
-        'status_before': before.status,
-        'status_after': after.status,
-        'moniker_before': before.moniker,
-        'moniker_after': after.moniker,
-        'handle_before': before.handle,
-        'handle_after': after.handle,
-        'username_before': before.username,
-        'username_after': after.username,
-        'roles_added': roles_added,
-        'roles_removed': roles_removed,
-    }
+class MemberSnapshotDiff(TypedDict):
+    status_before: str
+    status_after: str
+    moniker_before: Optional[str]
+    moniker_after: Optional[str]
+    handle_before: Optional[str]
+    handle_after: Optional[str]
+    username_before: Optional[str]
+    username_after: Optional[str]
+    roles_added: List[str]
+    roles_removed: List[str]
 
 
-__all__ = ['MemberSnapshot', 'snapshot_member_state', 'diff_snapshots']
+def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnapshotDiff:
+    roles_added: List[str] = sorted(list(after.roles - before.roles))
+    roles_removed: List[str] = sorted(list(before.roles - after.roles))
+    return MemberSnapshotDiff(
+        status_before=before.status,
+        status_after=after.status,
+        moniker_before=before.moniker,
+        moniker_after=after.moniker,
+        handle_before=before.handle,
+        handle_after=after.handle,
+        username_before=before.username,
+        username_after=after.username,
+        roles_added=roles_added,
+        roles_removed=roles_removed,
+    )
+
+
+__all__ = ['MemberSnapshot', 'MemberSnapshotDiff', 'snapshot_member_state', 'diff_snapshots']

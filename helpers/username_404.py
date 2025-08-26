@@ -41,8 +41,11 @@ async def remove_bot_roles(member: discord.Member, bot):
     # Optimistically update member.roles immediately so test assertions observe removal
     try:
         member.roles = [r for r in member.roles if r not in roles_to_remove]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            f"Failed to optimistically update roles for {member.id}: {e}",
+            extra={"user_id": member.id},
+        )
 
     async def task():
         try:

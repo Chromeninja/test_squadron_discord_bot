@@ -3,6 +3,7 @@
 import time
 import discord
 import random
+from typing import Optional
 
 from helpers.database import Database
 from helpers.logger import get_logger
@@ -29,7 +30,7 @@ async def assign_roles(
     verify_value: int,
     cased_handle: str,
     bot,
-    community_moniker: str | None = None,
+    community_moniker: Optional[str] = None,
 ):
     # Fetch previous status before DB update
     prev_status = None

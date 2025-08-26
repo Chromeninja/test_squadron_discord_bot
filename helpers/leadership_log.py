@@ -264,10 +264,6 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     return embed
 
 
-def _summarize_roles(added: list[str], removed: list[str]) -> Optional[str]:  # legacy stub
-    return None
-
-
 def _truncate(value: Optional[str], length: int = 32) -> Optional[str]:
     if value is None:
         return None
@@ -365,12 +361,14 @@ async def post_if_changed(bot, cs: ChangeSet):
     if cs.roles_removed:
         cs.roles_removed = [r for r in cs.roles_removed if r in managed_names]
 
-    # Filter out case-only changes by rewriting after values to before when only case differs
-    for attr_pair in [('moniker_before', 'moniker_after'), ('username_before', 'username_after'), ('handle_before', 'handle_after')]:
-        b = getattr(cs, attr_pair[0])
-        a = getattr(cs, attr_pair[1])
-        if b and a and b.lower() == a.lower() and b != a:
-            setattr(cs, attr_pair[1], b)  # revert to suppress
+    # Filter out case-only changes by rewriting after values to before when only case differs.
+    # Central list of tracked textual attributes for easier maintenance.
+    CHANGE_ATTRS = ('moniker', 'username', 'handle')
+    for attr in CHANGE_ATTRS:
+        before = getattr(cs, f"{attr}_before")
+        after = getattr(cs, f"{attr}_after")
+        if before and after and before.lower() == after.lower() and before != after:
+            setattr(cs, f"{attr}_after", before)  # revert to suppress
 
     status_changed = _changed_material(cs.status_before, cs.status_after)
     moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
