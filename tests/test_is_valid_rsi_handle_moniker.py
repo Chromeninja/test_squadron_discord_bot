@@ -60,3 +60,52 @@ async def test_is_valid_rsi_handle_malformed_profile(monkeypatch):
     assert verify_value == 1
     # cased_handle may be None if extraction fails gracefully
     assert moniker is None
+
+
+@pytest.mark.asyncio
+async def test_is_valid_rsi_handle_invalid_format(monkeypatch):
+    """Invalid handle format should short-circuit without HTTP calls."""
+    http = FakeHTTP({})
+    verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle('@@Bad*', http)
+    assert verify_value is None and cased_handle is None and moniker is None
+    assert http.calls == []  # no network activity
+
+
+@pytest.mark.asyncio
+async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch):
+    """Profile HTML missing -> returns verify value but no handle/moniker."""
+    http = FakeHTTP({
+        'https://robertsspaceindustries.com/citizens/TestUser/organizations': ORG_HTML,
+        # profile URL intentionally absent
+    })
+    verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle('TestUser', http)
+    assert verify_value == 1  # org page still parsed
+    assert cased_handle is None and moniker is None
+
+
+@pytest.mark.asyncio
+async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(monkeypatch):
+    """Moniker identical (case-insensitive) to handle should be suppressed (None)."""
+    profile_same_moniker = '<div class="profile"><div class="info">\n<p class="entry"><strong class="value">CaseHandle</strong></p>\n<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p></div></div>'
+    http = FakeHTTP({
+        'https://robertsspaceindustries.com/citizens/TestUser/organizations': ORG_HTML,
+        'https://robertsspaceindustries.com/citizens/TestUser': profile_same_moniker,
+    })
+    verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle('TestUser', http)
+    assert verify_value == 1
+    assert cased_handle == 'CaseHandle'
+    assert moniker is None  # suppressed
+
+
+@pytest.mark.asyncio
+async def test_is_valid_rsi_handle_org_parse_exception(monkeypatch):
+    """Exception while parsing org HTML => total failure (None triple)."""
+    async def fake_fetch(url):
+        return '<html>broken'
+    http = FakeHTTP({})
+    http.fetch_html = fake_fetch  # override method
+    def boom(html):
+        raise RuntimeError('parse error')
+    monkeypatch.setattr(rv, 'parse_rsi_organizations', boom)
+    verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle('TestUser', http)
+    assert verify_value is None and cased_handle is None and moniker is None

@@ -44,9 +44,8 @@ async def is_valid_rsi_handle(
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
         logger.error(f"Handle not found (404): {user_handle}")
-        # Let the caller decide to prune records.
         raise
-    if not org_html:
+    if not org_html:  # Empty/None response
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
         return None, None, None
 
@@ -66,7 +65,7 @@ async def is_valid_rsi_handle(
     profile_url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
     logger.debug(f"Fetching profile data from URL: {profile_url}")
     profile_html = await http_client.fetch_html(profile_url)
-    if not profile_html:
+    if not profile_html:  # Could not retrieve profile
         logger.error(f"Failed to fetch profile data for handle: {user_handle}")
         return verify_value, None, None
 
@@ -158,24 +157,15 @@ def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional
     moniker_candidate: Optional[str] = None
     for p in entries:
         # If this is the handle section, break before consuming it
-        label_span = p.find("span", class_="label")
-        label_text = label_span.get_text(strip=True) if label_span else ""
-        if label_text == "Handle name":
+        if (label_span := p.find("span", class_="label")) and label_span.get_text(strip=True) == "Handle name":
             break
-        strong_val = p.find("strong", class_="value")
-        if strong_val:
-            text_val = strong_val.get_text(strip=True)
-            if text_val:
-                moniker_candidate = text_val
-                break  # First pre-handle value wins
+        if (strong_val := p.find("strong", class_="value")) and (text_val := strong_val.get_text(strip=True)):
+            moniker_candidate = text_val
+            break  # First pre-handle value wins
 
     # Fallback if not found pre-handle
-    if not moniker_candidate:
-        strong_any = soup.select_one(".profile .info strong.value") or soup.find(
-            "strong", class_="value"
-        )
-        if strong_any:
-            moniker_candidate = strong_any.get_text(strip=True)
+    if (not moniker_candidate) and (strong_any := (soup.select_one(".profile .info strong.value") or soup.find("strong", class_="value"))):
+        moniker_candidate = strong_any.get_text(strip=True)
 
     if not moniker_candidate:
         return None
@@ -195,8 +185,7 @@ def _sanitize_moniker(moniker: str) -> str:
         return ""
     # Remove zero-width & control chars (except common whitespace)
     cleaned = "".join(ch for ch in moniker if (32 <= ord(ch) <= 126) or ch in " \t")
-    cleaned = cleaned.replace("\u200b", "").strip()
-    return cleaned
+    return cleaned.replace("\u200b", "").strip()
 
 
 def parse_rsi_organizations(html_content: str) -> dict:

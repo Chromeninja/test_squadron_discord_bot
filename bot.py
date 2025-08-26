@@ -35,10 +35,7 @@ if not TOKEN:
 # Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
 # Some deployments may accidentally supply an empty list / string; fall back to mention‑only behavior.
 raw_prefix = config["bot"].get("prefix")
-if not raw_prefix:  # empty list, empty string, None -> default
-    PREFIX = commands.when_mentioned
-else:
-    PREFIX = raw_prefix
+PREFIX = commands.when_mentioned if not raw_prefix else raw_prefix  # empty list, empty string, None -> default
 VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
 BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
 BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]

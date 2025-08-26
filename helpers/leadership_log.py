@@ -39,7 +39,8 @@ class ChangeSet:
     roles_removed: List[str] = field(default_factory=list)  # ignored in new formatter
 
     notes: Optional[str] = None
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    # Use timezone-aware UTC now instead of deprecated utcnow() for future-proofing
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     duration_ms: int = 0
 
 
@@ -102,6 +103,20 @@ def _managed_role_names(bot) -> List[str]:  # pragma: no cover (trivial helper)
     return names
 
 
+def _material_textual_changed_all(cs: ChangeSet) -> bool:
+    """Return True if any material (case-insensitive) textual field changed.
+
+    Covers status, moniker, handle, username for suppression logic. Extracted
+    to satisfy code-quality suggestion (extract-method) and improve clarity.
+    """
+    return any([
+        _changed_material(cs.status_before, cs.status_after),
+        _changed_material(cs.moniker_before, cs.moniker_after),
+        _changed_material(cs.handle_before, cs.handle_after),
+        _changed_material(cs.username_before, cs.username_after),
+    ])
+
+
 def is_effectively_unchanged(cs: ChangeSet, bot=None) -> bool:
     """Return True when there is no material change to report.
 
@@ -117,18 +132,11 @@ def is_effectively_unchanged(cs: ChangeSet, bot=None) -> bool:
             return False
 
     # Material textual changes (case-insensitive)
-    textual = any([
-        _changed_material(cs.status_before, cs.status_after),
-        _changed_material(cs.moniker_before, cs.moniker_after),
-        _changed_material(cs.handle_before, cs.handle_after),
-        _changed_material(cs.username_before, cs.username_after),
-    ])
+    textual = _material_textual_changed_all(cs)
 
     role_diff = bool(cs.roles_added or cs.roles_removed)
     # If only case differences, treat as unchanged.
-    if not textual and not role_diff:
-        return True
-    return False
+    return not textual and not role_diff
 
 
 def color_for(cs: ChangeSet) -> int:
@@ -244,7 +252,8 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
 
     # Footer
     handle = cs.handle_after or cs.handle_before or 'No Handle'
-    timestamp = datetime.utcnow().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    # Use timezone-aware UTC datetime for clarity
+    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     footer_text = f"{cs.user_id} • {handle} • {timestamp}"
     if handle and handle != 'No Handle':
         try:
@@ -263,12 +272,10 @@ def _truncate(value: Optional[str], length: int = 32) -> Optional[str]:
     if value is None:
         return None
     v = value.strip()
-    if len(v) <= length:
-        return v
-    return v[: length - 1] + '…'
+    return v if len(v) <= length else f"{v[:length - 1]}…"
 
 
-_MD_INLINE = set(['`','*','_','~','|','>'])
+_MD_INLINE = {'`','*','_','~','|','>'}
 
 
 def _escape_inline(value: Optional[str]) -> str:
@@ -291,9 +298,7 @@ def _header_tag(cs: ChangeSet) -> str:
     if cs.event == EventType.ADMIN_CHECK:
         suffix = f" • Admin: {cs.initiator_name}" if cs.initiator_kind == 'Admin' and cs.initiator_name else ''
         return f"Admin Check{suffix}"
-    if cs.event == EventType.AUTO_CHECK:
-        return 'Auto Check'
-    return cs.event.name
+    return 'Auto Check' if cs.event == EventType.AUTO_CHECK else cs.event.name
 
 
 def _outcome(cs: ChangeSet, has_changes: bool) -> tuple[str,str]:
@@ -307,8 +312,7 @@ def _outcome(cs: ChangeSet, has_changes: bool) -> tuple[str,str]:
 def _build_header(cs: ChangeSet, has_changes: bool) -> str:
     tag = _header_tag(cs)
     outcome, emoji = _outcome(cs, has_changes)
-    header = f"[{tag}] <@{cs.user_id}> {emoji} {outcome}"
-    return header
+    return f"[{tag}] <@{cs.user_id}> {emoji} {outcome}"
 
 
 def _format_duration(ms: int) -> str:  # legacy stub (kept for compatibility)
@@ -332,9 +336,7 @@ def _format_value(val: Optional[str]) -> str:
     import re
     needs_quote = not re.match(r'^[A-Za-z0-9_]+$', original)
     escaped = _escape_inline(original)
-    if needs_quote:
-        return f'"{escaped}"'
-    return escaped
+    return f'"{escaped}"' if needs_quote else escaped
 
 
 def _render_plaintext(cs: ChangeSet) -> str:

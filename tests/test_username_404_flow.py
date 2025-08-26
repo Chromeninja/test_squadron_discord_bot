@@ -208,6 +208,55 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch):
     with pytest.raises(NotFoundError):
         await reverify_member(member, 'HandleX', bot)
 
+
+@pytest.mark.asyncio
+async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch):
+    """Ensure leadership ChangeSet is posted with RSI 404 note when leadership channel configured."""
+    async with Database.get_connection() as db:
+        await db.execute("INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)", (555, 'LostOne', 'main', 1))
+        await db.commit()
+
+    # Bot with leadership channel
+    leader_chan = SimpleNamespace(id=888, send=AsyncMock())
+    spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    bot = SimpleNamespace(
+        BOT_SPAM_CHANNEL_ID=777,
+        VERIFICATION_CHANNEL_ID=42,
+        config={"channels": {"leadership_announcement_channel_id": 888}},
+        role_cache={},
+    )
+    member = FakeMember(uid=555, display_name="LostUser")
+    guild = FakeGuild(member)
+    member.guild = guild
+    bot.guilds = [guild]
+    def get_channel(cid):
+        return leader_chan if cid == 888 else (spam_chan if cid == 777 else None)
+    bot.get_channel = get_channel
+
+    # Patch enqueue_task to run immediately
+    async def immediate(task_func):
+        await task_func()
+    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.flush_tasks", lambda : None)
+
+    # Patch leadership log send to capture message
+    async def leader_send_patch(channel, content, embed=None):
+        await leader_chan.send(content)
+    monkeypatch.setattr('helpers.leadership_log.channel_send_message', leader_send_patch)
+    async def spam_send_patch(channel, content, embed=None):
+        await spam_chan.send(content)
+    monkeypatch.setattr('helpers.username_404.channel_send_message', spam_send_patch)
+
+    from helpers.username_404 import handle_username_404
+    await handle_username_404(bot, member, 'LostOne')
+
+    # Leadership log should have one post containing header with RECHECK and 404 note suppressed to header only
+    assert leader_chan.send.await_count == 1
+    msg = leader_chan.send.await_args_list[0][0][0]
+    assert msg.startswith('[RECHECK]')
+    # Spam alert also fires
+    assert spam_chan.send.await_count == 1
+
 @pytest.mark.asyncio
 async def test_reverification_clears_needs_reverify(temp_db, monkeypatch):
     # Seed flagged verification row
@@ -240,3 +289,45 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch):
         cur = await db.execute("SELECT needs_reverify FROM verification WHERE user_id=?", (303,))
         val = await cur.fetchone()
         assert val[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_username_404_new_handle_triggers_again(temp_db, monkeypatch):
+    """Second 404 with a different stored handle should emit a new notification (no dedupe)."""
+    # Seed initial verification row
+    async with Database.get_connection() as db:
+        await db.execute("INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)", (909, 'FirstHandle', 'main', 1))
+        await db.commit()
+
+    bot = SimpleNamespace()
+    bot.BOT_SPAM_CHANNEL_ID = 321
+    bot.VERIFICATION_CHANNEL_ID = 654
+    bot.config = {"channels": {"leadership_announcement_channel_id": 777}}
+    bot.role_cache = {}
+
+    member = FakeMember(uid=909, display_name="UserMulti")
+    guild = FakeGuild(member)
+    member.guild = guild
+    bot.guilds = [guild]
+    bot.get_channel = lambda cid: guild.get_channel(cid)
+
+    send_mock = AsyncMock()
+    monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
+    async def immediate(task_func):
+        await task_func()
+    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+
+    # First 404 (FirstHandle)
+    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    assert changed1 is True
+    assert send_mock.await_count == 1
+
+    # Simulate re-verification updating stored handle & clearing flag so a new 404 is not deduped
+    async with Database.get_connection() as db:
+        await db.execute("UPDATE verification SET rsi_handle=?, needs_reverify=0, needs_reverify_at=NULL WHERE user_id=?", ("SecondHandle", 909))
+        await db.commit()
+
+    # Second 404 with different handle
+    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    assert changed2 is True  # should process again
+    assert send_mock.await_count == 2  # second notification

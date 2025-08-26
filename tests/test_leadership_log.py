@@ -46,7 +46,7 @@ async def test_auto_recheck_suppressed_when_no_change(monkeypatch):
     monkeypatch.setattr('helpers.leadership_log.channel_send_message', fake_send)
     cs = ChangeSet(user_id=1, event=EventType.AUTO_CHECK, initiator_kind='Auto')
     await post_if_changed(bot, cs)
-    assert sent == []  # suppressed
+    assert not sent  # suppressed
 
 
 @pytest.mark.asyncio

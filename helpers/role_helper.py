@@ -189,12 +189,14 @@ async def assign_roles(
     # and different (case-insensitive) from handle; else fallback to handle.
     from verification.rsi_verification import _sanitize_moniker  # local import to avoid cycle
 
-    if community_moniker:
-        mn_raw = _sanitize_moniker(community_moniker)
-    else:
-        mn_raw = ""
-    if mn_raw and mn_raw.lower() != cased_handle.lower():
-        preferred_nick = mn_raw
+    # Sanitize potential community moniker (removes control / zero-width / excess whitespace)
+    # Prefer it only if after sanitation it is non-empty and materially differs (case-insensitive)
+    if (
+        community_moniker
+        and (mn := _sanitize_moniker(community_moniker))
+        and mn.lower() != cased_handle.lower()
+    ):
+        preferred_nick = mn
     else:
         preferred_nick = cased_handle
 
@@ -212,7 +214,7 @@ async def assign_roles(
         # Strip trailing combining marks
         while truncated and unicodedata.combining(truncated[-1]):
             truncated = truncated[:-1]
-        return truncated + "…"
+        return f"{truncated}…"
 
     if preferred_nick and can_modify_nickname(member):
         nick_final = _truncate_nickname(preferred_nick)
