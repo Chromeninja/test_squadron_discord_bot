@@ -185,21 +185,37 @@ async def assign_roles(
 
         # Enqueue nickname change
     # Determine nickname preference (Discord nickname, not global username):
-    # Prefer moniker if present, non-empty, and different (case-insensitive) from handle; else fallback to handle.
-    if (
-        community_moniker
-        and (mn := community_moniker.strip())
-        and mn.lower() != cased_handle.lower()
-    ):
-        preferred_nick = mn
+    # Prefer sanitized community moniker if present, non-empty (after removing control/zero-width chars),
+    # and different (case-insensitive) from handle; else fallback to handle.
+    from verification.rsi_verification import _sanitize_moniker  # local import to avoid cycle
+
+    if community_moniker:
+        mn_raw = _sanitize_moniker(community_moniker)
+    else:
+        mn_raw = ""
+    if mn_raw and mn_raw.lower() != cased_handle.lower():
+        preferred_nick = mn_raw
     else:
         preferred_nick = cased_handle
 
+    def _truncate_nickname(nick: str, limit: int = 32) -> str:
+        """Unicode-aware truncation that avoids leaving trailing combining marks.
+
+        Python's slicing is codepoint-aware, but a slice may end with a combining mark.
+        We reserve one char for an ellipsis when truncating and ensure we don't end on a combining mark.
+        """
+        if len(nick) <= limit:
+            return nick
+        import unicodedata
+        base = limit - 1
+        truncated = nick[:base]
+        # Strip trailing combining marks
+        while truncated and unicodedata.combining(truncated[-1]):
+            truncated = truncated[:-1]
+        return truncated + "…"
+
     if preferred_nick and can_modify_nickname(member):
-        nick_final = preferred_nick
-        # Discord hard limit: 32 characters. If over, keep first 31 and append a single ellipsis character (U+2026)
-        if len(nick_final) > 32:
-            nick_final = nick_final[:31] + "…"
+        nick_final = _truncate_nickname(preferred_nick)
         # Persist preferred nick regardless of change for logging heuristics
         try:
             setattr(member, "_preferred_verification_nick", nick_final)

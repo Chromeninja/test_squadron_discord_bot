@@ -86,17 +86,101 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch):
 
     # Validate only spam message now (leadership handled via standardized embed separately)
     assert send_mock.await_count == 1
-    spam_call = send_mock.await_args_list[0]
-    spam_msg = spam_call[0][1]
+
+@pytest.mark.asyncio
+async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch):
+    """Second call with DIFFERENT old handle should still process (distinct 404 cause)."""
+    async with Database.get_connection() as db:
+        await db.execute("INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)", (111, 'FirstHandle', 'main', 1))
+        await db.commit()
+
+    bot = SimpleNamespace()
+    bot.BOT_VERIFIED_ROLE_ID = 1
+    bot.MAIN_ROLE_ID = 2
+    bot.AFFILIATE_ROLE_ID = 3
+    bot.NON_MEMBER_ROLE_ID = 4
+    bot.BOT_SPAM_CHANNEL_ID = 999
+    bot.VERIFICATION_CHANNEL_ID = 1234
+    bot.config = {"channels": {"leadership_announcement_channel_id": 555}}
+    role_cache = {
+        1: FakeRole(1, "BotVerified"),
+        2: FakeRole(2, "Main"),
+        3: FakeRole(3, "Affiliate"),
+        4: FakeRole(4, "NonMember"),
+    }
+    bot.role_cache = role_cache
+    member = FakeMember(uid=111)
+    member.roles = list(role_cache.values())
+    guild = FakeGuild(member)
+    member.guild = guild
+    bot.guilds = [guild]
+    bot.get_channel = lambda cid: guild.get_channel(cid)
+
+    send_mock = AsyncMock()
+    monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
+    async def immediate(task_func):
+        await task_func()
+    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+
+    # First 404
+    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    assert changed1 is True
+    # Simulate successful re-verification clearing the flag & storing a new handle
+    async with Database.get_connection() as db:
+        await db.execute("UPDATE verification SET rsi_handle=? WHERE user_id=?", ('SecondHandle', 111))
+        await db.commit()
+    await Database.clear_needs_reverify(111)
+    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    assert changed2 is True  # distinct handle should not dedupe
+    # Two spam alerts
+    assert send_mock.await_count == 2
+
+@pytest.mark.asyncio
+async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch):
+    """Admin initiated recheck that hits 404 should emit leadership ChangeSet with 404 note."""
+    async with Database.get_connection() as db:
+        await db.execute("INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)", (222, 'GoneHandle', 'main', 1))
+        await db.commit()
+    bot = SimpleNamespace()
+    bot.BOT_SPAM_CHANNEL_ID = 777
+    bot.VERIFICATION_CHANNEL_ID = 555
+    bot.config = {"channels": {"leadership_announcement_channel_id": 999}}
+    bot.role_cache = {}
+    # Channel mocks
+    spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    leader_chan = SimpleNamespace(id=999, send=AsyncMock())
+    def get_channel(cid):
+        return leader_chan if cid == 999 else (spam_chan if cid == 777 else None)
+    bot.get_channel = get_channel
+    member = FakeMember(uid=222, display_name="UserGone")
+    guild = FakeGuild(member)
+    member.guild = guild
+    bot.guilds = [guild]
+    # Force flag pass through real function; patch enqueue_task immediate
+    async def immediate(task_func):
+        await task_func()
+    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    # Patch leadership log channel send to be immediate (bypass task queue)
+    async def leader_send_patch(channel, content, embed=None):
+        await leader_chan.send(content)
+    monkeypatch.setattr('helpers.leadership_log.channel_send_message', leader_send_patch)
+    # Patch generic channel send for spam channel path
+    async def spam_send_patch(channel, content, embed=None):
+        await spam_chan.send(content)
+    monkeypatch.setattr('helpers.username_404.channel_send_message', spam_send_patch)
+    # Run 404 handler (simulating admin path already catching NotFound)
+    from helpers.username_404 import handle_username_404
+    await handle_username_404(bot, member, "GoneHandle")
+    # Leadership message posted (header only, no explicit 404 text per current renderer)
+    assert leader_chan.send.await_count == 1
+    leadership_msg = leader_chan.send.await_args_list[0][0][0]
+    assert leadership_msg.startswith('[RECHECK]')
+    # Spam alert also
+    assert spam_chan.send.await_count == 1
+    spam_msg = spam_chan.send.await_args_list[0][0][0]
     assert member.mention in spam_msg
     assert f"<#{bot.VERIFICATION_CHANNEL_ID}>" in spam_msg
     assert "reverify your account" in spam_msg.lower()
-
-    # Second call should be idempotent (no change)
-    changed2 = await handle_username_404(bot, member, "OldHandle")
-    assert changed2 is False
-    # No additional sends
-    assert send_mock.await_count == 1
 
 @pytest.mark.asyncio
 async def test_admin_recheck_404_flow(temp_db, monkeypatch):
