@@ -3,6 +3,7 @@
 import time
 import discord
 import random
+from typing import Optional
 
 from helpers.database import Database
 from helpers.logger import get_logger
@@ -25,7 +26,11 @@ def _compute_next_recheck(bot, new_status: str, now: int) -> int:
 
 
 async def assign_roles(
-    member: discord.Member, verify_value: int, cased_handle: str, bot
+    member: discord.Member,
+    verify_value: int,
+    cased_handle: str,
+    bot,
+    community_moniker: Optional[str] = None,
 ):
     # Fetch previous status before DB update
     prev_status = None
@@ -75,17 +80,18 @@ async def assign_roles(
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, community_moniker)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
+                community_moniker = excluded.community_moniker,
                 -- Only clear needs_reverify if it was previously set (successful re-verification)
                 needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
                 needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
             """,
-            (member.id, cased_handle, membership_status, int(time.time())),
+            (member.id, cased_handle, membership_status, int(time.time()), community_moniker),
         )
         await db.commit()
         logger.info(
@@ -179,27 +185,74 @@ async def assign_roles(
         logger.error("No valid roles to add.", extra={"user_id": member.id})
 
         # Enqueue nickname change
-    if can_modify_nickname(member):
+    # Determine nickname preference (Discord nickname, not global username):
+    # Prefer sanitized community moniker if present, non-empty (after removing control/zero-width chars),
+    # and different (case-insensitive) from handle; else fallback to handle.
+    from verification.rsi_verification import _sanitize_moniker  # local import to avoid cycle
 
-        async def nickname_task():
+    # Sanitize potential community moniker (removes control / zero-width / excess whitespace)
+    # Prefer it only if after sanitation it is non-empty and materially differs (case-insensitive)
+    if (
+        community_moniker
+        and (mn := _sanitize_moniker(community_moniker))
+        and mn.lower() != cased_handle.lower()
+    ):
+        preferred_nick = mn
+    else:
+        preferred_nick = cased_handle
+
+    def _truncate_nickname(nick: str, limit: int = 32) -> str:
+        """Unicode-aware truncation that avoids leaving trailing combining marks.
+
+        Python's slicing is codepoint-aware, but a slice may end with a combining mark.
+        We reserve one char for an ellipsis when truncating and ensure we don't end on a combining mark.
+        """
+        if len(nick) <= limit:
+            return nick
+        import unicodedata
+        base = limit - 1
+        truncated = nick[:base]
+        # Strip trailing combining marks
+        while truncated and unicodedata.combining(truncated[-1]):
+            truncated = truncated[:-1]
+        return f"{truncated}…"
+
+    if preferred_nick and can_modify_nickname(member):
+        nick_final = _truncate_nickname(preferred_nick)
+        # Persist preferred nick regardless of change for logging heuristics
+        try:
+            setattr(member, "_preferred_verification_nick", nick_final)
+        except Exception:
+            pass
+        current_nick = getattr(member, "nick", None)
+        if current_nick != nick_final:
             try:
-                await edit_member(member, nick=cased_handle[:32])
-                logger.info(
-                    "Nickname changed for user.",
-                    extra={"user_id": member.id, "new_nickname": cased_handle[:32]},
-                )
-            except discord.Forbidden:
-                logger.warning(
-                    "Bot lacks permission to change nickname due to role hierarchy.",
-                    extra={"user_id": member.id},
-                )
-            except Exception as e:
-                logger.exception(
-                    f"Unexpected error when changing nickname: {e}",
-                    extra={"user_id": member.id},
-                )
-
-        await enqueue_task(nickname_task)
+                setattr(member, "_nickname_changed_flag", True)
+            except Exception:
+                pass
+            async def nickname_task():
+                try:
+                    await edit_member(member, nick=nick_final)
+                    logger.info(
+                        "Nickname changed for user.",
+                        extra={"user_id": member.id, "new_nickname": nick_final},
+                    )
+                except discord.Forbidden:
+                    logger.warning(
+                        "Bot lacks permission to change nickname due to role hierarchy.",
+                        extra={"user_id": member.id},
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"Unexpected error when changing nickname: {e}",
+                        extra={"user_id": member.id},
+                    )
+            await enqueue_task(nickname_task)
+        else:
+            try:
+                setattr(member, "_nickname_changed_flag", False)
+            except Exception:
+                pass
     else:
         logger.warning(
             "Cannot change nickname due to role hierarchy.",
@@ -241,12 +294,14 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
     from verification.rsi_verification import is_valid_rsi_handle
     from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
 
-    verify_value, cased_handle = await is_valid_rsi_handle(
+    verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
         rsi_handle, bot.http_client
     )  # May raise NotFoundError
 
-    if verify_value is None or cased_handle is None:
+    if verify_value is None or cased_handle is None:  # moniker optional
         return False, "unknown", "Failed to verify RSI handle."
 
-    role_type = await assign_roles(member, verify_value, cased_handle, bot)
+    role_type = await assign_roles(
+        member, verify_value, cased_handle, bot, community_moniker=community_moniker
+    )
     return True, role_type, None

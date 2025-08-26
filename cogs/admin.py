@@ -14,7 +14,9 @@ from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.discord_api import send_message
 from helpers.database import Database
 from helpers.role_helper import reverify_member
-from helpers.announcement import send_verification_announcements
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 from helpers.permissions_helper import (
     resolve_role_ids_for_guild,
     app_command_check_configured_roles,
@@ -210,27 +212,22 @@ class Admin(commands.Cog):
     ):
         await interaction.response.defer(thinking=True, ephemeral=True)
 
-        # Get the user's last known status + timestamp for human feedback
+        # Fetch last known verification row
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT rsi_handle, membership_status, last_updated "
-                "FROM verification WHERE user_id = ?",
+                "SELECT rsi_handle, membership_status, last_updated FROM verification WHERE user_id = ?",
                 (member.id,),
             )
             row = await cursor.fetchone()
 
         if not row:
-            await interaction.followup.send(
-                f"{member.mention} is not verified yet.", ephemeral=True
-            )
+            await interaction.followup.send(f"{member.mention} is not verified yet.", ephemeral=True)
             return
 
-        rsi_handle, old_status_record, last_ts = row[0], row[1], row[2]
+        rsi_handle, old_status_record, last_ts = row
         try:
             date_str = (
-                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC")
-                if last_ts
-                else "unknown"
+                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC") if last_ts else "unknown"
             )
         except Exception:
             date_str = "unknown"
@@ -238,16 +235,22 @@ class Admin(commands.Cog):
         from helpers.http_helper import NotFoundError
         from helpers.username_404 import handle_username_404
 
+        # Take snapshot BEFORE reverify so we can diff DB + nickname/roles changes correctly
+        import time as _t
+        _start = _t.time()
+        before_snap = await snapshot_member_state(self.bot, member)
         try:
             success, status_tuple, error_msg = await reverify_member(member, rsi_handle, self.bot)
         except NotFoundError:
+            # Handle 404 (handle changed)
             try:
                 await handle_username_404(self.bot, member, rsi_handle)
             except Exception as e:
                 logger.warning(f"Unified 404 handler failed during admin recheck: {e}")
             verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             await interaction.followup.send(
-                f"{member.mention} needs to re-verify in <#{verification_channel_id}> (Handle returned 404).", ephemeral=True
+                f"{member.mention} needs to re-verify in <#{verification_channel_id}> (Handle returned 404).",
+                ephemeral=True,
             )
             return
 
@@ -255,23 +258,50 @@ class Admin(commands.Cog):
             await interaction.followup.send(error_msg or "Re-check failed.", ephemeral=True)
             return
 
-            # Unpack statuses (reverify_member may return a tuple or a single string)
+        # Determine old/new status
         if isinstance(status_tuple, tuple):
             old_status, new_status = status_tuple
         else:
             old_status = old_status_record or "unknown"
             new_status = status_tuple
 
-            # Announce to channels
         admin_display = interaction.user.display_name or interaction.user.name
-        await send_verification_announcements(
-            self.bot,
-            member,
-            old_status,
-            new_status,
-            is_recheck=True,
-            by_admin=admin_display,
+        # Leadership snapshot diff (after roles/nick tasks flushed)
+        try:
+            await flush_tasks()
+        except Exception:
+            pass
+        # Attempt to refetch member to ensure updated nickname/roles reflected
+        try:
+            refreshed = await member.guild.fetch_member(member.id)
+            if refreshed:
+                member = refreshed
+        except Exception:
+            pass
+        after_snap = await snapshot_member_state(self.bot, member)
+        diff = diff_snapshots(before_snap, after_snap)
+        # Fallback: if no username diff but nickname task queued, use preferred nick
+        try:
+            if diff.get('username_before') == diff.get('username_after') and getattr(member, '_nickname_changed_flag', False):
+                pref = getattr(member, '_preferred_verification_nick', None)
+                if pref and pref != diff.get('username_before'):
+                    diff['username_after'] = pref
+        except Exception:
+            pass
+        cs = ChangeSet(
+            user_id=member.id,
+            event=EventType.ADMIN_CHECK,
+            initiator_kind='Admin',
+            initiator_name=admin_display,
+            notes=None,
         )
+        for k, v in diff.items():
+            setattr(cs, k, v)
+    # duration tracking removed
+        try:
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            logger.debug("Leadership log post failed (admin recheck)")
 
         await interaction.followup.send(
             f"{member.display_name} is now **{new_status}** (was **{old_status}** on {date_str}).",

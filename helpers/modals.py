@@ -24,6 +24,9 @@ from helpers.discord_api import (
     edit_channel,
     followup_send_message,
 )
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
 
@@ -73,10 +76,10 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Proceed with verification to get verify_value and cased_handle
-        verify_value, cased_handle = await is_valid_rsi_handle(
+        verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
             rsi_handle_input, self.bot.http_client
         )
-        if verify_value is None or cased_handle is None:
+        if verify_value is None or cased_handle is None:  # moniker optional
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check and try again."
             )
@@ -108,7 +111,7 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
-        verify_value_check, _ = await is_valid_rsi_handle(
+        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
             cased_handle, self.bot.http_client
         )
         if verify_value_check is None:
@@ -121,6 +124,10 @@ class HandleModal(Modal, title="Verification"):
                 extra={"user_id": member.id},
             )
             return
+
+        # Prefer moniker from second fetch if returned
+        if community_moniker_2:
+            community_moniker = community_moniker_2
 
         token_verify = await is_valid_rsi_bio(
             cased_handle, user_token_info["token"], self.bot.http_client
@@ -176,10 +183,42 @@ class HandleModal(Modal, title="Verification"):
                     },
                 )
             return
-            # Verification successful
+
+        # Leadership log: snapshot before
+        import time as _t
+        _start = _t.time()
+        before_snap = await snapshot_member_state(self.bot, member)
+
+        # Verification successful
         old_status, assigned_role_type = await assign_roles(
-            member, verify_value_check, cased_handle, self.bot
+            member,
+            verify_value_check,
+            cased_handle,
+            self.bot,
+            community_moniker=community_moniker,
         )
+        # Allow enqueued role/nick tasks to process so snapshot reflects changes
+        try:
+            await flush_tasks()
+        except Exception:
+            pass
+        after_snap = await snapshot_member_state(self.bot, member)
+        diff = diff_snapshots(before_snap, after_snap)
+        cs = ChangeSet(
+            user_id=member.id,
+            event=EventType.VERIFICATION,
+            initiator_kind='User',
+            initiator_name=None,
+            notes=None,
+        )
+        for k, v in diff.items():
+            setattr(cs, k, v)
+        cs.started_at = before_snap and cs.started_at  # preserve default
+    # duration tracking removed
+        try:
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            logger.debug("Leadership log post failed (verification modal)")
         clear_token(member.id)
         await reset_attempts(member.id)
 
@@ -223,6 +262,10 @@ class HandleModal(Modal, title="Verification"):
                 "Welcome to the server! You can verify again after 3 hours if needed."
             )
 
+        if "We set your Discord username" not in description:
+            description += (
+                "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+            )
         embed = create_success_embed(description)
 
         # 9) Send follow-up success

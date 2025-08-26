@@ -12,7 +12,9 @@ from helpers.database import Database
 from verification.rsi_verification import is_valid_rsi_handle
 from helpers.http_helper import NotFoundError
 from helpers.role_helper import assign_roles
-from helpers.announcement import send_verification_announcements
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
 
@@ -111,10 +113,10 @@ class AutoRecheck(commands.Cog):
     ) -> None:
         try:
             # Validate handle and fetch current status
-            verify_value, cased_handle = await is_valid_rsi_handle(
+            verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
                 rsi_handle, self.bot.http_client
             )
-            if verify_value is None or cased_handle is None:
+            if verify_value is None or cased_handle is None:  # moniker optional
                 # Transient fetch/parse failure: schedule backoff
                 current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
                 delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
@@ -126,25 +128,38 @@ class AutoRecheck(commands.Cog):
                     inc=True,
                 )
                 return
-
-                # Apply roles; get (old_status, new_status)
+            # Snapshot before
+            import time as _t
+            _start = _t.time()
+            before_snap = await snapshot_member_state(self.bot, member)
+            # Apply roles; get (old_status, new_status)
             old_status, new_status = await assign_roles(
-                member, verify_value, cased_handle, self.bot
+                member,
+                verify_value,
+                cased_handle,
+                self.bot,
+                community_moniker=community_moniker,
             )
-
-            # Announce only if membership status changed
-            if (old_status or "").lower() != (new_status or "").lower():
-                try:
-                    await send_verification_announcements(
-                        self.bot,
-                        member,
-                        old_status,
-                        new_status,
-                        is_recheck=True,
-                        by_admin="auto",
-                    )
-                except Exception as e:
-                    logger.warning(f"Auto announce failed for {user_id}: {e}")
+            try:
+                await flush_tasks()
+            except Exception:
+                pass
+            after_snap = await snapshot_member_state(self.bot, member)
+            diff = diff_snapshots(before_snap, after_snap)
+            cs = ChangeSet(
+                user_id=member.id,
+                event=EventType.AUTO_CHECK,
+                initiator_kind='Auto',
+                initiator_name=None,
+                notes=None,
+            )
+            for k, v in diff.items():
+                setattr(cs, k, v)
+            # duration tracking removed
+            try:
+                await post_if_changed(self.bot, cs)
+            except Exception:
+                logger.debug("Leadership log post failed (auto recheck)")
 
                     # Schedule next success recheck using minutes → seconds
             next_retry = now + max(1, self.backoff_base_m * 60)

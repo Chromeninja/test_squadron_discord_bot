@@ -87,10 +87,10 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
     )
 
     embed.set_footer(
-            text=(
-                "By verifying, you consent to storing your RSI handle and verification "
-                "status for role assignment purposes."
-            )
+        text=(
+            "By verifying, you consent to storing your RSI handle, community moniker (if found), "
+            "and verification status for role assignment and username syncing."
+        )
     )
 
     return embed
@@ -157,7 +157,7 @@ def create_cooldown_embed(wait_until: int) -> discord.Embed:
 def build_welcome_description(role_type: str) -> str:
     """Return a role-specific welcome message."""
     if role_type == "main":
-        return (
+        base = (
             "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
             "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
             "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
@@ -165,8 +165,9 @@ def build_welcome_description(role_type: str) -> str:
             "make the most of your experience!\n\n"
             "Fly safe! <:o7:1332572027877593148>"
         )
+        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
     if role_type == "affiliate":
-        return (
+        base = (
             "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
             "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
             "Your support helps us grow and excel. We encourage you to set **TEST** as "
@@ -178,8 +179,9 @@ def build_welcome_description(role_type: str) -> str:
             "involved!\n\n"
             "<:o7:1332572027877593148>"
         )
+        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
     if role_type == "non_member":
-        return (
+        base = (
             "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
             "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
             "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
@@ -190,4 +192,5 @@ def build_welcome_description(role_type: str) -> str:
             "Join our voice chats, explore events, and engage in our text channels to get "
             "involved! <:o7:1332572027877593148>"
         )
-    return "Welcome to the server! You can verify again after 3 hours if needed."
+        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+    return "Welcome to the server! You can verify again after 3 hours if needed. We set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."

@@ -68,9 +68,13 @@ class Database:
                 )
                 logger.info("Added column verification.needs_reverify")
             except sqlite3.OperationalError as e:
-                logger.warning(f"Could not add needs_reverify column (maybe already exists): {e}")
+                logger.warning(
+                    f"Could not add needs_reverify column (maybe already exists): {e}"
+                )
             except Exception as e:
-                logger.error(f"Unexpected error adding needs_reverify column: {e}")
+                logger.error(
+                    f"Unexpected error adding needs_reverify column: {e}"
+                )
         if "needs_reverify_at" not in columns:
             try:
                 await db.execute(
@@ -78,9 +82,28 @@ class Database:
                 )
                 logger.info("Added column verification.needs_reverify_at")
             except sqlite3.OperationalError as e:
-                logger.warning(f"Could not add needs_reverify_at column (maybe already exists): {e}")
+                logger.warning(
+                    f"Could not add needs_reverify_at column (maybe already exists): {e}"
+                )
             except Exception as e:
-                logger.error(f"Unexpected error adding needs_reverify_at column: {e}")
+                logger.error(
+                    f"Unexpected error adding needs_reverify_at column: {e}"
+                )
+        if "community_moniker" not in columns:
+            try:
+                await db.execute(
+                    "ALTER TABLE verification ADD COLUMN community_moniker TEXT"
+                )
+                logger.info("Added column verification.community_moniker")
+            except sqlite3.OperationalError as e:
+                logger.warning(
+                    f"Could not add community_moniker column (maybe already exists): {e}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error adding community_moniker column: {e}"
+                )
+
         if last_recheck_exists:
             logger.info("Found legacy last_recheck column; will migrate data.")
 
@@ -424,7 +447,7 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # 404 username change helpers
+    # 404 handle change helpers (legacy 'username_404' module name retained for backward compatibility)
     @classmethod
     async def flag_needs_reverify(cls, user_id: int, now: int) -> bool:
         """Set needs_reverify flag. Returns True if row updated (was newly flagged)."""

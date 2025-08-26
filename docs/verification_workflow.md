@@ -10,7 +10,7 @@ It also highlights where a future **Re‑Check** feature would integrate.
   1. RSI handle format.
   2. Membership in the TEST organization via [`is_valid_rsi_handle`](../verification/rsi_verification.py).
   3. That a valid token exists and is present in the user’s RSI bio via [`is_valid_rsi_bio`](../verification/rsi_verification.py).
-- **Role Assignment**: If checks succeed, [`assign_roles`](../helpers/role_helper.py) grants `BotVerified` plus the appropriate org role (Main/Affiliate/Non‑Member). Verification attempts and tokens are cleared.
+- **Role Assignment & Moniker Sync**: If checks succeed, [`assign_roles`](../helpers/role_helper.py) grants `BotVerified` plus the appropriate org role (Main/Affiliate/Non‑Member). The user's RSI Community Moniker (if parsable and distinct from the handle) is stored and their Discord nickname is updated to match (truncated with an ellipsis if over 32 characters). Future auto re‑checks refresh this moniker and update the nickname if it changes.
 - **Rate Limiting**: All verification actions are limited by [`check_rate_limit`](../helpers/rate_limiter.py). Exceeding the limit sends a cooldown embed.
 
 ## Where Re‑Check Fits

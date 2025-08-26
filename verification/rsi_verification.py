@@ -2,6 +2,7 @@
 
 import logging
 import re
+import string
 from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 from config.config_loader import ConfigLoader
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient
-) -> Tuple[Optional[int], Optional[str]]:
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
     """
     Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
     Also retrieves the correctly cased handle from the RSI profile.
@@ -26,15 +27,16 @@ async def is_valid_rsi_handle(
         http_client (HTTPClient): The HTTP client instance.
 
     Returns:
-        Tuple[Optional[int], Optional[str]]: A tuple containing:
+        Tuple[Optional[int], Optional[str], Optional[str]]: A tuple containing:
             - verify_value (1, 2, 0 or None)
             - the correctly cased handle (or None)
+            - community moniker (or None)
     """
     logger.debug(f"Starting validation for RSI handle: {user_handle}")
 
     if not RSI_HANDLE_REGEX.match(user_handle):
         logger.warning(f"Invalid RSI handle format: {user_handle}")
-        return None, None
+        return None, None, None
 
         # Fetch organization data
     org_url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
@@ -43,11 +45,10 @@ async def is_valid_rsi_handle(
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
         logger.error(f"Handle not found (404): {user_handle}")
-        # Let the caller decide to prune records.
         raise
-    if not org_html:
+    if not org_html:  # Empty/None response
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
-        return None, None
+        return None, None, None
 
         # Parse organization data
     try:
@@ -56,18 +57,18 @@ async def is_valid_rsi_handle(
         logger.exception(
             f"Exception while parsing organization data for {user_handle}: {e}"
         )
-        return None, None
+        return None, None, None
 
     verify_value = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
     logger.debug(f"Verification value for {user_handle}: {verify_value}")
 
-    # Fetch profile data
+    # Fetch profile data (single fetch reused for handle + moniker)
     profile_url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
     logger.debug(f"Fetching profile data from URL: {profile_url}")
     profile_html = await http_client.fetch_html(profile_url)
-    if not profile_html:
+    if not profile_html:  # Could not retrieve profile
         logger.error(f"Failed to fetch profile data for handle: {user_handle}")
-        return verify_value, None
+        return verify_value, None, None
 
         # Extract correctly cased handle
     try:
@@ -82,7 +83,24 @@ async def is_valid_rsi_handle(
         )
         cased_handle = None
 
-    return verify_value, cased_handle
+    # Extract community moniker
+    try:
+        community_moniker = extract_moniker(profile_html, cased_handle)
+        if community_moniker:
+            logger.debug(
+                f"Extracted community moniker for {user_handle}: {community_moniker}"
+            )
+        else:
+            logger.info(
+                f"Community moniker not found or empty for {user_handle}; proceeding without it."
+            )
+    except Exception as e:
+        logger.exception(
+            f"Exception while extracting community moniker for {user_handle}: {e}"
+        )
+        community_moniker = None
+
+    return verify_value, cased_handle, community_moniker
 
 
 def extract_handle(html_content: str) -> Optional[str]:
@@ -117,6 +135,67 @@ def extract_handle(html_content: str) -> Optional[str]:
 
     logger.warning("Handle element not found in profile HTML.")
     return None
+
+
+def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional[str]:
+    """Extract the community moniker (display name) from profile HTML.
+
+    Strategy:
+      1. Parse all p.entry nodes inside the profile info block in DOM order.
+      2. Stop processing once we reach the paragraph whose label/span label text is
+         'Handle name' (that paragraph corresponds to handle section) – do not
+         consider any entries after it.
+      3. Within the processed range, take the first <strong class="value"> text value.
+      4. Fallback: if none found before Handle name, pick the very first
+         <strong class="value"> anywhere (if distinct from handle).
+      5. If extracted moniker equals the handle (case-insensitive) or is empty
+         after stripping, treat as None.
+    """
+    soup = BeautifulSoup(html_content, "lxml")
+    # Primary search region: all profile info entries (broad but ordered)
+    entries = soup.select(".profile .info p.entry") or soup.find_all("p", class_="entry")
+
+    moniker_candidate: Optional[str] = None
+    for p in entries:
+        # If this is the handle section, break before consuming it
+        if (label_span := p.find("span", class_="label")) and label_span.get_text(strip=True) == "Handle name":
+            break
+        if (strong_val := p.find("strong", class_="value")) and (text_val := strong_val.get_text(strip=True)):
+            moniker_candidate = text_val
+            break  # First pre-handle value wins
+
+    # Fallback if not found pre-handle
+    if (not moniker_candidate) and (strong_any := (soup.select_one(".profile .info strong.value") or soup.find("strong", class_="value"))):
+        moniker_candidate = strong_any.get_text(strip=True)
+
+    if not moniker_candidate:
+        return None
+
+    # Normalize / sanitize
+    sanitized = _sanitize_moniker(moniker_candidate)
+    if not sanitized:
+        return None
+    if handle and sanitized.lower() == handle.lower():
+        return None
+    return sanitized
+
+
+MIN_PRINTABLE_ASCII = 32
+MAX_PRINTABLE_ASCII = 126
+
+def _sanitize_moniker(moniker: str) -> str:
+    """Remove control / zero-width characters and trim whitespace.
+
+    Accept characters that are in Python's string.printable OR are standard space/tab.
+    Explicitly drop other control characters and zero-width spaces.
+    """
+    if not moniker:
+        return ""
+    # Use Python's printable set directly; exclude vertical tab and form feed for safety.
+    allowed = set(string.printable)
+    cleaned = "".join(ch for ch in moniker if ch in allowed and ch not in {"\x0b", "\x0c"})
+    # Remove zero-width space explicitly then strip outer whitespace
+    return cleaned.replace("\u200b", "").strip()
 
 
 def parse_rsi_organizations(html_content: str) -> dict:

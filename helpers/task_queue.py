@@ -76,3 +76,25 @@ async def start_task_workers(num_workers=2):
     for _ in range(num_workers):
         asyncio.create_task(worker())
     logger.info(f"Started {num_workers} task queue worker(s).")
+
+
+async def flush_tasks(max_wait: float = 2.0):
+    """Best-effort wait until the task_queue is drained or timeout.
+
+    Ensures leadership logging can observe role/nickname changes that were
+    enqueued just prior. Non-blocking (uses asyncio.sleep)."""
+    import time
+    deadline = time.time() + max_wait
+    # Initial yield to let workers pick up tasks
+    await asyncio.sleep(0)
+    while time.time() < deadline:
+        if task_queue.empty():
+            # Give in-flight task a brief chance to finish
+            await asyncio.sleep(0.05)
+            if task_queue.empty():
+                break
+        await asyncio.sleep(0.05)
+
+__all__ = [
+    'enqueue_task', 'start_task_workers', 'flush_tasks', 'task_queue'
+]
