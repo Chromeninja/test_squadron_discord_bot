@@ -1,8 +1,16 @@
 import asyncio
 from types import SimpleNamespace
+import os
+import sys
 
 import pytest
 import pytest_asyncio
+
+# Ensure project root is on sys.path for CI environments where Python might
+# not automatically include it (e.g., some GitHub Actions runners invoking pytest differently).
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from helpers.database import Database
 
