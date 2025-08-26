@@ -202,10 +202,14 @@ class Admin(commands.Cog):
 
     @app_commands.command(
         name="recheck-user",
-        description="Force a verification re-check for a user (Bot Admins only).",
+        description="Force a verification re-check for a user (Bot Admins & Lead Moderators).",
     )
-    @app_command_check_configured_roles(config["roles"]["bot_admins"])
-    @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
+    @app_command_check_configured_roles(
+        config["roles"]["bot_admins"] + config["roles"].get("lead_moderators", [])
+    )
+    @app_commands.checks.has_any_role(
+        *config["roles"]["bot_admins"], *config["roles"].get("lead_moderators", [])
+    )
     @app_commands.guild_only()
     async def recheck_user(
         self, interaction: discord.Interaction, member: discord.Member
