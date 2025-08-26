@@ -170,6 +170,20 @@ async def test_single_field_auto(monkeypatch):
     assert '\n' in sent[0]
     assert 'Moniker:' in sent[0]
 
+@pytest.mark.asyncio
+async def test_auto_initial_moniker_population_suppressed(monkeypatch):
+    """Auto check should NOT show moniker change if previous value absent/none placeholder."""
+    bot = DummyBot()
+    sent = []
+    async def fake_send(channel, content, embed=None):
+        sent.append(content)
+    monkeypatch.setattr('helpers.leadership_log.channel_send_message', fake_send)
+    cs = ChangeSet(user_id=41, event=EventType.AUTO_CHECK, initiator_kind='Auto')
+    cs.moniker_before = None  # or '(none)'
+    cs.moniker_after = 'NewMoniker'
+    await post_if_changed(bot, cs)
+    # Should suppress entirely (no message) because only change was initial population
+    assert not sent
 
 @pytest.mark.asyncio
 async def test_dedupe(monkeypatch):

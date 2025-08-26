@@ -349,6 +349,11 @@ def _format_value(val: Optional[str]) -> str:
 def _render_plaintext(cs: ChangeSet) -> str:
     status_changed = _changed_material(cs.status_before, cs.status_after)
     moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    # Suppress initial moniker population during auto checks (noise when feature rolled out)
+    if moniker_changed and cs.event == EventType.AUTO_CHECK:
+        before = (cs.moniker_before or '').strip().lower()
+        if before in {'', '(none)', 'none'}:
+            moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
     has_changes = status_changed or moniker_changed or username_changed
     header = _build_header(cs, has_changes)
@@ -383,6 +388,10 @@ async def post_if_changed(bot, cs: ChangeSet):
 
     status_changed = _changed_material(cs.status_before, cs.status_after)
     moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    if moniker_changed and cs.event == EventType.AUTO_CHECK:
+        before = (cs.moniker_before or '').strip().lower()
+        if before in {'', '(none)', 'none'}:
+            moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
     has_changes = status_changed or moniker_changed or username_changed
     if cs.event == EventType.AUTO_CHECK and not has_changes:
