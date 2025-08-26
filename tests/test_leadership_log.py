@@ -65,8 +65,8 @@ async def test_user_verify_moniker_change(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_handle_change_ignored(monkeypatch):
-    """Handle changes alone are ignored; expect no-changes line."""
+async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch):
+    """Handle change should now produce a Handle line (policy: handle drives nickname)."""
     bot = DummyBot()
     sent = []
     async def fake_send(channel, content, embed=None):
@@ -77,7 +77,9 @@ async def test_admin_recheck_handle_change_ignored(monkeypatch):
     cs.handle_after = 'NewH'
     await post_if_changed(bot, cs)
     assert len(sent) == 1
-    assert sent[0].endswith('No changes')
+    assert 'Handle: OldH → NewH' in sent[0]
+    # No username change present, so only one line besides header
+    assert 'Username:' not in sent[0]
 
 
 @pytest.mark.asyncio
@@ -112,6 +114,8 @@ async def test_status_and_nickname_changes_multiline(monkeypatch):
     assert len(sent) == 1
     assert 'Status: Affiliate → Main' in sent[0]
     assert 'Username: OldNick → NewNick' in sent[0]
+    # Ensure old test still passes with new handle line logic when no handle change
+    assert 'Handle:' not in sent[0]
 
 
 @pytest.mark.asyncio
@@ -169,6 +173,42 @@ async def test_single_field_auto(monkeypatch):
     # Multi-line: header + field
     assert '\n' in sent[0]
     assert 'Moniker:' in sent[0]
+
+@pytest.mark.asyncio
+async def test_handle_and_username_change_both_lines(monkeypatch):
+    bot = DummyBot()
+    sent = []
+    async def fake_send(channel, content, embed=None):
+        sent.append(content)
+    monkeypatch.setattr('helpers.leadership_log.channel_send_message', fake_send)
+    cs = ChangeSet(user_id=60, event=EventType.VERIFICATION, initiator_kind='User')
+    cs.handle_before = 'OldHandle'
+    cs.handle_after = 'NewHandle'
+    cs.username_before = 'OldHandle'  # prior nickname followed old handle
+    cs.username_after = 'NewHandle'   # updated due to policy
+    await post_if_changed(bot, cs)
+    assert len(sent) == 1
+    assert 'Handle:' in sent[0]
+    assert 'Username:' in sent[0]
+
+@pytest.mark.asyncio
+async def test_auto_moniker_initial_suppressed_handle_not_suppressed(monkeypatch):
+    bot = DummyBot()
+    sent = []
+    async def fake_send(channel, content, embed=None):
+        sent.append(content)
+    monkeypatch.setattr('helpers.leadership_log.channel_send_message', fake_send)
+    cs = ChangeSet(user_id=61, event=EventType.AUTO_CHECK, initiator_kind='Auto')
+    cs.moniker_before = None
+    cs.moniker_after = 'NewMoniker'
+    cs.handle_before = 'OldHandle'
+    cs.handle_after = 'NewHandle'
+    await post_if_changed(bot, cs)
+    # Should post because handle changed even though moniker initial population suppressed
+    assert len(sent) == 1
+    assert 'Handle:' in sent[0]
+    # Moniker suppressed (initial population auto check)
+    assert 'Moniker:' not in sent[0]
 
 @pytest.mark.asyncio
 async def test_auto_initial_moniker_population_suppressed(monkeypatch):

@@ -165,7 +165,7 @@ def build_welcome_description(role_type: str) -> str:
             "make the most of your experience!\n\n"
             "Fly safe! <:o7:1332572027877593148>"
         )
-        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+    return base + "\n\nWe set your Discord nickname to your RSI handle."
     if role_type == "affiliate":
         base = (
             "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
@@ -179,7 +179,7 @@ def build_welcome_description(role_type: str) -> str:
             "involved!\n\n"
             "<:o7:1332572027877593148>"
         )
-        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+    return base + "\n\nWe set your Discord nickname to your RSI handle."
     if role_type == "non_member":
         base = (
             "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
@@ -192,5 +192,5 @@ def build_welcome_description(role_type: str) -> str:
             "Join our voice chats, explore events, and engage in our text channels to get "
             "involved! <:o7:1332572027877593148>"
         )
-        return base + "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
-    return "Welcome to the server! You can verify again after 3 hours if needed. We set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
+        return base + "\n\nWe set your Discord nickname to your RSI handle."
+    return "Welcome to the server! You can verify again after 3 hours if needed. We set your Discord nickname to your RSI handle."

@@ -238,9 +238,10 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
                 embed.add_field(name=label, value=f"No Change ({before})", inline=False)
 
     add_section('Membership Status', cs.status_before, cs.status_after)
-    add_section('RSI Handle', cs.handle_before, cs.handle_after)
-    add_section('Community Moniker', cs.moniker_before, cs.moniker_after)
-    add_section('Discord Nickname', cs.username_before, cs.username_after)
+    # Updated labels (Aug 2025 policy): concise field names
+    add_section('Handle', cs.handle_before, cs.handle_after)
+    add_section('Moniker', cs.moniker_before, cs.moniker_after)
+    add_section('Username', cs.username_before, cs.username_after)
 
     if cs.roles_added:
         embed.add_field(name='Roles Added', value='\n'.join(f"• {r}" for r in cs.roles_added), inline=False)
@@ -355,7 +356,8 @@ def _render_plaintext(cs: ChangeSet) -> str:
         if before in {'', '(none)', 'none'}:
             moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
-    has_changes = status_changed or moniker_changed or username_changed
+    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
+    has_changes = status_changed or moniker_changed or username_changed or handle_changed
     header = _build_header(cs, has_changes)
     if not has_changes:
         return header
@@ -366,6 +368,10 @@ def _render_plaintext(cs: ChangeSet) -> str:
         lines.append(f"Moniker: {_format_value(_truncate(cs.moniker_before or '(none)'))} → {_format_value(_truncate(cs.moniker_after or '(none)'))}")
     if username_changed:
         lines.append(f"Username: {_format_value(_truncate(cs.username_before or '(none)'))} → {_format_value(_truncate(cs.username_after or '(none)'))}")
+    if handle_changed:
+        lines.append(
+            f"Handle: {_format_value(_truncate(cs.handle_before or '(none)'))} → {_format_value(_truncate(cs.handle_after or '(none)'))}"
+        )
     return '\n'.join(lines)
 
 
@@ -393,7 +399,8 @@ async def post_if_changed(bot, cs: ChangeSet):
         if before in {'', '(none)', 'none'}:
             moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
-    has_changes = status_changed or moniker_changed or username_changed
+    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
+    has_changes = status_changed or moniker_changed or username_changed or handle_changed
     if cs.event == EventType.AUTO_CHECK and not has_changes:
         return  # suppress entirely for auto no-change
 

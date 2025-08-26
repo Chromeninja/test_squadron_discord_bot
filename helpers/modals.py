@@ -262,10 +262,8 @@ class HandleModal(Modal, title="Verification"):
                 "Welcome to the server! You can verify again after 3 hours if needed."
             )
 
-        if "We set your Discord username" not in description:
-            description += (
-                "\n\nWe set your Discord username to your RSI moniker if available; otherwise we use your RSI handle."
-            )
+        if "We set your Discord nickname" not in description:
+            description += ("\n\nWe set your Discord nickname to your RSI handle.")
         embed = create_success_embed(description)
 
         # 9) Send follow-up success

@@ -185,21 +185,11 @@ async def assign_roles(
         logger.error("No valid roles to add.", extra={"user_id": member.id})
 
         # Enqueue nickname change
-    # Determine nickname preference (Discord nickname, not global username):
-    # Prefer sanitized community moniker if present, non-empty (after removing control/zero-width chars),
-    # and different (case-insensitive) from handle; else fallback to handle.
-    from verification.rsi_verification import _sanitize_moniker  # local import to avoid cycle
-
-    # Sanitize potential community moniker (removes control / zero-width / excess whitespace)
-    # Prefer it only if after sanitation it is non-empty and materially differs (case-insensitive)
-    if (
-        community_moniker
-        and (mn := _sanitize_moniker(community_moniker))
-        and mn.lower() != cased_handle.lower()
-    ):
-        preferred_nick = mn
-    else:
-        preferred_nick = cased_handle
+    # Nickname policy (Discord nickname, not global username):
+    # Updated Aug 2025: Always use the RSI handle (cased) for nickname, never the community moniker.
+    # We still store the community_moniker in the DB above for future features, but it is not
+    # considered for nickname selection anymore.
+    preferred_nick = cased_handle
 
     def _truncate_nickname(nick: str, limit: int = 32) -> str:
         """Unicode-aware truncation that avoids leaving trailing combining marks.
