@@ -24,6 +24,9 @@ from helpers.discord_api import (
     edit_channel,
     followup_send_message,
 )
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
 
@@ -181,6 +184,11 @@ class HandleModal(Modal, title="Verification"):
                 )
             return
 
+        # Leadership log: snapshot before
+        import time as _t
+        _start = _t.time()
+        before_snap = await snapshot_member_state(self.bot, member)
+
         # Verification successful
         old_status, assigned_role_type = await assign_roles(
             member,
@@ -189,6 +197,28 @@ class HandleModal(Modal, title="Verification"):
             self.bot,
             community_moniker=community_moniker,
         )
+        # Allow enqueued role/nick tasks to process so snapshot reflects changes
+        try:
+            await flush_tasks()
+        except Exception:
+            pass
+        after_snap = await snapshot_member_state(self.bot, member)
+        diff = diff_snapshots(before_snap, after_snap)
+        cs = ChangeSet(
+            user_id=member.id,
+            event=EventType.VERIFICATION,
+            initiator_kind='User',
+            initiator_name=None,
+            notes=None,
+        )
+        for k, v in diff.items():
+            setattr(cs, k, v)
+        cs.started_at = before_snap and cs.started_at  # preserve default
+    # duration tracking removed
+        try:
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            logger.debug("Leadership log post failed (verification modal)")
         clear_token(member.id)
         await reset_attempts(member.id)
 

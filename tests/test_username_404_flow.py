@@ -86,28 +86,19 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch):
         cur = await db.execute("SELECT 1 FROM auto_recheck_state WHERE user_id=?", (101,))
         assert await cur.fetchone() is None
 
-    # Validate messages (two sends: spam + leadership)
-    assert send_mock.await_count == 2
-    spam_call, lead_call = send_mock.await_args_list
-    # Each call args: (channel, message)
-    assert str(bot.BOT_SPAM_CHANNEL_ID) in str(spam_call[0][0].id)
-    assert member.mention in spam_call[0][0][1] if False else True  # structural placeholder
-    # Extract messages
-    messages = [args[1] for args, _ in send_mock.await_args_list]
-    spam_msg = messages[0]
-    lead_msg = messages[1]
+    # Validate only spam message now (leadership handled via standardized embed separately)
+    assert send_mock.await_count == 1
+    spam_call = send_mock.await_args_list[0]
+    spam_msg = spam_call[0][1]
     assert member.mention in spam_msg
     assert f"<#{bot.VERIFICATION_CHANNEL_ID}>" in spam_msg
     assert "reverify your account" in spam_msg.lower()
-    assert member.mention in lead_msg
-    assert "`OldHandle`" in lead_msg
-    assert "404" in lead_msg
 
     # Second call should be idempotent (no change)
     changed2 = await handle_username_404(bot, member, "OldHandle")
     assert changed2 is False
     # No additional sends
-    assert send_mock.await_count == 2
+    assert send_mock.await_count == 1
 
 @pytest.mark.asyncio
 async def test_admin_recheck_404_flow(temp_db, monkeypatch):

@@ -4,6 +4,9 @@ from helpers.database import Database
 from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
 from helpers.discord_api import channel_send_message
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
 
@@ -102,6 +105,8 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
     except Exception as e:
         logger.warning(f"Failed unscheduling auto recheck for {member.id}: {e}")
 
+    # Leadership snapshot BEFORE
+    before_snap = await snapshot_member_state(bot, member)
     roles_removed = await remove_bot_roles(member, bot)
 
     # Announcements
@@ -115,21 +120,33 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
         f"{member.mention} it seems your RSI Handle has changed or is no longer accessible. "
         f"Please navigate to <#{verification_channel_id}> and reverify your account. Your roles have been revoked."
     )
-    lead_msg = (
-        f"{member.mention} RSI Handle `{old_handle}` is returning 404 — roles removed and user alerted."
-    )
     if spam_channel:
         try:
             await channel_send_message(spam_channel, spam_msg)
         except Exception as e:
             logger.warning(f"Failed sending spam alert for {member.id}: {e}")
+    # Leadership announcement removed (standardized in leadership_log.post_if_changed)
+
+    # Leadership snapshot AFTER and post log (always, error path)
     try:
-        lead_channel_id = (bot.config or {}).get("channels", {}).get("leadership_announcement_channel_id")
-        if lead_channel_id:
-            if lead_channel := member.guild.get_channel(lead_channel_id):
-                await channel_send_message(lead_channel, lead_msg)
-    except Exception as e:
-        logger.warning(f"Failed sending leadership 404 alert for {member.id}: {e}")
+        try:
+            await flush_tasks()
+        except Exception:
+            pass
+        after_snap = await snapshot_member_state(bot, member)
+        diff = diff_snapshots(before_snap, after_snap)
+        cs = ChangeSet(
+            user_id=member.id,
+            event=EventType.RECHECK,
+            initiator_kind='Auto',
+            initiator_name=None,
+            notes='RSI 404',
+        )
+        for k, v in diff.items():
+            setattr(cs, k, v)
+        await post_if_changed(bot, cs)
+    except Exception:
+        logger.debug("Leadership log 404 post failed")
 
     logger.info(
         "RSI Handle 404 handled.",
@@ -141,11 +158,11 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
                 "flagged_db",
                 "roles_removed" if roles_removed else "roles_none",
                 "spam_alert" if spam_channel else "spam_missing",
-                "leadership_alert" if 'lead_channel_id' in locals() and lead_channel_id else "leadership_missing",
+                "leadership_alert" if False else "leadership_missing",
             ],
             "channels": {
                 "spam": getattr(bot, "BOT_SPAM_CHANNEL_ID", None),
-                "leadership": locals().get('lead_channel_id'),
+                "leadership": None,
                 "verification": verification_channel_id,
             },
         },

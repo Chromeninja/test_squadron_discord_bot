@@ -200,10 +200,17 @@ async def assign_roles(
         # Discord hard limit: 32 characters. If over, keep first 31 and append a single ellipsis character (U+2026)
         if len(nick_final) > 32:
             nick_final = nick_final[:31] + "…"
-        if getattr(member, "nick", None) == nick_final:
-            pass  # No change required
-        else:
-
+        # Persist preferred nick regardless of change for logging heuristics
+        try:
+            setattr(member, "_preferred_verification_nick", nick_final)
+        except Exception:
+            pass
+        current_nick = getattr(member, "nick", None)
+        if current_nick != nick_final:
+            try:
+                setattr(member, "_nickname_changed_flag", True)
+            except Exception:
+                pass
             async def nickname_task():
                 try:
                     await edit_member(member, nick=nick_final)
@@ -221,8 +228,12 @@ async def assign_roles(
                         f"Unexpected error when changing nickname: {e}",
                         extra={"user_id": member.id},
                     )
-
             await enqueue_task(nickname_task)
+        else:
+            try:
+                setattr(member, "_nickname_changed_flag", False)
+            except Exception:
+                pass
     else:
         logger.warning(
             "Cannot change nickname due to role hierarchy.",

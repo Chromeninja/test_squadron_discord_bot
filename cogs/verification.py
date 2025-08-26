@@ -18,9 +18,12 @@ from helpers.logger import get_logger
 from helpers.discord_api import followup_send_message
 from helpers.role_helper import reverify_member
 from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.announcement import send_verification_announcements
+from helpers.announcement import send_verification_announcements  # legacy
 from helpers.http_helper import NotFoundError
 from helpers.username_404 import handle_username_404
+from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
 
@@ -136,7 +139,11 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        # Attempt re-verification
+        # Snapshot BEFORE reverify to capture DB / handle / moniker changes
+        import time as _t
+        _start = _t.time()
+        before_snap = await snapshot_member_state(self.bot, member)
+        # Attempt re-verification (DB + role/nick tasks enqueued)
         try:
             result = await reverify_member(member, rsi_handle, self.bot)
         except NotFoundError:
@@ -169,15 +176,41 @@ class VerificationCog(commands.Cog):
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
 
-        admin_display = getattr(interaction.user, "display_name", str(interaction.user))
-        await send_verification_announcements(
-            self.bot,
-            member,
-            old_status,
-            new_status,
-            is_recheck=True,
-            by_admin=admin_display,
+        # Leadership log snapshot
+        try:
+            await flush_tasks()
+        except Exception:
+            pass
+        # Refetch member to get latest nickname / roles after queued tasks applied
+        try:
+            refreshed = await member.guild.fetch_member(member.id)
+            if refreshed:
+                member = refreshed
+        except Exception:
+            pass
+        after_snap = await snapshot_member_state(self.bot, member)
+        diff = diff_snapshots(before_snap, after_snap)
+        try:
+            if diff.get('username_before') == diff.get('username_after') and getattr(member, '_nickname_changed_flag', False):
+                pref = getattr(member, '_preferred_verification_nick', None)
+                if pref and pref != diff.get('username_before'):
+                    diff['username_after'] = pref
+        except Exception:
+            pass
+        cs = ChangeSet(
+            user_id=member.id,
+            event=EventType.RECHECK,
+            initiator_kind='User',
+            initiator_name=None,
+            notes=None,
         )
+        for k, v in diff.items():
+            setattr(cs, k, v)
+    # duration tracking removed
+        try:
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            logger.debug("Leadership log post failed (user recheck button)")
 
 
 async def setup(bot: commands.Bot):
