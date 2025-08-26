@@ -1,13 +1,12 @@
 import pytest
-from datetime import datetime
 
 from helpers.leadership_log import (
     ChangeSet,
     EventType,
     post_if_changed,
     escape_md,
-    build_message,
-    is_effectively_unchanged,
+    # build_message,
+    # is_effectively_unchanged,
 )
 
 
@@ -66,7 +65,8 @@ async def test_user_verify_moniker_change(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_handle_change(monkeypatch):
+async def test_admin_recheck_handle_change_ignored(monkeypatch):
+    """Handle changes alone are ignored; expect no-changes line."""
     bot = DummyBot()
     sent = []
     async def fake_send(channel, content, embed=None):
@@ -77,7 +77,7 @@ async def test_admin_recheck_handle_change(monkeypatch):
     cs.handle_after = 'NewH'
     await post_if_changed(bot, cs)
     assert len(sent) == 1
-    assert 'Handle: OldH → NewH' in sent[0]
+    assert sent[0].endswith('No changes')
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_status_and_nickname_changes_multiline(monkeypatch):
     await post_if_changed(bot, cs)
     assert len(sent) == 1
     assert 'Status: Affiliate → Main' in sent[0]
-    assert 'Nickname: OldNick → NewNick' in sent[0]
+    assert 'Username: OldNick → NewNick' in sent[0]
 
 
 @pytest.mark.asyncio
@@ -155,7 +155,7 @@ async def test_case_only_moniker_change_user_recheck_posts_no_change(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_single_field_compact_auto(monkeypatch):
+async def test_single_field_auto(monkeypatch):
     bot = DummyBot()
     sent = []
     async def fake_send(channel, content, embed=None):
@@ -166,8 +166,8 @@ async def test_single_field_compact_auto(monkeypatch):
     cs.moniker_after = 'New'
     await post_if_changed(bot, cs)
     assert len(sent) == 1
-    # Single line expected for auto single change
-    assert '\n' not in sent[0]
+    # Multi-line: header + field
+    assert '\n' in sent[0]
     assert 'Moniker:' in sent[0]
 
 
@@ -179,8 +179,8 @@ async def test_dedupe(monkeypatch):
         sent.append(content)
     monkeypatch.setattr('helpers.leadership_log.channel_send_message', fake_send)
     cs = ChangeSet(user_id=50, event=EventType.AUTO_CHECK, initiator_kind='Auto')
-    cs.handle_before = 'OldH'
-    cs.handle_after = 'NewH'
+    cs.moniker_before = 'Old'
+    cs.moniker_after = 'New'
     await post_if_changed(bot, cs)
     await post_if_changed(bot, cs)
     assert len(sent) == 1

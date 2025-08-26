@@ -12,7 +12,6 @@ from helpers.database import Database
 from verification.rsi_verification import is_valid_rsi_handle
 from helpers.http_helper import NotFoundError
 from helpers.role_helper import assign_roles
-from helpers.announcement import send_verification_announcements  # legacy
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
 from helpers.snapshots import snapshot_member_state, diff_snapshots
 from helpers.task_queue import flush_tasks

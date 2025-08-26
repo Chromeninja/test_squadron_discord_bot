@@ -14,7 +14,6 @@ from helpers.token_manager import clear_token, clear_all_tokens
 from helpers.discord_api import send_message
 from helpers.database import Database
 from helpers.role_helper import reverify_member
-from helpers.announcement import send_verification_announcements  # legacy (will be suppressed)
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
 from helpers.snapshots import snapshot_member_state, diff_snapshots
 from helpers.task_queue import flush_tasks

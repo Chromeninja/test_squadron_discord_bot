@@ -4,8 +4,6 @@ from unittest.mock import AsyncMock
 
 from helpers.database import Database
 from helpers.username_404 import handle_username_404
-from helpers import task_queue as tq
-from cogs.recheck import AutoRecheck
 from helpers.role_helper import reverify_member
 
 # --- Fixtures / fakes ---

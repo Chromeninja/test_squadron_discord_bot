@@ -1,5 +1,4 @@
 import pytest
-from types import SimpleNamespace
 from verification import rsi_verification as rv
 
 class FakeHTTP:

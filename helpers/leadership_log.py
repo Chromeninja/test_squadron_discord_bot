@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Literal, Tuple, Dict
 import time
 
-import discord  # NOTE: legacy embed support retained for backward compat in older tests; new flow uses plain text
+import discord  # legacy (embeds no longer dispatched)
 
 from helpers.logger import get_logger
 from helpers.discord_api import channel_send_message
@@ -35,8 +35,8 @@ class ChangeSet:
     username_before: Optional[str] = None
     username_after: Optional[str] = None
 
-    roles_added: List[str] = field(default_factory=list)   # retained for compatibility but no longer rendered
-    roles_removed: List[str] = field(default_factory=list) # retained for compatibility but no longer rendered
+    roles_added: List[str] = field(default_factory=list)    # ignored in new formatter
+    roles_removed: List[str] = field(default_factory=list)  # ignored in new formatter
 
     notes: Optional[str] = None
     started_at: datetime = field(default_factory=datetime.utcnow)
@@ -176,12 +176,7 @@ def _event_title(ev: EventType) -> str:
 
 
 def build_message(bot, cs: ChangeSet) -> str:
-    """Return the new plain‑text leadership log message.
-
-    This is the core renderer used by post_if_changed. It purposefully ignores the
-    previously used embed layout while keeping a simplified interface so existing
-    callers (tests) that invoked build_message still succeed.
-    """
+    """Public helper returning current plain-text representation."""
     return _render_plaintext(cs)
 
 
@@ -288,83 +283,75 @@ def _escape_inline(value: Optional[str]) -> str:
     return ''.join(out)
 
 
-def _action_tag(cs: ChangeSet) -> str:
-    return {
-        EventType.VERIFICATION: 'User Verify',
-        EventType.RECHECK: 'Admin Check' if cs.initiator_kind == 'Admin' and cs.event == EventType.RECHECK else 'Admin Check' if cs.event == EventType.ADMIN_CHECK else 'User Verify' if cs.event == EventType.RECHECK and cs.initiator_kind == 'User' else 'Auto Re-check' if cs.event == EventType.AUTO_CHECK else 'Admin Check' if cs.event == EventType.ADMIN_CHECK else cs.event.name,
-        EventType.AUTO_CHECK: 'Auto Re-check',
-        EventType.ADMIN_CHECK: 'Admin Check',
-    }[cs.event]
+def _header_tag(cs: ChangeSet) -> str:
+    if cs.event == EventType.VERIFICATION:
+        return 'Verification • User'
+    if cs.event == EventType.RECHECK and cs.initiator_kind == 'User':
+        return 'Recheck • User'
+    if cs.event == EventType.ADMIN_CHECK:
+        suffix = f" • Admin: {cs.initiator_name}" if cs.initiator_kind == 'Admin' and cs.initiator_name else ''
+        return f"Admin Check{suffix}"
+    if cs.event == EventType.AUTO_CHECK:
+        return 'Auto Check'
+    return cs.event.name
 
 
-def _outcome_and_emoji(cs: ChangeSet, changed_fields: int, had_changes: bool, first_verify: bool) -> tuple[str, str]:
-    if not had_changes:
-        return ('No changes', '🔎')
-    if first_verify and cs.event == EventType.VERIFICATION:
-        return ('Verified', '✅')
-    return ('Updated', '🔁')
+def _outcome(cs: ChangeSet, has_changes: bool) -> tuple[str,str]:
+    if not has_changes:
+        return ('No changes','🥺')
+    if cs.event == EventType.VERIFICATION:
+        return ('Verified','✅')
+    return ('Updated','🔁')
 
 
-def _build_header(cs: ChangeSet, changed_fields: int, had_changes: bool) -> str:
-    first_verify = cs.event == EventType.VERIFICATION and _changed_material(cs.status_before, cs.status_after)
-    outcome, emoji = _outcome_and_emoji(cs, changed_fields, had_changes, first_verify)
-    tag = _action_tag(cs)
-    admin_part = ''
-    if tag in ('Admin Check',) and cs.initiator_kind == 'Admin' and cs.initiator_name:
-        admin_part = f" • Admin: {escape_md(_truncate(cs.initiator_name))}".replace('`','')  # header not code‑wrapped
-    return f"[{tag}{admin_part}] <@{cs.user_id}> {emoji} {outcome}"
+def _build_header(cs: ChangeSet, has_changes: bool) -> str:
+    tag = _header_tag(cs)
+    outcome, emoji = _outcome(cs, has_changes)
+    header = f"[{tag}] <@{cs.user_id}> {emoji} {outcome}"
+    return header
 
 
 def _format_duration(ms: int) -> str:  # legacy stub (kept for compatibility)
     return ''
 
 
-def _field_label_map() -> dict:
-    return {
-        'status': 'Status',
-        'moniker': 'Moniker',
-        'username': 'Nickname',
-        'handle': 'Handle',
-    }
+def _field_label_map() -> dict:  # legacy
+    return {}
+
+
+def _format_value(val: Optional[str]) -> str:
+    """Escape markdown then quote if the original (unescaped) contains spaces or non-alphanumerics.
+
+    (none) marker is preserved unquoted. Empty string becomes "".
+    """
+    if val is None:
+        return '(none)'
+    original = val
+    if original == '':
+        return '""'
+    import re
+    needs_quote = not re.match(r'^[A-Za-z0-9_]+$', original)
+    escaped = _escape_inline(original)
+    if needs_quote:
+        return f'"{escaped}"'
+    return escaped
 
 
 def _render_plaintext(cs: ChangeSet) -> str:
-    # Determine which fields changed materially
-    changes = []
-    if _changed_material(cs.status_before, cs.status_after):
-        changes.append(('Status', _escape_inline(_truncate(cs.status_before or 'Non-Member')), _escape_inline(_truncate(cs.status_after or 'Non-Member'))))
-    if _changed_material(cs.moniker_before, cs.moniker_after):
-        changes.append(('Moniker', _escape_inline(_truncate(cs.moniker_before or '(none)')), _escape_inline(_truncate(cs.moniker_after or '(none)'))))
-    if _changed_material(cs.username_before, cs.username_after):
-        changes.append(('Nickname', _escape_inline(_truncate(cs.username_before or '(none)')), _escape_inline(_truncate(cs.username_after or '(none)'))))
-    if _changed_material(cs.handle_before, cs.handle_after):
-        changes.append(('Handle', _escape_inline(_truncate(cs.handle_before or '(none)')), _escape_inline(_truncate(cs.handle_after or '(none)'))))
-    # Roles intentionally omitted from rendered output
-
-    had_changes = bool(changes)
-    header = _build_header(cs, len(changes), had_changes)
-
-    duration_line = None
-    if not had_changes:
-        # Only for admin or user initiated checks we still post (handled by caller) with no change line
+    status_changed = _changed_material(cs.status_before, cs.status_after)
+    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    username_changed = _changed_material(cs.username_before, cs.username_after)
+    has_changes = status_changed or moniker_changed or username_changed
+    header = _build_header(cs, has_changes)
+    if not has_changes:
         return header
-
-    # Single-line compact fallback (only exactly one changed field & not status promotion demotion complexity)
-    if len(changes) == 1:
-        label, before, after = changes[0]
-        field_text = f"Roles: {after}" if label == 'Roles' else f"{label}: {before} → {after}"
-        if cs.event == EventType.AUTO_CHECK:
-            return f"[{_action_tag(cs)}] <@{cs.user_id}> 🔁 {field_text}"
-        return f"{header}\n{field_text}"
-
     lines = [header]
-    for label, before, after in changes:
-        if label == 'Roles':
-            lines.append(f"Roles: {after}")
-        else:
-            lines.append(f"{label}: {before} → {after}")
-    if duration_line:
-        lines.append(duration_line)
+    if status_changed:
+        lines.append(f"Status: {_format_value(_truncate(cs.status_before or ''))} → {_format_value(_truncate(cs.status_after or ''))}")
+    if moniker_changed:
+        lines.append(f"Moniker: {_format_value(_truncate(cs.moniker_before or '(none)'))} → {_format_value(_truncate(cs.moniker_after or '(none)'))}")
+    if username_changed:
+        lines.append(f"Username: {_format_value(_truncate(cs.username_before or '(none)'))} → {_format_value(_truncate(cs.username_after or '(none)'))}")
     return '\n'.join(lines)
 
 
@@ -383,22 +370,12 @@ async def post_if_changed(bot, cs: ChangeSet):
         if b and a and b.lower() == a.lower() and b != a:
             setattr(cs, attr_pair[1], b)  # revert to suppress
 
-    unchanged = is_effectively_unchanged(cs, bot=bot)
-
-    # Decide posting logic per new spec
-    if cs.event == EventType.AUTO_CHECK and unchanged:
-        return  # suppress
-    if unchanged and cs.event in (EventType.RECHECK, EventType.ADMIN_CHECK):
-        # We still post a "No changes" line
-        pass
-
-    if cs.event == EventType.VERIFICATION:
-        # Always post
-        pass
-    if cs.event == EventType.RECHECK and cs.initiator_kind == 'User':
-        # user recheck (button) -> treat as User Verify tag? spec says header tags: User Verify, Admin Check, Auto Re-check
-        # We'll map to Admin Check only when initiator is Admin. Keep default mapping path (User Verify) in _action_tag for first verify only.
-        pass
+    status_changed = _changed_material(cs.status_before, cs.status_after)
+    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    username_changed = _changed_material(cs.username_before, cs.username_after)
+    has_changes = status_changed or moniker_changed or username_changed
+    if cs.event == EventType.AUTO_CHECK and not has_changes:
+        return  # suppress entirely for auto no-change
 
     # Dedupe short window
     sig = _normalize_signature(cs)

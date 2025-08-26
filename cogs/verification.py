@@ -18,7 +18,6 @@ from helpers.logger import get_logger
 from helpers.discord_api import followup_send_message
 from helpers.role_helper import reverify_member
 from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.announcement import send_verification_announcements  # legacy
 from helpers.http_helper import NotFoundError
 from helpers.username_404 import handle_username_404
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
@@ -166,9 +165,9 @@ class VerificationCog(commands.Cog):
             return
 
         if isinstance(status_info, tuple):
-            old_status, new_status = status_info
+            _old_status, new_status = status_info
         else:
-            old_status = new_status = status_info
+            new_status = status_info
 
         await log_attempt(member.id, "recheck")
 
