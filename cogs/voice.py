@@ -12,6 +12,7 @@ This cog manages dynamic voice channels for the Discord bot. It handles:
 import asyncio
 import json
 import time
+import os
 
 import discord
 from discord import app_commands
@@ -40,6 +41,11 @@ from helpers.voice_utils import (
     fetch_channel_settings,
     format_channel_settings,
     create_voice_settings_embed,
+)
+from helpers.voice_repo import (
+    get_stale_voice_entries,
+    cleanup_user_voice_data,
+    cleanup_legacy_user_voice_data,
 )
 from helpers.views import ChannelSettingsView
 
@@ -766,38 +772,51 @@ class Voice(commands.GroupCog, name="voice"):
     async def cleanup_stale_channel_data(self):
         """
         Removes stale data for users who haven't created a channel within the expiry period.
+        Uses fully scoped (guild_id, jtc_channel_id, user_id) deletion by default,
+        with fallback to legacy user_id-only deletion if USE_LEGACY_CLEANUP is set.
         """
         expiry_seconds = self.expiry_days * 24 * 60 * 60
-        cutoff_time = time.time() - expiry_seconds
+        cutoff_time = int(time.time() - expiry_seconds)
         logger.info(f"Running stale channel data cleanup (cutoff={cutoff_time}).")
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT user_id FROM voice_cooldowns WHERE timestamp < ?",
-                (cutoff_time,),
-            )
-            rows = await cursor.fetchall()
-            stale_user_ids = [row[0] for row in rows]
-            if not stale_user_ids:
+        
+        # Check for feature flag to enable legacy cleanup
+        use_legacy_cleanup = os.environ.get("USE_LEGACY_CLEANUP", "false").lower() == "true"
+        
+        if use_legacy_cleanup:
+            logger.info("Using legacy cleanup (user_id only)")
+            async with Database.get_connection() as db:
+                cursor = await db.execute(
+                    "SELECT user_id FROM voice_cooldowns WHERE timestamp < ?",
+                    (cutoff_time,),
+                )
+                rows = await cursor.fetchall()
+                stale_user_ids = [row[0] for row in rows]
+                if not stale_user_ids:
+                    logger.info("No stale voice channel data found.")
+                    return
+                
+                logger.info(f"Found {len(stale_user_ids)} stale user(s) to clean up.")
+                for user_id in stale_user_ids:
+                    try:
+                        await cleanup_legacy_user_voice_data(user_id)
+                        logger.info(f"Cleaned stale data for user_id={user_id}")
+                    except Exception as e:
+                        logger.error(f"Error cleaning stale data for user_id={user_id}: {e}")
+        else:
+            # New scoped cleanup approach
+            logger.info("Using scoped cleanup (guild_id, jtc_channel_id, user_id)")
+            stale_entries = await get_stale_voice_entries(cutoff_time)
+            if not stale_entries:
                 logger.info("No stale voice channel data found.")
                 return
-            logger.info(f"Found {len(stale_user_ids)} stale user(s) to clean up.")
-            tables_to_delete = [
-                ("user_voice_channels", "owner_id"),
-                ("channel_settings", "user_id"),
-                ("channel_permissions", "user_id"),
-                ("channel_ptt_settings", "user_id"),
-                ("channel_priority_speaker_settings", "user_id"),
-                ("channel_soundboard_settings", "user_id"),
-                ("voice_cooldowns", "user_id"),
-            ]
-            for user_id in stale_user_ids:
+                
+            logger.info(f"Found {len(stale_entries)} stale entries to clean up.")
+            for guild_id, jtc_channel_id, user_id in stale_entries:
                 try:
-                    for table, column in tables_to_delete:
-                        await db.execute(
-                            f"DELETE FROM {table} WHERE {column} = ?", (user_id,)
-                        )
-                    logger.info(f"Cleaned stale data for user_id={user_id}")
+                    await cleanup_user_voice_data(guild_id, jtc_channel_id, user_id)
+                    logger.info(f"Cleaned stale data for guild={guild_id}, jtc={jtc_channel_id}, user={user_id}")
                 except Exception as e:
+                    logger.error(f"Error cleaning stale data for guild={guild_id}, jtc={jtc_channel_id}, user={user_id}: {e}")
                     logger.exception(
                         f"Error cleaning stale data for user_id={user_id}: {e}"
                     )

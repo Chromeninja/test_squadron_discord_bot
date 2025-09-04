@@ -30,13 +30,13 @@ async def get_user_channel(bot, user: discord.abc.User, guild_id=None, jtc_chann
         elif guild_id:
             # Query for specific guild
             cursor = await db.execute(
-                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ?",
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? ORDER BY created_at DESC",
                 (user.id, guild_id),
             )
         else:
-            # Legacy query - all channels
+            # Legacy query - all channels, ordered by created_at to ensure consistent behavior
             cursor = await db.execute(
-                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? ORDER BY created_at DESC",
                 (user.id,),
             )
         row = await cursor.fetchone()
@@ -177,6 +177,32 @@ async def set_voice_feature_setting(
             await db.commit()
 
 
+async def ensure_owner_overwrites(channel: discord.VoiceChannel, overwrites: dict):
+    """
+    Ensure channel owner can still manage channels by setting appropriate overwrites.
+    
+    Args:
+        channel: The voice channel
+        overwrites: Dictionary of overwrites to modify in-place
+    """
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel.id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                owner_id = row[0]
+                if owner := channel.guild.get_member(owner_id):
+                    ow = overwrites.get(owner, discord.PermissionOverwrite())
+                    ow.manage_channels = True
+                    ow.connect = True
+                    overwrites[owner] = ow
+    except Exception as e:
+        logger.error(f"Failed to set owner perms: {e}")
+
+
 async def apply_voice_feature_toggle(
     channel: discord.VoiceChannel, feature: str, target, enable: bool
 ):
@@ -198,22 +224,7 @@ async def apply_voice_feature_toggle(
     overwrites[target] = overwrite
 
     # Ensure channel owner can still manage channels
-    try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
-                (channel.id,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                owner_id = row[0]
-                if owner := channel.guild.get_member(owner_id):
-                    ow = overwrites.get(owner, discord.PermissionOverwrite())
-                    ow.manage_channels = True
-                    ow.connect = True
-                    overwrites[owner] = ow
-    except Exception as e:
-        logger.error(f"Failed to set owner perms: {e}")
+    await ensure_owner_overwrites(channel, overwrites)
 
     try:
         await edit_channel(channel, overwrites=overwrites)

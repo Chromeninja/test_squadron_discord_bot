@@ -909,7 +909,9 @@ class FeatureRoleSelectView(View):
         Instead of applying "permit/reject", it now properly enables/disables the selected feature.
         """
         try:
-            channel = await get_user_channel(self.bot, interaction.user)
+            # Get guild context early to pass to get_user_channel
+            guild_id = interaction.guild.id if interaction.guild else None
+            channel = await get_user_channel(self.bot, interaction.user, guild_id=guild_id)
             if not channel:
                 await send_message(
                     interaction, "You don't own a channel.", ephemeral=True

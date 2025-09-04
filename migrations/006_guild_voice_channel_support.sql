@@ -1,5 +1,25 @@
 -- Migration 006: Guild Voice Channel Support
 
+-- Guard against corrupted data: abort if join_to_create_channel_ids is not a single integer
+-- This prevents data corruption when the setting contains multiple channel IDs
+BEGIN TRANSACTION;
+
+-- Check if join_to_create_channel_ids setting is valid (single integer)
+SELECT CASE 
+    WHEN (SELECT COUNT(*) FROM settings WHERE key = 'join_to_create_channel_ids') = 0 THEN
+        -- No setting exists, proceed with default
+        1
+    WHEN (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) LIKE '%,%' THEN
+        -- Contains comma, multiple values - abort to prevent corruption
+        RAISE(ABORT, 'Migration 006: join_to_create_channel_ids contains multiple values. Manual migration required to prevent data corruption.')
+    WHEN CAST((SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS INTEGER) = 0 THEN
+        -- Invalid integer value - abort
+        RAISE(ABORT, 'Migration 006: join_to_create_channel_ids is not a valid integer. Manual migration required.')
+    ELSE
+        -- Valid single integer, proceed
+        1
+END;
+
 -- Create the guild_settings table
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id INTEGER NOT NULL,
