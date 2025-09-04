@@ -37,7 +37,6 @@ from helpers.permissions_helper import (
 from helpers.voice_utils import (
     get_user_channel,
     get_user_game_name,
-    update_channel_settings,
     fetch_channel_settings,
     format_channel_settings,
     create_voice_settings_embed,
@@ -64,8 +63,16 @@ class Voice(commands.GroupCog, name="voice"):
         ]
         self.cooldown_seconds = self.config["voice"].get("cooldown_seconds", 60)
         self.expiry_days = self.config["voice"].get("expiry_days", 30)
+        
+        # Dictionary to store JTC channels per guild
+        self.guild_jtc_channels = {}
+        # Dictionary to store voice categories per guild
+        self.guild_voice_categories = {}
+        
+        # Legacy attributes (kept for backward compatibility)
         self.join_to_create_channel_ids = []
         self.voice_category_id = None
+        
         self.managed_voice_channels = set()
         self.last_channel_edit = {}
         self._voice_event_locks = {}
@@ -74,21 +81,56 @@ class Voice(commands.GroupCog, name="voice"):
         """
         Called when the cog is loaded.
         Fetch stored settings (such as join-to-create channel IDs and voice category)
-    and reconcile previously managed voice channels.
+        and reconcile previously managed voice channels.
         """
+        # Load guild settings from the new guild_settings table
         async with Database.get_connection() as db:
+            # Load guild-specific join-to-create channels
             cursor = await db.execute(
-                "SELECT value FROM settings WHERE key = ?",
+                "SELECT guild_id, key, value FROM guild_settings WHERE key = ?",
                 ("join_to_create_channel_ids",),
             )
-            if row := await cursor.fetchone():
-                self.join_to_create_channel_ids = json.loads(row[0])
-
+            rows = await cursor.fetchall()
+            for row in rows:
+                guild_id = row[0]
+                value = json.loads(row[2])
+                self.guild_jtc_channels[guild_id] = value
+            
+            # Load guild-specific voice categories
             cursor = await db.execute(
-                "SELECT value FROM settings WHERE key = ?", ("voice_category_id",)
+                "SELECT guild_id, key, value FROM guild_settings WHERE key = ?", 
+                ("voice_category_id",)
             )
-            if row := await cursor.fetchone():
-                self.voice_category_id = int(row[0])
+            rows = await cursor.fetchall()
+            for row in rows:
+                guild_id = row[0]
+                value = int(row[2])
+                self.guild_voice_categories[guild_id] = value
+                
+            # Fall back to legacy settings if no guild settings exist
+            if not self.guild_jtc_channels:
+                cursor = await db.execute(
+                    "SELECT value FROM settings WHERE key = ?",
+                    ("join_to_create_channel_ids",),
+                )
+                if row := await cursor.fetchone():
+                    self.join_to_create_channel_ids = json.loads(row[0])
+                    # For legacy compatibility, add to first guild
+                    if self.bot.guilds and self.join_to_create_channel_ids:
+                        first_guild_id = self.bot.guilds[0].id
+                        self.guild_jtc_channels[first_guild_id] = self.join_to_create_channel_ids
+
+            if not self.guild_voice_categories:
+                cursor = await db.execute(
+                    "SELECT value FROM settings WHERE key = ?", ("voice_category_id",)
+                )
+                if row := await cursor.fetchone():
+                    self.voice_category_id = int(row[0])
+                    # For legacy compatibility, add to first guild
+                    if self.bot.guilds and self.voice_category_id:
+                        first_guild_id = self.bot.guilds[0].id
+                        self.guild_voice_categories[first_guild_id] = self.voice_category_id
+                        
         # Reconcile managed channels on startup (non-blocking)
         # Use the central reconciliation routine which will inspect stored
         # channels, keep those with members, delete empty channels, and
@@ -441,17 +483,20 @@ class Voice(commands.GroupCog, name="voice"):
 
         # Serialize voice events per guild to avoid races during channel create/delete operations.
         guild = member.guild
-        lock = self._voice_event_locks.setdefault(guild.id, asyncio.Lock())
+        guild_id = guild.id
+        lock = self._voice_event_locks.setdefault(guild_id, asyncio.Lock())
         async with lock:
             # Handle user leaving a managed channel.
             if before.channel and before.channel.id in self.managed_voice_channels:
                 async with Database.get_connection() as db:
                     cursor = await db.execute(
-                        "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                        "SELECT guild_id, jtc_channel_id, owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
                         (before.channel.id,),
                     )
                     row = await cursor.fetchone()
-                    owner_id = row[0] if row else None
+                    channel_guild_id = row[0] if row else None
+                    jtc_channel_id = row[1] if row else None
+                    owner_id = row[2] if row else None
 
                     if before.channel and len(before.channel.members) == 0:
                         try:
@@ -478,8 +523,16 @@ class Voice(commands.GroupCog, name="voice"):
                             )
 
         # Handle user joining a 'Join to Create' channel.
-        if after.channel and after.channel.id in self.join_to_create_channel_ids:
-            if not self.voice_category_id:
+        # Check both guild-specific and legacy channel IDs
+        guild_jtc_channels = self.guild_jtc_channels.get(guild_id, [])
+        is_jtc_channel = (after.channel and 
+                           (after.channel.id in guild_jtc_channels or 
+                            after.channel.id in self.join_to_create_channel_ids))
+        
+        if after.channel and is_jtc_channel:
+            # Find the voice category for this guild
+            voice_category_id = self.guild_voice_categories.get(guild_id, self.voice_category_id)
+            if not voice_category_id:
                 logger.error(
                     "Voice setup is incomplete. Please run /voice setup command."
                 )
@@ -500,8 +553,8 @@ class Voice(commands.GroupCog, name="voice"):
             current_time = int(time.time())
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    "SELECT last_created FROM voice_cooldowns WHERE user_id = ?",
-                    (member.id,),
+                    "SELECT timestamp FROM voice_cooldowns WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                    (member.id, guild_id, after.channel.id),
                 )
                 cooldown_row = await cursor.fetchone()
                 if cooldown_row:
@@ -523,8 +576,8 @@ class Voice(commands.GroupCog, name="voice"):
                 join_to_create_channel = after.channel
                 async with Database.get_connection() as db:
                     cursor = await db.execute(
-                        "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
-                        (member.id,),
+                        "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                        (member.id, guild_id, after.channel.id),
                     )
                     settings_row = await cursor.fetchone()
 
@@ -558,7 +611,7 @@ class Voice(commands.GroupCog, name="voice"):
                     final_overwrites[default_role] = ow
 
                 # --- Apply Stored Permit/Reject Settings ---
-                permit_entries = await fetch_permit_reject_entries(member.id)
+                permit_entries = await fetch_permit_reject_entries(member.id, guild_id, after.channel.id)
                 for target_id, target_type, perm_action in permit_entries:
                     desired_connect = perm_action == "permit"
                     target = None
@@ -589,9 +642,9 @@ class Voice(commands.GroupCog, name="voice"):
                             + column_name
                             + " FROM "
                             + table_name
-                            + " WHERE user_id = ?"
+                            + " WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?"
                         )
-                        cursor = await db.execute(query, (member.id,))
+                        cursor = await db.execute(query, (member.id, guild_id, after.channel.id))
                         entries = await cursor.fetchall()
                     for target_id, target_type, enabled in entries:
                         # Convert stored value to Boolean.
@@ -653,19 +706,27 @@ class Voice(commands.GroupCog, name="voice"):
                 # Store channel and update cooldown.
                 async with Database.get_connection() as db:
                     await db.execute(
-                        "INSERT OR REPLACE INTO user_voice_channels (voice_channel_id, owner_id) VALUES (?, ?)",
-                        (new_channel.id, member.id),
+                        """
+                        INSERT OR REPLACE INTO user_voice_channels 
+                        (guild_id, jtc_channel_id, voice_channel_id, owner_id) 
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (guild_id, after.channel.id, new_channel.id, member.id),
                     )
                     await db.execute(
-                        "INSERT OR REPLACE INTO voice_cooldowns (user_id, last_created) VALUES (?, ?)",
-                        (member.id, current_time),
+                        """
+                        INSERT OR REPLACE INTO voice_cooldowns 
+                        (guild_id, jtc_channel_id, user_id, timestamp) 
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (guild_id, after.channel.id, member.id, current_time),
                     )
                     await db.commit()
                 self.managed_voice_channels.add(new_channel.id)
                 logger.info(
                     (
                         f"Created voice channel '{new_channel.name}' for "
-                        f"{member.display_name}"
+                        f"{member.display_name} in guild {guild_id}"
                     )
                 )
 
@@ -711,7 +772,7 @@ class Voice(commands.GroupCog, name="voice"):
         logger.info(f"Running stale channel data cleanup (cutoff={cutoff_time}).")
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT user_id FROM voice_cooldowns WHERE last_created < ?",
+                "SELECT user_id FROM voice_cooldowns WHERE timestamp < ?",
                 (cutoff_time,),
             )
             rows = await cursor.fetchall()
@@ -1043,16 +1104,23 @@ class Voice(commands.GroupCog, name="voice"):
             )
             return
 
+        guild_id = interaction.guild.id
         await send_message(interaction, "Starting setup...", ephemeral=True)
+        
+        # Store in guild_settings table
         async with Database.get_connection() as db:
             await db.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("voice_category_id", str(category.id)),
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+                (guild_id, "voice_category_id", str(category.id)),
             )
             await db.commit()
+        
+        # Update the in-memory maps
+        self.guild_voice_categories[guild_id] = category.id
+        # Also update legacy attribute for backward compatibility
         self.voice_category_id = category.id
 
-        self.join_to_create_channel_ids = []
+        join_to_create_channel_ids = []
         try:
             for i in range(num_channels):
                 ch_name = (
@@ -1061,17 +1129,38 @@ class Voice(commands.GroupCog, name="voice"):
                 voice_channel = await create_voice_channel(
                     guild=interaction.guild, name=ch_name, category=category
                 )
-                self.join_to_create_channel_ids.append(voice_channel.id)
+                join_to_create_channel_ids.append(voice_channel.id)
 
+            # Store in guild_settings table
             async with Database.get_connection() as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+                    (
+                        guild_id,
+                        "join_to_create_channel_ids",
+                        json.dumps(join_to_create_channel_ids),
+                    ),
+                )
+                await db.commit()
+                
+                # Also store in legacy settings for backward compatibility
                 await db.execute(
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                     (
                         "join_to_create_channel_ids",
-                        json.dumps(self.join_to_create_channel_ids),
+                        json.dumps(join_to_create_channel_ids),
                     ),
                 )
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ("voice_category_id", str(category.id)),
+                )
                 await db.commit()
+
+            # Update the in-memory maps
+            self.guild_jtc_channels[guild_id] = join_to_create_channel_ids
+            # Also update legacy attribute for backward compatibility
+            self.join_to_create_channel_ids = join_to_create_channel_ids
 
             await send_message(interaction, "Setup complete!", ephemeral=True)
         except Exception as e:
@@ -1082,79 +1171,152 @@ class Voice(commands.GroupCog, name="voice"):
                 ephemeral=True,
             )
 
-    async def _reset_current_channel_settings(self, member: discord.Member):
+    async def _reset_current_channel_settings(self, member: discord.Member, guild_id=None, jtc_channel_id=None):
         """
-        Resets the user's channel settings to defaults using the first join-to-create channel as a template.
-        Also clears stored permissions and feature settings from the database.
+        Resets the user's channel settings to defaults for a single guild/JTC or globally
+        within a guild. This clears DB settings and attempts to reset the live channel
+        properties when an active channel exists.
         """
         async with Database.get_connection() as db:
-            # Clear channel settings.
-            await db.execute(
-                """
-                UPDATE channel_settings
-                SET channel_name = NULL,
-                    user_limit = NULL,
-                    lock = 0
-                WHERE user_id = ?
-            """,
-                (member.id,),
-            )
-
-            # Clear permissions from channel_permissions
-            await db.execute(
-                "DELETE FROM channel_permissions WHERE user_id = ?", (member.id,)
-            )
-            await db.execute(
-                "DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,)
-            )
-            await db.execute(
-                "DELETE FROM channel_priority_speaker_settings WHERE user_id = ?",
-                (member.id,),
-            )
-            await db.execute(
-                "DELETE FROM channel_soundboard_settings WHERE user_id = ?",
-                (member.id,),
-            )
+            if guild_id and jtc_channel_id:
+                await db.execute(
+                    "UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                    (member.id, guild_id, jtc_channel_id),
+                )
+                await db.execute("DELETE FROM channel_permissions WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?", (member.id, guild_id, jtc_channel_id))
+                await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?", (member.id, guild_id, jtc_channel_id))
+                await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?", (member.id, guild_id, jtc_channel_id))
+                await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?", (member.id, guild_id, jtc_channel_id))
+            elif guild_id:
+                await db.execute("UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ? AND guild_id = ?", (member.id, guild_id))
+                await db.execute("DELETE FROM channel_permissions WHERE user_id = ? AND guild_id = ?", (member.id, guild_id))
+                await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ? AND guild_id = ?", (member.id, guild_id))
+                await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ? AND guild_id = ?", (member.id, guild_id))
+                await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ? AND guild_id = ?", (member.id, guild_id))
+            else:
+                await db.execute("UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ?", (member.id,))
             await db.commit()
 
-        channel = await get_user_channel(self.bot, member)
-        if channel:
-            if not self.join_to_create_channel_ids:
-                logger.error("No join-to-create channel configured.")
-                return
-            join_to_create_channel = self.bot.get_channel(
-                self.join_to_create_channel_ids[0]
-            )
-            if not join_to_create_channel:
-                logger.error("Join to Create channel not found.")
-                return
+        # Attempt to reset live voice channel properties if the user currently owns one
+        channel = await get_user_channel(self.bot, member, guild_id, jtc_channel_id)
+        if not channel:
+            return
 
-            default_overwrites = join_to_create_channel.overwrites
-            default_user_limit = join_to_create_channel.user_limit
-            default_bitrate = join_to_create_channel.bitrate
-
+        # Resolve the join-to-create channel to derive defaults
+        jtc_list = []
+        if guild_id:
+            jtc_list = self.guild_jtc_channels.get(guild_id, [])
+        if not jtc_list and getattr(self, "join_to_create_channel_ids", None):
             try:
-                default_name = f"{member.display_name}'s Channel"[:32]
-                overwrites = default_overwrites.copy()
-                overwrites[member] = discord.PermissionOverwrite(
-                    manage_channels=True, connect=True
-                )
-                await channel.edit(
-                    name=default_name,
-                    overwrites=overwrites,
-                    user_limit=default_user_limit,
-                    bitrate=default_bitrate,
-                )
-                logger.info(f"Reset channel settings for '{member.display_name}'")
-            except Exception as e:
-                logger.exception(
-                    f"Failed to reset channel settings for {member.display_name}: {e}"
-                )
-                return
+                jtc_list = [int(i) for i in self.join_to_create_channel_ids]
+            except Exception:
+                jtc_list = []
 
-            await update_channel_settings(
-                member.id, channel_name=None, user_limit=None, lock=0
-            )
+        if not jtc_list:
+            logger.warning("No join-to-create channel configured for this guild; skipping live channel property reset.")
+            return
+
+        join_to_create_channel = self.bot.get_channel(jtc_list[0])
+        if not join_to_create_channel:
+            logger.warning("Join-to-create channel not found; skipping live channel property reset.")
+            return
+
+        default_overwrites = join_to_create_channel.overwrites
+        default_user_limit = join_to_create_channel.user_limit
+        default_bitrate = join_to_create_channel.bitrate
+
+        try:
+            default_name = f"{member.display_name}'s Channel"[:32]
+            overwrites = default_overwrites.copy()
+            overwrites[member] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+            await channel.edit(name=default_name, overwrites=overwrites, user_limit=default_user_limit, bitrate=default_bitrate)
+        except Exception as e:
+            logger.exception(f"Failed to reset channel properties to defaults: {e}")
+
+    async def _reset_all_user_settings(self, member: discord.Member):
+        """Reset all voice-related settings for a user across all guilds and delete owned channels."""
+        async with Database.get_connection() as db:
+            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,))
+            rows = await cursor.fetchall()
+            channel_ids = [r[0] for r in rows]
+
+            await db.execute("UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM voice_cooldowns WHERE user_id = ?", (member.id,))
+            await db.execute("DELETE FROM user_voice_channels WHERE owner_id = ?", (member.id,))
+            await db.commit()
+
+        for cid in channel_ids:
+            try:
+                ch = self.bot.get_channel(cid)
+                if ch is None:
+                    try:
+                        ch = await self.bot.fetch_channel(cid)
+                    except Exception:
+                        ch = None
+                if ch is not None:
+                    try:
+                        await delete_channel(ch)
+                        self.managed_voice_channels.discard(cid)
+                        logger.info(f"Deleted channel '{getattr(ch, 'name', cid)}' for user {member.display_name} during global reset.")
+                    except Exception:
+                        logger.exception(f"Failed to delete channel {cid} during global reset.")
+            except Exception:
+                logger.exception(f"Error while attempting to remove channel {cid} during global reset.")
+
+        async def _reset_all_user_settings(self, member: discord.Member):
+            """Remove all voice-related settings for a user across all guilds and delete
+            any active channels owned by them where possible.
+
+            This is destructive and intended for admin use only.
+            """
+            async with Database.get_connection() as db:
+                # Gather owned channel IDs before deleting rows
+                cursor = await db.execute(
+                    "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
+                    (member.id,),
+                )
+                rows = await cursor.fetchall()
+                channel_ids = [r[0] for r in rows]
+
+                # Clear settings across all guilds
+                await db.execute(
+                    "UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?",
+                    (member.id,),
+                )
+                await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM voice_cooldowns WHERE user_id = ?", (member.id,))
+                await db.execute("DELETE FROM user_voice_channels WHERE owner_id = ?", (member.id,))
+                await db.commit()
+
+            # Attempt to delete the actual Discord channels where possible
+            for cid in channel_ids:
+                try:
+                    ch = self.bot.get_channel(cid)
+                    if ch is None:
+                        try:
+                            ch = await self.bot.fetch_channel(cid)
+                        except Exception:
+                            ch = None
+                    if ch is not None:
+                        try:
+                            await delete_channel(ch)
+                            self.managed_voice_channels.discard(cid)
+                            logger.info(f"Deleted channel '{getattr(ch, 'name', cid)}' for user {member.display_name} during global reset.")
+                        except Exception:
+                            logger.exception(f"Failed to delete channel {cid} during global reset.")
+                except Exception:
+                    logger.exception(f"Error while attempting to remove channel {cid} during global reset.")
             logger.info(f"Reset settings for {member.display_name}'s channel.")
 
     def is_bot_admin_or_lead_moderator(self, member: discord.Member) -> bool:
@@ -1171,11 +1333,25 @@ class Voice(commands.GroupCog, name="voice"):
         name="admin_reset", description="Admin command to reset a user's voice channel."
     )
     @app_commands.guild_only()
+    @app_commands.describe(
+        user="The user whose voice channel settings you want to reset.",
+        jtc_channel="Specific join-to-create channel to reset settings for (optional).",
+        global_reset="If true, reset this user's settings across all guilds and channels (destructive)."
+    )
     async def admin_reset_voice(
-        self, interaction: discord.Interaction, user: discord.Member
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        jtc_channel: discord.VoiceChannel = None,
+        global_reset: bool = False,
     ):
         """
         Allows bot admins or lead moderators to reset a user's voice channel.
+        
+        Args:
+            interaction: The interaction context
+            user: The user whose settings to reset
+            jtc_channel: Optional specific join-to-create channel to reset
         """
         if not self.is_bot_admin_or_lead_moderator(interaction.user):
             await send_message(
@@ -1185,30 +1361,85 @@ class Voice(commands.GroupCog, name="voice"):
             )
             return
 
-        channel = await get_user_channel(self.bot, user)
-        await self._reset_current_channel_settings(user)
+        guild_id = interaction.guild.id
+        jtc_channel_id = jtc_channel.id if jtc_channel else None
+        
+        # If a specific JTC channel was provided, validate it's a JTC channel
+        if jtc_channel:
+            join_to_create_channels = self.guild_jtc_channels.get(guild_id, [])
+            if not join_to_create_channels:
+                # Try legacy fallback
+                join_to_create_channels = [int(id) for id in self.join_to_create_channel_ids]
+                
+            if jtc_channel.id not in join_to_create_channels:
+                await send_message(
+                    interaction,
+                    f"The channel {jtc_channel.mention} is not a join-to-create channel.",
+                    ephemeral=True
+                )
+                return
 
-        if channel:
+        # If global_reset requested, reject combination with a specific jtc_channel
+        if global_reset and jtc_channel is not None:
+            await send_message(
+                interaction,
+                "Cannot specify a specific JTC channel when performing a global reset. Use either a channel or global_reset.",
+                ephemeral=True,
+            )
+            return
+
+        # If global reset requested, perform across all guilds and channels
+        if global_reset:
+            await send_message(interaction, "Starting global reset for user...", ephemeral=True)
+            await self._reset_all_user_settings(user)
+            await send_message(
+                interaction, f"All voice channel settings and channels for {user.display_name} have been reset across all guilds.", ephemeral=True
+            )
+            logger.info(f"{interaction.user.display_name} performed global reset for {user.display_name}.")
+            return
+        
+        # If no JTC channel was specified but user has an active channel, get its JTC channel
+        if not jtc_channel_id:
+            active_channel = await get_user_channel(self.bot, user, guild_id)
+            if active_channel:
+                async with Database.get_connection() as db:
+                    cursor = await db.execute(
+                        "SELECT jtc_channel_id FROM user_voice_channels WHERE voice_channel_id = ? AND guild_id = ?",
+                        (active_channel.id, guild_id),
+                    )
+                    if row := await cursor.fetchone():
+                        jtc_channel_id = row[0]
+                        
+        # Reset settings with guild context
+        await self._reset_current_channel_settings(user, guild_id, jtc_channel_id)
+
+        # If user has an active channel, delete it
+        active_channel = await get_user_channel(self.bot, user, guild_id, jtc_channel_id)
+        if active_channel:
             try:
-                await delete_channel(channel)
-                self.managed_voice_channels.discard(
-                    channel.id
-                )  # Ensure the bot forgets about the deleted channel
+                await delete_channel(active_channel)
+                self.managed_voice_channels.discard(active_channel.id)
                 logger.info(
                     f"Deleted {user.display_name}'s active voice channel as part of admin reset."
                 )
             except discord.NotFound:
                 logger.warning(
-                    f"Channel '{channel.id}' not found. It may have already been deleted."
+                    f"Channel '{active_channel.id}' not found. It may have already been deleted."
                 )
 
+        # Build success message
+        if jtc_channel:
+            success_message = f"{user.display_name}'s voice channel settings for {jtc_channel.name} have been reset."
+        else:
+            success_message = f"{user.display_name}'s voice channel settings for this server have been reset."
+            
         await send_message(
             interaction,
-            f"{user.display_name}'s voice channel data has been reset to default settings.",
+            success_message,
             ephemeral=True,
         )
         logger.info(
-            f"{interaction.user.display_name} reset {user.display_name}'s voice channel."
+            f"{interaction.user.display_name} reset {user.display_name}'s voice channel settings."
         )
 
     @app_commands.command(
@@ -1235,47 +1466,60 @@ class Voice(commands.GroupCog, name="voice"):
             )
             return
 
+        # Get the current guild ID
+        guild_id = interaction.guild.id
+            
+        # Find all join-to-create channels in this guild
+        join_to_create_channels = self.guild_jtc_channels.get(guild_id, [])
+        if not join_to_create_channels:
+            # Try legacy fallback
+            join_to_create_channels = [int(id) for id in self.join_to_create_channel_ids]
+            
+        # Query for all user's channel settings in this guild
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
-                (user.id,),
+                "SELECT guild_id, jtc_channel_id, channel_name, user_limit, lock FROM channel_settings WHERE user_id = ? AND guild_id = ?",
+                (user.id, guild_id),
             )
-            row = await cursor.fetchone()
-
-        if not row:
+            rows = await cursor.fetchall()
+            
+        if not rows:
             await send_message(
                 interaction,
-                f"{user.display_name} does not have saved channel settings.",
+                f"{user.display_name} does not have saved channel settings in this server.",
                 ephemeral=True,
             )
             return
-
+            
         class FakeInteraction:
             def __init__(self, user, guild):
                 self.user = user
                 self.guild = guild
-
+                
         fake_inter = FakeInteraction(user, interaction.guild)
-        settings = await fetch_channel_settings(
-            self.bot, fake_inter, allow_inactive=True
-        )
-        if not settings:
-            await send_message(
-                interaction,
-                f"No channel settings found for {user.display_name}.",
-                ephemeral=True,
+        
+        # For each channel setting, create and send an embed
+        for row in rows:
+            guild_id, jtc_channel_id = row[0], row[1]
+            
+            # Get the JTC channel name
+            jtc_channel = interaction.guild.get_channel(jtc_channel_id)
+            jtc_name = f"JTC Channel: {jtc_channel.name}" if jtc_channel else f"JTC Channel ID: {jtc_channel_id}"
+            
+            # Fetch settings for this specific JTC channel
+            settings = await fetch_channel_settings(
+                self.bot, fake_inter, allow_inactive=True, guild_id=guild_id, jtc_channel_id=jtc_channel_id
             )
-            return
-
-
-        formatted = format_channel_settings(settings, interaction)
-        embed = create_voice_settings_embed(
-            settings=settings,
-            formatted=formatted,
-            title=f"Saved Channel Settings & Permissions for {user.display_name}",
-            footer="Use /voice admin_reset to reset this user's channel.",
-        )
-        await send_message(interaction, "", embed=embed, ephemeral=True)
+            
+            if settings:
+                formatted = format_channel_settings(settings, interaction)
+                embed = create_voice_settings_embed(
+                    settings=settings,
+                    formatted=formatted,
+                    title=f"Saved Channel Settings for {user.display_name}",
+                    footer=f"{jtc_name} | Use /voice admin_reset to reset this user's channel.",
+                )
+                await send_message(interaction, "", embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

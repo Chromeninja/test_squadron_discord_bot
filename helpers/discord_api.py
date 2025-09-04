@@ -206,17 +206,37 @@ async def send_message_task(
         }
         if view is not None:
             kwargs["view"] = view
-
+        # There is a race where interaction.response.is_done() can flip between
+        # the check and the call. Try the appropriate send, and if we get the
+        # specific 'Interaction has already been acknowledged' error from the
+        # HTTP layer, fall back to sending a follow-up message.
         if getattr(interaction.response, "is_done", lambda: False)():
             await interaction.followup.send(**kwargs)
             logger.info(
                 f"Sent follow-up message to {interaction.user.display_name}: {content}"
             )
         else:
-            await interaction.response.send_message(**kwargs)
-            logger.info(
-                f"Sent message to {interaction.user.display_name}: {content}"
-            )
+            try:
+                await interaction.response.send_message(**kwargs)
+                logger.info(
+                    f"Sent message to {interaction.user.display_name}: {content}"
+                )
+            except discord.HTTPException as e:
+                # HTTP 40060 indicates the interaction was already acknowledged.
+                code = getattr(e, "code", None)
+                msg = str(e)
+                if code == 40060 or "Interaction has already been acknowledged" in msg:
+                    try:
+                        await interaction.followup.send(**kwargs)
+                        logger.info(
+                            f"Sent follow-up message after ack race to {interaction.user.display_name}: {content}"
+                        )
+                    except Exception:
+                        logger.exception(
+                            f"Failed to send follow-up after initial send failed for {interaction.user.display_name}: {content}"
+                        )
+                else:
+                    raise
     except Exception as e:
         logger.exception(f"Failed to send message: {e}")
 

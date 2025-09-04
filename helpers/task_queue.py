@@ -1,8 +1,11 @@
 # Helpers/task_queue.py
 
 import asyncio
+import random
+import time
 from helpers.logger import get_logger
 from aiolimiter import AsyncLimiter
+import discord
 
 logger = get_logger(__name__)
 
@@ -38,11 +41,45 @@ async def run_task(task):
     Args:
         task (Callable): An asynchronous callable representing the task.
     """
-    try:
-        return await task()
-    except Exception as e:
-        logger.exception(f"Exception in task: {e}")
-        return None
+    # Retry transient Discord server errors (5xx/DiscordServerError).
+    MAX_RETRIES = 3
+    BASE_DELAY = 0.5
+    attempt = 0
+    while True:
+        try:
+            return await task()
+        except Exception as e:
+            attempt += 1
+            # Decide whether to retry: DiscordServerError or HTTPException with 5xx
+            should_retry = False
+            if isinstance(e, discord.DiscordServerError):
+                should_retry = True
+            elif isinstance(e, discord.HTTPException):
+                # HTTPException may include status in .status if available
+                status = getattr(e, "status", None)
+                if status is None:
+                    # fallback: check message text for 5xx
+                    try:
+                        msg = str(e)
+                        if msg.startswith("5"):
+                            should_retry = True
+                    except Exception:
+                        pass
+                elif 500 <= int(status) < 600:
+                    should_retry = True
+
+            if should_retry and attempt <= MAX_RETRIES:
+                delay = BASE_DELAY * (2 ** (attempt - 1))
+                # jitter
+                delay = delay + random.uniform(0, 0.1 * delay)
+                logger.warning(
+                    f"Transient error in queued task (attempt {attempt}/{MAX_RETRIES}), retrying in {delay:.2f}s: {e}"
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            logger.exception(f"Exception in task: {e}")
+            return None
 
 
 async def enqueue_task(task):
@@ -83,7 +120,6 @@ async def flush_tasks(max_wait: float = 2.0):
 
     Ensures leadership logging can observe role/nickname changes that were
     enqueued just prior. Non-blocking (uses asyncio.sleep)."""
-    import time
     deadline = time.time() + max_wait
     # Initial yield to let workers pick up tasks
     await asyncio.sleep(0)

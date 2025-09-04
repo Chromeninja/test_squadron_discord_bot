@@ -45,25 +45,70 @@ FEATURE_CONFIG = {
 }
 
 
-async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: str, action: str):
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, target_id, target_type, action),
-        )
-        await db.commit()
+async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: str, action: str, guild_id=None, jtc_channel_id=None):
+    """
+    Store permit/reject settings in the database
+    
+    Args:
+        user_id: The user ID who owns the channel
+        target_id: The target user or role ID to apply permissions to
+        target_type: The type of target ("user", "role", or "everyone")
+        action: The permission action ("permit" or "reject")
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
+    """
+    if guild_id and jtc_channel_id:
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO channel_permissions 
+                (guild_id, jtc_channel_id, user_id, target_id, target_type, permission)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (guild_id, jtc_channel_id, user_id, target_id, target_type, action),
+            )
+            await db.commit()
+    else:
+        # Legacy mode for backward compatibility
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, target_id, target_type, action),
+            )
+            await db.commit()
 
 
-async def fetch_permit_reject_entries(user_id: int):
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
-            (user_id,),
-        )
-        return await cursor.fetchall()
+async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_id=None):
+    """
+    Fetch all permit/reject entries for a user
+    
+    Args:
+        user_id: The user ID to fetch entries for
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
+    """
+    if guild_id and jtc_channel_id:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT target_id, target_type, permission 
+                FROM channel_permissions 
+                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+                """,
+                (user_id, guild_id, jtc_channel_id),
+            )
+            return await cursor.fetchall()
+    else:
+        # Legacy mode for backward compatibility
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+                (user_id,),
+            )
+            return await cursor.fetchall()
 
 
 async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict):
@@ -147,19 +192,51 @@ async def reset_channel_permissions(channel: discord.VoiceChannel):
     logger.info("Reset permissions for channel '%s'.", channel.name)
 
 
-async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int, previous_owner_id: int):
+async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int, previous_owner_id: int, guild_id=None, jtc_channel_id=None):
+    """
+    Update the owner of a voice channel in the database and permissions
+    
+    Args:
+        channel: The voice channel to update
+        new_owner_id: The ID of the new owner
+        previous_owner_id: The ID of the previous owner
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
+    """
     overwrites = channel.overwrites.copy()
     if prev := channel.guild.get_member(previous_owner_id):
         overwrites.pop(prev, None)
     new_owner = channel.guild.get_member(new_owner_id)
     if new_owner:
-        overwrites[new_owner] = discord.PermissionOverwrite(manage_channels=True, connect=True)
+        ow = overwrites.get(new_owner, discord.PermissionOverwrite())
+        ow.manage_channels = True
+        ow.connect = True
+        overwrites[new_owner] = ow
+
     await edit_channel(channel, overwrites=overwrites)
     logger.info(
-        "Updated channel owner to '%s' for '%s'.",
-        getattr(new_owner, "display_name", "(unknown)"),
-        channel.name,
+        f"Updated channel owner for '{channel.name}' from {previous_owner_id} to {new_owner_id}."
     )
+
+    # Update database record
+    async with Database.get_connection() as db:
+        if guild_id and jtc_channel_id:
+            # Update with guild and JTC channel context
+            await db.execute(
+                """
+                UPDATE user_voice_channels 
+                SET owner_id = ? 
+                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ?
+                """,
+                (new_owner_id, channel.id, guild_id, jtc_channel_id),
+            )
+        else:
+            # Legacy update for backward compatibility
+            await db.execute(
+                "UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?",
+                (new_owner_id, channel.id),
+            )
+        await db.commit()
 
 
 async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChannel):

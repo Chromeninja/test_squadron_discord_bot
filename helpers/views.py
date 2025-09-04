@@ -16,6 +16,7 @@ from helpers.discord_api import send_message, edit_channel
 from helpers.embeds import create_token_embed, create_cooldown_embed
 from helpers.token_manager import generate_token, token_store
 from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.database import Database
 from helpers.modals import (
     HandleModal,
     NameModal,
@@ -40,6 +41,24 @@ from helpers.permissions_helper import (
 from config.config_loader import ConfigLoader
 
 logger = get_logger(__name__)
+
+
+async def _get_guild_and_jtc_for_user_channel(user: discord.abc.User, channel: discord.abc.GuildChannel):
+    """
+    Helper: return (guild_id, jtc_channel_id) for a user's owned voice channel mapping.
+    Returns (guild_id, jtc_channel_id) where jtc_channel_id may be None if not stored.
+    """
+    guild_id = channel.guild.id if channel and channel.guild else None
+    jtc_channel_id = None
+    if guild_id is not None:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT jtc_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ?",
+                (user.id, guild_id, channel.id),
+            )
+            row = await cursor.fetchone()
+            jtc_channel_id = row[0] if row else None
+    return guild_id, jtc_channel_id
 
 
 # --------------------------------------------------------------------------
@@ -357,19 +376,29 @@ class ChannelSettingsView(View):
 
         Depending on the selection, open the appropriate modal or display current settings.
         """
-        channel = await get_user_channel(self.bot, interaction.user)
+        guild_id = interaction.guild.id
+        channel = await get_user_channel(self.bot, interaction.user, guild_id)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
+            
+        # Get the JTC channel ID from the database
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT jtc_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ?",
+                (interaction.user.id, guild_id, channel.id),
+            )
+            row = await cursor.fetchone()
+            jtc_channel_id = row[0] if row else None
 
         selected = self.channel_settings_select.values[0]
 
         try:
             if selected == "name":
-                modal = NameModal(self.bot)
+                modal = NameModal(self.bot, guild_id, jtc_channel_id)
                 await interaction.response.send_modal(modal)
             elif selected == "limit":
-                modal = LimitModal(self.bot)
+                modal = LimitModal(self.bot, guild_id, jtc_channel_id)
                 await interaction.response.send_modal(modal)
             elif selected == "game":
                 member = interaction.guild.get_member(interaction.user.id)
@@ -391,7 +420,7 @@ class ChannelSettingsView(View):
 
                 await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(
-                    interaction.user.id, channel_name=game_name
+                    interaction.user.id, guild_id, jtc_channel_id, channel_name=game_name
                 )
                 e = discord.Embed(
                     description=f"Channel name set to your current game: **{game_name}**.",
@@ -399,7 +428,14 @@ class ChannelSettingsView(View):
                 )
                 await send_message(interaction, "", embed=e, ephemeral=True)
             elif selected == "list":
-                settings = await fetch_channel_settings(self.bot, interaction)
+                # Provide guild/jtc context when available so DB lookups are scoped
+                guild_id = interaction.guild.id if interaction.guild else None
+                # attempt to resolve jtc for this user's active channel
+                channel = await get_user_channel(self.bot, interaction.user, guild_id)
+                jtc_channel_id = None
+                if channel:
+                    _, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+                settings = await fetch_channel_settings(self.bot, interaction, guild_id=guild_id, jtc_channel_id=jtc_channel_id)
                 if not settings:
                     return
                 formatted = format_channel_settings(settings, interaction)
@@ -467,7 +503,9 @@ class ChannelSettingsView(View):
                 "targets": [{"type": "role", "id": channel.guild.default_role.id}],
             }
             await apply_permissions_changes(channel, permission_change)
-            await update_channel_settings(interaction.user.id, lock=1 if lock else 0)
+            # Store lock state scoped to this guild/JTC if possible
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+            await update_channel_settings(interaction.user.id, guild_id, jtc_channel_id, lock=1 if lock else 0)
             status = "locked" if lock else "unlocked"
             await send_message(
                 interaction, f"Your voice channel has been {status}.", ephemeral=True
@@ -725,12 +763,15 @@ class FeatureTargetView(View):
             target = channel.guild.default_role
             target_type = "everyone"
             target_id = 0
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
             await set_voice_feature_setting(
                 self.feature_name,
                 interaction.user.id,
                 target_id,
                 target_type,
                 self.enable,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
             )
             await apply_voice_feature_toggle(
                 channel, self.feature_name, target, self.enable
@@ -806,9 +847,17 @@ class FeatureUserSelectView(View):
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
 
+        # Resolve guild/jtc context once for the user's channel
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
         for user in self.user_select.values:
             await set_voice_feature_setting(
-                self.feature_name, interaction.user.id, user.id, "user", self.enable
+                self.feature_name,
+                interaction.user.id,
+                user.id,
+                "user",
+                self.enable,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
             )
             await apply_voice_feature_toggle(
                 channel, self.feature_name, user, self.enable
@@ -867,6 +916,8 @@ class FeatureRoleSelectView(View):
                 )
                 return
             targets = []
+            # resolve guild/jtc context once
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
             for role_id_str in self.role_select.values:
                 try:
                     role_id = int(role_id_str)
@@ -876,7 +927,6 @@ class FeatureRoleSelectView(View):
                     )
                     return
                 targets.append({"type": "role", "id": role_id})
-
                 # Store the feature setting in the database for future reference
                 await set_voice_feature_setting(
                     feature=self.feature_name,
@@ -884,9 +934,11 @@ class FeatureRoleSelectView(View):
                     target_id=role_id,
                     target_type="role",
                     enable=self.enable,
+                    guild_id=guild_id,
+                    jtc_channel_id=jtc_channel_id,
                 )
 
-                # Apply the actual permission change to the channel
+            # Apply the actual permission change to the channel
             for target in targets:
                 if role := interaction.guild.get_role(target["id"]):
                     await apply_voice_feature_toggle(
@@ -1018,10 +1070,12 @@ class SelectUserView(View):
             return
 
         targets = []
+        # Resolve guild/jtc context for this user's channel
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
         for user in self.user_select.values:
             targets.append({"type": "user", "id": user.id})
             await store_permit_reject_in_db(
-                interaction.user.id, user.id, "user", self.action
+                interaction.user.id, user.id, "user", self.action, guild_id=guild_id, jtc_channel_id=jtc_channel_id
             )
         permission_change = {"action": self.action, "targets": targets}
         await apply_permissions_changes(channel, permission_change)
@@ -1071,6 +1125,8 @@ class SelectRoleView(View):
             return
 
         targets = []
+        # Resolve guild/jtc context for this user's channel
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
         for role_id_str in self.role_select.values:
             try:
                 role_id = int(role_id_str)
@@ -1081,8 +1137,9 @@ class SelectRoleView(View):
                 return
             targets.append({"type": "role", "id": role_id})
             await store_permit_reject_in_db(
-                interaction.user.id, role_id, "role", self.action
+                interaction.user.id, role_id, "role", self.action, guild_id=guild_id, jtc_channel_id=jtc_channel_id
             )
+
         permission_change = {"action": self.action, "targets": targets}
         await apply_permissions_changes(channel, permission_change)
         await send_message(

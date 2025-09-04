@@ -9,16 +9,36 @@ from helpers.permissions_helper import FEATURE_CONFIG
 logger = get_logger(__name__)
 
 
-async def get_user_channel(bot, user: discord.abc.User):
+async def get_user_channel(bot, user: discord.abc.User, guild_id=None, jtc_channel_id=None):
     """
     Return the voice channel owned by this user, or None if none exists.
     Tries cache first, then fetches from the API. Cleans up stale mappings.
+    
+    Args:
+        bot: The bot instance
+        user: The user to find channels for
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
     """
     async with Database.get_connection() as db:
-        cursor = await db.execute(
-            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
-            (user.id,),
-        )
+        if guild_id and jtc_channel_id:
+            # Query for specific guild and JTC channel
+            cursor = await db.execute(
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                (user.id, guild_id, jtc_channel_id),
+            )
+        elif guild_id:
+            # Query for specific guild
+            cursor = await db.execute(
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ?",
+                (user.id, guild_id),
+            )
+        else:
+            # Legacy query - all channels
+            cursor = await db.execute(
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
+                (user.id,),
+            )
         row = await cursor.fetchone()
         if row:
             channel_id = row[0]
@@ -30,10 +50,12 @@ async def get_user_channel(bot, user: discord.abc.User):
                     logger.warning(f"Channel with ID {channel_id} not found. Removing stale DB mapping.")
                     try:
                         # Remove stale mapping so future checks don't keep trying to fetch
-                        await db.execute(
-                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                            (channel_id,),
-                        )
+                        delete_query = "DELETE FROM user_voice_channels WHERE voice_channel_id = ?"
+                        delete_params = (channel_id,)
+                        if guild_id and jtc_channel_id:
+                            delete_query += " AND guild_id = ? AND jtc_channel_id = ?"
+                            delete_params = (channel_id, guild_id, jtc_channel_id)
+                        await db.execute(delete_query, delete_params)
                         await db.commit()
                     except Exception as e:
                         logger.exception(f"Failed to remove stale channel mapping {channel_id}: {e}")
@@ -60,9 +82,15 @@ def get_user_game_name(member):
     )
 
 
-async def update_channel_settings(user_id, **kwargs):
+async def update_channel_settings(user_id, guild_id=None, jtc_channel_id=None, **kwargs):
     """
     Updates the channel settings (channel_name, user_limit, lock) for a user in DB.
+    
+    Args:
+        user_id: The ID of the user
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
+        **kwargs: Channel settings to update (channel_name, user_limit, lock)
     """
     fields = []
     values = []
@@ -80,27 +108,45 @@ async def update_channel_settings(user_id, **kwargs):
     if not fields:
         return
 
-    values.append(user_id)
-    query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ?"
+    # Build the query based on provided parameters
+    if guild_id and jtc_channel_id:
+        # Insert with guild and JTC channel IDs
+        insert_query = "INSERT OR IGNORE INTO channel_settings (guild_id, jtc_channel_id, user_id) VALUES (?, ?, ?)"
+        insert_values = (guild_id, jtc_channel_id, user_id)
+        
+        # Update with guild and JTC channel IDs
+        update_query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?"
+        update_values = tuple(values) + (user_id, guild_id, jtc_channel_id)
+    else:
+        # Legacy mode (backward compatibility)
+        insert_query = "INSERT OR IGNORE INTO channel_settings (user_id) VALUES (?)"
+        insert_values = (user_id,)
+        
+        update_query = f"UPDATE channel_settings SET {', '.join(fields)} WHERE user_id = ?"
+        update_values = tuple(values) + (user_id,)
 
     async with Database.get_connection() as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO channel_settings (user_id) VALUES (?)", (user_id,)
-        )
-        await db.execute(query, tuple(values))
+        await db.execute(insert_query, insert_values)
+        await db.execute(update_query, update_values)
         await db.commit()
-
-        # -------------------------------------------------------------------------
-        # UNIFIED FEATURE TOGGLE: ptt, priority_speaker, soundboard
-        # -------------------------------------------------------------------------
 
 
 async def set_voice_feature_setting(
-    feature: str, user_id: int, target_id: int, target_type: str, enable: bool
+    feature: str, user_id: int, target_id: int, target_type: str, enable: bool, 
+    guild_id=None, jtc_channel_id=None
 ):
     """
     Inserts or updates the setting in the respective DB table for the given feature.
     feature can be "ptt", "priority_speaker", or "soundboard".
+    
+    Args:
+        feature: The feature to set ("ptt", "priority_speaker", or "soundboard")
+        user_id: The user ID who owns the channel
+        target_id: The target user or role ID to apply the feature to
+        target_type: The type of target ("user", "role", or "everyone")
+        enable: Whether to enable or disable the feature
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
     """
     cfg = FEATURE_CONFIG.get(feature)
     if not cfg:
@@ -112,13 +158,23 @@ async def set_voice_feature_setting(
 
     t_id = target_id or 0
 
-    query = f"""
-        INSERT OR REPLACE INTO {db_table} (user_id, target_id, target_type, {db_column})
-        VALUES (?, ?, ?, ?)
-    """
-    async with Database.get_connection() as db:
-        await db.execute(query, (user_id, t_id, target_type, enable))
-        await db.commit()
+    if guild_id and jtc_channel_id:
+        query = f"""
+            INSERT OR REPLACE INTO {db_table} (guild_id, jtc_channel_id, user_id, target_id, target_type, {db_column})
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        async with Database.get_connection() as db:
+            await db.execute(query, (guild_id, jtc_channel_id, user_id, t_id, target_type, enable))
+            await db.commit()
+    else:
+        # Legacy mode for backward compatibility
+        query = f"""
+            INSERT OR REPLACE INTO {db_table} (user_id, target_id, target_type, {db_column})
+            VALUES (?, ?, ?, ?)
+        """
+        async with Database.get_connection() as db:
+            await db.execute(query, (user_id, t_id, target_type, enable))
+            await db.commit()
 
 
 async def apply_voice_feature_toggle(
@@ -174,22 +230,35 @@ async def apply_voice_feature_toggle(
         # ------------------------------
 
 
-async def fetch_channel_settings(bot, interaction, allow_inactive=False):
+async def fetch_channel_settings(bot, interaction, allow_inactive=False, guild_id=None, jtc_channel_id=None):
     """
     Fetch channel settings and permissions for the user's channel.
     If allow_inactive=True, we return DB info even if there's no active channel.
+    
+    Args:
+        bot: The bot instance
+        interaction: The interaction context
+        allow_inactive: Whether to return settings even if the user doesn't have an active channel
+        guild_id: Optional guild ID to filter by
+        jtc_channel_id: Optional join-to-create channel ID to filter by
     """
-    channel = await get_user_channel(bot, interaction.user)
+    channel = await get_user_channel(bot, interaction.user, guild_id, jtc_channel_id)
 
     if not channel and not allow_inactive:
         await send_message(interaction, "You don't own a channel.", ephemeral=True)
         return None
 
     async with Database.get_connection() as db:
-        cursor = await db.execute(
-            "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
-            (interaction.user.id,),
-        )
+        if guild_id and jtc_channel_id:
+            cursor = await db.execute(
+                "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                (interaction.user.id, guild_id, jtc_channel_id),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT channel_name, user_limit, lock FROM channel_settings WHERE user_id = ?",
+                (interaction.user.id,),
+            )
         row = await cursor.fetchone()
 
     if not row:
@@ -213,13 +282,13 @@ async def fetch_channel_settings(bot, interaction, allow_inactive=False):
     lock_state = "Locked" if db_lock == 1 else "Unlocked"
 
     # Fetch separate tables for permission, ptt, priority, soundboard
-    perm_rows = await _fetch_settings_table("channel_permissions", interaction.user.id)
-    ptt_rows = await _fetch_settings_table("channel_ptt_settings", interaction.user.id)
+    perm_rows = await _fetch_settings_table("channel_permissions", interaction.user.id, guild_id, jtc_channel_id)
+    ptt_rows = await _fetch_settings_table("channel_ptt_settings", interaction.user.id, guild_id, jtc_channel_id)
     priority_rows = await _fetch_settings_table(
-        "channel_priority_speaker_settings", interaction.user.id
+        "channel_priority_speaker_settings", interaction.user.id, guild_id, jtc_channel_id
     )
     soundboard_rows = await _fetch_settings_table(
-        "channel_soundboard_settings", interaction.user.id
+        "channel_soundboard_settings", interaction.user.id, guild_id, jtc_channel_id
     )
 
     return {
@@ -233,12 +302,23 @@ async def fetch_channel_settings(bot, interaction, allow_inactive=False):
     }
 
 
-async def _fetch_settings_table(table_name: str, user_id: int):
+async def _fetch_settings_table(table_name: str, user_id: int, guild_id=None, jtc_channel_id=None):
     async with Database.get_connection() as db:
-        cursor = await db.execute(
-            f"SELECT target_id, target_type, * FROM {table_name} WHERE user_id = ?",
-            (user_id,),
-        )
+        if guild_id and jtc_channel_id:
+            cursor = await db.execute(
+                f"SELECT target_id, target_type, * FROM {table_name} WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+                (user_id, guild_id, jtc_channel_id),
+            )
+        elif guild_id:
+            cursor = await db.execute(
+                f"SELECT target_id, target_type, * FROM {table_name} WHERE user_id = ? AND guild_id = ?",
+                (user_id, guild_id),
+            )
+        else:
+            cursor = await db.execute(
+                f"SELECT target_id, target_type, * FROM {table_name} WHERE user_id = ?",
+                (user_id,),
+            )
         all_rows = await cursor.fetchall()
 
     return [(row[0], row[1], row[-1]) for row in all_rows]

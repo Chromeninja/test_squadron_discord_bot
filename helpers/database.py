@@ -159,26 +159,117 @@ class Database:
             await db.execute("ALTER TABLE verification_tmp RENAME TO verification")
             await db.commit()
 
-            # Create or update voice tables
-            # In _create_tables method
-        await db.execute(
+            # Create guild_settings table for per-guild configuration
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guild_settings (
+                    guild_id INTEGER NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    PRIMARY KEY (guild_id, key)
+                )
             """
-            CREATE TABLE IF NOT EXISTS user_voice_channels (
-                voice_channel_id INTEGER PRIMARY KEY,
-                owner_id INTEGER NOT NULL
             )
-        """
-        )
-        # Create voice cooldown table
-        await db.execute(
+
+            # Create or update voice tables with guild and join-to-create (jtc) scoping
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_voice_channels (
+                    guild_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    owner_id INTEGER NOT NULL,
+                    voice_channel_id INTEGER NOT NULL,
+                    created_at INTEGER DEFAULT (strftime('%s','now')),
+                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
+                )
             """
-            CREATE TABLE IF NOT EXISTS voice_cooldowns (
-                user_id INTEGER PRIMARY KEY,
-                last_created INTEGER NOT NULL
             )
-        """
-        )
-        # Create settings table
+            # Index to quickly resolve by voice_channel_id
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_voice_channels_voice_channel_id ON user_voice_channels(voice_channel_id)"
+            )
+
+            # Ensure guild_settings and voice-scoped tables exist regardless of legacy migration
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guild_settings (
+                    guild_id INTEGER NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    PRIMARY KEY (guild_id, key)
+                )
+            """
+            )
+
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_voice_channels (
+                    guild_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    owner_id INTEGER NOT NULL,
+                    voice_channel_id INTEGER NOT NULL,
+                    created_at INTEGER DEFAULT (strftime('%s','now')),
+                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
+                )
+            """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_voice_channels_voice_channel_id ON user_voice_channels(voice_channel_id)"
+            )
+
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS voice_cooldowns (
+                    guild_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    PRIMARY KEY (guild_id, jtc_channel_id, user_id)
+                )
+            """
+            )
+
+            # Ensure guild-scoped voice tables exist on all runs (for non-legacy DBs)
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guild_settings (
+                    guild_id INTEGER NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    PRIMARY KEY (guild_id, key)
+                )
+            """
+            )
+
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_voice_channels (
+                    guild_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    owner_id INTEGER NOT NULL,
+                    voice_channel_id INTEGER NOT NULL,
+                    created_at INTEGER DEFAULT (strftime('%s','now')),
+                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
+                )
+            """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_voice_channels_voice_channel_id ON user_voice_channels(voice_channel_id)"
+            )
+
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS voice_cooldowns (
+                    guild_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    PRIMARY KEY (guild_id, jtc_channel_id, user_id)
+                )
+            """
+            )
+
+            # Create settings table
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -187,49 +278,58 @@ class Database:
             )
         """
         )
-        # Create channel_settings table (with lock column)
+        # Create channel_settings table (scoped by guild and join-to-create channel)
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS channel_settings (
-                user_id INTEGER PRIMARY KEY,
+                guild_id INTEGER NOT NULL,
+                jtc_channel_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
                 channel_name TEXT,
                 user_limit INTEGER,
-                lock INTEGER DEFAULT 0
+                lock INTEGER DEFAULT 0,
+                PRIMARY KEY (guild_id, jtc_channel_id, user_id)
             )
         """
         )
-        # Create channel_permissions table
+        # Create channel_permissions table (scoped by guild and jtc)
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS channel_permissions (
+                guild_id INTEGER NOT NULL,
+                jtc_channel_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL,  -- 'user' or 'role'
+                target_type TEXT NOT NULL,  -- 'user' or 'role' or 'everyone'
                 permission TEXT NOT NULL,   -- 'permit' or 'reject'
-                PRIMARY KEY (user_id, target_id, target_type)
+                PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
             )
         """
         )
-        # Create channel_ptt_settings table
+        # Create channel_ptt_settings table (scoped)
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS channel_ptt_settings (
+                guild_id INTEGER NOT NULL,
+                jtc_channel_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
                 ptt_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
+                PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
             )
         """
         )
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings (
+                guild_id INTEGER NOT NULL,
+                jtc_channel_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,  -- 'user' or 'role'
                 priority_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
+                PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
             )
         """
         )
@@ -238,11 +338,13 @@ class Database:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS channel_soundboard_settings (
+                guild_id INTEGER NOT NULL,
+                jtc_channel_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
                 soundboard_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
+                PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
             )
         """
         )

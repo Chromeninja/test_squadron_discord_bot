@@ -289,9 +289,11 @@ class ResetSettingsConfirmationModal(Modal):
     Modal to confirm resetting channel settings.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
         super().__init__(title="Reset Channel Settings", timeout=None)
         self.bot = bot
+        self.guild_id = guild_id
+        self.jtc_channel_id = jtc_channel_id
         self.confirm = TextInput(
             label="Type 'RESET' to confirm",
             placeholder="RESET",
@@ -306,6 +308,7 @@ class ResetSettingsConfirmationModal(Modal):
         await interaction.response.defer(ephemeral=True)
 
         member = interaction.user
+        guild_id = self.guild_id or interaction.guild.id
         confirmation_text = self.confirm.value.strip().upper()
         if confirmation_text != "RESET":
             await followup_send_message(
@@ -328,7 +331,7 @@ class ResetSettingsConfirmationModal(Modal):
                 return
 
                 # Reset the channel settings
-            await voice_cog._reset_current_channel_settings(member)
+            await voice_cog._reset_current_channel_settings(member, guild_id, self.jtc_channel_id)
             await followup_send_message(
                 interaction,
                 "Your channel settings have been reset to default.",
@@ -351,9 +354,11 @@ class NameModal(Modal):
     Modal to change the voice channel name.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
         super().__init__(title="Change Channel Name", timeout=None)
         self.bot = bot
+        self.guild_id = guild_id
+        self.jtc_channel_id = jtc_channel_id
         self.channel_name = TextInput(
             label="New Channel Name",
             placeholder="Enter a new name for your channel",
@@ -368,6 +373,7 @@ class NameModal(Modal):
 
         member = interaction.user
         new_name = self.channel_name.value.strip()
+        guild_id = self.guild_id or interaction.guild.id
 
         if not (2 <= len(new_name) <= 32):
             await followup_send_message(
@@ -377,7 +383,7 @@ class NameModal(Modal):
             )
             return
 
-        channel = await get_user_channel(self.bot, member)
+        channel = await get_user_channel(self.bot, member, guild_id, self.jtc_channel_id)
         if not channel:
             await followup_send_message(
                 interaction, "You don't own a channel.", ephemeral=True
@@ -386,7 +392,7 @@ class NameModal(Modal):
 
         try:
             await edit_channel(channel, name=new_name)
-            await update_channel_settings(member.id, channel_name=new_name)
+            await update_channel_settings(member.id, guild_id, self.jtc_channel_id, channel_name=new_name)
 
             await followup_send_message(
                 interaction,
@@ -419,9 +425,11 @@ class LimitModal(Modal):
     Modal to set the user limit for the voice channel.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
         super().__init__(title="Set User Limit", timeout=None)
         self.bot = bot
+        self.guild_id = guild_id
+        self.jtc_channel_id = jtc_channel_id
         self.user_limit = TextInput(
             label="User Limit",
             placeholder="Enter a number between 2 and 99",
@@ -435,6 +443,8 @@ class LimitModal(Modal):
         await interaction.response.defer(ephemeral=True)
 
         member = interaction.user
+        guild_id = self.guild_id or interaction.guild.id
+        
         try:
             limit = int(self.user_limit.value.strip())
             if not (2 <= limit <= 99):
@@ -445,7 +455,7 @@ class LimitModal(Modal):
             return
 
             # Update user limit
-        channel = await get_user_channel(self.bot, member)
+        channel = await get_user_channel(self.bot, member, guild_id, self.jtc_channel_id)
         if not channel:
             await followup_send_message(
                 interaction, "You don't own a channel.", ephemeral=True
@@ -456,7 +466,7 @@ class LimitModal(Modal):
             await edit_channel(channel, user_limit=limit)
 
             # Update settings using the helper function
-            await update_channel_settings(member.id, user_limit=limit)
+            await update_channel_settings(member.id, guild_id, self.jtc_channel_id, user_limit=limit)
 
             embed = create_success_embed(f"User limit has been set to {limit}.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
