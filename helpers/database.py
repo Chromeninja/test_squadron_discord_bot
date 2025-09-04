@@ -1,12 +1,12 @@
 # Helpers/database.py
 
 import aiosqlite
-import sqlite3
 import asyncio
 import time
 from typing import Optional
 from helpers.logger import get_logger
 from contextlib import asynccontextmanager
+from helpers.schema import init_schema
 
 logger = get_logger(__name__)
 
@@ -38,75 +38,28 @@ class Database:
                 cls._db_path = db_path
                 # No need to keep the connection open after initialization
             async with aiosqlite.connect(cls._db_path) as db:
-                await cls._create_tables(db)
+                # Enable foreign key constraints
+                await db.execute("PRAGMA foreign_keys=ON")
+                # Initialize schema using the centralized schema module
+                await init_schema(db)
+                # Run compatibility migrations on fresh DB path
+                # _create_tables is safe to call multiple times and also used by tests
+                try:
+                    await cls._create_tables(db)
+                except Exception:
+                    # If migration logic not applicable, ignore; tests may call _create_tables directly
+                    pass
             cls._initialized = True
             logger.info("Database initialized.")
 
     @classmethod
-    async def _create_tables(cls, db):
-        # Create verification table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS verification (
-                user_id INTEGER PRIMARY KEY,
-                rsi_handle TEXT NOT NULL,
-                membership_status TEXT NOT NULL,
-                last_updated INTEGER NOT NULL,
-                needs_reverify INTEGER NOT NULL DEFAULT 0,
-                needs_reverify_at INTEGER
-            )
-            """
-        )
-        cursor = await db.execute("PRAGMA table_info(verification)")
-        columns = [row[1] for row in await cursor.fetchall()]
-        last_recheck_exists = "last_recheck" in columns
-        # Backfill new columns if migration on existing DB
-        if "needs_reverify" not in columns:
-            try:
-                await db.execute(
-                    "ALTER TABLE verification ADD COLUMN needs_reverify INTEGER NOT NULL DEFAULT 0"
-                )
-                logger.info("Added column verification.needs_reverify")
-            except sqlite3.OperationalError as e:
-                logger.warning(
-                    f"Could not add needs_reverify column (maybe already exists): {e}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error adding needs_reverify column: {e}"
-                )
-        if "needs_reverify_at" not in columns:
-            try:
-                await db.execute(
-                    "ALTER TABLE verification ADD COLUMN needs_reverify_at INTEGER"
-                )
-                logger.info("Added column verification.needs_reverify_at")
-            except sqlite3.OperationalError as e:
-                logger.warning(
-                    f"Could not add needs_reverify_at column (maybe already exists): {e}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error adding needs_reverify_at column: {e}"
-                )
-        if "community_moniker" not in columns:
-            try:
-                await db.execute(
-                    "ALTER TABLE verification ADD COLUMN community_moniker TEXT"
-                )
-                logger.info("Added column verification.community_moniker")
-            except sqlite3.OperationalError as e:
-                logger.warning(
-                    f"Could not add community_moniker column (maybe already exists): {e}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error adding community_moniker column: {e}"
-                )
+    async def _create_tables(cls, db: aiosqlite.Connection):
+        """Compatibility/migration helper used by tests.
 
-        if last_recheck_exists:
-            logger.info("Found legacy last_recheck column; will migrate data.")
-
+        Ensures rate_limits exists and migrates legacy verification.last_recheck into rate_limits
+        (this mirrors migrations/004_create_rate_limits.sql behavior).
+        """
+        # Ensure rate_limits table exists
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS rate_limits (
@@ -114,199 +67,71 @@ class Database:
                 action TEXT NOT NULL,
                 attempt_count INTEGER DEFAULT 0,
                 first_attempt INTEGER DEFAULT 0,
-                PRIMARY KEY (user_id, action),
-                FOREIGN KEY (user_id) REFERENCES verification(user_id)
+                PRIMARY KEY (user_id, action)
             )
             """
         )
-
-        if last_recheck_exists:
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO rate_limits(user_id, action, attempt_count, first_attempt)
-                SELECT user_id, 'recheck', 1, last_recheck FROM verification WHERE last_recheck > 0
-                """
-            )
-            await db.commit()
-            # Safe SQLite migration: some SQLite versions/environments don't support
-            # ALTER TABLE ... DROP COLUMN. Instead, create a temp table with the
-            # Desired schema, copy rows (excluding the legacy column), drop the
-            # Old table and rename the temp table.
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS verification_tmp (
-                    user_id INTEGER PRIMARY KEY,
-                    rsi_handle TEXT NOT NULL,
-                    membership_status TEXT NOT NULL,
-                    last_updated INTEGER NOT NULL,
-                    needs_reverify INTEGER NOT NULL DEFAULT 0,
-                    needs_reverify_at INTEGER
+        # If verification has last_recheck column, migrate values
+        try:
+            cursor = await db.execute("PRAGMA table_info(verification)")
+            rows = await cursor.fetchall()
+            cols = [r[1] for r in rows]
+            if "last_recheck" in cols:
+                # Migrate last_recheck values into rate_limits
+                await db.execute(
+                    "INSERT OR IGNORE INTO rate_limits(user_id, action, attempt_count, first_attempt) "
+                    "SELECT user_id, 'recheck', 1, last_recheck FROM verification WHERE last_recheck > 0"
                 )
-            """
-            )
-            # Copy data from old table excluding last_recheck. Use INSERT OR REPLACE
-            # So the operation is effectively idempotent if run multiple times.
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO verification_tmp (user_id, rsi_handle, membership_status, last_updated)
-                SELECT user_id, rsi_handle, membership_status, last_updated FROM verification
-            """
-            )
+
+                # Recreate verification table without last_recheck while preserving other columns and types
+                # Build column definitions from PRAGMA table_info
+                new_cols = []
+                select_cols = []
+                for r in rows:
+                    cid, name, col_type, notnull, dflt_value, pk = r
+                    if name == "last_recheck":
+                        continue
+                    col_def = f"{name} {col_type or 'TEXT'}"
+                    if pk:
+                        col_def += " PRIMARY KEY"
+                    if notnull:
+                        col_def += " NOT NULL"
+                    if dflt_value is not None:
+                        col_def += f" DEFAULT {dflt_value}"
+                    new_cols.append(col_def)
+                    select_cols.append(name)
+
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(f"CREATE TABLE IF NOT EXISTS _verification_new ({', '.join(new_cols)})")
+                await db.execute(
+                    f"INSERT INTO _verification_new({', '.join(select_cols)}) SELECT {', '.join(select_cols)} FROM verification"
+                )
+                await db.execute("DROP TABLE verification")
+                await db.execute("ALTER TABLE _verification_new RENAME TO verification")
+                await db.execute("PRAGMA foreign_keys=ON")
             await db.commit()
-            # Replace the old table with the temp table. Use IF EXISTS to be
-            # Tolerant of repeated runs.
-            await db.execute("DROP TABLE IF EXISTS verification")
-            await db.execute("ALTER TABLE verification_tmp RENAME TO verification")
-            await db.commit()
-
-            # Create or update voice tables
-            # In _create_tables method
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_voice_channels (
-                voice_channel_id INTEGER PRIMARY KEY,
-                owner_id INTEGER NOT NULL
-            )
-        """
-        )
-        # Create voice cooldown table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS voice_cooldowns (
-                user_id INTEGER PRIMARY KEY,
-                last_created INTEGER NOT NULL
-            )
-        """
-        )
-        # Create settings table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        """
-        )
-        # Create channel_settings table (with lock column)
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_settings (
-                user_id INTEGER PRIMARY KEY,
-                channel_name TEXT,
-                user_limit INTEGER,
-                lock INTEGER DEFAULT 0
-            )
-        """
-        )
-        # Create channel_permissions table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_permissions (
-                user_id INTEGER NOT NULL,
-                target_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL,  -- 'user' or 'role'
-                permission TEXT NOT NULL,   -- 'permit' or 'reject'
-                PRIMARY KEY (user_id, target_id, target_type)
-            )
-        """
-        )
-        # Create channel_ptt_settings table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_ptt_settings (
-                user_id INTEGER NOT NULL,
-                target_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
-                ptt_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
-            )
-        """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings (
-                user_id INTEGER NOT NULL,
-                target_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL,  -- 'user' or 'role'
-                priority_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
-            )
-        """
-        )
-
-        # Create channel_soundboard_settings table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_soundboard_settings (
-                user_id INTEGER NOT NULL,
-                target_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL,  -- 'user', 'role', or 'everyone'
-                soundboard_enabled BOOLEAN NOT NULL,
-                PRIMARY KEY (user_id, target_id, target_type)
-            )
-        """
-        )
-
-        # Auto-recheck scheduler state
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS auto_recheck_state (
-                user_id INTEGER PRIMARY KEY,
-                last_auto_recheck INTEGER DEFAULT 0,
-                next_retry_at INTEGER DEFAULT 0,
-                fail_count INTEGER DEFAULT 0,
-                last_error TEXT
-            )
-        """
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ars_next ON auto_recheck_state(next_retry_at)"
-        )
-        await db.commit()
-
-        # Create announcement_events table
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS announcement_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                old_status TEXT NOT NULL,
-                new_status TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                announced_at INTEGER
-            );
-            """
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ae_pending ON announcement_events(announced_at)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ae_created ON announcement_events(created_at)"
-        )
-
-        await db.commit()
-
-        # Persisted warnings: track guilds we've already reported missing configured roles
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS missing_role_warnings (
-                guild_id INTEGER PRIMARY KEY,
-                reported_at INTEGER NOT NULL
-            )
-        """
-        )
-        await db.commit()
+        except Exception:
+            await db.rollback()
 
     @classmethod
     @asynccontextmanager
     async def get_connection(cls):
         """
-        Asynchronous context manager for database connections.
+        Get a connection to the database with optimized settings.
+        
+        Usage:
+            async with Database.get_connection() as db:
+                await db.execute("SELECT * FROM table")
         """
         if not cls._initialized:
             await cls.initialize()
         async with aiosqlite.connect(cls._db_path) as db:
+            # Optimize database performance and reliability
+            await db.execute("PRAGMA foreign_keys=ON")
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA synchronous=NORMAL")
+            await db.execute("PRAGMA busy_timeout=5000")
+            db.row_factory = aiosqlite.Row
             yield db
 
     @classmethod

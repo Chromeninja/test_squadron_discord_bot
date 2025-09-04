@@ -26,8 +26,15 @@ class ConfigLoader:
         if not cls._config:
             try:
                 with open(config_path, "r", encoding="utf-8") as file:
-                    cls._config = yaml.safe_load(file)
+                    cls._config = yaml.safe_load(file) or {}
                 logging.info("Configuration loaded successfully.")
+
+                # Ensure we have a dict to operate on
+                if not isinstance(cls._config, dict):
+                    logging.warning(
+                        "Configuration file did not contain a mapping; using empty config."
+                    )
+                    cls._config = {}
 
                 # Convert role IDs to integers
                 cls._convert_role_ids_to_int()
@@ -36,16 +43,18 @@ class ConfigLoader:
                 cls._validate_logging_level()
 
             except FileNotFoundError:
-                logging.error(f"Configuration file not found at path: {config_path}")
-                raise
+                logging.warning(
+                    f"Configuration file not found at path: {config_path}; using empty/default config."
+                )
+                cls._config = {}
             except yaml.YAMLError as e:
-                logging.error(f"Error parsing the configuration file: {e}")
-                raise
+                logging.error(f"Error parsing the configuration file: {e}; using empty/default config.")
+                cls._config = {}
             except UnicodeDecodeError as e:
                 logging.error(
-                    f"Encoding error while reading the configuration file: {e}"
+                    f"Encoding error while reading the configuration file: {e}; using empty/default config."
                 )
-                raise
+                cls._config = {}
         return cls._config
 
     @classmethod

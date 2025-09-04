@@ -13,6 +13,10 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
 
+    env:
+      # Make sure bot.py sees a token so it doesn't raise
+      DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,8 +42,12 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          # Ensure core test/dev tools present (even if not pinned in requirements)
           pip install pytest pytest-asyncio coverage
+
+      - name: Copy example config for tests
+        run: |
+          mkdir -p config
+          cp config/config-example.yaml config/config.yaml
 
       - name: Run tests
         run: pytest -q
