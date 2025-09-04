@@ -97,6 +97,14 @@ class MyBot(commands.Bot):
         # Initialize the database
         await Database.initialize()
 
+        # Run application-driven voice data migration (safe, idempotent)
+        try:
+            from helpers.voice_migration import run_voice_data_migration
+
+            await run_voice_data_migration(self)
+        except Exception as e:
+            logger.error(f"Voice data migration failed: {e}")
+
         # Add the BulkAnnouncer cog after DB is initialized
         await self.add_cog(BulkAnnouncer(self))
 

@@ -500,8 +500,6 @@ class Voice(commands.GroupCog, name="voice"):
                         (before.channel.id,),
                     )
                     row = await cursor.fetchone()
-                    channel_guild_id = row[0] if row else None
-                    jtc_channel_id = row[1] if row else None
                     owner_id = row[2] if row else None
 
                     if before.channel and len(before.channel.members) == 0:
@@ -531,17 +529,17 @@ class Voice(commands.GroupCog, name="voice"):
         # Handle user joining a 'Join to Create' channel.
         # Check both guild-specific and legacy channel IDs
         guild_jtc_channels = self.guild_jtc_channels.get(guild_id, [])
-        is_jtc_channel = (after.channel and 
-                           (after.channel.id in guild_jtc_channels or 
-                            after.channel.id in self.join_to_create_channel_ids))
+        legacy_jtc = self.join_to_create_channel_ids or []
+        is_jtc_channel = (
+            after.channel
+            and (after.channel.id in guild_jtc_channels or after.channel.id in legacy_jtc)
+        )
         
         if after.channel and is_jtc_channel:
             # Find the voice category for this guild
             voice_category_id = self.guild_voice_categories.get(guild_id, self.voice_category_id)
             if not voice_category_id:
-                logger.error(
-                    "Voice setup is incomplete. Please run /voice setup command."
-                )
+                logger.error("Voice setup is incomplete. Please run /voice setup command.")
                 return
 
             # Prevent duplicate channel creation if user is already in a managed channel.
@@ -1257,13 +1255,25 @@ class Voice(commands.GroupCog, name="voice"):
             logger.exception(f"Failed to reset channel properties to defaults: {e}")
 
     async def _reset_all_user_settings(self, member: discord.Member):
-        """Reset all voice-related settings for a user across all guilds and delete owned channels."""
+        """Remove all voice-related settings for a user across all guilds and delete
+        any active channels owned by them where possible.
+
+        This is destructive and intended for admin use only.
+        """
         async with Database.get_connection() as db:
-            cursor = await db.execute("SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?", (member.id,))
+            # Gather owned channel IDs before deleting rows
+            cursor = await db.execute(
+                "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
+                (member.id,),
+            )
             rows = await cursor.fetchall()
             channel_ids = [r[0] for r in rows]
 
-            await db.execute("UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?", (member.id,))
+            # Clear settings across all guilds
+            await db.execute(
+                "UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?",
+                (member.id,),
+            )
             await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
             await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
             await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
@@ -1272,6 +1282,7 @@ class Voice(commands.GroupCog, name="voice"):
             await db.execute("DELETE FROM user_voice_channels WHERE owner_id = ?", (member.id,))
             await db.commit()
 
+        # Attempt to delete the actual Discord channels where possible
         for cid in channel_ids:
             try:
                 ch = self.bot.get_channel(cid)
@@ -1289,54 +1300,7 @@ class Voice(commands.GroupCog, name="voice"):
                         logger.exception(f"Failed to delete channel {cid} during global reset.")
             except Exception:
                 logger.exception(f"Error while attempting to remove channel {cid} during global reset.")
-
-        async def _reset_all_user_settings(self, member: discord.Member):
-            """Remove all voice-related settings for a user across all guilds and delete
-            any active channels owned by them where possible.
-
-            This is destructive and intended for admin use only.
-            """
-            async with Database.get_connection() as db:
-                # Gather owned channel IDs before deleting rows
-                cursor = await db.execute(
-                    "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ?",
-                    (member.id,),
-                )
-                rows = await cursor.fetchall()
-                channel_ids = [r[0] for r in rows]
-
-                # Clear settings across all guilds
-                await db.execute(
-                    "UPDATE channel_settings SET channel_name = NULL, user_limit = NULL, lock = 0 WHERE user_id = ?",
-                    (member.id,),
-                )
-                await db.execute("DELETE FROM channel_permissions WHERE user_id = ?", (member.id,))
-                await db.execute("DELETE FROM channel_ptt_settings WHERE user_id = ?", (member.id,))
-                await db.execute("DELETE FROM channel_priority_speaker_settings WHERE user_id = ?", (member.id,))
-                await db.execute("DELETE FROM channel_soundboard_settings WHERE user_id = ?", (member.id,))
-                await db.execute("DELETE FROM voice_cooldowns WHERE user_id = ?", (member.id,))
-                await db.execute("DELETE FROM user_voice_channels WHERE owner_id = ?", (member.id,))
-                await db.commit()
-
-            # Attempt to delete the actual Discord channels where possible
-            for cid in channel_ids:
-                try:
-                    ch = self.bot.get_channel(cid)
-                    if ch is None:
-                        try:
-                            ch = await self.bot.fetch_channel(cid)
-                        except Exception:
-                            ch = None
-                    if ch is not None:
-                        try:
-                            await delete_channel(ch)
-                            self.managed_voice_channels.discard(cid)
-                            logger.info(f"Deleted channel '{getattr(ch, 'name', cid)}' for user {member.display_name} during global reset.")
-                        except Exception:
-                            logger.exception(f"Failed to delete channel {cid} during global reset.")
-                except Exception:
-                    logger.exception(f"Error while attempting to remove channel {cid} during global reset.")
-            logger.info(f"Reset settings for {member.display_name}'s channel.")
+        logger.info(f"Reset settings for {member.display_name}'s channel.")
 
     def is_bot_admin_or_lead_moderator(self, member: discord.Member) -> bool:
         """

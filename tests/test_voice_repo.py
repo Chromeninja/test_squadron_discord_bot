@@ -5,11 +5,9 @@ This file contains tests for the new voice repository functions,
 focusing on scoped deletion and proper guild/JTC channel handling.
 """
 
-import asyncio
 import os
 import pytest
 import time
-from unittest.mock import patch, MagicMock
 
 from helpers.database import Database
 from helpers.voice_repo import (

@@ -1,26 +1,18 @@
--- Migration 006: Guild Voice Channel Support
+-- Migration 006: Guild Voice Channel Support (safe schema-only)
 
--- Guard against corrupted data: abort if join_to_create_channel_ids is not a single integer
--- This prevents data corruption when the setting contains multiple channel IDs
+-- This migration creates the new guild-scoped schema for voice settings but
+-- intentionally does NOT migrate legacy data or perform destructive operations.
+-- Reason: legacy settings (e.g. `join_to_create_channel_ids`) may be multi-valued
+-- or the repository may not have a `guilds` table. Copying rows blindly would
+-- risk assigning rows to the wrong guild or aborting the migration.
+--
+-- Data migration should be performed by the running application in an
+-- idempotent, per-guild manner. See docs or the application startup task for
+-- an example migration routine.
+
 BEGIN TRANSACTION;
 
--- Check if join_to_create_channel_ids setting is valid (single integer)
-SELECT CASE 
-    WHEN (SELECT COUNT(*) FROM settings WHERE key = 'join_to_create_channel_ids') = 0 THEN
-        -- No setting exists, proceed with default
-        1
-    WHEN (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) LIKE '%,%' THEN
-        -- Contains comma, multiple values - abort to prevent corruption
-        RAISE(ABORT, 'Migration 006: join_to_create_channel_ids contains multiple values. Manual migration required to prevent data corruption.')
-    WHEN CAST((SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS INTEGER) = 0 THEN
-        -- Invalid integer value - abort
-        RAISE(ABORT, 'Migration 006: join_to_create_channel_ids is not a valid integer. Manual migration required.')
-    ELSE
-        -- Valid single integer, proceed
-        1
-END;
-
--- Create the guild_settings table
+-- Create the guild_settings table (no data populated here)
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id INTEGER NOT NULL,
     key TEXT NOT NULL,
@@ -28,9 +20,11 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     PRIMARY KEY (guild_id, key)
 );
 
--- Alter existing tables to include guild_id and jtc_channel_id
+-- Create new guild-scoped tables. These are created but left empty. An
+-- application-driven migration should read legacy rows, resolve the correct
+-- guild_id and jtc_channel_id for each row, and then insert into these
+-- tables in a controlled, logged, and idempotent way.
 
--- 1. user_voice_channels
 CREATE TABLE IF NOT EXISTS user_voice_channels_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -40,19 +34,6 @@ CREATE TABLE IF NOT EXISTS user_voice_channels_new (
     PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
 );
 
-INSERT INTO user_voice_channels_new (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    owner_id, 
-    voice_channel_id, 
-    created_at 
-FROM user_voice_channels;
-
-DROP TABLE user_voice_channels;
-ALTER TABLE user_voice_channels_new RENAME TO user_voice_channels;
-
--- 2. voice_cooldowns
 CREATE TABLE IF NOT EXISTS voice_cooldowns_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -61,18 +42,6 @@ CREATE TABLE IF NOT EXISTS voice_cooldowns_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id)
 );
 
-INSERT INTO voice_cooldowns_new (guild_id, jtc_channel_id, user_id, timestamp)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    timestamp 
-FROM voice_cooldowns;
-
-DROP TABLE voice_cooldowns;
-ALTER TABLE voice_cooldowns_new RENAME TO voice_cooldowns;
-
--- 3. channel_settings
 CREATE TABLE IF NOT EXISTS channel_settings_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -83,20 +52,6 @@ CREATE TABLE IF NOT EXISTS channel_settings_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id)
 );
 
-INSERT INTO channel_settings_new (guild_id, jtc_channel_id, user_id, channel_name, user_limit, lock)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    channel_name, 
-    user_limit, 
-    lock 
-FROM channel_settings;
-
-DROP TABLE channel_settings;
-ALTER TABLE channel_settings_new RENAME TO channel_settings;
-
--- 4. channel_permissions
 CREATE TABLE IF NOT EXISTS channel_permissions_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -107,20 +62,6 @@ CREATE TABLE IF NOT EXISTS channel_permissions_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
 );
 
-INSERT INTO channel_permissions_new (guild_id, jtc_channel_id, user_id, target_id, target_type, permission)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    target_id, 
-    target_type, 
-    permission 
-FROM channel_permissions;
-
-DROP TABLE channel_permissions;
-ALTER TABLE channel_permissions_new RENAME TO channel_permissions;
-
--- 5. channel_ptt_settings
 CREATE TABLE IF NOT EXISTS channel_ptt_settings_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -131,20 +72,6 @@ CREATE TABLE IF NOT EXISTS channel_ptt_settings_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
 );
 
-INSERT INTO channel_ptt_settings_new (guild_id, jtc_channel_id, user_id, target_id, target_type, ptt_enabled)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    target_id, 
-    target_type, 
-    ptt_enabled 
-FROM channel_ptt_settings;
-
-DROP TABLE channel_ptt_settings;
-ALTER TABLE channel_ptt_settings_new RENAME TO channel_ptt_settings;
-
--- 6. channel_priority_speaker_settings
 CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -155,20 +82,6 @@ CREATE TABLE IF NOT EXISTS channel_priority_speaker_settings_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
 );
 
-INSERT INTO channel_priority_speaker_settings_new (guild_id, jtc_channel_id, user_id, target_id, target_type, priority_enabled)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    target_id, 
-    target_type, 
-    priority_enabled 
-FROM channel_priority_speaker_settings;
-
-DROP TABLE channel_priority_speaker_settings;
-ALTER TABLE channel_priority_speaker_settings_new RENAME TO channel_priority_speaker_settings;
-
--- 7. channel_soundboard_settings
 CREATE TABLE IF NOT EXISTS channel_soundboard_settings_new (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
@@ -179,29 +92,11 @@ CREATE TABLE IF NOT EXISTS channel_soundboard_settings_new (
     PRIMARY KEY (guild_id, jtc_channel_id, user_id, target_id, target_type)
 );
 
-INSERT INTO channel_soundboard_settings_new (guild_id, jtc_channel_id, user_id, target_id, target_type, soundboard_enabled)
-SELECT 
-    (SELECT guild_id FROM guilds LIMIT 1) AS guild_id, 
-    (SELECT value FROM settings WHERE key = 'join_to_create_channel_ids' LIMIT 1) AS jtc_channel_id, 
-    user_id, 
-    target_id, 
-    target_type, 
-    soundboard_enabled 
-FROM channel_soundboard_settings;
+-- IMPORTANT: Do NOT copy or drop legacy tables here. Use an application-level
+-- migration that can interact with the Discord API to determine the correct
+-- guild->JTC mappings, handle multi-valued legacy settings, and log any
+-- ambiguity for manual resolution. Once the application migration has
+-- completed and been validated, a follow-up SQL migration can move data from
+-- the *_new tables into the canonical names and drop the legacy tables.
 
-DROP TABLE channel_soundboard_settings;
-ALTER TABLE channel_soundboard_settings_new RENAME TO channel_soundboard_settings;
-
--- Create guilds table if it doesn't exist (for migration)
-CREATE TABLE IF NOT EXISTS guilds (
-    guild_id INTEGER PRIMARY KEY
-);
-
--- Insert current guild to ensure migration works
-INSERT OR IGNORE INTO guilds (guild_id) 
-SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'guild_id'
-UNION
-SELECT guild_id FROM (
-    SELECT 0 AS guild_id
-    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'guild_id')
-);
+COMMIT;

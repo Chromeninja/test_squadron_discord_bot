@@ -1,7 +1,6 @@
 # Helpers/database.py
 
 import aiosqlite
-import sqlite3
 import asyncio
 import time
 from typing import Optional
@@ -88,7 +87,6 @@ class Database:
                 # Build column definitions from PRAGMA table_info
                 new_cols = []
                 select_cols = []
-                pk_clause = None
                 for r in rows:
                     cid, name, col_type, notnull, dflt_value, pk = r
                     if name == "last_recheck":
@@ -96,7 +94,6 @@ class Database:
                     col_def = f"{name} {col_type or 'TEXT'}"
                     if pk:
                         col_def += " PRIMARY KEY"
-                        pk_clause = name
                     if notnull:
                         col_def += " NOT NULL"
                     if dflt_value is not None:

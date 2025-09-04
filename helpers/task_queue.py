@@ -55,20 +55,14 @@ async def run_task(task):
             if isinstance(e, discord.DiscordServerError):
                 should_retry = True
             elif isinstance(e, discord.HTTPException):
-                # HTTPException may include status in .status if available
+                # Prefer the numeric HTTP status when available to detect 5xx
                 status = getattr(e, "status", None)
-                if status is None:
-                    # fallback: check message text for 5xx
-                    try:
-                        msg = str(e)
-                        if msg.startswith("5"):
-                            should_retry = True
-                    except Exception:
-                        pass
-                elif 500 <= int(status) < 600:
+                if isinstance(status, int) and 500 <= status < 600:
                     should_retry = True
 
-            if should_retry and attempt <= MAX_RETRIES:
+            # Only retry while attempt < MAX_RETRIES so the total number of
+            # attempts equals MAX_RETRIES (no extra attempt beyond the limit).
+            if should_retry and attempt < MAX_RETRIES:
                 delay = BASE_DELAY * (2 ** (attempt - 1))
                 # jitter
                 delay = delay + random.uniform(0, 0.1 * delay)

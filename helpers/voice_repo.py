@@ -5,7 +5,6 @@ This module provides a data access layer for voice-related database operations.
 It abstracts away SQL queries and provides a consistent interface for the voice cog.
 """
 
-import aiosqlite
 from typing import Optional, List, Tuple, Dict, Any
 from helpers.database import Database
 from helpers.logger import get_logger
