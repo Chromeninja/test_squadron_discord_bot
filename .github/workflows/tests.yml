@@ -47,7 +47,7 @@ jobs:
       - name: Copy example config for tests
         run: |
           mkdir -p config
-          cp config/config.example.yaml config/config.yaml
+          cp config/config-example.yaml config/config.yaml
 
       - name: Run tests
         run: pytest -q
