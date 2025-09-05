@@ -9,6 +9,9 @@ rate_limits:
   max_attempts: 5
   window_seconds: 1800        # 30 min rate-limit window
   recheck_window_seconds: 300 # 5 min recheck rate-limit window
+  task_queue_workers: 2       # Number of task queue workers
+  api_max_rate: 45           # API requests per time period
+  api_time_period: 1         # Time period in seconds
 
 organization:
   name: "TEST Squadron - Best Squardon!" 
@@ -41,6 +44,8 @@ logging:
 voice:
   cooldown_seconds: 5  # Cooldown period for voice channel creation (seconds)
   expiry_days: 30      # Expiry period for inactive voice channel data (days)
+  join_to_create_channels: {}  # Mapping of guild_id -> [channel_id1, channel_id2, ...]
+                              # Example: "123456789": [987654321, 987654322]
 
 database:
   path: "TESTDatabase.db"

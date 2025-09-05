@@ -64,9 +64,12 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch):
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
-    # Patch channel_send_message to avoid network and run queued tasks immediately
+    # Create a mock discord_gateway for the bot
+    discord_gateway_mock = AsyncMock()
     send_mock = AsyncMock()
-    monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
+    discord_gateway_mock.channel_send_message = send_mock
+    bot.discord_gateway = discord_gateway_mock
+
     async def immediate(task_func):
         await task_func()
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
@@ -116,8 +119,12 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch):
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
+    # Create a mock discord_gateway for the bot
+    discord_gateway_mock = AsyncMock()
     send_mock = AsyncMock()
-    monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
+    discord_gateway_mock.channel_send_message = send_mock
+    bot.discord_gateway = discord_gateway_mock
+
     async def immediate(task_func):
         await task_func()
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
@@ -156,6 +163,14 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch):
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
+
+    # Create a mock discord_gateway for the bot with the spam_send_patch
+    discord_gateway_mock = AsyncMock()
+    async def spam_send_patch(channel, content, embed=None):
+        await spam_chan.send(content)
+    discord_gateway_mock.channel_send_message = spam_send_patch
+    bot.discord_gateway = discord_gateway_mock
+
     # Force flag pass through real function; patch enqueue_task immediate
     async def immediate(task_func):
         await task_func()
@@ -164,10 +179,6 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch):
     async def leader_send_patch(channel, content, embed=None):
         await leader_chan.send(content)
     monkeypatch.setattr('helpers.leadership_log.channel_send_message', leader_send_patch)
-    # Patch generic channel send for spam channel path
-    async def spam_send_patch(channel, content, embed=None):
-        await spam_chan.send(content)
-    monkeypatch.setattr('helpers.username_404.channel_send_message', spam_send_patch)
     # Run 404 handler (simulating admin path already catching NotFound)
     from helpers.username_404 import handle_username_404
     await handle_username_404(bot, member, "GoneHandle")
@@ -233,6 +244,13 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch):
         return leader_chan if cid == 888 else (spam_chan if cid == 777 else None)
     bot.get_channel = get_channel
 
+    # Create a mock discord_gateway for the bot with the spam_send_patch
+    discord_gateway_mock = AsyncMock()
+    async def spam_send_patch(channel, content, embed=None):
+        await spam_chan.send(content)
+    discord_gateway_mock.channel_send_message = spam_send_patch
+    bot.discord_gateway = discord_gateway_mock
+
     # Patch enqueue_task to run immediately
     async def immediate(task_func):
         await task_func()
@@ -243,9 +261,6 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch):
     async def leader_send_patch(channel, content, embed=None):
         await leader_chan.send(content)
     monkeypatch.setattr('helpers.leadership_log.channel_send_message', leader_send_patch)
-    async def spam_send_patch(channel, content, embed=None):
-        await spam_chan.send(content)
-    monkeypatch.setattr('helpers.username_404.channel_send_message', spam_send_patch)
 
     from helpers.username_404 import handle_username_404
     await handle_username_404(bot, member, 'LostOne')
@@ -311,8 +326,11 @@ async def test_handle_username_404_new_handle_triggers_again(temp_db, monkeypatc
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
+    # Create a mock discord_gateway for the bot
+    discord_gateway_mock = AsyncMock()
     send_mock = AsyncMock()
-    monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
+    discord_gateway_mock.channel_send_message = send_mock
+    bot.discord_gateway = discord_gateway_mock
     async def immediate(task_func):
         await task_func()
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))

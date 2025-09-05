@@ -228,4 +228,19 @@ async def init_schema(db: aiosqlite.Connection):
         """
     )
     
+    # Verification message IDs (replaces JSON file storage)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS verification_message (
+            guild_id INTEGER PRIMARY KEY,
+            message_id INTEGER NOT NULL,
+            created_at INTEGER DEFAULT (strftime('%s','now')),
+            updated_at INTEGER DEFAULT (strftime('%s','now'))
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verification_message_guild_id ON verification_message(guild_id)"
+    )
+    
     logger.info("Schema initialization complete")

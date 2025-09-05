@@ -12,7 +12,7 @@ from helpers.database import Database
 from verification.rsi_verification import is_valid_rsi_handle
 from helpers.http_helper import NotFoundError
 from helpers.role_helper import assign_roles
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.leadership_log import ChangeSet, EventType
 from helpers.snapshots import snapshot_member_state, diff_snapshots
 from helpers.task_queue import flush_tasks
 
@@ -157,7 +157,13 @@ class AutoRecheck(commands.Cog):
                 setattr(cs, k, v)
             # duration tracking removed
             try:
-                await post_if_changed(self.bot, cs)
+                leadership_log_service = getattr(self.bot, 'leadership_log_service', None)
+                if leadership_log_service:
+                    await leadership_log_service.post_if_changed(cs)
+                else:
+                    # Fallback to direct helper call
+                    from helpers.leadership_log import post_if_changed
+                    await post_if_changed(self.bot, cs)
             except Exception:
                 logger.debug("Leadership log post failed (auto recheck)")
 

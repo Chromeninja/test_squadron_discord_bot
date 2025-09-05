@@ -1,13 +1,12 @@
-# Bot.py
-
+import os
 import discord
 from discord.ext import commands
-import os
 import asyncio
 import time
 from dotenv import load_dotenv
 
 from config.config_loader import ConfigLoader
+from config import load_config
 from helpers.http_helper import HTTPClient
 from helpers.token_manager import cleanup_tokens
 from helpers.views import VerificationView, ChannelSettingsView
@@ -23,8 +22,17 @@ logger = get_logger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Load configuration using ConfigLoader
+# Load configuration using ConfigLoader (existing)
 config = ConfigLoader.load_config()
+
+# Load typed configuration (new)
+try:
+    app_config = load_config()
+    logger.info("Typed configuration loaded and validated successfully.")
+except Exception as e:
+    logger.error(f"Failed to load typed configuration: {e}")
+    # For now, we'll continue with the old config but log the error
+    app_config = None
 
 # Load sensitive information from .env
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -56,7 +64,8 @@ intents.presences = True  # Needed for member presence updates
 initial_extensions = [
     "cogs.verification",
     "cogs.admin",
-    "cogs.voice",
+    "bot.cogs.voice_runtime_cog",
+    "bot.cogs.voice_admin_cog", 
     "cogs.recheck",
 ]
 
@@ -67,8 +76,24 @@ class MyBot(commands.Bot):
     def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
 
-            # Assign the entire config to the bot instance
+            # Assign the entire config to the bot instance (legacy)
             self.config = config
+            
+            # Assign the typed config to the bot instance (new)
+            self.app_config = app_config
+
+            # Initialize Discord Gateway (dynamic import to avoid top-level package conflicts)
+            try:
+                import importlib.util as _il
+                _repo_path = os.path.join(os.path.dirname(__file__), "bot", "adapters", "discord_gateway.py")
+                spec = _il.spec_from_file_location("discord_gateway", _repo_path)
+                _mod = _il.module_from_spec(spec)
+                spec.loader.exec_module(_mod)
+                DiscordGateway = _mod.DiscordGateway
+                self.discord_gateway = DiscordGateway(self)
+            except Exception:
+                # Fallback: set to None if import fails; callers should handle absence
+                self.discord_gateway = None
 
             # Pass role and channel IDs to the bot for use in cogs
             self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
@@ -92,6 +117,59 @@ class MyBot(commands.Bot):
             self.role_cache = {}
             self._missing_role_warned_guilds = set()
 
+    async def initialize_logging_services(self):
+        """Initialize logging and announcement services."""
+        try:
+            # Import services
+            from bot.app.services.announcement_service import AnnouncementService
+            from bot.app.services.leadership_log_service import LeadershipLogService
+            
+            # Create services
+            self.announcement_service = AnnouncementService(self)
+            self.leadership_log_service = LeadershipLogService(self)
+            
+            logger.info("Logging and announcement services initialized")
+            
+        except Exception as e:
+            logger.exception(f"Error initializing logging services: {e}")
+            # Set to None for fallback behavior
+            self.announcement_service = None
+            self.leadership_log_service = None
+
+    async def initialize_voice_services(self):
+        """Initialize voice services and inject them into voice cogs."""
+        try:
+            if not self.app_config or not self.discord_gateway:
+                logger.warning("Skipping voice service initialization - missing config or gateway")
+                return
+                
+            # Import and create voice services
+            from bot.app.services.voice_service.voice_service_factory import VoiceServiceFactory
+            
+            voice_services = VoiceServiceFactory.create_voice_services(
+                self.discord_gateway, self.app_config
+            )
+            
+            # Inject services into voice cogs
+            voice_runtime_cog = self.get_cog("VoiceRuntimeCog")
+            if voice_runtime_cog and hasattr(voice_runtime_cog, 'inject_voice_services'):
+                voice_runtime_cog.inject_voice_services(
+                    voice_services["jtc_manager"], 
+                    voice_services["settings_service"]
+                )
+                logger.info("Voice services injected into runtime cog")
+            
+            voice_admin_cog = self.get_cog("voice")  # GroupCog name
+            if voice_admin_cog and hasattr(voice_admin_cog, 'inject_voice_services'):
+                voice_admin_cog.inject_voice_services(
+                    voice_services["jtc_manager"], 
+                    voice_services["settings_service"]
+                )
+                logger.info("Voice services injected into admin cog")
+                
+        except Exception as e:
+            logger.exception(f"Error initializing voice services: {e}")
+
     async def setup_hook(self):
         """Load cogs, initialize services, and sync commands."""
         # Initialize the database
@@ -109,9 +187,7 @@ class MyBot(commands.Bot):
         await self.add_cog(BulkAnnouncer(self))
 
         # Start the task queue workers
-        await start_task_workers(
-            num_workers=2
-        )  # Adjust the number of workers as needed
+        await start_task_workers(config=self.app_config)
 
         # Initialize the HTTP client session
         # We use _get_session to ensure the HTTP client is initialized
@@ -123,6 +199,12 @@ class MyBot(commands.Bot):
                 logger.info(f"Loaded extension: {extension}")
             except Exception as e:
                 logger.error(f"Failed to load extension {extension}: {e}")
+
+        # Initialize voice services and inject into cogs
+        await self.initialize_voice_services()
+
+        # Initialize logging and announcement services
+        await self.initialize_logging_services()
 
         # Cache roles after bot is ready
         self.loop.create_task(self.cache_roles())

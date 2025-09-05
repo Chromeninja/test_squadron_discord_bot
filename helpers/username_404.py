@@ -3,7 +3,6 @@ import discord
 from helpers.database import Database
 from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
-from helpers.discord_api import channel_send_message
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
 from helpers.snapshots import snapshot_member_state, diff_snapshots
 from helpers.task_queue import flush_tasks
@@ -125,7 +124,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
     )
     if spam_channel:
         try:
-            await channel_send_message(spam_channel, spam_msg)
+            await bot.discord_gateway.channel_send_message(spam_channel, spam_msg)
         except Exception as e:
             logger.warning(f"Failed sending spam alert for {member.id}: {e}")
     # Leadership announcement removed (standardized in leadership_log.post_if_changed)

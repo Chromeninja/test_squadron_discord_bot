@@ -3,6 +3,7 @@
 import asyncio
 import random
 import time
+from typing import Optional
 from helpers.logger import get_logger
 from aiolimiter import AsyncLimiter
 import discord
@@ -12,7 +13,21 @@ logger = get_logger(__name__)
 
 task_queue = asyncio.Queue()
 
+# Default limiter - will be updated when configuration is available
 api_limiter = AsyncLimiter(max_rate=45, time_period=1)
+
+
+def configure_api_limiter(max_rate: int, time_period: int) -> None:
+    """
+    Configure the API rate limiter with provided settings.
+    
+    Args:
+        max_rate: Maximum requests per time period
+        time_period: Time period in seconds
+    """
+    global api_limiter
+    api_limiter = AsyncLimiter(max_rate=max_rate, time_period=time_period)
+    logger.info(f"API limiter configured: {max_rate} requests per {time_period}s")
 
 
 async def worker():
@@ -97,13 +112,30 @@ async def enqueue_task(task):
     return future
 
 
-async def start_task_workers(num_workers=2):
+async def start_task_workers(num_workers: Optional[int] = None, config=None):
     """
     Starts the specified number of worker tasks.
 
     Args:
-        num_workers (int): Number of worker coroutines to start.
+        num_workers (int, optional): Number of worker coroutines to start.
+                                   If None, will use config.rate_limits.task_queue_workers
+                                   or default to 2 if no config is provided.
+        config: Application configuration object with rate_limits attribute
     """
+    # Determine worker count from config if not provided
+    if num_workers is None:
+        if config and hasattr(config, 'rate_limits'):
+            num_workers = config.rate_limits.task_queue_workers
+        else:
+            num_workers = 2  # fallback default
+    
+    # Configure API limiter if config is available
+    if config and hasattr(config, 'rate_limits'):
+        configure_api_limiter(
+            max_rate=config.rate_limits.api_max_rate,
+            time_period=config.rate_limits.api_time_period
+        )
+    
     for _ in range(num_workers):
         asyncio.create_task(worker())
     logger.info(f"Started {num_workers} task queue worker(s).")
@@ -126,5 +158,5 @@ async def flush_tasks(max_wait: float = 2.0):
         await asyncio.sleep(0.05)
 
 __all__ = [
-    'enqueue_task', 'start_task_workers', 'flush_tasks', 'task_queue'
+    'enqueue_task', 'start_task_workers', 'flush_tasks', 'task_queue', 'configure_api_limiter'
 ]

@@ -16,13 +16,19 @@ from helpers.embeds import (
 from helpers.views import VerificationView
 from helpers.logger import get_logger
 from helpers.discord_api import followup_send_message
-from helpers.role_helper import reverify_member
 from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.http_helper import NotFoundError
 from helpers.username_404 import handle_username_404
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
-from helpers.task_queue import flush_tasks
+from helpers.leadership_log import EventType
+
+# Import the verification repository
+import importlib.util
+import os as path_os
+current_dir = path_os.path.dirname(path_os.path.abspath(__file__))
+repo_path = path_os.path.join(path_os.path.dirname(current_dir), "bot", "app", "repositories", "verification_repo.py")
+spec = importlib.util.spec_from_file_location("verification_repo", repo_path)
+verification_repo_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verification_repo_module)
+VerificationRepository = verification_repo_module.VerificationRepository
 
 logger = get_logger(__name__)
 
@@ -66,13 +72,14 @@ class VerificationCog(commands.Cog):
             f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
         )
 
-        # Load the message ID from a file
-        message_id = None
-        message_id_file = "verification_message_id.json"
-        if os.path.exists(message_id_file):
-            with open(message_id_file, "r") as f:
-                data = json.load(f)
-                message_id = data.get("message_id")
+        # Get guild ID (assuming single guild for now, but storing explicitly for future multi-guild support)
+        guild_id = channel.guild.id if channel.guild else 0
+
+        # Check for backward compatibility migration from JSON file
+        await self._migrate_from_json_if_needed(guild_id)
+
+        # Load the message ID from the database
+        message_id = await VerificationRepository.get_verification_message_id(guild_id)
 
         if message_id:
             try:
@@ -84,6 +91,8 @@ class VerificationCog(commands.Cog):
                 return  # Message already exists, no need to send a new one
             except discord.NotFound:
                 logger.info("Verification message not found, will send a new one.")
+                # Remove the stale message ID from the database
+                await VerificationRepository.delete_verification_message_id(guild_id)
             except Exception as e:
                 logger.error(f"Error fetching verification message: {e}")
 
@@ -101,9 +110,8 @@ class VerificationCog(commands.Cog):
                 f"Sent verification message in channel. Message ID: {sent_message.id}"
             )
 
-            # Save the message ID to the file
-            with open(message_id_file, "w") as f:
-                json.dump({"message_id": sent_message.id}, f)
+            # Save the message ID to the database
+            await VerificationRepository.set_verification_message_id(guild_id, sent_message.id)
 
         except discord.Forbidden:
             logger.error(
@@ -111,6 +119,33 @@ class VerificationCog(commands.Cog):
             )
         except discord.HTTPException as e:
             logger.exception(f"Failed to send verification message: {e}")
+
+    async def _migrate_from_json_if_needed(self, guild_id: int):
+        """
+        One-time migration from JSON file to database.
+        If verification_message_id.json exists, import it and delete the file.
+        """
+        message_id_file = "verification_message_id.json"
+        if os.path.exists(message_id_file):
+            try:
+                logger.info("Found legacy verification_message_id.json file, migrating to database...")
+                
+                with open(message_id_file, "r") as f:
+                    data = json.load(f)
+                    message_id = data.get("message_id")
+                
+                if message_id:
+                    # Store in database
+                    await VerificationRepository.set_verification_message_id(guild_id, message_id)
+                    logger.info(f"Migrated verification message ID {message_id} to database for guild {guild_id}")
+                
+                # Delete the JSON file
+                os.remove(message_id_file)
+                logger.info("Successfully migrated and removed legacy verification_message_id.json file")
+                
+            except Exception as e:
+                logger.error(f"Failed to migrate verification_message_id.json: {e}")
+                # Don't raise - we can continue without the migration
 
     async def recheck_button(self, interaction: discord.Interaction):
         """Handle a user-initiated recheck via the verification view button."""
@@ -138,15 +173,26 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        # Snapshot BEFORE reverify to capture DB / handle / moniker changes
-        import time as _t
-        _start = _t.time()
-        before_snap = await snapshot_member_state(self.bot, member)
-        # Attempt re-verification (DB + role/nick tasks enqueued)
-        try:
-            result = await reverify_member(member, rsi_handle, self.bot)
-        except NotFoundError:
-            # Invoke unified remediation then inform user
+        # Use VerificationService for verification workflow
+        from bot.app.services.verification_service import VerificationService
+        
+        leadership_log_service = getattr(self.bot, 'leadership_log_service', None)
+        announcement_service = getattr(self.bot, 'announcement_service', None)
+        verification_service = VerificationService(
+            leadership_log_service=leadership_log_service,
+            announcement_service=announcement_service
+        )
+        result = await verification_service.verify_user(
+            guild=member.guild,
+            member=member,
+            rsi_handle=rsi_handle,
+            bot=self.bot,
+            event_type=EventType.RECHECK,
+            initiator_kind='User'
+        )
+
+        if result.handle_404:
+            # Handle RSI handle not found - invoke unified remediation
             try:
                 await handle_username_404(self.bot, member, rsi_handle)
             except Exception as e:  # pragma: no cover - best effort logging
@@ -158,58 +204,23 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        success, status_info, message = result
-        if not success:
-            embed = create_error_embed(message or "Re-check failed. Please try again later.")
+        if not result.success:
+            embed = create_error_embed(result.message or "Re-check failed. Please try again later.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        if isinstance(status_info, tuple):
-            _old_status, new_status = status_info
-        else:
-            new_status = status_info
-
+        # Log successful attempt
         await log_attempt(member.id, "recheck")
+
+        # Determine status for response
+        if isinstance(result.status_info, tuple):
+            _old_status, new_status = result.status_info
+        else:
+            new_status = result.status_info
 
         description = build_welcome_description(new_status)
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-
-        # Leadership log snapshot
-        try:
-            await flush_tasks()
-        except Exception:
-            pass
-        # Refetch member to get latest nickname / roles after queued tasks applied
-        try:
-            refreshed = await member.guild.fetch_member(member.id)
-            if refreshed:
-                member = refreshed
-        except Exception:
-            pass
-        after_snap = await snapshot_member_state(self.bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        try:
-            if diff.get('username_before') == diff.get('username_after') and getattr(member, '_nickname_changed_flag', False):
-                pref = getattr(member, '_preferred_verification_nick', None)
-                if pref and pref != diff.get('username_before'):
-                    diff['username_after'] = pref
-        except Exception:
-            pass
-        cs = ChangeSet(
-            user_id=member.id,
-            event=EventType.RECHECK,
-            initiator_kind='User',
-            initiator_name=None,
-            notes=None,
-        )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-    # duration tracking removed
-        try:
-            await post_if_changed(self.bot, cs)
-        except Exception:
-            logger.debug("Leadership log post failed (user recheck button)")
 
 
 async def setup(bot: commands.Bot):

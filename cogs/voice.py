@@ -1,8 +1,16 @@
 # cogs/voice.py
 """
-Voice Cog
+DEPRECATED: Voice Cog - Legacy Implementation
 
-This cog manages dynamic voice channels for the Discord bot. It handles:
+This monolithic voice cog has been split into:
+  - bot.cogs.voice_runtime_cog.py (events, background tasks)
+  - bot.cogs.voice_admin_cog.py (slash commands, admin functions)
+  - bot.app.services.voice_service/* (service layer stubs)
+
+This file is kept temporarily for reference and will be removed in a future update.
+DO NOT LOAD THIS COG - use the new split cogs instead.
+
+Original functionality:
   - Creation and deletion of managed channels via a 'Join to Create' channel.
   - Automatic application of stored settings (such as role-based permit/reject,
     PTT, Priority Speaker, and Soundboard) when a new channel is created.
