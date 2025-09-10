@@ -215,23 +215,23 @@ class VerificationView(View):
         try:
             await interaction.response.send_modal(modal)
         except discord.HTTPException as e:
-            if e.code == 10062:  # Unknown interaction (expired)
-                logger.warning(
-                    f"Interaction expired for user {member.display_name} ({member.id}). "
-                    "User may have taken too long to click the button."
-                )
-                # Try to send an ephemeral message explaining the issue
-                try:
-                    await interaction.followup.send(
-                        "⚠️ This verification button has expired. Please request a new verification message.",
-                        ephemeral=True
-                    )
-                except Exception:
-                    # If even the followup fails, log it but don't crash
-                    logger.debug("Could not send expiration notice to user")
-            else:
-                # Re-raise other HTTP exceptions
+            if e.code != 10062:  # Not Unknown interaction (expired)
+                # Re-raise other HTTP exceptions, but log them first for debugging
+                logger.exception(f"HTTP exception (code {e.code}) in verify_button_callback: {e}")
                 raise
+            logger.warning(
+                f"Interaction expired for user {member.display_name} ({member.id}). "
+                "User may have taken too long to click the button."
+            )
+            # Try to send an ephemeral message explaining the issue
+            try:
+                await interaction.followup.send(
+                    "⚠️ This verification button has expired. Please request a new verification message.",
+                    ephemeral=True
+                )
+            except Exception:
+                # If even the followup fails, log it but don't crash
+                logger.debug("Could not send expiration notice to user")
 
     async def recheck_button_callback(self, interaction: Interaction):
         verification_cog = self.bot.get_cog("VerificationCog")

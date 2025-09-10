@@ -390,8 +390,7 @@ def extract_bio(html_content: str) -> Optional[str]:
     
     for selector in SELECTORS["bio"]:
         try:
-            bio_elem = soup.select_one(selector)
-            if bio_elem:
+            if (bio_elem := soup.select_one(selector)):
                 bio_text = bio_elem.get_text(separator=" ", strip=True)
                 if bio_text:
                     logger.debug(f"Bio extracted with selector '{selector}': {bio_text[:100]}...")

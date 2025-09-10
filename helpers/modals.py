@@ -17,6 +17,7 @@ from helpers.rate_limiter import (
 )
 from helpers.token_manager import token_store, validate_token, clear_token
 from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
+from config.config_loader import ConfigLoader
 from helpers.role_helper import assign_roles
 from helpers.logger import get_logger
 from helpers.voice_utils import get_user_channel, update_channel_settings
@@ -29,6 +30,10 @@ from helpers.snapshots import snapshot_member_state, diff_snapshots
 from helpers.task_queue import flush_tasks
 
 logger = get_logger(__name__)
+
+# Load configuration
+config = ConfigLoader.load_config()
+ORG_NAME = config["organization"]["name"]
 
 # Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
@@ -172,8 +177,31 @@ class HandleModal(Modal, title="Verification"):
                     error_msg.append("- Could not verify RSI organization membership.")
                 elif verify_value_check == 0:
                     # Check if this might be due to hidden affiliations
-                    error_msg.append("- You are not a member of TEST Squadron or its affiliates.")
-                    error_msg.append("- If your TEST affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
+                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
+                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
+                if not token_verify:
+                    error_msg.append("- Token not found or mismatch in bio.")
+                error_msg.append(
+                    f"You have {remaining_attempts} attempts left before cooldown."
+                )
+                embed = create_error_embed("\n".join(error_msg))
+                await followup_send_message(
+                    interaction, "", embed=embed, ephemeral=True
+                )
+                logger.info(
+                    "User failed verification.",
+                    extra={
+                        "user_id": member.id,
+                        "remaining_attempts": remaining_attempts,
+                        "verify_value": verify_value_check,
+                        "token_verify": token_verify
+                    },
+                )
+                    error_msg.append("- Could not verify RSI organization membership.")
+                elif verify_value_check == 0:
+                    # Check if this might be due to hidden affiliations
+                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
+                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
                 error_msg.append(
@@ -235,33 +263,33 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == "main":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+                f"We're thrilled to have you as a MAIN member of **{ORG_NAME}!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to "
                 "make the most of your experience!\n\n"
                 "Fly safe! <:o7:1332572027877593148>"
             )
         elif assigned_role_type == "affiliate":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as "
                 "your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
+                f"1️⃣ Click **Set as Main** next to **{ORG_NAME}**.\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
                 "involved!\n\n"
                 "<:o7:1332572027877593148>"
             )
         elif assigned_role_type == "non_member":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+                f"🔗 [Join {ORG_NAME}](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within "
                 "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "

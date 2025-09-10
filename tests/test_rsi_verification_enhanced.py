@@ -270,5 +270,52 @@ def test_negative_cases():
     bio = extract_bio(empty_html)
     assert bio is None
 
+def test_ambiguous_token_matching():
+    """Test token matching with multiple numbers and ambiguous contexts."""
+    
+    # Test bio with multiple 4-digit numbers - all are found as potential tokens
+    bio_text = "My ID is 5678, but verification token is 1234. Also born in 1990, phone 9876."
+    assert find_token_in_bio(bio_text, "1234") == True  # Verification token
+    assert find_token_in_bio(bio_text, "5678") == True  # ID number (also 4 digits)
+    assert find_token_in_bio(bio_text, "1990") == True  # Birth year (also 4 digits)  
+    assert find_token_in_bio(bio_text, "9876") == True  # Phone last 4 digits
+    assert find_token_in_bio(bio_text, "0000") == False  # Not in bio
+    
+    # Test bio with multiple instances of same number
+    bio_text = "Token 1234 for verification. Don't use 1234 from other places. 1234 is special."
+    assert find_token_in_bio(bio_text, "1234") == True  # Should find the token
+    
+    # Test bio with similar but different numbers
+    bio_text = "Codes: 1233, 1234, 1235. Your token is 1234."
+    assert find_token_in_bio(bio_text, "1234") == True  # Should find exact match
+    assert find_token_in_bio(bio_text, "1233") == True  # Also a 4-digit number
+    assert find_token_in_bio(bio_text, "1235") == True  # Also a 4-digit number
+    assert find_token_in_bio(bio_text, "1236") == False  # Not in bio
+    
+    # Test with numbers embedded in words/text (should NOT match - needs word boundaries)
+    bio_text = "abc1234def and token1234test but 1234 standalone is ok"
+    assert find_token_in_bio(bio_text, "1234") == True  # Should find standalone occurrence
+    
+    # Test with mixed contexts - only standalone 4-digit numbers count
+    bio_text = "Born 1995, verification: 8901, zip 12345 (too long), apt #4567"
+    assert find_token_in_bio(bio_text, "8901") == True  # Verification token
+    assert find_token_in_bio(bio_text, "1995") == True  # Birth year (standalone 4 digits)
+    assert find_token_in_bio(bio_text, "4567") == True  # Apartment number (standalone 4 digits)
+    assert find_token_in_bio(bio_text, "12345") == False  # Zip code (5 digits, doesn't match)
+    assert find_token_in_bio(bio_text, "2345") == False  # Partial zip, not standalone
+    
+    # Test edge case with repeated patterns
+    bio_text = "Test 1111 Test 2222 Test 3333 verification 2222 end"
+    assert find_token_in_bio(bio_text, "2222") == True  # Should find it despite repetition
+    assert find_token_in_bio(bio_text, "1111") == True  # Also present as 4-digit number
+    assert find_token_in_bio(bio_text, "3333") == True  # Also present as 4-digit number
+    assert find_token_in_bio(bio_text, "4444") == False  # Not present
+    
+    # Test zero-padding behavior 
+    bio_text = "My token is 0042 for verification."
+    assert find_token_in_bio(bio_text, "42") == True  # Should zero-pad input and match
+    assert find_token_in_bio(bio_text, "0042") == True  # Exact match
+    assert find_token_in_bio(bio_text, "042") == True  # Should zero-pad to 0042
+
 if __name__ == "__main__":
     pytest.main([__file__])
