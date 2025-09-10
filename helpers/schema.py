@@ -230,28 +230,5 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-
-    # Announcement events table
-    await db.execute("""
-    CREATE TABLE IF NOT EXISTS announcement_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        old_status TEXT,
-        new_status TEXT,
-        event_type TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        announced_at INTEGER DEFAULT NULL
-    )
-    """)
-
-    # Indices for announcement_events
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_announcement_events_user_id "
-        "ON announcement_events(user_id)"
-    )
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at "
-        "ON announcement_events(announced_at)"
-    )
-
-    logger.info("schema initialization complete")
+    
+    logger.info("Schema initialization complete")

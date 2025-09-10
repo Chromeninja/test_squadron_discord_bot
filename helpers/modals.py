@@ -23,6 +23,8 @@ from helpers.rate_limiter import (
     log_attempt,
     reset_attempts,
 )
+from helpers.token_manager import token_store, validate_token, clear_token
+from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
@@ -31,6 +33,10 @@ from helpers.voice_utils import get_user_channel, update_channel_settings
 from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
+
+# Load configuration
+config = ConfigLoader.load_config()
+ORG_NAME = config["organization"]["name"]
 
 # Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
@@ -113,12 +119,9 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
-        (
-            verify_value_check,
-            cased_handle_used,
-            community_moniker_2,
-        ) = await is_valid_rsi_handle(cased_handle, self.bot.http_client)
-
+        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
+            cased_handle, self.bot.http_client
+        )
         if verify_value_check is None:
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check your handle again."
@@ -127,12 +130,8 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("RSI verification failed.", extra={"user_id": member.id})
             return
 
-        # Prefer moniker from second fetch if returned
-        if community_moniker_2:
-            community_moniker = community_moniker_2
-
         token_verify = await is_valid_rsi_bio(
-            cased_handle, user_token_info["token"], self.bot.http_client
+            cased_handle_used, user_token_info["token"], self.bot.http_client
         )
         if token_verify is None:
             embed = create_error_embed(
@@ -154,20 +153,32 @@ class HandleModal(Modal, title="Verification"):
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
                 _, wait_until = await check_rate_limit(member.id, "verification")
+                
+                # Get retry time in seconds for better user feedback
+                import time
+                retry_after_seconds = int(wait_until - time.time()) if wait_until > time.time() else 0
 
-                # Create and send the cooldown embed
+                # Create and send the cooldown embed with enhanced feedback
                 embed = create_cooldown_embed(wait_until)
                 await followup_send_message(
                     interaction, "", embed=embed, ephemeral=True
                 )
                 logger.info(
                     "User exceeded verification attempts. Cooldown enforced.",
-                    extra={"user_id": member.id},
+                    extra={
+                        "user_id": member.id,
+                        "remaining_attempts": 0,
+                        "retry_after": retry_after_seconds
+                    },
                 )
             else:
                 error_msg = []
                 if verify_value_check is None:
                     error_msg.append("- Could not verify RSI organization membership.")
+                elif verify_value_check == 0:
+                    # Check if this might be due to hidden affiliations
+                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
+                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
                 error_msg.append(
@@ -182,6 +193,8 @@ class HandleModal(Modal, title="Verification"):
                     extra={
                         "user_id": member.id,
                         "remaining_attempts": remaining_attempts,
+                        "verify_value": verify_value_check,
+                        "token_verify": token_verify
                     },
                 )
             return
@@ -196,7 +209,7 @@ class HandleModal(Modal, title="Verification"):
         old_status, assigned_role_type = await assign_roles(
             member,
             verify_value_check,
-            cased_handle,
+            cased_handle_used,
             self.bot,
             community_moniker=community_moniker,
         )
@@ -226,33 +239,33 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == "main":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+                f"We're thrilled to have you as a MAIN member of **{ORG_NAME}!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to "
                 "make the most of your experience!\n\n"
                 "Fly safe! <:o7:1332572027877593148>"
             )
         elif assigned_role_type == "affiliate":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as "
                 "your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
+                f"1️⃣ Click **Set as Main** next to **{ORG_NAME}**.\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
                 "involved!\n\n"
                 "<:o7:1332572027877593148>"
             )
         elif assigned_role_type == "non_member":
             description = (
-                "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
+                f"🔗 [Join {ORG_NAME}](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within "
                 "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
@@ -274,7 +287,7 @@ class HandleModal(Modal, title="Verification"):
                 "User successfully verified.",
                 extra={
                     "user_id": member.id,
-                    "rsi_handle": cased_handle,
+                    "rsi_handle": cased_handle_used,
                     "assigned_role": assigned_role_type,
                 },
             )
