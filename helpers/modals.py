@@ -197,29 +197,6 @@ class HandleModal(Modal, title="Verification"):
                         "token_verify": token_verify
                     },
                 )
-                    error_msg.append("- Could not verify RSI organization membership.")
-                elif verify_value_check == 0:
-                    # Check if this might be due to hidden affiliations
-                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
-                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
-                if not token_verify:
-                    error_msg.append("- Token not found or mismatch in bio.")
-                error_msg.append(
-                    f"You have {remaining_attempts} attempts left before cooldown."
-                )
-                embed = create_error_embed("\n".join(error_msg))
-                await followup_send_message(
-                    interaction, "", embed=embed, ephemeral=True
-                )
-                logger.info(
-                    "User failed verification.",
-                    extra={
-                        "user_id": member.id,
-                        "remaining_attempts": remaining_attempts,
-                        "verify_value": verify_value_check,
-                        "token_verify": token_verify
-                    },
-                )
             return
 
         # Leadership log: snapshot before
