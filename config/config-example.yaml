@@ -11,7 +11,7 @@ rate_limits:
   recheck_window_seconds: 300 # 5 min recheck rate-limit window
 
 organization:
-  name: "TEST Squadron - Best Squadron!" 
+  name: "TEST Squadron - Best Squardon!" 
 
 channels:
   verification_channel_id: 1313551608491282543         # Channel for running verification

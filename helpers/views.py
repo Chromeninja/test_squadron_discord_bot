@@ -485,7 +485,7 @@ class ChannelSettingsView(View):
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
-        
+
         selected = None
         try:
             if isinstance(interaction.data, dict):
@@ -804,10 +804,8 @@ class FeatureTargetView(View):
             view = FeatureUserSelectView(self.bot, self.feature_name, self.enable)
             await send_message(
                 interaction,
-                (
-                    f"Select user(s) to {'enable' if self.enable else 'disable'} "
-                    + f"{self.feature_name} for:"
-                ),
+                f"Select user(s) to {'enable' if self.enable else 'disable'} "
+                f"{self.feature_name} for:",
                 ephemeral=True,
                 view=view,
             )

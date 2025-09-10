@@ -294,10 +294,8 @@ class MyBot(commands.Bot):
                     # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
         if not valid_roles:
             logger.info(
-
-                    "No valid configured admin/lead-moderator roles present in guild '"
-                    + f"{guild.name}'. Skipping App Command permission setup and relying on runtime checks."
-
+                f"No valid configured admin/lead-moderator roles present in guild '{guild.name}'. "
+                "Skipping App Command permission setup and relying on runtime checks."
             )
             return
 
@@ -340,10 +338,8 @@ class MyBot(commands.Bot):
                     except discord.HTTPException as e:
                         # Discord may reject the operation; log at INFO and continue
                         logger.info(
-
-                                f"Discord rejected App Command permission update for '{cmd_name}' "
-                                + f"in guild '{guild.name}': {e}. Continuing with runtime checks."
-
+                            f"Discord rejected App Command permission update for '{cmd_name}' "
+                            f"in guild '{guild.name}': {e}. Continuing with runtime checks."
                         )
                 else:
                     logger.debug(

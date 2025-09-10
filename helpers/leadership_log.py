@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
 
 import discord  # legacy (embeds no longer dispatched)
 

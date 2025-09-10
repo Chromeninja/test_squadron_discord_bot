@@ -69,7 +69,8 @@ class ConfigLoader:
             logging.warning(
                 f"Invalid logging level '{level}' in config. Defaulting to 'INFO'."
             )
-            cls._config["logging"]["level"] = "INFO"
+            logging_cfg = cls._config.setdefault("logging", {})
+            logging_cfg["level"] = "INFO"
 
     @classmethod
     def _convert_role_ids_to_int(cls) -> None:

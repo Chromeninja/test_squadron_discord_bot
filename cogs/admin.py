@@ -1,8 +1,10 @@
 # Cogs/admin.py
 
 import contextlib
+import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -332,11 +334,98 @@ class Admin(commands.Cog):
             new_status,
         )
 
+    @app_commands.command(
+        name="cleanup-verification",
+        description="Clean up old verification messages (Bot Admins only).",
+    )
+    @app_command_check_configured_roles(config["roles"]["bot_admins"])
+    @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
+    @app_commands.guild_only()
+    async def cleanup_verification(self, interaction: discord.Interaction) -> None:
+        """Clean up old verification messages that are not the current persisted one."""
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
+        # Get verification channel
+        verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", None)
+        if not verification_channel_id:
+            await interaction.followup.send(
+                "❌ Verification channel ID not configured.", ephemeral=True
+            )
+            return
+
+        channel = self.bot.get_channel(verification_channel_id)
+        if not channel:
+            await interaction.followup.send(
+                "❌ Verification channel not found.", ephemeral=True
+            )
+            return
+
+        # Load current verification message ID
+        data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
+        message_id_file = data_dir / "verification_message_id.json"
+        current_message_id = None
+
+        if message_id_file.exists():
+            try:
+                data = json.loads(message_id_file.read_text(encoding="utf-8"))
+                current_message_id = data.get("message_id")
+            except (OSError, ValueError, KeyError):
+                pass
+
+        # Scan channel history for bot messages
+        deleted_count = 0
+        bot_id = self.bot.user.id
+
+        try:
+            async for message in channel.history(limit=100):
+                # Skip if not from bot
+                if message.author.id != bot_id:
+                    continue
+
+                # Skip current verification message
+                if current_message_id and message.id == current_message_id:
+                    continue
+
+                # Skip if not an embed message (likely not verification)
+                if not message.embeds:
+                    continue
+
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    logger.info(f"Deleted old verification message {message.id}")
+                except discord.NotFound:
+                    pass  # Already deleted
+                except discord.Forbidden:
+                    logger.warning(f"Cannot delete message {message.id} - forbidden")
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ Bot lacks permission to read message history.", ephemeral=True
+            )
+            return
+        except Exception as e:
+            logger.exception(f"Error during verification cleanup: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred during cleanup.", ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Cleanup completed. Deleted {deleted_count} old verification message(s).",
+            ephemeral=True,
+        )
+
+        logger.info(
+            f"Admin {interaction.user.id} cleaned up {deleted_count} verification messages"
+        )
+
     @reset_all.error
     @reset_user.error
     @status.error
     @recheck_user.error
     @view_logs.error
+    @cleanup_verification.error
     async def admin_command_error(self, interaction: discord.Interaction, error) -> None:
         if isinstance(error, app_commands.errors.MissingAnyRole):
             logger.warning(

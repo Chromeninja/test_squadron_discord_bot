@@ -64,10 +64,8 @@ async def send_verification_announcements(
             if is_recheck:
                 await channel_send_message(
                     lead_channel,
-                    (
-                        f"🗂️ {member.mention} {log_action}{admin_phrase}: "
-                        + f"**{status_str(old_status)}** → **{status_str(new_status)}**"
-                    ),
+                    f"🗂️ {member.mention} {log_action}{admin_phrase}: "
+                    f"**{status_str(old_status)}** → **{status_str(new_status)}**",
                 )
             else:
                 await channel_send_message(

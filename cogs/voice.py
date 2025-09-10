@@ -330,10 +330,8 @@ class Voice(commands.GroupCog, name="voice"):
         if member_count > 0:
             self.managed_voice_channels.add(channel.id)
             logger.info(
-
-                    f"Resuming management of existing channel '{channel.name}' (ID: {channel.id}) "
-                    + f"with {member_count} member(s)."
-
+                f"Resuming management of existing channel '{channel.name}' (ID: {channel.id}) "
+                f"with {member_count} member(s)."
             )
             return
 
@@ -464,10 +462,8 @@ class Voice(commands.GroupCog, name="voice"):
 
         # Still empty -> perform deletion & DB cleanup
         logger.info(
-
-                f"Scheduled deletion: channel '{channel.name}' (ID: {channel.id}) "
-                + f"still empty after {delay}s; deleting."
-
+            f"Scheduled deletion: channel '{channel.name}' (ID: {channel.id}) "
+            f"still empty after {delay}s; deleting."
         )
         try:
             await self.cleanup_voice_channel(channel.id)

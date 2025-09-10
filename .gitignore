@@ -148,5 +148,4 @@ yarn-error.log*
 
 # Modern Python tools
 .ruff_cache/
-.pytest_cache/
 config/config.yaml
