@@ -110,10 +110,10 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-            # Perform RSI verification with sanitized handle
-        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
-            cased_handle, self.bot.http_client
-        )
+        # Use the already fetched verify_value and cased_handle (avoid double-fetch race condition)
+        # This prevents inconsistency between organization check and token validation
+        verify_value_check = verify_value
+        cased_handle_used = cased_handle
         if verify_value_check is None:
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check your handle again."
@@ -125,12 +125,8 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-        # Prefer moniker from second fetch if returned
-        if community_moniker_2:
-            community_moniker = community_moniker_2
-
         token_verify = await is_valid_rsi_bio(
-            cased_handle, user_token_info["token"], self.bot.http_client
+            cased_handle_used, user_token_info["token"], self.bot.http_client
         )
         if token_verify is None:
             embed = create_error_embed(
@@ -152,20 +148,32 @@ class HandleModal(Modal, title="Verification"):
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
                 _, wait_until = await check_rate_limit(member.id, "verification")
+                
+                # Get retry time in seconds for better user feedback
+                import time
+                retry_after_seconds = int(wait_until - time.time()) if wait_until > time.time() else 0
 
-                # Create and send the cooldown embed
+                # Create and send the cooldown embed with enhanced feedback
                 embed = create_cooldown_embed(wait_until)
                 await followup_send_message(
                     interaction, "", embed=embed, ephemeral=True
                 )
                 logger.info(
                     "User exceeded verification attempts. Cooldown enforced.",
-                    extra={"user_id": member.id},
+                    extra={
+                        "user_id": member.id,
+                        "remaining_attempts": 0,
+                        "retry_after": retry_after_seconds
+                    },
                 )
             else:
                 error_msg = []
                 if verify_value_check is None:
                     error_msg.append("- Could not verify RSI organization membership.")
+                elif verify_value_check == 0:
+                    # Check if this might be due to hidden affiliations
+                    error_msg.append("- You are not a member of TEST Squadron or its affiliates.")
+                    error_msg.append("- If your TEST affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
                 error_msg.append(
@@ -180,6 +188,8 @@ class HandleModal(Modal, title="Verification"):
                     extra={
                         "user_id": member.id,
                         "remaining_attempts": remaining_attempts,
+                        "verify_value": verify_value_check,
+                        "token_verify": token_verify
                     },
                 )
             return
@@ -193,7 +203,7 @@ class HandleModal(Modal, title="Verification"):
         old_status, assigned_role_type = await assign_roles(
             member,
             verify_value_check,
-            cased_handle,
+            cased_handle_used,
             self.bot,
             community_moniker=community_moniker,
         )
@@ -273,7 +283,7 @@ class HandleModal(Modal, title="Verification"):
                 "User successfully verified.",
                 extra={
                     "user_id": member.id,
-                    "rsi_handle": cased_handle,
+                    "rsi_handle": cased_handle_used,
                     "assigned_role": assigned_role_type,
                 },
             )

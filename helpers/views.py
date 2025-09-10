@@ -212,7 +212,26 @@ class VerificationView(View):
             return
 
         modal = HandleModal(self.bot)
-        await interaction.response.send_modal(modal)
+        try:
+            await interaction.response.send_modal(modal)
+        except discord.HTTPException as e:
+            if e.code == 10062:  # Unknown interaction (expired)
+                logger.warning(
+                    f"Interaction expired for user {member.display_name} ({member.id}). "
+                    "User may have taken too long to click the button."
+                )
+                # Try to send an ephemeral message explaining the issue
+                try:
+                    await interaction.followup.send(
+                        "⚠️ This verification button has expired. Please request a new verification message.",
+                        ephemeral=True
+                    )
+                except Exception:
+                    # If even the followup fails, log it but don't crash
+                    logger.debug("Could not send expiration notice to user")
+            else:
+                # Re-raise other HTTP exceptions
+                raise
 
     async def recheck_button_callback(self, interaction: Interaction):
         verification_cog = self.bot.get_cog("VerificationCog")
