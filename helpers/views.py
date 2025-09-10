@@ -8,42 +8,46 @@ These views interact with other helper modules to perform operations such as sen
 messages, applying permission changes, and updating channel settings.
 """
 
-import discord
-from discord.ui import View, Select, Button, UserSelect
-from discord import SelectOption, Interaction
+import contextlib
 
-from helpers.discord_api import send_message, edit_channel
-from helpers.embeds import create_token_embed, create_cooldown_embed
-from helpers.token_manager import generate_token, token_store
-from helpers.rate_limiter import check_rate_limit, log_attempt
+import discord
+from discord import Interaction, SelectOption
+from discord.ui import Button, Select, UserSelect, View
+
+from config.config_loader import ConfigLoader
 from helpers.database import Database
+from helpers.discord_api import edit_channel, send_message
+from helpers.embeds import create_cooldown_embed, create_token_embed
+from helpers.logger import get_logger
 from helpers.modals import (
     HandleModal,
-    NameModal,
     LimitModal,
+    NameModal,
     ResetSettingsConfirmationModal,
-)
-from helpers.logger import get_logger
-from helpers.voice_utils import (
-    get_user_channel,
-    get_user_game_name,
-    update_channel_settings,
-    fetch_channel_settings,
-    format_channel_settings,
-    set_voice_feature_setting,
-    apply_voice_feature_toggle,
-    create_voice_settings_embed,
 )
 from helpers.permissions_helper import (
     apply_permissions_changes,
     store_permit_reject_in_db,
 )
-from config.config_loader import ConfigLoader
+from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.token_manager import generate_token, token_store
+from helpers.voice_utils import (
+    apply_voice_feature_toggle,
+    create_voice_settings_embed,
+    fetch_channel_settings,
+    format_channel_settings,
+    get_user_channel,
+    get_user_game_name,
+    set_voice_feature_setting,
+    update_channel_settings,
+)
 
 logger = get_logger(__name__)
 
 
-async def _get_guild_and_jtc_for_user_channel(user: discord.abc.User, channel: discord.abc.GuildChannel):
+async def _get_guild_and_jtc_for_user_channel(
+    user: discord.abc.User, channel: discord.abc.GuildChannel
+) -> None:
     """
     Helper: return (guild_id, jtc_channel_id) for a user's owned voice channel mapping.
     Returns (guild_id, jtc_channel_id) where jtc_channel_id may be None if not stored.
@@ -70,11 +74,11 @@ class FilteredRoleSelect(Select):
     def __init__(
         self,
         *,
-        allowed_roles: list = None,
+        allowed_roles: list | None = None,
         placeholder: str = "Select role(s)",
         min_values: int = 1,
         max_values: int = 25,
-        custom_id: str = None,
+        custom_id: str | None = None,
         **kwargs,
     ):
         base = "filtered_role_select_"
@@ -135,7 +139,7 @@ class VerificationView(View):
       - Verify: Opens a modal to collect the user's RSI handle.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         super().__init__(timeout=None)
         self.bot = bot
 
@@ -163,7 +167,7 @@ class VerificationView(View):
         self.recheck_button.callback = self.recheck_button_callback
         self.add_item(self.recheck_button)
 
-    async def get_token_button_callback(self, interaction: Interaction):
+    async def get_token_button_callback(self, interaction: Interaction) -> None:
         """
         Callback for the 'Get Token' button.
 
@@ -195,7 +199,7 @@ class VerificationView(View):
                 extra={"user_id": member.id},
             )
 
-    async def verify_button_callback(self, interaction: Interaction):
+    async def verify_button_callback(self, interaction: Interaction) -> None:
         """
         Callback for the 'Verify' button.
 
@@ -214,7 +218,7 @@ class VerificationView(View):
         modal = HandleModal(self.bot)
         await interaction.response.send_modal(modal)
 
-    async def recheck_button_callback(self, interaction: Interaction):
+    async def recheck_button_callback(self, interaction: Interaction) -> None:
         verification_cog = self.bot.get_cog("VerificationCog")
         if verification_cog:
             await verification_cog.recheck_button(interaction)
@@ -240,7 +244,7 @@ class ChannelSettingsView(View):
       - Channel Permissions: Options include Lock, Unlock, Permit, Reject, PTT, Kick, Priority Speaker, and Soundboard.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         # This view is persistent across restarts (timeout=None) and must have stable custom_ids
         super().__init__(timeout=None)
         self.bot = bot
@@ -370,7 +374,7 @@ class ChannelSettingsView(View):
             return False
         return True
 
-    async def channel_settings_callback(self, interaction: Interaction):
+    async def channel_settings_callback(self, interaction: Interaction) -> None:
         """
         Handle selections from the channel settings dropdown.
 
@@ -381,7 +385,7 @@ class ChannelSettingsView(View):
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
-            
+
         # Get the JTC channel ID from the database
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -420,7 +424,10 @@ class ChannelSettingsView(View):
 
                 await edit_channel(channel, name=game_name[:32])
                 await update_channel_settings(
-                    interaction.user.id, guild_id, jtc_channel_id, channel_name=game_name
+                    interaction.user.id,
+                    guild_id,
+                    jtc_channel_id,
+                    channel_name=game_name,
                 )
                 e = discord.Embed(
                     description=f"Channel name set to your current game: **{game_name}**.",
@@ -434,8 +441,15 @@ class ChannelSettingsView(View):
                 channel = await get_user_channel(self.bot, interaction.user, guild_id)
                 jtc_channel_id = None
                 if channel:
-                    _, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
-                settings = await fetch_channel_settings(self.bot, interaction, guild_id=guild_id, jtc_channel_id=jtc_channel_id)
+                    _, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+                        interaction.user, channel
+                    )
+                settings = await fetch_channel_settings(
+                    self.bot,
+                    interaction,
+                    guild_id=guild_id,
+                    jtc_channel_id=jtc_channel_id,
+                )
                 if not settings:
                     return
                 formatted = format_channel_settings(settings, interaction)
@@ -461,7 +475,7 @@ class ChannelSettingsView(View):
             logger.exception(f"Error in channel_settings_callback: {e}")
             await send_message(interaction, "An error occurred.", ephemeral=True)
 
-    async def channel_permissions_callback(self, interaction: Interaction):
+    async def channel_permissions_callback(self, interaction: Interaction) -> None:
         """
         Handle selections from the channel permissions dropdown.
 
@@ -471,8 +485,9 @@ class ChannelSettingsView(View):
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
             return
+        
+        selected = None
         try:
-            selected = None
             if isinstance(interaction.data, dict):
                 values = interaction.data.get("values") or []
                 if values:
@@ -504,8 +519,12 @@ class ChannelSettingsView(View):
             }
             await apply_permissions_changes(channel, permission_change)
             # Store lock state scoped to this guild/JTC if possible
-            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
-            await update_channel_settings(interaction.user.id, guild_id, jtc_channel_id, lock=1 if lock else 0)
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+                interaction.user, channel
+            )
+            await update_channel_settings(
+                interaction.user.id, guild_id, jtc_channel_id, lock=1 if lock else 0
+            )
             status = "locked" if lock else "unlocked"
             await send_message(
                 interaction, f"Your voice channel has been {status}.", ephemeral=True
@@ -541,10 +560,8 @@ class ChannelSettingsView(View):
         else:
             await send_message(interaction, "Unknown option.", ephemeral=True)
 
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=self)
-        except discord.errors.NotFound:
-            pass
 
             # ----------------------------
             # Kick User Selection View
@@ -557,7 +574,7 @@ class KickUserSelectView(View):
     with an optional button to also reject them from rejoining.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -584,7 +601,7 @@ class KickUserSelectView(View):
             return False
         return True
 
-    async def user_select_callback(self, interaction: Interaction):
+    async def user_select_callback(self, interaction: Interaction) -> None:
         """
         Callback for user selection. Verifies the selected user is in the channel
         and then kicks them.
@@ -617,7 +634,7 @@ class KickUserSelectView(View):
         except Exception as e:
             await send_message(interaction, f"Failed to kick user: {e}", ephemeral=True)
 
-    async def reject_button_callback(self, interaction: Interaction):
+    async def reject_button_callback(self, interaction: Interaction) -> None:
         """
         Callback for rejecting a user after kicking them.
         Updates the channel's permission overwrites to prevent the user from rejoining.
@@ -673,7 +690,7 @@ class FeatureToggleView(View):
     The 'no_everyone' flag can be set to exclude the 'Everyone' option.
     """
 
-    def __init__(self, bot, feature_name: str, no_everyone: bool = False):
+    def __init__(self, bot, feature_name: str, no_everyone: bool = False) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -692,7 +709,7 @@ class FeatureToggleView(View):
         self.toggle_select.callback = self.toggle_select_callback
         self.add_item(self.toggle_select)
 
-    async def toggle_select_callback(self, interaction: Interaction):
+    async def toggle_select_callback(self, interaction: Interaction) -> None:
         """
         Callback for the toggle select.
         Determines if the feature should be enabled or disabled and shows the target selection view.
@@ -712,7 +729,7 @@ class FeatureTargetView(View):
     A view that lets the user choose a target type (User, Role, or Everyone) for the feature toggle.
     """
 
-    def __init__(self, bot, feature_name: str, enable: bool, no_everyone: bool):
+    def __init__(self, bot, feature_name: str, enable: bool, no_everyone: bool) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -746,7 +763,7 @@ class FeatureTargetView(View):
             return False
         return True
 
-    async def target_select_callback(self, interaction: Interaction):
+    async def target_select_callback(self, interaction: Interaction) -> None:
         """
         Callback for target selection.
 
@@ -763,7 +780,9 @@ class FeatureTargetView(View):
             target = channel.guild.default_role
             target_type = "everyone"
             target_id = 0
-            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+                interaction.user, channel
+            )
             await set_voice_feature_setting(
                 self.feature_name,
                 interaction.user.id,
@@ -803,10 +822,8 @@ class FeatureTargetView(View):
                 ephemeral=True,
                 view=view,
             )
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=None)
-        except discord.errors.NotFound:
-            pass
 
 
 class FeatureUserSelectView(View):
@@ -814,7 +831,7 @@ class FeatureUserSelectView(View):
     A view for selecting one or more users for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
 
-    def __init__(self, bot, feature_name: str, enable: bool):
+    def __init__(self, bot, feature_name: str, enable: bool) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -837,7 +854,7 @@ class FeatureUserSelectView(View):
             return False
         return True
 
-    async def user_select_callback(self, interaction: Interaction):
+    async def user_select_callback(self, interaction: Interaction) -> None:
         """
         Callback for when users are selected.
         Stores the feature setting for each selected user and applies it to the channel.
@@ -848,7 +865,9 @@ class FeatureUserSelectView(View):
             return
 
         # Resolve guild/jtc context once for the user's channel
-        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+            interaction.user, channel
+        )
         for user in self.user_select.values:
             await set_voice_feature_setting(
                 self.feature_name,
@@ -865,10 +884,8 @@ class FeatureUserSelectView(View):
 
         msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected user(s)."
         await send_message(interaction, msg, ephemeral=True)
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=None)
-        except discord.errors.NotFound:
-            pass
 
 
 class FeatureRoleSelectView(View):
@@ -876,7 +893,7 @@ class FeatureRoleSelectView(View):
     A view for selecting one or more roles for a feature toggle (PTT, Priority Speaker, or Soundboard).
     """
 
-    def __init__(self, bot, feature_name: str, enable: bool):
+    def __init__(self, bot, feature_name: str, enable: bool) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -911,7 +928,9 @@ class FeatureRoleSelectView(View):
         try:
             # Get guild context early to pass to get_user_channel
             guild_id = interaction.guild.id if interaction.guild else None
-            channel = await get_user_channel(self.bot, interaction.user, guild_id=guild_id)
+            channel = await get_user_channel(
+                self.bot, interaction.user, guild_id=guild_id
+            )
             if not channel:
                 await send_message(
                     interaction, "You don't own a channel.", ephemeral=True
@@ -919,7 +938,9 @@ class FeatureRoleSelectView(View):
                 return
             targets = []
             # resolve guild/jtc context once
-            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+            guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+                interaction.user, channel
+            )
             for role_id_str in self.role_select.values:
                 try:
                     role_id = int(role_id_str)
@@ -954,10 +975,8 @@ class FeatureRoleSelectView(View):
             await send_message(interaction, msg, ephemeral=True)
 
             # Remove the selection UI after it's done
-            try:
+            with contextlib.suppress(discord.errors.NotFound):
                 await interaction.message.edit(view=None)
-            except discord.errors.NotFound:
-                pass
         except Exception as e:
             logger.exception(
                 f"Error in FeatureRoleSelectView callback: {e}",
@@ -976,7 +995,7 @@ class TargetTypeSelectView(View):
     Only offers 'User' and 'Role' options.
     """
 
-    def __init__(self, bot, action: str):
+    def __init__(self, bot, action: str) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -1007,7 +1026,7 @@ class TargetTypeSelectView(View):
             return False
         return True
 
-    async def select_callback(self, interaction: Interaction):
+    async def select_callback(self, interaction: Interaction) -> None:
         """
         Callback for target type selection.
         Depending on the selection, shows either a user or role selection view.
@@ -1029,10 +1048,8 @@ class TargetTypeSelectView(View):
                 ephemeral=True,
                 view=view,
             )
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=None)
-        except discord.errors.NotFound:
-            pass
 
 
 class SelectUserView(View):
@@ -1040,7 +1057,7 @@ class SelectUserView(View):
     View for selecting multiple users to apply permit/reject actions.
     """
 
-    def __init__(self, bot, action: str):
+    def __init__(self, bot, action: str) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -1061,7 +1078,7 @@ class SelectUserView(View):
             return False
         return True
 
-    async def user_select_callback(self, interaction: Interaction):
+    async def user_select_callback(self, interaction: Interaction) -> None:
         """
         Callback for when users are selected.
         Stores the permit/reject settings in the database and applies the changes to the channel.
@@ -1073,11 +1090,18 @@ class SelectUserView(View):
 
         targets = []
         # Resolve guild/jtc context for this user's channel
-        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+            interaction.user, channel
+        )
         for user in self.user_select.values:
             targets.append({"type": "user", "id": user.id})
             await store_permit_reject_in_db(
-                interaction.user.id, user.id, "user", self.action, guild_id=guild_id, jtc_channel_id=jtc_channel_id
+                interaction.user.id,
+                user.id,
+                "user",
+                self.action,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
             )
         permission_change = {"action": self.action, "targets": targets}
         await apply_permissions_changes(channel, permission_change)
@@ -1086,10 +1110,8 @@ class SelectUserView(View):
             f"Selected user(s) have been {self.action}ed.",
             ephemeral=True,
         )
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=None)
-        except discord.errors.NotFound:
-            pass
 
 
 class SelectRoleView(View):
@@ -1097,7 +1119,7 @@ class SelectRoleView(View):
     View for selecting multiple roles to apply permit/reject actions.
     """
 
-    def __init__(self, bot, action: str):
+    def __init__(self, bot, action: str) -> None:
         # Temporary helper view -> finite timeout
         super().__init__(timeout=180)
         self.bot = bot
@@ -1120,7 +1142,7 @@ class SelectRoleView(View):
         self.role_select.refresh_options(interaction.guild)
         return True
 
-    async def role_select_callback(self, interaction: Interaction):
+    async def role_select_callback(self, interaction: Interaction) -> None:
         channel = await get_user_channel(self.bot, interaction.user)
         if not channel:
             await send_message(interaction, "You don't own a channel.", ephemeral=True)
@@ -1128,7 +1150,9 @@ class SelectRoleView(View):
 
         targets = []
         # Resolve guild/jtc context for this user's channel
-        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(interaction.user, channel)
+        guild_id, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
+            interaction.user, channel
+        )
         for role_id_str in self.role_select.values:
             try:
                 role_id = int(role_id_str)
@@ -1139,7 +1163,12 @@ class SelectRoleView(View):
                 return
             targets.append({"type": "role", "id": role_id})
             await store_permit_reject_in_db(
-                interaction.user.id, role_id, "role", self.action, guild_id=guild_id, jtc_channel_id=jtc_channel_id
+                interaction.user.id,
+                role_id,
+                "role",
+                self.action,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
             )
 
         permission_change = {"action": self.action, "targets": targets}
@@ -1149,7 +1178,5 @@ class SelectRoleView(View):
             f"Selected role(s) have been {self.action}ed.",
             ephemeral=True,
         )
-        try:
+        with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=None)
-        except discord.errors.NotFound:
-            pass

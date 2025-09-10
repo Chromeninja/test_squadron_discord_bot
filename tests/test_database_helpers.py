@@ -4,7 +4,7 @@ from helpers.database import Database
 
 
 @pytest.mark.asyncio
-async def test_database_initialize_and_tables(temp_db):
+async def test_database_initialize_and_tables(temp_db) -> None:
     # Database.initialize called by fixture; ensure tables exist and basic ops work
     async with Database.get_connection() as db:
         # Insert into verification

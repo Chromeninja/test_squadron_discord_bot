@@ -1,3 +1,5 @@
+# helpers/schema.py
+
 """
 Schema definitions for the Discord bot's database.
 
@@ -5,15 +7,16 @@ This module centralizes all table creation logic to ensure consistency and avoid
 """
 
 import aiosqlite
+
 from helpers.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-async def init_schema(db: aiosqlite.Connection):
+async def init_schema(db: aiosqlite.Connection) -> None:
     """
     Initialize the database schema with all required tables.
-    
+
     Args:
         db: An open database connection
     """
@@ -29,7 +32,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # Verification table (keep shape expected by existing code/tests)
     await db.execute(
         """
@@ -45,7 +48,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # Guild settings
     await db.execute(
         """
@@ -57,7 +60,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # User voice channels
     await db.execute(
         """
@@ -78,7 +81,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_uvc_owner_scope ON user_voice_channels(owner_id, guild_id, jtc_channel_id)"
     )
-    
+
     # Voice cooldowns
     await db.execute(
         """
@@ -91,7 +94,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # Channel settings
     await db.execute(
         """
@@ -109,7 +112,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_cs_scope_user ON channel_settings(guild_id, jtc_channel_id, user_id)"
     )
-    
+
     # Channel permissions
     await db.execute(
         """
@@ -127,7 +130,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_cp_scope_user_target ON channel_permissions(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
-    
+
     # Channel PTT settings
     await db.execute(
         """
@@ -145,7 +148,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ptt_scope_user_target ON channel_ptt_settings(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
-    
+
     # Channel priority speaker settings
     await db.execute(
         """
@@ -163,7 +166,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_priority_scope_user_target ON channel_priority_speaker_settings(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
-    
+
     # Channel soundboard settings
     await db.execute(
         """
@@ -181,7 +184,7 @@ async def init_schema(db: aiosqlite.Connection):
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_soundboard_scope_user_target ON channel_soundboard_settings(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
-    
+
     # Settings table (global)
     await db.execute(
         """
@@ -191,7 +194,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # Missing role warnings table
     await db.execute(
         """
@@ -214,7 +217,7 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     # Auto-recheck state
     await db.execute(
         """
@@ -227,5 +230,5 @@ async def init_schema(db: aiosqlite.Connection):
         )
         """
     )
-    
+
     logger.info("Schema initialization complete")

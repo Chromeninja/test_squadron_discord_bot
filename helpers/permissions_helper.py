@@ -1,3 +1,5 @@
+# helpers/permissions_helper.py
+
 """Permission utilities for voice-channel management and role validation.
 
 Single canonical implementation providing (previous duplicates removed):
@@ -14,7 +16,7 @@ Behavior and signatures preserved for existing call sites.
 """
 
 import logging
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
 
 import discord
 
@@ -45,10 +47,17 @@ FEATURE_CONFIG = {
 }
 
 
-async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: str, action: str, guild_id=None, jtc_channel_id=None):
+async def store_permit_reject_in_db(
+    user_id: int,
+    target_id: int,
+    target_type: str,
+    action: str,
+    guild_id=None,
+    jtc_channel_id=None,
+) -> None:
     """
     Store permit/reject settings in the database
-    
+
     Args:
         user_id: The user ID who owns the channel
         target_id: The target user or role ID to apply permissions to
@@ -61,7 +70,7 @@ async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: s
         async with Database.get_connection() as db:
             await db.execute(
                 """
-                INSERT OR REPLACE INTO channel_permissions 
+                INSERT OR REPLACE INTO channel_permissions
                 (guild_id, jtc_channel_id, user_id, target_id, target_type, permission)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -81,10 +90,10 @@ async def store_permit_reject_in_db(user_id: int, target_id: int, target_type: s
             await db.commit()
 
 
-async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_id=None):
+async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_id=None) -> None:
     """
     Fetch all permit/reject entries for a user
-    
+
     Args:
         user_id: The user ID to fetch entries for
         guild_id: Optional guild ID to filter by
@@ -94,8 +103,8 @@ async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_i
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """
-                SELECT target_id, target_type, permission 
-                FROM channel_permissions 
+                SELECT target_id, target_type, permission
+                FROM channel_permissions
                 WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 """,
                 (user_id, guild_id, jtc_channel_id),
@@ -111,13 +120,13 @@ async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_i
             return await cursor.fetchall()
 
 
-async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict):
+async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict) -> None:
     action = perm_settings.get("action")
     targets = perm_settings.get("targets", [])
 
     overwrites = channel.overwrites.copy()
 
-    def _set_connect(target_obj, allow: bool):
+    def _set_connect(target_obj, allow: bool) -> None:
         ow = overwrites.get(target_obj, discord.PermissionOverwrite())
         ow.connect = allow
         overwrites[target_obj] = ow
@@ -178,24 +187,34 @@ async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings
         await edit_channel(channel, overwrites=overwrites)
         logger.info("Applied permission '%s' to channel '%s'.", action, channel.name)
     except Exception as exc:
-        logger.exception("Failed to apply permission change to %s: %s", channel.name, exc)
+        logger.exception(
+            "Failed to apply permission change to %s: %s", channel.name, exc
+        )
         raise
 
 
-async def reset_channel_permissions(channel: discord.VoiceChannel):
+async def reset_channel_permissions(channel: discord.VoiceChannel) -> None:
     guild = channel.guild
     overwrites = {
-        guild.default_role: discord.PermissionOverwrite(connect=True, use_voice_activation=True),
+        guild.default_role: discord.PermissionOverwrite(
+            connect=True, use_voice_activation=True
+        ),
         guild.me: discord.PermissionOverwrite(manage_channels=True, connect=True),
     }
     await edit_channel(channel, overwrites=overwrites)
     logger.info("Reset permissions for channel '%s'.", channel.name)
 
 
-async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int, previous_owner_id: int, guild_id=None, jtc_channel_id=None):
+async def update_channel_owner(
+    channel: discord.VoiceChannel,
+    new_owner_id: int,
+    previous_owner_id: int,
+    guild_id=None,
+    jtc_channel_id=None,
+) -> None:
     """
     Update the owner of a voice channel in the database and permissions
-    
+
     Args:
         channel: The voice channel to update
         new_owner_id: The ID of the new owner
@@ -224,8 +243,8 @@ async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int,
             # Update with guild and JTC channel context
             await db.execute(
                 """
-                UPDATE user_voice_channels 
-                SET owner_id = ? 
+                UPDATE user_voice_channels
+                SET owner_id = ?
                 WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 """,
                 (new_owner_id, channel.id, guild_id, jtc_channel_id),
@@ -239,12 +258,16 @@ async def update_channel_owner(channel: discord.VoiceChannel, new_owner_id: int,
         await db.commit()
 
 
-async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChannel):
+async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChannel) -> None:
     entries = await fetch_permit_reject_entries(user_id)
     for target_id, target_type, permission in entries:
         try:
             await apply_permissions_changes(
-                channel, {"action": permission, "targets": [{"type": target_type, "id": target_id}]}
+                channel,
+                {
+                    "action": permission,
+                    "targets": [{"type": target_type, "id": target_id}],
+                },
             )
             logger.info(
                 "Applied %s for %s (%s) on %s.",
@@ -262,9 +285,11 @@ async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChann
             )
 
 
-def resolve_role_ids_for_guild(guild: discord.Guild, role_ids: Iterable[int]) -> Tuple[List[discord.Role], List[int]]:
-    resolved: List[discord.Role] = []
-    missing: List[int] = []
+def resolve_role_ids_for_guild(
+    guild: discord.Guild, role_ids: Iterable[int]
+) -> tuple[list[discord.Role], list[int]]:
+    resolved: list[discord.Role] = []
+    missing: list[int] = []
     for rid in role_ids:
         try:
             role = guild.get_role(int(rid)) if rid is not None else None
@@ -277,7 +302,7 @@ def resolve_role_ids_for_guild(guild: discord.Guild, role_ids: Iterable[int]) ->
     return resolved, missing
 
 
-def app_command_check_configured_roles(role_ids: Iterable[int]):
+def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
     from discord import app_commands
 
     def predicate(interaction: discord.Interaction) -> bool:
@@ -286,7 +311,9 @@ def app_command_check_configured_roles(role_ids: Iterable[int]):
             raise app_commands.CheckFailure("This command can only be used in a guild.")
         resolved, _ = resolve_role_ids_for_guild(guild, role_ids)
         if not resolved:
-            raise app_commands.CheckFailure("Server missing configured admin/moderator roles.")
+            raise app_commands.CheckFailure(
+                "Server missing configured admin/moderator roles."
+            )
         return True
 
     return app_commands.check(predicate)
@@ -294,13 +321,12 @@ def app_command_check_configured_roles(role_ids: Iterable[int]):
 
 __all__ = [
     "FEATURE_CONFIG",
-    "store_permit_reject_in_db",
-    "fetch_permit_reject_entries",
-    "apply_permissions_changes",
-    "reset_channel_permissions",
-    "update_channel_owner",
-    "apply_permit_reject_settings",
-    "resolve_role_ids_for_guild",
     "app_command_check_configured_roles",
+    "apply_permissions_changes",
+    "apply_permit_reject_settings",
+    "fetch_permit_reject_entries",
+    "reset_channel_permissions",
+    "resolve_role_ids_for_guild",
+    "store_permit_reject_in_db",
+    "update_channel_owner",
 ]
-

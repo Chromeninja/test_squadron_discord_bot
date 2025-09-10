@@ -1,12 +1,16 @@
+# helpers/username_404.py
+
+import contextlib
 import time
+
 import discord
+
 from helpers.database import Database
-from helpers.logger import get_logger
-from helpers.task_queue import enqueue_task
 from helpers.discord_api import channel_send_message
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
-from helpers.task_queue import flush_tasks
+from helpers.logger import get_logger
+from helpers.snapshots import diff_snapshots, snapshot_member_state
+from helpers.task_queue import enqueue_task, flush_tasks
 
 logger = get_logger(__name__)
 
@@ -18,19 +22,21 @@ MANAGED_ROLE_KEYS = [
 ]
 
 
-def _gather_managed_roles(bot, member: discord.Member):
+def _gather_managed_roles(bot, member: discord.Member) -> None:
     roles = []
     for key in MANAGED_ROLE_KEYS:
         rid = getattr(bot, key, None)
         if not rid:
             continue
-        role = bot.role_cache.get(rid) or (member.guild.get_role(rid) if member.guild else None)
+        role = bot.role_cache.get(rid) or (
+            member.guild.get_role(rid) if member.guild else None
+        )
         if role:
             roles.append(role)
     return roles
 
 
-async def remove_bot_roles(member: discord.Member, bot):
+async def remove_bot_roles(member: discord.Member, bot) -> None:
     """Remove managed roles from member if present (idempotent)."""
     managed_roles = _gather_managed_roles(bot, member)
     roles_to_remove = [r for r in managed_roles if r in member.roles]
@@ -47,9 +53,11 @@ async def remove_bot_roles(member: discord.Member, bot):
             extra={"user_id": member.id},
         )
 
-    async def task():
+    async def task() -> None:
         try:
-            await member.remove_roles(*roles_to_remove, reason="RSI Handle 404 reverify required")
+            await member.remove_roles(
+                *roles_to_remove, reason="RSI Handle 404 reverify required"
+            )
             logger.info(
                 "Removed managed roles after RSI Handle 404.",
                 extra={
@@ -64,7 +72,7 @@ async def remove_bot_roles(member: discord.Member, bot):
     return True
 
 
-async def handle_username_404(bot, member: discord.Member, old_handle: str):
+async def handle_username_404(bot, member: discord.Member, old_handle: str) -> None:
     """Unified, idempotent handler when an RSI Handle starts returning 404.
 
     Terms:
@@ -84,7 +92,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
     try:
         newly_flagged = await Database.flag_needs_reverify(member.id, now)
     except Exception as e:
-        logger.error(
+        logger.exception(
             "Failed to flag needs_reverify",
             extra={"user_id": member.id, "rsi_handle": old_handle, "error": str(e)},
         )
@@ -132,18 +140,16 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
 
     # Leadership snapshot AFTER and post log (always, error path)
     try:
-        try:
+        with contextlib.suppress(Exception):
             await flush_tasks()
-        except Exception:
-            pass
         after_snap = await snapshot_member_state(bot, member)
         diff = diff_snapshots(before_snap, after_snap)
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.RECHECK,
-            initiator_kind='Auto',
+            initiator_kind="Auto",
             initiator_name=None,
-            notes='RSI 404',
+            notes="RSI 404",
         )
         for k, v in diff.items():
             setattr(cs, k, v)
@@ -172,10 +178,11 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str):
     )
     return True
 
+
 handle_rsi_handle_404 = handle_username_404
 
 __all__ = [
-    "handle_username_404",
     "handle_rsi_handle_404",
+    "handle_username_404",
     "remove_bot_roles",
 ]

@@ -1,11 +1,19 @@
 # Helpers/database.py
 
-import aiosqlite
+"""
+Database Helper Module
+
+Provides a centralized database interface for the Discord bot using aiosqlite.
+Handles connection pooling, initialization, and migrations.
+"""
+
 import asyncio
 import time
-from typing import Optional
-from helpers.logger import get_logger
 from contextlib import asynccontextmanager
+
+import aiosqlite
+
+from helpers.logger import get_logger
 from helpers.schema import init_schema
 
 logger = get_logger(__name__)
@@ -30,7 +38,7 @@ class Database:
             return int(row[0]) if row and row[0] is not None else 0
 
     @classmethod
-    async def initialize(cls, db_path: Optional[str] = None):
+    async def initialize(cls, db_path: str | None = None) -> None:
         async with cls._lock:
             if cls._initialized:
                 return
@@ -53,7 +61,7 @@ class Database:
             logger.info("Database initialized.")
 
     @classmethod
-    async def _create_tables(cls, db: aiosqlite.Connection):
+    async def _create_tables(cls, db: aiosqlite.Connection) -> None:
         """Compatibility/migration helper used by tests.
 
         Ensures rate_limits exists and migrates legacy verification.last_recheck into rate_limits
@@ -102,7 +110,9 @@ class Database:
                     select_cols.append(name)
 
                 await db.execute("PRAGMA foreign_keys=OFF")
-                await db.execute(f"CREATE TABLE IF NOT EXISTS _verification_new ({', '.join(new_cols)})")
+                await db.execute(
+                    f"CREATE TABLE IF NOT EXISTS _verification_new ({', '.join(new_cols)})"
+                )
                 await db.execute(
                     f"INSERT INTO _verification_new({', '.join(select_cols)}) SELECT {', '.join(select_cols)} FROM verification"
                 )
@@ -118,7 +128,7 @@ class Database:
     async def get_connection(cls):
         """
         Get a connection to the database with optimized settings.
-        
+
         Usage:
             async with Database.get_connection() as db:
                 await db.execute("SELECT * FROM table")
@@ -135,7 +145,7 @@ class Database:
             yield db
 
     @classmethod
-    async def fetch_rate_limit(cls, user_id: int, action: str):
+    async def fetch_rate_limit(cls, user_id: int, action: str) -> None:
         async with cls.get_connection() as db:
             cursor = await db.execute(
                 "SELECT attempt_count, first_attempt FROM rate_limits WHERE user_id = ? AND action = ?",
@@ -153,7 +163,7 @@ class Database:
             return (await cursor.fetchone()) is not None
 
     @classmethod
-    async def mark_reported_missing_roles(cls, guild_id: int):
+    async def mark_reported_missing_roles(cls, guild_id: int) -> None:
         """Record that we've warned about missing configured roles for this guild."""
         now = int(time.time())
         async with cls.get_connection() as db:
@@ -164,7 +174,7 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def increment_rate_limit(cls, user_id: int, action: str):
+    async def increment_rate_limit(cls, user_id: int, action: str) -> None:
         now = int(time.time())
         async with cls.get_connection() as db:
             await db.execute(
@@ -179,8 +189,8 @@ class Database:
 
     @classmethod
     async def reset_rate_limit(
-        cls, user_id: Optional[int] = None, action: Optional[str] = None
-    ):
+        cls, user_id: int | None = None, action: str | None = None
+    ) -> None:
         async with cls.get_connection() as db:
             if user_id is None:
                 await db.execute("DELETE FROM rate_limits")
@@ -198,7 +208,7 @@ class Database:
     @classmethod
     async def upsert_auto_recheck_success(
         cls, user_id: int, next_retry_at: int, now: int, new_fail_count: int = 0
-    ):
+    ) -> None:
         async with cls.get_connection() as db:
             await db.execute(
                 """
@@ -222,7 +232,7 @@ class Database:
         now: int,
         error_msg: str,
         inc: bool = True,
-    ):
+    ) -> None:
         async with cls.get_connection() as db:
             if inc:
                 await db.execute(
@@ -252,7 +262,7 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def get_due_auto_rechecks(cls, now: int, limit: int):
+    async def get_due_auto_rechecks(cls, now: int, limit: int) -> None:
         """
         Returns list of (user_id, rsi_handle, membership_status) that are due for auto recheck.
         If a user has no row in auto_recheck_state, treat as due (bootstrap on first touch).
@@ -285,7 +295,7 @@ class Database:
             return cur.rowcount > 0
 
     @classmethod
-    async def clear_needs_reverify(cls, user_id: int):
+    async def clear_needs_reverify(cls, user_id: int) -> None:
         async with cls.get_connection() as db:
             await db.execute(
                 "UPDATE verification SET needs_reverify=0, needs_reverify_at=NULL WHERE user_id=?",
@@ -294,7 +304,7 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def unschedule_auto_recheck(cls, user_id: int):
+    async def unschedule_auto_recheck(cls, user_id: int) -> None:
         """Remove any auto-recheck state for a user (stop further auto checks)."""
         async with cls.get_connection() as db:
             await db.execute(

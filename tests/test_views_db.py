@@ -1,12 +1,12 @@
 import pytest
 
-from helpers.voice_utils import set_voice_feature_setting
-from helpers.permissions_helper import store_permit_reject_in_db
 from helpers.database import Database
+from helpers.permissions_helper import store_permit_reject_in_db
+from helpers.voice_utils import set_voice_feature_setting
 
 
 @pytest.mark.asyncio
-async def test_set_feature_and_permissions_scoped(temp_db):
+async def test_set_feature_and_permissions_scoped(temp_db) -> None:
     # Use the temp_db fixture to ensure Database is initialized to a temp file
     guild_id = 111222333
     jtc_id = 444555666
@@ -24,11 +24,16 @@ async def test_set_feature_and_permissions_scoped(temp_db):
     )
 
     # Store a permit entry for a user scoped to guild/jtc
-    await store_permit_reject_in_db(owner_id, 2000, "user", "permit", guild_id=guild_id, jtc_channel_id=jtc_id)
+    await store_permit_reject_in_db(
+        owner_id, 2000, "user", "permit", guild_id=guild_id, jtc_channel_id=jtc_id
+    )
 
     # Query underlying tables to ensure rows include guild_id and jtc_channel_id
     async with Database.get_connection() as db:
-        cur = await db.execute("SELECT guild_id, jtc_channel_id, target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?", (owner_id,))
+        cur = await db.execute(
+            "SELECT guild_id, jtc_channel_id, target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
+            (owner_id,),
+        )
         row = await cur.fetchone()
         assert row is not None
         assert row[0] == guild_id
@@ -37,7 +42,10 @@ async def test_set_feature_and_permissions_scoped(temp_db):
         assert row[3] == "everyone"
         assert row[4] == 1 or row[4] is True
 
-        cur2 = await db.execute("SELECT guild_id, jtc_channel_id, target_id, target_type, permission FROM channel_permissions WHERE user_id = ?", (owner_id,))
+        cur2 = await db.execute(
+            "SELECT guild_id, jtc_channel_id, target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+            (owner_id,),
+        )
         prow = await cur2.fetchone()
         assert prow is not None
         assert prow[0] == guild_id

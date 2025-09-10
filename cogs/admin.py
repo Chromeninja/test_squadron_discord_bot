@@ -1,26 +1,27 @@
 # Cogs/admin.py
 
+import contextlib
 import os
 from datetime import datetime
 
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
 from config.config_loader import ConfigLoader
-from helpers.logger import get_logger
-from helpers.rate_limiter import reset_attempts, reset_all_attempts
-from helpers.token_manager import clear_token, clear_all_tokens
-from helpers.discord_api import send_message
 from helpers.database import Database
-from helpers.role_helper import reverify_member
+from helpers.discord_api import send_message
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
-from helpers.task_queue import flush_tasks
+from helpers.logger import get_logger
 from helpers.permissions_helper import (
-    resolve_role_ids_for_guild,
     app_command_check_configured_roles,
+    resolve_role_ids_for_guild,
 )
+from helpers.rate_limiter import reset_all_attempts, reset_attempts
+from helpers.role_helper import reverify_member
+from helpers.snapshots import diff_snapshots, snapshot_member_state
+from helpers.task_queue import flush_tasks
+from helpers.token_manager import clear_all_tokens, clear_token
 
 logger = get_logger(__name__)
 config = ConfigLoader.load_config()
@@ -29,7 +30,7 @@ config = ConfigLoader.load_config()
 class Admin(commands.Cog):
     """Admin commands for managing the bot."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.BOT_ADMIN_ROLE_IDS = getattr(self.bot, "BOT_ADMIN_ROLE_IDS", [])
         if not hasattr(self.bot, "BOT_ADMIN_ROLE_IDS"):
@@ -74,7 +75,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     @app_command_check_configured_roles(config["roles"]["bot_admins"])
     @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
-    async def reset_all(self, interaction: discord.Interaction):
+    async def reset_all(self, interaction: discord.Interaction) -> None:
         """
         Reset verification timers for all members. Bot Admins only.
         """
@@ -102,7 +103,7 @@ class Admin(commands.Cog):
     )
     async def reset_user(
         self, interaction: discord.Interaction, member: discord.Member
-    ):
+    ) -> None:
         """
         Reset a specific user's verification timer. Bot Admins and Lead Moderators.
         """
@@ -129,7 +130,7 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(
         *config["roles"]["bot_admins"], *config["roles"]["lead_moderators"]
     )
-    async def status(self, interaction: discord.Interaction):
+    async def status(self, interaction: discord.Interaction) -> None:
         """
         Check bot status. Bot Admins and Lead Moderators.
         """
@@ -149,7 +150,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     @app_command_check_configured_roles(config["roles"]["bot_admins"])
     @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
-    async def view_logs(self, interaction: discord.Interaction):
+    async def view_logs(self, interaction: discord.Interaction) -> None:
         """
         View bot logs. Bot Admins only.
         """
@@ -167,7 +168,7 @@ class Admin(commands.Cog):
                 return
 
             with open(
-                log_file_path, "r", encoding="utf-8", errors="ignore"
+                log_file_path, encoding="utf-8", errors="ignore"
             ) as log_file:
                 logs = log_file.read()
 
@@ -213,7 +214,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     async def recheck_user(
         self, interaction: discord.Interaction, member: discord.Member
-    ):
+    ) -> None:
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         # Fetch last known verification row
@@ -225,26 +226,33 @@ class Admin(commands.Cog):
             row = await cursor.fetchone()
 
         if not row:
-            await interaction.followup.send(f"{member.mention} is not verified yet.", ephemeral=True)
+            await interaction.followup.send(
+                f"{member.mention} is not verified yet.", ephemeral=True
+            )
             return
 
         rsi_handle, old_status_record, last_ts = row
         try:
             date_str = (
-                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC") if last_ts else "unknown"
+                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC")
+                if last_ts
+                else "unknown"
             )
         except Exception:
             date_str = "unknown"
 
+        # Take snapshot BEFORE reverify so we can diff DB + nickname/roles changes correctly
+        import time as _t
+
         from helpers.http_helper import NotFoundError
         from helpers.username_404 import handle_username_404
 
-        # Take snapshot BEFORE reverify so we can diff DB + nickname/roles changes correctly
-        import time as _t
         _start = _t.time()
         before_snap = await snapshot_member_state(self.bot, member)
         try:
-            success, status_tuple, error_msg = await reverify_member(member, rsi_handle, self.bot)
+            success, status_tuple, error_msg = await reverify_member(
+                member, rsi_handle, self.bot
+            )
         except NotFoundError:
             # Handle 404 (handle changed)
             try:
@@ -259,7 +267,9 @@ class Admin(commands.Cog):
             return
 
         if not success:
-            await interaction.followup.send(error_msg or "Re-check failed.", ephemeral=True)
+            await interaction.followup.send(
+                error_msg or "Re-check failed.", ephemeral=True
+            )
             return
 
         # Determine old/new status
@@ -271,10 +281,8 @@ class Admin(commands.Cog):
 
         admin_display = interaction.user.display_name or interaction.user.name
         # Leadership snapshot diff (after roles/nick tasks flushed)
-        try:
+        with contextlib.suppress(Exception):
             await flush_tasks()
-        except Exception:
-            pass
         # Attempt to refetch member to ensure updated nickname/roles reflected
         try:
             refreshed = await member.guild.fetch_member(member.id)
@@ -286,22 +294,24 @@ class Admin(commands.Cog):
         diff = diff_snapshots(before_snap, after_snap)
         # Fallback: if no username diff but nickname task queued, use preferred nick
         try:
-            if diff.get('username_before') == diff.get('username_after') and getattr(member, '_nickname_changed_flag', False):
-                pref = getattr(member, '_preferred_verification_nick', None)
-                if pref and pref != diff.get('username_before'):
-                    diff['username_after'] = pref
+            if diff.get("username_before") == diff.get("username_after") and getattr(
+                member, "_nickname_changed_flag", False
+            ):
+                pref = getattr(member, "_preferred_verification_nick", None)
+                if pref and pref != diff.get("username_before"):
+                    diff["username_after"] = pref
         except Exception:
             pass
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.ADMIN_CHECK,
-            initiator_kind='Admin',
+            initiator_kind="Admin",
             initiator_name=admin_display,
             notes=None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)
-    # duration tracking removed
+        # duration tracking removed
         try:
             await post_if_changed(self.bot, cs)
         except Exception:
@@ -327,7 +337,7 @@ class Admin(commands.Cog):
     @status.error
     @recheck_user.error
     @view_logs.error
-    async def admin_command_error(self, interaction: discord.Interaction, error):
+    async def admin_command_error(self, interaction: discord.Interaction, error) -> None:
         if isinstance(error, app_commands.errors.MissingAnyRole):
             logger.warning(
                 f"Permission error for {interaction.command.name} by user {interaction.user.id}."
@@ -358,7 +368,7 @@ class Admin(commands.Cog):
             )
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     logger.info("Setting up Admin cog.")
     await bot.add_cog(Admin(bot))
     logger.info("Admin cog successfully added.")

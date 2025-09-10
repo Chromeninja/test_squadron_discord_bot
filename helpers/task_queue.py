@@ -3,9 +3,11 @@
 import asyncio
 import random
 import time
-from helpers.logger import get_logger
-from aiolimiter import AsyncLimiter
+
 import discord
+from aiolimiter import AsyncLimiter
+
+from helpers.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -15,7 +17,7 @@ task_queue = asyncio.Queue()
 api_limiter = AsyncLimiter(max_rate=45, time_period=1)
 
 
-async def worker():
+async def worker() -> None:
     """
     Worker coroutine that processes tasks from the task_queue.
     """
@@ -29,12 +31,12 @@ async def worker():
             async with api_limiter:
                 await run_task(task)
         except Exception as e:
-            logger.error(f"Error running queued task: {e}")
+            logger.exception(f"Error running queued task: {e}")
         finally:
             task_queue.task_done()
 
 
-async def run_task(task):
+async def run_task(task) -> None:
     """
     Executes the given task.
 
@@ -76,7 +78,7 @@ async def run_task(task):
             return None
 
 
-async def enqueue_task(task):
+async def enqueue_task(task) -> None:
     """
     Enqueues a task to be processed by the worker.
 
@@ -86,7 +88,7 @@ async def enqueue_task(task):
     loop = asyncio.get_event_loop()
     future = loop.create_future()
 
-    async def wrapped_task():
+    async def wrapped_task() -> None:
         result = await task()
         if not future.done():
             future.set_result(result)
@@ -97,7 +99,7 @@ async def enqueue_task(task):
     return future
 
 
-async def start_task_workers(num_workers=2):
+async def start_task_workers(num_workers=2) -> None:
     """
     Starts the specified number of worker tasks.
 
@@ -109,7 +111,7 @@ async def start_task_workers(num_workers=2):
     logger.info(f"Started {num_workers} task queue worker(s).")
 
 
-async def flush_tasks(max_wait: float = 2.0):
+async def flush_tasks(max_wait: float = 2.0) -> None:
     """Best-effort wait until the task_queue is drained or timeout.
 
     Ensures leadership logging can observe role/nickname changes that were
@@ -125,6 +127,5 @@ async def flush_tasks(max_wait: float = 2.0):
                 break
         await asyncio.sleep(0.05)
 
-__all__ = [
-    'enqueue_task', 'start_task_workers', 'flush_tasks', 'task_queue'
-]
+
+__all__ = ["enqueue_task", "flush_tasks", "start_task_workers", "task_queue"]

@@ -1,12 +1,13 @@
-import pytest
 from unittest.mock import AsyncMock
 
-from helpers.views import FeatureUserSelectView, FeatureRoleSelectView, SelectUserView
+import pytest
+
+from helpers.views import FeatureRoleSelectView, FeatureUserSelectView, SelectUserView
 from tests.conftest import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
-async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot):
+async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot) -> None:
     view = FeatureUserSelectView(mock_bot, feature_name="ptt", enable=True)
 
     # Prepare fake selected users
@@ -21,9 +22,14 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot):
     fake_channel.id = 42
     fake_channel.name = "OwnerChannel"
 
-    monkeypatch.setattr("helpers.views.get_user_channel", AsyncMock(return_value=fake_channel))
+    monkeypatch.setattr(
+        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+    )
     # Patch the helper that resolves guild/jtc
-    monkeypatch.setattr("helpers.views._get_guild_and_jtc_for_user_channel", AsyncMock(return_value=(999, 555)))
+    monkeypatch.setattr(
+        "helpers.views._get_guild_and_jtc_for_user_channel",
+        AsyncMock(return_value=(999, 555)),
+    )
 
     fake_set = AsyncMock()
     fake_apply = AsyncMock()
@@ -44,7 +50,7 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot):
 
 
 @pytest.mark.asyncio
-async def test_select_user_store_permit_calls_db_and_apply(monkeypatch, mock_bot):
+async def test_select_user_store_permit_calls_db_and_apply(monkeypatch, mock_bot) -> None:
     view = SelectUserView(mock_bot, action="permit")
 
     # selected target user objects
@@ -55,8 +61,13 @@ async def test_select_user_store_permit_calls_db_and_apply(monkeypatch, mock_bot
     fake_channel.guild = type("G", (), {"id": 111, "name": "Guild"})()
     fake_channel.id = 99
 
-    monkeypatch.setattr("helpers.views.get_user_channel", AsyncMock(return_value=fake_channel))
-    monkeypatch.setattr("helpers.views._get_guild_and_jtc_for_user_channel", AsyncMock(return_value=(111, 222)))
+    monkeypatch.setattr(
+        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+    )
+    monkeypatch.setattr(
+        "helpers.views._get_guild_and_jtc_for_user_channel",
+        AsyncMock(return_value=(111, 222)),
+    )
 
     fake_store = AsyncMock()
     fake_apply = AsyncMock()
@@ -74,7 +85,7 @@ async def test_select_user_store_permit_calls_db_and_apply(monkeypatch, mock_bot
 
 
 @pytest.mark.asyncio
-async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot):
+async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot) -> None:
     view = FeatureRoleSelectView(mock_bot, feature_name="soundboard", enable=True)
 
     # role select stores strings of ids; replace with a fake select object
@@ -82,9 +93,12 @@ async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot):
 
     fake_channel = type("C", (), {})()
     fake_guild = type("G", (), {})()
+
     # guild.get_role should return a role-like object
-    def get_role(rid):
-        return type("R", (), {"id": int(rid), "name": "Role", "mention": f"<@&{rid}>"})()
+    def get_role(rid) -> None:
+        return type(
+            "R", (), {"id": int(rid), "name": "Role", "mention": f"<@&{rid}>"}
+        )()
 
     fake_guild.get_role = get_role
     fake_guild.id = 777
@@ -92,8 +106,13 @@ async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot):
     fake_channel.id = 201
     fake_channel.name = "Ch"
 
-    monkeypatch.setattr("helpers.views.get_user_channel", AsyncMock(return_value=fake_channel))
-    monkeypatch.setattr("helpers.views._get_guild_and_jtc_for_user_channel", AsyncMock(return_value=(777, 888)))
+    monkeypatch.setattr(
+        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+    )
+    monkeypatch.setattr(
+        "helpers.views._get_guild_and_jtc_for_user_channel",
+        AsyncMock(return_value=(777, 888)),
+    )
 
     fake_set = AsyncMock()
     fake_apply = AsyncMock()

@@ -1,6 +1,6 @@
 # TEST Squadron Discord Bot
 
-Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage user verification within our Discord server and provides advanced voice channel management features. Here's a comprehensive guide to understanding, setting up, and contributing to the project.
+Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage user verification within our Discord server and provides advanced voice channel management features. The codebase has been optimized for both human maintainability and AI agent comprehension.
 
 ## 🚀 Features
 
@@ -12,12 +12,29 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 - **Interactive Modals and Views:** Provides an interactive user experience with Discord's UI components.
 - **Persistent Verification Message:** The bot keeps a single verification message in the verification channel — it stores the message ID in `verification_message_id.json` and will reuse that message instead of creating duplicates. It does not currently delete old messages on startup.
 - **Error Handling and Logging:** Gracefully handles permission issues and logs errors for debugging.
+- **🤖 AI-Agent Optimizations:** Structured prompts, schemas, defensive retry patterns, and comprehensive type safety for AI development assistance.
 
-## 📋 Project Structure
+## 🏗️ Architecture Overview
+
+### Core Components
 
 - **`bot.py`**: The main bot script initializing the bot, loading environment variables, configuration, and setting up logging.
-- **`config/`**
+- **`config/`**: Configuration management with type-safe loading
   - **`config.yaml`**: Stores bot configurations such as command prefix, rate limits, and organization name.
+- **`cogs/`**: Discord.py command modules
+  - **`verification.py`**: Handles user verification process
+  - **`voice.py`**: Voice channel management system
+  - **`admin.py`**: Administrative commands
+- **`helpers/`**: Utility modules for common functionality
+  - **`defensive_retry.py`**: 🆕 Robust retry mechanisms with exponential backoff
+  - **`structured_errors.py`**: 🆕 AI-friendly error reporting and analysis
+  - **`schema_validation.py`**: 🆕 JSON schema validation for data consistency
+- **`prompts/`**: 🆕 AI-agent friendly templates and schemas
+  - **`schemas/`**: JSON schemas for data validation
+  - **`messages/`**: User-facing message templates
+  - **`system/`**: Development and debugging templates
+- **`verification/`**: RSI verification logic
+- **`data/`**: Data models and database interfaces
   - **`config_loader.py`**: Handles loading and providing access to configuration data.
 - **`cogs/`**
   - **`verification.py`**: Handles the verification process, including sending the initial verification message, token generation, and role assignment.

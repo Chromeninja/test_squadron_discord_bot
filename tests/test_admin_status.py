@@ -5,16 +5,15 @@ from tests.conftest import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
-async def test_admin_status_returns_expected_string(monkeypatch, mock_bot):
+async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> None:
     # Patch send_message to capture payload
     captured = {}
 
     async def fake_send_message(
         interaction, content, ephemeral=False, embed=None, view=None
-    ):
+    ) -> None:
         captured["content"] = content
         captured["ephemeral"] = ephemeral
-        return None
 
     monkeypatch.setattr("cogs.admin.send_message", fake_send_message)
 

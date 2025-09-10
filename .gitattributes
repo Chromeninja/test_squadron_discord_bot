@@ -1,0 +1,41 @@
+* text=auto eol=lf
+
+# Ensure shell scripts have LF endings in git regardless of platform
+*.sh text eol=lf
+
+# Binary files
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+
+# Python files
+*.py text
+*.pyi text
+*.pyx text
+
+# Config files
+*.ini text
+*.cfg text
+*.conf text
+*.toml text
+*.yaml text
+*.yml text
+*.json text
+
+# Documentation
+*.md text
+*.rst text
+*.txt text
+
+# Version control
+.gitignore text
+.gitattributes text

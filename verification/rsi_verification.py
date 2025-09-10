@@ -3,8 +3,9 @@
 import logging
 import re
 import string
-from typing import Optional, Tuple
+
 from bs4 import BeautifulSoup
+
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient, NotFoundError
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient
-) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+) -> tuple[int | None, str | None, str | None]:
     """
     Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
     Also retrieves the correctly cased handle from the RSI profile.
@@ -27,7 +28,7 @@ async def is_valid_rsi_handle(
         http_client (HTTPClient): The HTTP client instance.
 
     Returns:
-        Tuple[Optional[int], Optional[str], Optional[str]]: A tuple containing:
+        tuple[Optional[int], Optional[str], Optional[str]]: A tuple containing:
             - verify_value (1, 2, 0 or None)
             - the correctly cased handle (or None)
             - community moniker (or None)
@@ -44,7 +45,7 @@ async def is_valid_rsi_handle(
     try:
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
-        logger.error(f"Handle not found (404): {user_handle}")
+        logger.exception(f"Handle not found (404): {user_handle}")
         raise
     if not org_html:  # Empty/None response
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
@@ -103,7 +104,7 @@ async def is_valid_rsi_handle(
     return verify_value, cased_handle, community_moniker
 
 
-def extract_handle(html_content: str) -> Optional[str]:
+def extract_handle(html_content: str) -> str | None:
     """
     Extracts the correctly cased handle from the RSI profile page.
 
@@ -116,13 +117,12 @@ def extract_handle(html_content: str) -> Optional[str]:
     logger.debug("Extracting cased handle from profile HTML.")
     soup = BeautifulSoup(html_content, "lxml")
 
-    if handle_paragraph := soup.find(
+    if (handle_paragraph := soup.find(
         "p", class_="entry", string=lambda text: text and "Handle name" in text
-    ):
-        if handle_strong := handle_paragraph.find("strong", class_="value"):
-            cased_handle = handle_strong.get_text(strip=True)
-            logger.debug(f"Extracted cased handle: {cased_handle}")
-            return cased_handle
+    )) and (handle_strong := handle_paragraph.find("strong", class_="value")):
+        cased_handle = handle_strong.get_text(strip=True)
+        logger.debug(f"Extracted cased handle: {cased_handle}")
+        return cased_handle
 
             # Alternative method if the above fails
     for p in soup.find_all("p", class_="entry"):
@@ -137,7 +137,7 @@ def extract_handle(html_content: str) -> Optional[str]:
     return None
 
 
-def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional[str]:
+def extract_moniker(html_content: str, handle: str | None = None) -> str | None:
     """Extract the community moniker (display name) from profile HTML.
 
     Strategy:
@@ -153,19 +153,30 @@ def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional
     """
     soup = BeautifulSoup(html_content, "lxml")
     # Primary search region: all profile info entries (broad but ordered)
-    entries = soup.select(".profile .info p.entry") or soup.find_all("p", class_="entry")
+    entries = soup.select(".profile .info p.entry") or soup.find_all(
+        "p", class_="entry"
+    )
 
-    moniker_candidate: Optional[str] = None
+    moniker_candidate: str | None = None
     for p in entries:
         # If this is the handle section, break before consuming it
-        if (label_span := p.find("span", class_="label")) and label_span.get_text(strip=True) == "Handle name":
+        if (label_span := p.find("span", class_="label")) and label_span.get_text(
+            strip=True
+        ) == "Handle name":
             break
-        if (strong_val := p.find("strong", class_="value")) and (text_val := strong_val.get_text(strip=True)):
+        if (strong_val := p.find("strong", class_="value")) and (
+            text_val := strong_val.get_text(strip=True)
+        ):
             moniker_candidate = text_val
             break  # First pre-handle value wins
 
     # Fallback if not found pre-handle
-    if (not moniker_candidate) and (strong_any := (soup.select_one(".profile .info strong.value") or soup.find("strong", class_="value"))):
+    if (not moniker_candidate) and (
+        strong_any := (
+            soup.select_one(".profile .info strong.value")
+            or soup.find("strong", class_="value")
+        )
+    ):
         moniker_candidate = strong_any.get_text(strip=True)
 
     if not moniker_candidate:
@@ -183,6 +194,7 @@ def extract_moniker(html_content: str, handle: Optional[str] = None) -> Optional
 MIN_PRINTABLE_ASCII = 32
 MAX_PRINTABLE_ASCII = 126
 
+
 def _sanitize_moniker(moniker: str) -> str:
     """Remove control / zero-width characters and trim whitespace.
 
@@ -193,7 +205,9 @@ def _sanitize_moniker(moniker: str) -> str:
         return ""
     # Use Python's printable set directly; exclude vertical tab and form feed for safety.
     allowed = set(string.printable)
-    cleaned = "".join(ch for ch in moniker if ch in allowed and ch not in {"\x0b", "\x0c"})
+    cleaned = "".join(
+        ch for ch in moniker if ch in allowed and ch not in {"\x0b", "\x0c"}
+    )
     # Remove zero-width space explicitly then strip outer whitespace
     return cleaned.replace("\u200b", "").strip()
 
@@ -264,7 +278,7 @@ def search_organization_case_insensitive(org_data: dict, target_org: str) -> int
 
 async def is_valid_rsi_bio(
     user_handle: str, token: str, http_client: HTTPClient
-) -> Optional[bool]:
+) -> bool | None:
     """
     Validates the token by checking if it exists in the user's RSI bio.
 
@@ -312,7 +326,7 @@ async def is_valid_rsi_bio(
     return token_found
 
 
-def extract_bio(html_content: str) -> Optional[str]:
+def extract_bio(html_content: str) -> str | None:
     """
     Extracts the bio text from the user's RSI profile page.
 
@@ -328,6 +342,5 @@ def extract_bio(html_content: str) -> Optional[str]:
         bio_text = bio_div.get_text(separator=" ", strip=True)
         logger.debug(f"Bio extracted: {bio_text}")
         return bio_text
-    else:
-        logger.warning("Bio section not found in profile HTML.")
+    logger.warning("Bio section not found in profile HTML.")
     return None
