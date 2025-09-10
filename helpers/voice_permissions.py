@@ -7,6 +7,7 @@ This module provides functions for asserting and enforcing permissions
 on user-created voice channels.
 """
 
+import contextlib
 import discord
 
 from helpers.logger import get_logger
@@ -59,7 +60,7 @@ async def assert_base_permissions(
         # Apply the overwrites
         await channel.edit(overwrites=overwrites)
         logger.debug(f"Base permissions asserted for channel {channel.id}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error asserting base permissions for channel {channel.id}")
 
 
@@ -110,7 +111,7 @@ async def enforce_permission_changes(
         # TODO: Apply all other permission settings from the database
         # This would be added in a future implementation to apply PTT,
         # Priority Speaker, Soundboard, and permit/reject settings
-    except Exception as e:
+    except Exception:
         logger.exception(
             f"Error enforcing permission changes for channel {channel.id}"
         )

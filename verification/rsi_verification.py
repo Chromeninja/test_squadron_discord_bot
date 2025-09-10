@@ -1,5 +1,6 @@
 # Verification/rsi_verification.py
 
+import contextlib
 import logging
 import re
 import string
@@ -20,8 +21,9 @@ async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient
 ) -> tuple[int | None, str | None, str | None]:
     """
-    Validates the RSI handle by checking if the user is part of the TEST organization or its affiliates.
-    Also retrieves the correctly cased handle from the RSI profile.
+    Validates the RSI handle by checking if the user is part of the TEST 
+    organization or its affiliates. Also retrieves the correctly cased handle 
+    from the RSI profile.
 
     Args:
         user_handle (str): The RSI handle of the user.
@@ -54,7 +56,7 @@ async def is_valid_rsi_handle(
         # Parse organization data
     try:
         org_data = parse_rsi_organizations(org_html)
-    except Exception as e:
+    except Exception:
         logger.exception(
             f"Exception while parsing organization data for {user_handle}"
         )
@@ -78,7 +80,7 @@ async def is_valid_rsi_handle(
             logger.debug(f"Cased handle for {user_handle}: {cased_handle}")
         else:
             logger.warning(f"Could not extract cased handle for {user_handle}")
-    except Exception as e:
+    except Exception:
         logger.exception(
             f"Exception while extracting cased handle for {user_handle}"
         )
@@ -93,9 +95,10 @@ async def is_valid_rsi_handle(
             )
         else:
             logger.info(
-                f"Community moniker not found or empty for {user_handle}; proceeding without it."
+                f"Community moniker not found or empty for {user_handle}; "
+                f"proceeding without it."
             )
-    except Exception as e:
+    except Exception:
         logger.exception(
             f"Exception while extracting community moniker for {user_handle}"
         )
@@ -198,12 +201,13 @@ MAX_PRINTABLE_ASCII = 126
 def _sanitize_moniker(moniker: str) -> str:
     """Remove control / zero-width characters and trim whitespace.
 
-    Accept characters that are in Python's string.printable OR are standard space/tab.
-    Explicitly drop other control characters and zero-width spaces.
+    Accept characters that are in Python's string.printable OR are standard 
+    space/tab. Explicitly drop other control characters and zero-width spaces.
     """
     if not moniker:
         return ""
-    # Use Python's printable set directly; exclude vertical tab and form feed for safety.
+    # Use Python's printable set directly; exclude vertical tab and form feed 
+    # for safety.
     allowed = set(string.printable)
     cleaned = "".join(
         ch for ch in moniker if ch in allowed and ch not in {"\x0b", "\x0c"}
@@ -252,7 +256,8 @@ def parse_rsi_organizations(html_content: str) -> dict:
 
 def search_organization_case_insensitive(org_data: dict, target_org: str) -> int:
     """
-    Searches for the target organization in the provided organization data in a case-insensitive manner.
+    Searches for the target organization in the provided organization data in a 
+    case-insensitive manner.
 
     Args:
         org_data (dict): Dictionary containing organization data.
@@ -288,7 +293,8 @@ async def is_valid_rsi_bio(
         http_client (HTTPClient): The HTTP client instance.
 
     Returns:
-        Optional[bool]: True if the token is found in the bio, False if not, or None if error.
+        Optional[bool]: True if the token is found in the bio, False if not, 
+            or None if error.
     """
     logger.debug(f"Validating token in RSI bio for handle: {user_handle}")
 
@@ -310,7 +316,7 @@ async def is_valid_rsi_bio(
             logger.debug(f"Bio text extracted: {bio_text}")
         else:
             logger.warning(f"Could not extract bio text for handle: {user_handle}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"Exception while extracting bio for {user_handle}")
         bio_text = None
 
