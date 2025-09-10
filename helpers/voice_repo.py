@@ -7,7 +7,6 @@ This module provides a data access layer for voice-related database operations.
 It abstracts away SQL queries and provides a consistent interface for the voice cog.
 """
 
-import contextlib
 from typing import Any
 
 from helpers.database import Database

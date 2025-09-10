@@ -4,7 +4,8 @@ from verification.rsi_verification import _sanitize_moniker, extract_moniker
 
 SAMPLE_HTML = """<div class="profile"><div class="info">
 <p class="entry"><strong class="value">Cool Moniker</strong></p>
-<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p>
+<p class="entry"><span class="label">Handle name</span>
+<strong class="value">CaseHandle</strong></p>
 </div></div>"""
 
 

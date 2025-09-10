@@ -1,23 +1,24 @@
 import asyncio
-import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
 
-# Ensure project root is on sys.path for CI environments where Python might
-# not automatically include it (e.g., some GitHub Actions runners invoking pytest differently).
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+# Ensure project root is on sys.path for CI environments where
+# Python might not automatically include it (e.g., some GitHub
+# Actions runners invoking pytest differently).
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from helpers.database import Database  # noqa: E402
 
 
 # Ensure pytest-asyncio uses a dedicated loop
 @pytest_asyncio.fixture(scope="session")
-def event_loop() -> None:
+def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
@@ -40,7 +41,7 @@ def mock_bot() -> None:
 
 
 @pytest_asyncio.fixture()
-async def temp_db(tmp_path) -> None:
+async def temp_db(tmp_path):
     """Initialize Database to a temporary file for isolation across tests."""
     orig_path = Database._db_path
     Database._initialized = False

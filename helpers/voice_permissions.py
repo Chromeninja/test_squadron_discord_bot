@@ -7,7 +7,6 @@ This module provides functions for asserting and enforcing permissions
 on user-created voice channels.
 """
 
-import contextlib
 import discord
 
 from helpers.logger import get_logger

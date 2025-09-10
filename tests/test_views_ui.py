@@ -50,7 +50,9 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
 
 
 @pytest.mark.asyncio
-async def test_select_user_store_permit_calls_db_and_apply(monkeypatch, mock_bot) -> None:
+async def test_select_user_store_permit_calls_db_and_apply(
+    monkeypatch, mock_bot
+) -> None:
     view = SelectUserView(mock_bot, action="permit")
 
     # selected target user objects

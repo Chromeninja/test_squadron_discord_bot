@@ -87,7 +87,7 @@ async def run_voice_data_migration(bot) -> None:
                 )
                 return
 
-            # If bot is in exactly one guild, safely migrate the legacy list to 
+            # If bot is in exactly one guild, safely migrate the legacy list to
             # that guild
             guilds = list(bot.guilds)
             if len(guilds) == 1:

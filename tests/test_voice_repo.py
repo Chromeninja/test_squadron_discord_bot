@@ -5,8 +5,8 @@ This file contains tests for the new voice repository functions,
 focusing on scoped deletion and proper guild/JTC channel handling.
 """
 
-import os
 import time
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -24,12 +24,13 @@ from helpers.voice_repo import (
 
 
 @pytest_asyncio.fixture
-async def test_db() -> None:
+async def test_db():
     """Set up a test database."""
     test_db_path = "test_voice_repo.db"
     # Remove the test database if it exists
-    if os.path.exists(test_db_path):
-        os.unlink(test_db_path)
+    test_db_file = Path(test_db_path)
+    if test_db_file.exists():
+        test_db_file.unlink()
 
     # Initialize the database with the test path
     await Database.initialize(test_db_path)
@@ -144,8 +145,9 @@ async def test_db() -> None:
     yield test_db_path
 
     # Clean up
-    if os.path.exists(test_db_path):
-        os.unlink(test_db_path)
+    test_db_file = Path(test_db_path)
+    if test_db_file.exists():
+        test_db_file.unlink()
 
 
 async def setup_test_data(db) -> None:
@@ -432,7 +434,8 @@ async def test_set_feature_row(test_db) -> None:
         cursor = await db.execute(
             """
             SELECT ptt_enabled FROM channel_ptt_settings
-            WHERE guild_id = 1 AND jtc_channel_id = 101 AND user_id = 1001 AND target_id = 2001
+            WHERE guild_id = 1 AND jtc_channel_id = 101 AND
+                  user_id = 1001 AND target_id = 2001
             """
         )
         row = await cursor.fetchone()
@@ -444,7 +447,8 @@ async def test_set_feature_row(test_db) -> None:
         cursor = await db.execute(
             """
             SELECT ptt_enabled FROM channel_ptt_settings
-            WHERE guild_id = 1 AND jtc_channel_id = 101 AND user_id = 1001 AND target_id = 2001
+            WHERE guild_id = 1 AND jtc_channel_id = 101 AND
+                  user_id = 1001 AND target_id = 2001
             """
         )
         row = await cursor.fetchone()

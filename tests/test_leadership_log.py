@@ -72,8 +72,11 @@ async def test_user_verify_moniker_change(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> None:
-    """Handle change should now produce a Handle line (policy: handle drives nickname)."""
+async def test_admin_recheck_handle_change_includes_handle_line(
+    monkeypatch
+) -> None:
+    """Handle change should now produce a Handle line
+    (policy: handle drives nickname)."""
     bot = DummyBot()
     sent = []
 
@@ -114,7 +117,8 @@ async def test_roles_diff_not_rendered(monkeypatch) -> None:
     cs.roles_added = ["Member"]
     cs.roles_removed = ["Affiliate"]
     await post_if_changed(bot, cs)
-    # No other field changed so this should be considered no-change and still post header (admin path)
+    # No other field changed so this should be considered
+    # no-change and still post header (admin path)
     assert len(sent) == 1
     assert "Roles:" not in sent[0]
 
@@ -182,7 +186,9 @@ def test_escape_md_prevents_markdown_injection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_case_only_moniker_change_user_recheck_posts_no_change(monkeypatch) -> None:
+async def test_case_only_moniker_change_user_recheck_posts_no_change(
+    monkeypatch
+) -> None:
     bot = DummyBot()
     sent = []
 
@@ -240,7 +246,9 @@ async def test_handle_and_username_change_both_lines(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_auto_moniker_initial_suppressed_handle_not_suppressed(monkeypatch) -> None:
+async def test_auto_moniker_initial_suppressed_handle_not_suppressed(
+    monkeypatch
+) -> None:
     bot = DummyBot()
     sent = []
 
@@ -254,7 +262,8 @@ async def test_auto_moniker_initial_suppressed_handle_not_suppressed(monkeypatch
     cs.handle_before = "OldHandle"
     cs.handle_after = "NewHandle"
     await post_if_changed(bot, cs)
-    # Should post because handle changed even though moniker initial population suppressed
+    # Should post because handle changed even though
+    # moniker initial population suppressed
     assert len(sent) == 1
     assert "Handle:" in sent[0]
     # Moniker suppressed (initial population auto check)
@@ -262,8 +271,11 @@ async def test_auto_moniker_initial_suppressed_handle_not_suppressed(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_auto_initial_moniker_population_suppressed(monkeypatch) -> None:
-    """Auto check should NOT show moniker change if previous value absent/none placeholder."""
+async def test_auto_initial_moniker_population_suppressed(
+    monkeypatch
+) -> None:
+    """Auto check should NOT show moniker change if previous
+    value absent/none placeholder."""
     bot = DummyBot()
     sent = []
 

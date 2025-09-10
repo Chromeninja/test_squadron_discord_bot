@@ -7,7 +7,9 @@ from tests.conftest import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
-async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mock_bot) -> None:
+async def test_get_token_button_calls_rate_limit_and_sends_embed(
+    monkeypatch, mock_bot
+) -> None:
     view = VerificationView(mock_bot)
 
     # Patch rate limiter and attempt logging (avoid DB)
@@ -34,7 +36,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mo
 
 
 @pytest.mark.asyncio
-async def test_verify_button_opens_modal_when_not_rate_limited(monkeypatch, mock_bot) -> None:
+async def test_verify_button_opens_modal_when_not_rate_limited(
+    monkeypatch, mock_bot
+) -> None:
     view = VerificationView(mock_bot)
     monkeypatch.setattr(
         "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))

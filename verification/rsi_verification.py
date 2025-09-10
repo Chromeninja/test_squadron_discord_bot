@@ -1,10 +1,9 @@
 # Verification/rsi_verification.py
 
-import contextlib
 import logging
 import re
 import string
-# No typing imports needed as all type hints use built-in generics
+
 from bs4 import BeautifulSoup
 
 from config.config_loader import ConfigLoader
@@ -21,8 +20,8 @@ async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient
 ) -> tuple[int | None, str | None, str | None]:
     """
-    Validates the RSI handle by checking if the user is part of the TEST 
-    organization or its affiliates. Also retrieves the correctly cased handle 
+    Validates the RSI handle by checking if the user is part of the TEST
+    organization or its affiliates. Also retrieves the correctly cased handle
     from the RSI profile.
 
     Args:
@@ -130,11 +129,11 @@ def extract_handle(html_content: str) -> str | None:
             # Alternative method if the above fails
     for p in soup.find_all("p", class_="entry"):
         label = p.find("span", class_="label")
-        if label and label.get_text(strip=True) == "Handle name":
-            if handle_strong := p.find("strong", class_="value"):
-                cased_handle = handle_strong.get_text(strip=True)
-                logger.debug(f"Extracted cased handle: {cased_handle}")
-                return cased_handle
+        if (label and label.get_text(strip=True) == "Handle name" and
+                (handle_strong := p.find("strong", class_="value"))):
+            cased_handle = handle_strong.get_text(strip=True)
+            logger.debug(f"Extracted cased handle: {cased_handle}")
+            return cased_handle
 
     logger.warning("Handle element not found in profile HTML.")
     return None
@@ -146,7 +145,7 @@ def extract_moniker(html_content: str, handle: str | None = None) -> str | None:
     Strategy:
       1. Parse all p.entry nodes inside the profile info block in DOM order.
       2. Stop processing once we reach the paragraph whose label/span label text is
-         'Handle name' (that paragraph corresponds to handle section) – do not
+         'Handle name' (that paragraph corresponds to handle section) - do not
          consider any entries after it.
       3. Within the processed range, take the first <strong class="value"> text value.
       4. Fallback: if none found before Handle name, pick the very first
@@ -201,12 +200,12 @@ MAX_PRINTABLE_ASCII = 126
 def _sanitize_moniker(moniker: str) -> str:
     """Remove control / zero-width characters and trim whitespace.
 
-    Accept characters that are in Python's string.printable OR are standard 
+    Accept characters that are in Python's string.printable OR are standard
     space/tab. Explicitly drop other control characters and zero-width spaces.
     """
     if not moniker:
         return ""
-    # Use Python's printable set directly; exclude vertical tab and form feed 
+    # Use Python's printable set directly; exclude vertical tab and form feed
     # for safety.
     allowed = set(string.printable)
     cleaned = "".join(
@@ -256,7 +255,7 @@ def parse_rsi_organizations(html_content: str) -> dict:
 
 def search_organization_case_insensitive(org_data: dict, target_org: str) -> int:
     """
-    Searches for the target organization in the provided organization data in a 
+    Searches for the target organization in the provided organization data in a
     case-insensitive manner.
 
     Args:
@@ -293,7 +292,7 @@ async def is_valid_rsi_bio(
         http_client (HTTPClient): The HTTP client instance.
 
     Returns:
-        Optional[bool]: True if the token is found in the bio, False if not, 
+        Optional[bool]: True if the token is found in the bio, False if not,
             or None if error.
     """
     logger.debug(f"Validating token in RSI bio for handle: {user_handle}")

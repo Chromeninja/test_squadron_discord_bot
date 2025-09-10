@@ -1,7 +1,7 @@
-import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 import aiosqlite
 import pytest
 
@@ -37,7 +37,8 @@ async def test_create_tables_creates_rate_limits_and_migrates() -> None:
         assert "last_recheck" not in columns
 
         cursor = await db.execute(
-            "SELECT attempt_count, first_attempt FROM rate_limits WHERE user_id=1 AND action='recheck'"
+            "SELECT attempt_count, first_attempt FROM "
+            "rate_limits WHERE user_id=1 AND action='recheck'"
         )
         row = await cursor.fetchone()
         assert row == (1, 123)

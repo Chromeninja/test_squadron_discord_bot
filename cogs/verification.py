@@ -163,7 +163,7 @@ class VerificationCog(commands.Cog):
             logger.exception(
                 "Bot lacks permission to send messages in the verification channel."
             )
-        except discord.HTTPException as e:
+        except discord.HTTPException:
             logger.exception("Failed to send verification message")
 
     async def recheck_button(self, interaction: discord.Interaction) -> None:

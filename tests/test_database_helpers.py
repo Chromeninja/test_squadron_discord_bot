@@ -9,7 +9,9 @@ async def test_database_initialize_and_tables(temp_db) -> None:
     async with Database.get_connection() as db:
         # Insert into verification
         await db.execute(
-            "INSERT OR REPLACE INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT OR REPLACE INTO verification(user_id, "
+            "rsi_handle, membership_status, last_updated) "
+            "VALUES (?,?,?,?)",
             (1, "handle", "member", 0),
         )
         await db.commit()

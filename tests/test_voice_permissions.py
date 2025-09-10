@@ -1,7 +1,8 @@
 """
 Tests for voice permissions and channel resolution functions.
 
-This file contains tests for the voice permissions enforcement and channel resolution functions.
+This file contains tests for the voice permissions enforcement
+and channel resolution functions.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -94,7 +95,8 @@ async def test_enforce_permission_changes() -> None:
 
 @pytest.mark.asyncio
 async def test_get_user_channel() -> None:
-    """Test that get_user_channel properly orders by created_at when using legacy path."""
+    """Test that get_user_channel properly orders by created_at
+    when using legacy path."""
     # Create mock user
     user = MagicMock(spec=discord.abc.User)
     user.id = 1001
@@ -126,7 +128,9 @@ async def test_get_user_channel() -> None:
 
         # Check SQL query - should not have ORDER BY
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+            "SELECT voice_channel_id FROM user_voice_channels "
+            "WHERE owner_id = ? AND guild_id = ? AND "
+            "jtc_channel_id = ?",
             (1001, 1, 101),
         )
 
@@ -139,7 +143,9 @@ async def test_get_user_channel() -> None:
 
         # Check SQL query - should have ORDER BY
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? ORDER BY created_at DESC",
+            "SELECT voice_channel_id FROM user_voice_channels "
+            "WHERE owner_id = ? AND guild_id = ? ORDER BY "
+            "created_at DESC",
             (1001, 1),
         )
 
@@ -152,6 +158,7 @@ async def test_get_user_channel() -> None:
 
         # Check SQL query - should have ORDER BY
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels WHERE owner_id = ? ORDER BY created_at DESC",
+            "SELECT voice_channel_id FROM user_voice_channels "
+            "WHERE owner_id = ? ORDER BY created_at DESC",
             (1001,),
         )

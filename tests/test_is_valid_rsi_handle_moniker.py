@@ -13,16 +13,26 @@ class FakeHTTP:
         return self.pages.get(url)
 
 
-ORG_HTML = '<div class="box-content org main visibility-V"><a class="value">TEST Squadron - Best Squardon!</a></div>'
-PROFILE_HTML = '<div class="profile"><div class="info">\n<p class="entry"><strong class="value">Display Name</strong></p>\n<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p></div></div>'
+ORG_HTML = (
+    '<div class="box-content org main visibility-V">'
+    '<a class="value">TEST Squadron - Best Squardon!</a></div>'
+)
+PROFILE_HTML = (
+    '<div class="profile"><div class="info">\n'
+    '<p class="entry"><strong class="value">Display Name</strong></p>\n'
+    '<p class="entry"><span class="label">Handle name</span>'
+    '<strong class="value">CaseHandle</strong></p></div></div>'
+)
 
 
 @pytest.mark.asyncio
 async def test_is_valid_rsi_handle_returns_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser": PROFILE_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser":
+                PROFILE_HTML,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -31,17 +41,31 @@ async def test_is_valid_rsi_handle_returns_moniker(monkeypatch) -> None:
     assert moniker == "Display Name"
 
 
-MISSING_MONIKER_PROFILE = '<div class="profile"><div class="info">\n<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p></div></div>'
-EMPTY_MONIKER_PROFILE = '<div class="profile"><div class="info">\n<p class="entry"><strong class="value">   </strong></p>\n<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p></div></div>'
-MALFORMED_PROFILE = '<html><div class="profile"><div class="info"><p class="entry"><span class="label">Handle name</span></p></div></div>'
+MISSING_MONIKER_PROFILE = (
+    '<div class="profile"><div class="info">\n'
+    '<p class="entry"><span class="label">Handle name</span>'
+    '<strong class="value">CaseHandle</strong></p></div></div>'
+)
+EMPTY_MONIKER_PROFILE = (
+    '<div class="profile"><div class="info">\n'
+    '<p class="entry"><strong class="value">   </strong></p>\n'
+    '<p class="entry"><span class="label">Handle name</span>'
+    '<strong class="value">CaseHandle</strong></p></div></div>'
+)
+MALFORMED_PROFILE = (
+    '<html><div class="profile"><div class="info">'
+    '<p class="entry"><span class="label">Handle name</span></p></div></div>'
+)
 
 
 @pytest.mark.asyncio
 async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser": MISSING_MONIKER_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser":
+                MISSING_MONIKER_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -54,8 +78,10 @@ async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
 async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser": EMPTY_MONIKER_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser":
+                EMPTY_MONIKER_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -68,12 +94,15 @@ async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
 async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser": MALFORMED_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser":
+                MALFORMED_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
-    # Handle should still be found (CaseHandle) absence due to malformed structure may null it
+    # Handle should still be found (CaseHandle) absence due to malformed
+    # structure may null it
     assert verify_value == 1
     # cased_handle may be None if extraction fails gracefully
     assert moniker is None
@@ -95,7 +124,8 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
     """Profile HTML missing -> returns verify value but no handle/moniker."""
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
             # profile URL intentionally absent
         }
     )
@@ -106,13 +136,22 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(monkeypatch) -> None:
+async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
+    monkeypatch
+) -> None:
     """Moniker identical (case-insensitive) to handle should be suppressed (None)."""
-    profile_same_moniker = '<div class="profile"><div class="info">\n<p class="entry"><strong class="value">CaseHandle</strong></p>\n<p class="entry"><span class="label">Handle name</span><strong class="value">CaseHandle</strong></p></div></div>'
+    profile_same_moniker = (
+        '<div class="profile"><div class="info">\n'
+        '<p class="entry"><strong class="value">CaseHandle</strong></p>\n'
+        '<p class="entry"><span class="label">Handle name</span>'
+        '<strong class="value">CaseHandle</strong></p></div></div>'
+    )
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser": profile_same_moniker,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
+                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser":
+                profile_same_moniker,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)

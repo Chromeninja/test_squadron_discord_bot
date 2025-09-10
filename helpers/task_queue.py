@@ -30,7 +30,7 @@ async def worker() -> None:
         try:
             async with api_limiter:
                 await run_task(task)
-        except Exception as e:
+        except Exception:
             logger.exception("Error running queued task")
         finally:
             task_queue.task_done()

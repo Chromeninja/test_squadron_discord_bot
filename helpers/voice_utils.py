@@ -1,6 +1,7 @@
 # Helpers/voice_utils.py
 
 import contextlib
+
 import discord
 
 from helpers.database import Database
@@ -40,7 +41,7 @@ async def get_user_channel(
                 (user.id, guild_id),
             )
         else:
-            # Legacy query - all channels, ordered by created_at to ensure 
+            # Legacy query - all channels, ordered by created_at to ensure
             # consistent behavior
             cursor = await db.execute(
                 "SELECT voice_channel_id FROM user_voice_channels "
@@ -60,7 +61,7 @@ async def get_user_channel(
                         f"DB mapping."
                     )
                     with contextlib.suppress(Exception):
-                        # Remove stale mapping so future checks don't keep trying 
+                        # Remove stale mapping so future checks don't keep trying
                         # to fetch
                         delete_query = (
                             "DELETE FROM user_voice_channels WHERE voice_channel_id = ?"

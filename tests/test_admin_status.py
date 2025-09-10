@@ -21,7 +21,8 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
     cog = admin_cog.Admin(mock_bot)
     ix = FakeInteraction(FakeUser(10, "AdminUser"))
 
-    # Patch permission checks to bypass app_commands role checks by directly calling method
+    # Patch permission checks to bypass app_commands role
+    # checks by directly calling method
     # app_commands turns methods into Command objects; call the underlying callback
     await cog.status.callback(cog, ix)
 

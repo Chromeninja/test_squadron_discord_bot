@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from helpers.database import Database
+from helpers.http_helper import NotFoundError
 from helpers.role_helper import reverify_member
 from helpers.username_404 import handle_username_404
 
@@ -46,11 +47,13 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     # Seed verification + auto state
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (101, "OldHandle", "main", 1),
         )
         await db.execute(
-            "INSERT INTO auto_recheck_state(user_id, last_auto_recheck, next_retry_at, fail_count) VALUES (?,?,?,?)",
+            "INSERT INTO auto_recheck_state(user_id, last_auto_recheck, "
+            "next_retry_at, fail_count) VALUES (?,?,?,?)",
             (101, 0, 0, 0),
         )
         await db.commit()
@@ -105,16 +108,21 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
         )
         assert await cur.fetchone() is None
 
-    # Validate only spam message now (leadership handled via standardized embed separately)
+        # Validate only spam message now (leadership handle
+    # via standardized embed separately)
     assert send_mock.await_count == 1
 
 
 @pytest.mark.asyncio
-async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> None:
-    """Second call with DIFFERENT old handle should still process (distinct 404 cause)."""
+async def test_handle_username_404_new_handle_reflags(
+    temp_db, monkeypatch
+) -> None:
+    """Second call with DIFFERENT old handle should still process
+    (distinct 404 cause)."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (111, "FirstHandle", "main", 1),
         )
         await db.commit()
@@ -167,11 +175,15 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> None:
-    """Admin initiated recheck that hits 404 should emit leadership ChangeSet with 404 note."""
+async def test_admin_recheck_404_posts_leadership_log(
+    temp_db, monkeypatch
+) -> None:
+    """Admin initiated recheck that hits 404 should emit leadership
+    ChangeSet with 404 note."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (222, "GoneHandle", "main", 1),
         )
         await db.commit()
@@ -213,7 +225,6 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
 
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
     # Run 404 handler (simulating admin path already catching NotFound)
-    from helpers.username_404 import handle_username_404
 
     await handle_username_404(bot, member, "GoneHandle")
     # Leadership message posted (header only, no explicit 404 text per current renderer)
@@ -233,7 +244,8 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     # Seed verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (202, "HandleX", "main", 1),
         )
         await db.commit()
@@ -247,7 +259,6 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     member = SimpleNamespace(id=202, mention="@UserX", guild=None)
 
     # Force is_valid_rsi_handle to raise NotFoundError
-    from helpers.http_helper import NotFoundError
 
     async def fake_is_valid(_: str, __) -> None:
         raise NotFoundError
@@ -257,18 +268,21 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     )
 
     # Call reverify_member and expect NotFoundError to bubble
-    from helpers.role_helper import reverify_member
 
     with pytest.raises(NotFoundError):
         await reverify_member(member, "HandleX", bot)
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> None:
-    """Ensure leadership ChangeSet is posted with RSI 404 note when leadership channel configured."""
+async def test_admin_recheck_404_leadership_changeset(
+    temp_db, monkeypatch
+) -> None:
+    """Ensure leadership ChangeSet is posted with RSI 404 note when
+    leadership channel configured."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (555, "LostOne", "main", 1),
         )
         await db.commit()
@@ -312,11 +326,10 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
 
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
 
-    from helpers.username_404 import handle_username_404
-
     await handle_username_404(bot, member, "LostOne")
 
-    # Leadership log should have one post containing header with RECHECK and 404 note suppressed to header only
+    # Leadership log should have one post containing header with
+    # RECHECK and 404 note suppressed to header only
     assert leader_chan.send.await_count == 1
     msg = leader_chan.send.await_args_list[0][0][0]
     assert msg.startswith("[RECHECK]")
@@ -329,7 +342,9 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     # Seed flagged verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated, needs_reverify, needs_reverify_at) VALUES (?,?,?,?,1,1)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated, needs_reverify, "
+            "needs_reverify_at) VALUES (?,?,?,?,1,1)",
             (303, "OldOne", "main", 1),
         )
         await db.commit()
@@ -372,12 +387,16 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
-async def test_handle_username_404_new_handle_triggers_again(temp_db, monkeypatch) -> None:
-    """Second 404 with a different stored handle should emit a new notification (no dedupe)."""
+async def test_handle_username_404_new_handle_triggers_again(
+    temp_db, monkeypatch
+) -> None:
+    """Second 404 with a different stored handle should emit a new
+    notification (no dedupe)."""
     # Seed initial verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, membership_status, last_updated) VALUES (?,?,?,?)",
+            "INSERT INTO verification(user_id, rsi_handle, "
+            "membership_status, last_updated) VALUES (?,?,?,?)",
             (909, "FirstHandle", "main", 1),
         )
         await db.commit()
@@ -407,10 +426,13 @@ async def test_handle_username_404_new_handle_triggers_again(temp_db, monkeypatc
     assert changed1 is True
     assert send_mock.await_count == 1
 
-    # Simulate re-verification updating stored handle & clearing flag so a new 404 is not deduped
+    # Simulate re-verification updating stored handle & clearing
+    # flag so a new 404 is not deduped
     async with Database.get_connection() as db:
         await db.execute(
-            "UPDATE verification SET rsi_handle=?, needs_reverify=0, needs_reverify_at=NULL WHERE user_id=?",
+            "UPDATE verification SET rsi_handle=?, "
+            "needs_reverify=0, needs_reverify_at=NULL "
+            "WHERE user_id=?",
             ("SecondHandle", 909),
         )
         await db.commit()

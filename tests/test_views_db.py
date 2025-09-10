@@ -31,7 +31,9 @@ async def test_set_feature_and_permissions_scoped(temp_db) -> None:
     # Query underlying tables to ensure rows include guild_id and jtc_channel_id
     async with Database.get_connection() as db:
         cur = await db.execute(
-            "SELECT guild_id, jtc_channel_id, target_id, target_type, soundboard_enabled FROM channel_soundboard_settings WHERE user_id = ?",
+            "SELECT guild_id, jtc_channel_id, target_id, "
+            "target_type, soundboard_enabled FROM "
+            "channel_soundboard_settings WHERE user_id = ?",
             (owner_id,),
         )
         row = await cur.fetchone()
@@ -43,7 +45,9 @@ async def test_set_feature_and_permissions_scoped(temp_db) -> None:
         assert row[4] == 1 or row[4] is True
 
         cur2 = await db.execute(
-            "SELECT guild_id, jtc_channel_id, target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+            "SELECT guild_id, jtc_channel_id, target_id, "
+            "target_type, permission FROM channel_permissions "
+            "WHERE user_id = ?",
             (owner_id,),
         )
         prow = await cur2.fetchone()
