@@ -26,9 +26,9 @@ from helpers.rate_limiter import (
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
-from helpers.token_manager import clear_token, token_store, validate_token
+from helpers.token_manager import token_store, validate_token, clear_token
 from helpers.voice_utils import get_user_channel, update_channel_settings
-from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
+from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 
 logger = get_logger(__name__)
 
@@ -115,18 +115,16 @@ class HandleModal(Modal, title="Verification"):
             # Perform RSI verification with sanitized handle
         (
             verify_value_check,
-            _cased_handle_2,
+            cased_handle_used,
             community_moniker_2,
         ) = await is_valid_rsi_handle(cased_handle, self.bot.http_client)
+
         if verify_value_check is None:
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check your handle again."
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-            logger.warning(
-                "Verification failed (post-check): invalid RSI handle.",
-                extra={"user_id": member.id},
-            )
+            logger.warning("RSI verification failed.", extra={"user_id": member.id})
             return
 
         # Prefer moniker from second fetch if returned
@@ -282,7 +280,7 @@ class HandleModal(Modal, title="Verification"):
             )
         except Exception as e:
             logger.exception(
-                f"Failed to send verification success message: {e}",
+                "Failed to send verification success message",
                 extra={"user_id": member.id},
             )
 
@@ -345,7 +343,7 @@ class ResetSettingsConfirmationModal(Modal):
             logger.info(f"{member.display_name} reset their channel settings.")
         except Exception as e:
             logger.exception(
-                f"Error resetting channel settings for {member.display_name}: {e}"
+                f"Error resetting channel settings for {member.display_name}"
             )
             await followup_send_message(
                 interaction,
@@ -420,7 +418,7 @@ class NameModal(Modal):
             )
         except Exception as e:
             logger.exception(
-                f"Failed to change channel name for {member.display_name}: {e}"
+                f"Failed to change channel name for {member.display_name}"
             )
             await followup_send_message(
                 interaction,
@@ -493,6 +491,6 @@ class LimitModal(Modal):
             embed = create_error_embed("I don't have permission to set the user limit.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
         except Exception as e:
-            logger.exception(f"Failed to set user limit: {e}")
+            logger.exception("Failed to set user limit")
             embed = create_error_embed("Failed to set user limit. Please try again.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
