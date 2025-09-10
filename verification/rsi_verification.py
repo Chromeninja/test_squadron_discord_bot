@@ -405,13 +405,25 @@ def extract_bio(html_content: str) -> str | None:
         Optional[str]: The bio text of the user, or None if not found.
     """
     logger.debug("Extracting bio from profile HTML.", extra={"event": "rsi-parser.bio"})
+    if not html_content:
+        logger.warning("Empty HTML content passed to extract_bio.")
+        return None
+
     soup = BeautifulSoup(html_content, "lxml")
-    if bio_div := soup.select_one("div.entry.bio div.value"):
-        bio_text = bio_div.get_text(separator=" ", strip=True)
-        logger.debug(f"Bio extracted: {bio_text}")
-        return bio_text
-    else:
-        logger.warning("Bio section not found in profile HTML.")
+
+    # Try all configured bio selectors in order
+    for selector in SELECTORS.get("bio", []):
+        try:
+            if (bio_elem := soup.select_one(selector)):
+                bio_text = bio_elem.get_text(separator=" ", strip=True)
+                if bio_text:
+                    logger.debug(f"Bio extracted with selector '{selector}': {bio_text}")
+                    return bio_text
+        except Exception as e:
+            logger.debug(f"Bio selector '{selector}' failed: {e}")
+            continue
+
+    logger.warning("Bio section not found with any selector.", extra={"event": "rsi-parser.bio", "selectors_tried": SELECTORS.get("bio", [])})
     return None
 
 def find_token_in_bio(bio_text: str, token: str) -> bool:

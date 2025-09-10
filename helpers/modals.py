@@ -5,6 +5,7 @@ import re
 
 import discord
 from discord.ui import Modal, TextInput
+from config.config_loader import ConfigLoader
 
 from helpers.discord_api import (
     edit_channel,
@@ -28,7 +29,6 @@ from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
-from helpers.token_manager import clear_token, token_store, validate_token
 from helpers.voice_utils import get_user_channel, update_channel_settings
 from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
@@ -129,6 +129,11 @@ class HandleModal(Modal, title="Verification"):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.warning("RSI verification failed.", extra={"user_id": member.id})
             return
+
+        # Determine which cased handle to use (prefer the freshly-extracted one)
+        cased_handle_used = _cased_handle_2 or cased_handle
+        # Prefer the second call's community moniker if present
+        community_moniker = community_moniker_2 or community_moniker
 
         token_verify = await is_valid_rsi_bio(
             cased_handle_used, user_token_info["token"], self.bot.http_client
