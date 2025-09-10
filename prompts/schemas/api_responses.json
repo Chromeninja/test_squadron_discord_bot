@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "api_responses.json",
+  "title": "External API Response Schema",
+  "description": "Schema definitions for external API responses (RSI, etc.)",
+  
+  "definitions": {
+    "rsi_profile": {
+      "type": "object",
+      "description": "RSI (Roberts Space Industries) user profile",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "description": "RSI handle (username)"
+        },
+        "display_name": {
+          "type": ["string", "null"],
+          "description": "Display name on RSI profile"
+        },
+        "bio": {
+          "type": ["string", "null"],
+          "description": "User biography text"
+        },
+        "organizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/rsi_organization"
+          },
+          "description": "Organizations the user belongs to"
+        },
+        "community_moniker": {
+          "type": ["string", "null"],
+          "description": "Community nickname/moniker"
+        }
+      },
+      "required": ["handle"]
+    },
+    
+    "rsi_organization": {
+      "type": "object",
+      "description": "RSI organization information",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Organization name"
+        },
+        "sid": {
+          "type": "string",
+          "description": "Organization SID (identifier)"
+        },
+        "rank": {
+          "type": ["string", "null"],
+          "description": "User's rank in organization"
+        }
+      },
+      "required": ["name", "sid"]
+    },
+    
+    "verification_result": {
+      "type": "object",
+      "description": "RSI verification result",
+      "properties": {
+        "is_valid": {
+          "type": "integer",
+          "enum": [0, 1, 2],
+          "description": "Verification status: 0=invalid, 1=main member, 2=affiliate"
+        },
+        "cased_handle": {
+          "type": ["string", "null"],
+          "description": "Properly cased RSI handle"
+        },
+        "community_moniker": {
+          "type": ["string", "null"],
+          "description": "Community moniker if found"
+        }
+      },
+      "required": ["is_valid"]
+    },
+    
+    "rate_limit_result": {
+      "type": "object",
+      "description": "Rate limiting check result",
+      "properties": {
+        "allowed": {
+          "type": "boolean",
+          "description": "Whether the action is allowed"
+        },
+        "retry_after": {
+          "type": ["number", "null"],
+          "description": "Seconds to wait before retry (if blocked)"
+        },
+        "attempts": {
+          "type": "integer",
+          "description": "Current attempt count"
+        }
+      },
+      "required": ["allowed", "attempts"]
+    }
+  }
+}

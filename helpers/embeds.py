@@ -1,6 +1,14 @@
 # Helpers/embeds.py
 
+"""
+Embed Helper Module
+
+Provides utility functions for creating and formatting Discord embeds with
+consistent styling and branding for the TEST Squadron Discord bot.
+"""
+
 import discord
+
 from helpers.logger import get_logger
 
 # Initialize logger
@@ -46,7 +54,9 @@ def create_verification_embed() -> discord.Embed:
         "https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G"
     )
     color = 0xFFBB00  # Yellow
-    thumbnail_url = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
+    thumbnail_url = (
+        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
+    )
     return create_embed(title, description, color, thumbnail_url)
 
 
@@ -69,11 +79,11 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
         '*If you see a "Restricted Access" message, please log in to your RSI account\n'
         ":two: Add the PIN to your **Short Bio** field.\n"
         ":three: Scroll down and click **Apply All Changes**.\n"
-    ":four: Return here and click the 'Verify' button above.\n\n"
-    "If you don't have an account, feel free to [enlist here]"
-    "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).\n\n"
-    ":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
-    ).format(expires_unix=expires_unix)
+        ":four: Return here and click the 'Verify' button above.\n\n"
+        "If you don't have an account, feel free to [enlist here]"
+        "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).\n\n"
+        f":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
+    )
     color = 0x00FF00  # Green
     thumbnail_url = (
         "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"

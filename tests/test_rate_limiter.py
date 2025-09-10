@@ -1,13 +1,14 @@
 import time
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock
 
 from helpers import rate_limiter as rl
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def patch_db(monkeypatch):
+async def patch_db(monkeypatch) -> None:
     # Patch Database methods used by rate limiter
     fetch = AsyncMock(return_value=None)
     incr = AsyncMock()
@@ -19,7 +20,7 @@ async def patch_db(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_check_rate_limit_within_window(monkeypatch, patch_db):
+async def test_check_rate_limit_within_window(monkeypatch, patch_db) -> None:
     fetch, _incr, _reset = patch_db
     now = int(time.time())
     # 1 attempt within window; should not be rate-limited
@@ -32,7 +33,7 @@ async def test_check_rate_limit_within_window(monkeypatch, patch_db):
 
 
 @pytest.mark.asyncio
-async def test_check_rate_limit_hit(monkeypatch, patch_db):
+async def test_check_rate_limit_hit(monkeypatch, patch_db) -> None:
     fetch, _incr, _reset = patch_db
     now = int(time.time())
     fetch.return_value = (5, now)
@@ -44,7 +45,7 @@ async def test_check_rate_limit_hit(monkeypatch, patch_db):
 
 
 @pytest.mark.asyncio
-async def test_check_rate_limit_reset_after_window(monkeypatch, patch_db):
+async def test_check_rate_limit_reset_after_window(monkeypatch, patch_db) -> None:
     fetch, _incr, reset = patch_db
     then = int(time.time()) - 1000
     rl.RATE_LIMIT_WINDOW = 100
@@ -56,7 +57,7 @@ async def test_check_rate_limit_reset_after_window(monkeypatch, patch_db):
 
 
 @pytest.mark.asyncio
-async def test_log_and_reset_attempts(patch_db):
+async def test_log_and_reset_attempts(patch_db) -> None:
     _fetch, incr, reset = patch_db
     await rl.log_attempt(2, "verification")
     incr.assert_awaited()
@@ -65,7 +66,7 @@ async def test_log_and_reset_attempts(patch_db):
 
 
 @pytest.mark.asyncio
-async def test_get_remaining_attempts(monkeypatch, patch_db):
+async def test_get_remaining_attempts(monkeypatch, patch_db) -> None:
     fetch, _incr, _reset = patch_db
     rl.MAX_ATTEMPTS = 5
     now = int(time.time())
@@ -82,23 +83,23 @@ async def test_get_remaining_attempts(monkeypatch, patch_db):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_attempts(monkeypatch):
+async def test_cleanup_attempts(monkeypatch) -> None:
     # Use a simple in-memory DB call path, patch Database.get_connection
     class FakeCursor:
-        async def execute(self, *args, **kwargs):
+        async def execute(self, *args, **kwargs) -> None:
             return None
 
-        async def commit(self):
+        async def commit(self) -> None:
             return None
 
     class Ctx:
-        async def __aenter__(self):
+        async def __aenter__(self) -> None:
             return FakeCursor()
 
-        async def __aexit__(self, *args):
+        async def __aexit__(self, *args) -> None:
             return False
 
-    def fake_conn():
+    def fake_conn() -> None:
         return Ctx()
 
     monkeypatch.setattr("helpers.rate_limiter.Database.get_connection", fake_conn)

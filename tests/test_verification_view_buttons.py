@@ -1,12 +1,13 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from helpers.views import VerificationView
 from tests.conftest import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
-async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot):
+async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot) -> None:
     view = VerificationView(mock_bot)
 
     # Swap callbacks with spies that call original and set flags
@@ -15,7 +16,7 @@ async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot):
     orig_get = view.get_token_button_callback
     orig_verify = view.verify_button_callback
 
-    async def spy_get(ix):
+    async def spy_get(ix) -> None:
         called["get_token"] = True
         # Patch internals to avoid network/DB
         monkeypatch.setattr(
@@ -25,7 +26,7 @@ async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot):
         monkeypatch.setattr("helpers.views.send_message", AsyncMock())
         return await orig_get(ix)
 
-    async def spy_verify(ix):
+    async def spy_verify(ix) -> None:
         called["verify"] = True
         monkeypatch.setattr(
             "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))

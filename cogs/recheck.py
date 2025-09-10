@@ -1,20 +1,21 @@
 # Cogs/recheck.py
 
-import time
-import random
 import asyncio
+import contextlib
+import random
+import time
 
 import discord
 from discord.ext import commands, tasks
 
-from helpers.logger import get_logger
 from helpers.database import Database
-from verification.rsi_verification import is_valid_rsi_handle
 from helpers.http_helper import NotFoundError
-from helpers.role_helper import assign_roles
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.logger import get_logger
+from helpers.role_helper import assign_roles
+from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
+from verification.rsi_verification import is_valid_rsi_handle
 
 logger = get_logger(__name__)
 
@@ -25,7 +26,7 @@ class AutoRecheck(commands.Cog):
     Uses the shared HTTP client and DB schedule to avoid hammering RSI.
     """
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         cfg = (bot.config or {}).get("auto_recheck", {}) or {}
         batch_cfg = cfg.get("batch") or {}
@@ -42,12 +43,12 @@ class AutoRecheck(commands.Cog):
             self.recheck_loop.change_interval(minutes=max(1, self.run_every_minutes))
             self.recheck_loop.start()
 
-    def cog_unload(self):
+    def cog_unload(self) -> None:
         if self.recheck_loop.is_running():
             self.recheck_loop.cancel()
 
     @tasks.loop(minutes=60)
-    async def recheck_loop(self):
+    async def recheck_loop(self) -> None:
         if not self.enabled:
             return
         await self.bot.wait_until_ready()
@@ -130,6 +131,7 @@ class AutoRecheck(commands.Cog):
                 return
             # Snapshot before
             import time as _t
+
             _start = _t.time()
             before_snap = await snapshot_member_state(self.bot, member)
             # Apply roles; get (old_status, new_status)
@@ -140,16 +142,14 @@ class AutoRecheck(commands.Cog):
                 self.bot,
                 community_moniker=community_moniker,
             )
-            try:
+            with contextlib.suppress(Exception):
                 await flush_tasks()
-            except Exception:
-                pass
             after_snap = await snapshot_member_state(self.bot, member)
             diff = diff_snapshots(before_snap, after_snap)
             cs = ChangeSet(
                 user_id=member.id,
                 event=EventType.AUTO_CHECK,
-                initiator_kind='Auto',
+                initiator_kind="Auto",
                 initiator_name=None,
                 notes=None,
             )
@@ -161,7 +161,7 @@ class AutoRecheck(commands.Cog):
             except Exception:
                 logger.debug("Leadership log post failed (auto recheck)")
 
-                    # Schedule next success recheck using minutes → seconds
+                # Schedule next success recheck using minutes → seconds
             next_retry = now + max(1, self.backoff_base_m * 60)
             await Database.upsert_auto_recheck_success(
                 user_id=int(user_id),
@@ -183,7 +183,7 @@ class AutoRecheck(commands.Cog):
             logger.warning(f"Auto recheck exception for {user_id}: {e}")
             current_fc = await Database.get_auto_recheck_fail_count(int(user_id))
             delay = self._compute_backoff(fail_count=(current_fc or 0) + 1)
-            try:
+            with contextlib.suppress(Exception):
                 await Database.upsert_auto_recheck_failure(
                     user_id=int(user_id),
                     next_retry_at=now + delay,
@@ -191,8 +191,6 @@ class AutoRecheck(commands.Cog):
                     error_msg=str(e)[:500],
                     inc=True,
                 )
-            except Exception:
-                pass
 
     def _compute_backoff(self, fail_count: int) -> int:
         """
@@ -206,7 +204,7 @@ class AutoRecheck(commands.Cog):
         return min(exp + jitter, cap)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     if (bot.config or {}).get("auto_recheck", {}).get("enabled", True):
         await bot.add_cog(AutoRecheck(bot))
         logger.info("AutoRecheck cog loaded.")

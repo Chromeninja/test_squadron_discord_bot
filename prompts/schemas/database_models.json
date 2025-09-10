@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "database_models.json",
+  "title": "Database Models Schema",
+  "description": "Schema definitions for database models and operations",
+  
+  "definitions": {
+    "verification_record": {
+      "type": "object",
+      "description": "User verification record in database",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "description": "Discord user ID"
+        },
+        "rsi_handle": {
+          "type": "string",
+          "description": "RSI handle"
+        },
+        "membership_status": {
+          "type": "string",
+          "enum": ["main", "affiliate", "guest"],
+          "description": "Membership status"
+        },
+        "last_updated": {
+          "type": "integer",
+          "description": "Unix timestamp of last update"
+        },
+        "community_moniker": {
+          "type": ["string", "null"],
+          "description": "Community moniker"
+        },
+        "needs_reverify": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "Whether user needs reverification"
+        }
+      },
+      "required": ["user_id", "rsi_handle", "membership_status", "last_updated"]
+    },
+    
+    "voice_channel_record": {
+      "type": "object",
+      "description": "Voice channel database record",
+      "properties": {
+        "voice_channel_id": {
+          "type": "integer",
+          "description": "Discord voice channel ID"
+        },
+        "owner_id": {
+          "type": "integer",
+          "description": "Discord user ID of channel owner"
+        },
+        "guild_id": {
+          "type": "integer",
+          "description": "Discord guild ID"
+        },
+        "jtc_channel_id": {
+          "type": "integer",
+          "description": "Join-to-create channel ID that spawned this"
+        },
+        "created_at": {
+          "type": "integer",
+          "description": "Unix timestamp of creation"
+        }
+      },
+      "required": ["voice_channel_id", "owner_id", "guild_id", "jtc_channel_id", "created_at"]
+    },
+    
+    "changeset": {
+      "type": "object",
+      "description": "Leadership log changeset for tracking member changes",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "description": "Discord user ID"
+        },
+        "event": {
+          "type": "string",
+          "enum": ["verification", "manual_verification", "recheck", "role_change"],
+          "description": "Type of event"
+        },
+        "initiator_kind": {
+          "type": "string",
+          "enum": ["user", "admin", "system"],
+          "description": "Who initiated the change"
+        },
+        "status_before": {
+          "type": ["string", "null"],
+          "description": "Status before change"
+        },
+        "status_after": {
+          "type": ["string", "null"],
+          "description": "Status after change"
+        },
+        "roles_added": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Roles that were added"
+        },
+        "roles_removed": {
+          "type": "array", 
+          "items": {"type": "string"},
+          "description": "Roles that were removed"
+        }
+      },
+      "required": ["user_id", "event", "initiator_kind"]
+    }
+  }
+}

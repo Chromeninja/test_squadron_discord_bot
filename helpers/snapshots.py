@@ -1,5 +1,8 @@
-from dataclasses import dataclass, asdict
-from typing import Optional, Set, Dict, Any, List
+#helpers/snapshots.py
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
 import discord
 
 from helpers.database import Database
@@ -11,86 +14,91 @@ logger = get_logger(__name__)
 @dataclass
 class MemberSnapshot:
     status: str
-    moniker: Optional[str]  # community_moniker from DB
-    handle: Optional[str]   # rsi_handle from DB
-    username: Optional[str]  # discord nickname/display
-    roles: Set[str]  # Role names (non-managed filtered later)
+    moniker: str | None  # community_moniker from DB
+    handle: str | None  # rsi_handle from DB
+    username: str | None  # discord nickname/display
+    roles: set[str]  # Role names (non-managed filtered later)
 
 
 async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     # Fetch DB state
-    status = 'Not a Member'
+    status = "Not a Member"
     moniker = None
     handle = None
     try:
         async with Database.get_connection() as db:
-            cur = await db.execute("SELECT membership_status, community_moniker, rsi_handle FROM verification WHERE user_id=?", (member.id,))
+            cur = await db.execute(
+                "SELECT membership_status, community_moniker, rsi_handle FROM verification WHERE user_id=?",
+                (member.id,),
+            )
             row = await cur.fetchone()
             if row:
                 status_db, moniker_db, handle_db = row
                 # Map internal statuses to human terms for logs
                 mapping = {
-                    'main': 'Main',
-                    'affiliate': 'Affiliate',
-                    'non_member': 'Not a Member',
+                    "main": "Main",
+                    "affiliate": "Affiliate",
+                    "non_member": "Not a Member",
                 }
-                status = mapping.get(status_db, status_db or 'Not a Member')
+                status = mapping.get(status_db, status_db or "Not a Member")
                 moniker = moniker_db
                 handle = handle_db
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 
-    username = member.display_name or getattr(member, 'name', None)
+    username = member.display_name or getattr(member, "name", None)
     roles = set()
-    for r in getattr(member, 'roles', []) or []:
+    for r in getattr(member, "roles", []) or []:
         if not r:
             continue
         try:
-            if getattr(r, 'managed', False):
+            if getattr(r, "managed", False):
                 continue
         except Exception:
             pass
-        roles.add(getattr(r, 'name', str(r)))
-    return MemberSnapshot(status=status, moniker=moniker, handle=handle, username=username, roles=roles)
+        roles.add(getattr(r, "name", str(r)))
+    return MemberSnapshot(
+        status=status, moniker=moniker, handle=handle, username=username, roles=roles
+    )
 
 
 @dataclass
 class MemberSnapshotDiff:
     status_before: str
     status_after: str
-    moniker_before: Optional[str]
-    moniker_after: Optional[str]
-    handle_before: Optional[str]
-    handle_after: Optional[str]
-    username_before: Optional[str]
-    username_after: Optional[str]
-    roles_added: List[str]
-    roles_removed: List[str]
+    moniker_before: str | None
+    moniker_after: str | None
+    handle_before: str | None
+    handle_after: str | None
+    username_before: str | None
+    username_after: str | None
+    roles_added: list[str]
+    roles_removed: list[str]
 
     # Backwards‑compatibility helpers (dict-like access in existing callers)
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def items(self):  # type: ignore[override]
+    def items(self) -> None:  # type: ignore[override]
         return self.to_dict().items()
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default=None) -> None:
         return getattr(self, key, default)
 
     # Mapping compatibility for existing dict-style usage
-    def __getitem__(self, key: str):  # pragma: no cover (thin wrapper)
+    def __getitem__(self, key: str) -> None:  # pragma: no cover (thin wrapper)
         return getattr(self, key)
 
-    def __setitem__(self, key: str, value):  # pragma: no cover
+    def __setitem__(self, key: str, value) -> None:  # pragma: no cover
         setattr(self, key, value)
 
-    def __contains__(self, key: str):  # pragma: no cover
+    def __contains__(self, key: str) -> None:  # pragma: no cover
         return hasattr(self, key)
 
 
 def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnapshotDiff:
-    roles_added: List[str] = sorted(list(after.roles - before.roles))
-    roles_removed: List[str] = sorted(list(before.roles - after.roles))
+    roles_added: list[str] = sorted(after.roles - before.roles)
+    roles_removed: list[str] = sorted(before.roles - after.roles)
     return MemberSnapshotDiff(
         status_before=before.status,
         status_after=after.status,
@@ -105,4 +113,9 @@ def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnaps
     )
 
 
-__all__ = ['MemberSnapshot', 'MemberSnapshotDiff', 'snapshot_member_state', 'diff_snapshots']
+__all__ = [
+    "MemberSnapshot",
+    "MemberSnapshotDiff",
+    "diff_snapshots",
+    "snapshot_member_state",
+]

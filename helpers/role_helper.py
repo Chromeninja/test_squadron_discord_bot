@@ -1,15 +1,16 @@
 # Helpers/role_helper.py
 
-import time
-import discord
+import contextlib
 import random
-from typing import Optional
+import time
 
+import discord
+
+from helpers.announcement import enqueue_verification_event
 from helpers.database import Database
+from helpers.discord_api import add_roles, edit_member, remove_roles
 from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
-from helpers.discord_api import add_roles, remove_roles, edit_member
-from helpers.announcement import enqueue_verification_event
 
 logger = get_logger(__name__)
 
@@ -17,7 +18,7 @@ logger = get_logger(__name__)
 def _compute_next_recheck(bot, new_status: str, now: int) -> int:
     cfg = (bot.config or {}).get("auto_recheck", {}) or {}
     cadence_map = cfg.get("cadence_days") or {}
-    jitter_h = int((cfg.get("jitter_hours") or 0))
+    jitter_h = int(cfg.get("jitter_hours") or 0)
     days = int(cadence_map.get(new_status or "", 0))  # Default 0 -> skip if unknown
     if days <= 0:
         return 0
@@ -30,8 +31,8 @@ async def assign_roles(
     verify_value: int,
     cased_handle: str,
     bot,
-    community_moniker: Optional[str] = None,
-):
+    community_moniker: str | None = None,
+) -> None:
     # Fetch previous status before DB update
     prev_status = None
     async with Database.get_connection() as db:
@@ -91,7 +92,13 @@ async def assign_roles(
                 needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
                 needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
             """,
-            (member.id, cased_handle, membership_status, int(time.time()), community_moniker),
+            (
+                member.id,
+                cased_handle,
+                membership_status,
+                int(time.time()),
+                community_moniker,
+            ),
         )
         await db.commit()
         logger.info(
@@ -131,7 +138,7 @@ async def assign_roles(
             # Enqueue removals
     if roles_to_remove:
 
-        async def remove_task():
+        async def remove_task() -> None:
             try:
                 await remove_roles(
                     member, *roles_to_remove, reason="Updating roles after verification"
@@ -156,7 +163,7 @@ async def assign_roles(
         # Enqueue additions
     if roles_to_add:
 
-        async def add_task():
+        async def add_task() -> None:
             nonlocal assigned_role_type
 
             try:
@@ -200,6 +207,7 @@ async def assign_roles(
         if len(nick) <= limit:
             return nick
         import unicodedata
+
         base = limit - 1
         truncated = nick[:base]
         # Strip trailing combining marks
@@ -210,17 +218,14 @@ async def assign_roles(
     if preferred_nick and can_modify_nickname(member):
         nick_final = _truncate_nickname(preferred_nick)
         # Persist preferred nick regardless of change for logging heuristics
-        try:
-            setattr(member, "_preferred_verification_nick", nick_final)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            member._preferred_verification_nick = nick_final
         current_nick = getattr(member, "nick", None)
         if current_nick != nick_final:
-            try:
-                setattr(member, "_nickname_changed_flag", True)
-            except Exception:
-                pass
-            async def nickname_task():
+            with contextlib.suppress(Exception):
+                member._nickname_changed_flag = True
+
+            async def nickname_task() -> None:
                 try:
                     await edit_member(member, nick=nick_final)
                     logger.info(
@@ -237,12 +242,11 @@ async def assign_roles(
                         f"Unexpected error when changing nickname: {e}",
                         extra={"user_id": member.id},
                     )
+
             await enqueue_task(nickname_task)
         else:
-            try:
-                setattr(member, "_nickname_changed_flag", False)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                member._nickname_changed_flag = False
     else:
         logger.warning(
             "Cannot change nickname due to role hierarchy.",
@@ -281,8 +285,8 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
     Caller is responsible for catching NotFoundError (RSI 404) and invoking
     unified remediation handler.
     """
-    from verification.rsi_verification import is_valid_rsi_handle
     from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
+    from verification.rsi_verification import is_valid_rsi_handle
 
     verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
         rsi_handle, bot.http_client

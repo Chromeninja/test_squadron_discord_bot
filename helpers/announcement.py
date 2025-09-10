@@ -2,14 +2,13 @@
 
 import datetime
 import time
-from typing import Dict, List, Tuple
 
 import discord
-from discord.ext import tasks, commands
+from discord.ext import commands, tasks
 
+from helpers.database import Database
 from helpers.discord_api import channel_send_message
 from helpers.logger import get_logger
-from helpers.database import Database
 
 logger = get_logger(__name__)
 
@@ -65,10 +64,8 @@ async def send_verification_announcements(
             if is_recheck:
                 await channel_send_message(
                     lead_channel,
-                    (
-                        f"🗂️ {member.mention} {log_action}{admin_phrase}: "
-                        + f"**{status_str(old_status)}** → **{status_str(new_status)}**"
-                    ),
+                    f"🗂️ {member.mention} {log_action}{admin_phrase}: "
+                    f"**{status_str(old_status)}** → **{status_str(new_status)}**",
                 )
             else:
                 await channel_send_message(
@@ -184,17 +181,15 @@ class BulkAnnouncer(commands.Cog):
         if not (0 <= self.minute_utc < 60):
             logger.warning("Invalid minute_utc in config; using 0")
             self.minute_utc = 0
-        if self.max_mentions_per_message < 5:
-            self.max_mentions_per_message = 5
-        if self.max_chars_per_message > 1950:
-            self.max_chars_per_message = 1950
+        self.max_mentions_per_message = max(self.max_mentions_per_message, 5)
+        self.max_chars_per_message = min(self.max_chars_per_message, 1950)
 
             # Daily timer
         self.daily_flush.change_interval(
             time=datetime.time(
                 hour=self.hour_utc,
                 minute=self.minute_utc,
-                tzinfo=datetime.timezone.utc,
+                tzinfo=datetime.UTC,
             )
         )
         self.daily_flush.reconnect = False
@@ -241,13 +236,13 @@ class BulkAnnouncer(commands.Cog):
             logger.info("BulkAnnouncer: no pending announcements to flush.")
             return False
 
-        latest_by_user: Dict[int, tuple] = {}  # User_id -> (id, event_type, created_at)
+        latest_by_user: dict[int, tuple] = {}  # User_id -> (id, event_type, created_at)
         for _id, user_id, et, ts in rows:
             prev = latest_by_user.get(user_id)
             if (prev is None) or (ts >= prev[2]):
                 latest_by_user[user_id] = (_id, et, ts)
 
-        events_by_type: Dict[str, List[Tuple[int, int]]] = {
+        events_by_type: dict[str, list[tuple[int, int]]] = {
             "joined_main": [],
             "joined_affiliate": [],
             "promoted_to_main": [],
@@ -260,7 +255,7 @@ class BulkAnnouncer(commands.Cog):
         allowed = discord.AllowedMentions(users=True, roles=False, everyone=False)
 
         sent_any = False
-        announced_ids: List[int] = []
+        announced_ids: list[int] = []
 
         sections = [
             (
@@ -289,8 +284,8 @@ class BulkAnnouncer(commands.Cog):
                 continue
 
                 # Build (id, mention) list with fallback mention
-            id_mention_pairs: List[Tuple[int, str]] = []
-            user_ids_in_section: List[int] = []
+            id_mention_pairs: list[tuple[int, str]] = []
+            user_ids_in_section: list[int] = []
             for ev_id, uid in items:
                 m = guild.get_member(uid)
                 mention = m.mention if m else f"<@{uid}>"
@@ -340,7 +335,7 @@ class BulkAnnouncer(commands.Cog):
 
         # ---------- Internal helpers ----------
 
-    def _compose_message(self, header: str, mentions: List[str], footer: str) -> str:
+    def _compose_message(self, header: str, mentions: list[str], footer: str) -> str:
         body = ",".join(mentions)
         parts = [header, body]
         if footer:
@@ -349,24 +344,24 @@ class BulkAnnouncer(commands.Cog):
 
     def _build_batches(
         self,
-        id_mention_pairs: List[Tuple[int, str]],
+        id_mention_pairs: list[tuple[int, str]],
         header: str,
         footer: str,
         max_mentions: int,
         max_chars: int,
-    ) -> List[Tuple[List[int], List[str]]]:
+    ) -> list[tuple[list[int], list[str]]]:
         """
         Produces batches where each batch:
           • has <= max_mentions mentions
           • and the full message length (header + mentions + footer) stays under max_chars
         Returns list of (ids, mentions) for each batch.
         """
-        batches: List[Tuple[List[int], List[str]]] = []
+        batches: list[tuple[list[int], list[str]]] = []
 
-        current_ids: List[int] = []
-        current_mentions: List[str] = []
+        current_ids: list[int] = []
+        current_mentions: list[str] = []
 
-        def msg_len(mentions_list: List[str]) -> int:
+        def msg_len(mentions_list: list[str]) -> int:
             content = self._compose_message(header, mentions_list, footer)
             return len(content)
 

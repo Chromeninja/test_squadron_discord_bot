@@ -1,33 +1,36 @@
 # Helpers/modals.py
 
-import discord
-from discord.ui import Modal, TextInput
+import contextlib
 import re
 
-from helpers.embeds import (
-    create_error_embed,
-    create_success_embed,
-    create_cooldown_embed,
-)
-from helpers.rate_limiter import (
-    log_attempt,
-    get_remaining_attempts,
-    check_rate_limit,
-    reset_attempts,
-)
-from helpers.token_manager import token_store, validate_token, clear_token
-from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
+import discord
+from discord.ui import Modal, TextInput
 from config.config_loader import ConfigLoader
-from helpers.role_helper import assign_roles
-from helpers.logger import get_logger
-from helpers.voice_utils import get_user_channel, update_channel_settings
+
 from helpers.discord_api import (
     edit_channel,
     followup_send_message,
 )
+from helpers.embeds import (
+    create_cooldown_embed,
+    create_error_embed,
+    create_success_embed,
+)
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
+from helpers.logger import get_logger
+from helpers.rate_limiter import (
+    check_rate_limit,
+    get_remaining_attempts,
+    log_attempt,
+    reset_attempts,
+)
+from helpers.token_manager import token_store, validate_token, clear_token
+from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
+from helpers.role_helper import assign_roles
+from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
+from helpers.voice_utils import get_user_channel, update_channel_settings
+from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
 
@@ -50,11 +53,11 @@ class HandleModal(Modal, title="Verification"):
         max_length=60,
     )
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         super().__init__(timeout=None)
         self.bot = bot
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         """
         Handles the submission of the verification modal.
 
@@ -115,20 +118,22 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-        # Use the already fetched verify_value and cased_handle (avoid double-fetch race condition)
-        # This prevents inconsistency between organization check and token validation
-        verify_value_check = verify_value
-        cased_handle_used = cased_handle
+            # Perform RSI verification with sanitized handle
+        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
+            cased_handle, self.bot.http_client
+        )
         if verify_value_check is None:
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check your handle again."
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-            logger.warning(
-                "Verification failed (post-check): invalid RSI handle.",
-                extra={"user_id": member.id},
-            )
+            logger.warning("RSI verification failed.", extra={"user_id": member.id})
             return
+
+        # Determine which cased handle to use (prefer the freshly-extracted one)
+        cased_handle_used = _cased_handle_2 or cased_handle
+        # Prefer the second call's community moniker if present
+        community_moniker = community_moniker_2 or community_moniker
 
         token_verify = await is_valid_rsi_bio(
             cased_handle_used, user_token_info["token"], self.bot.http_client
@@ -201,6 +206,7 @@ class HandleModal(Modal, title="Verification"):
 
         # Leadership log: snapshot before
         import time as _t
+
         _start = _t.time()
         before_snap = await snapshot_member_state(self.bot, member)
 
@@ -213,23 +219,21 @@ class HandleModal(Modal, title="Verification"):
             community_moniker=community_moniker,
         )
         # Allow enqueued role/nick tasks to process so snapshot reflects changes
-        try:
+        with contextlib.suppress(Exception):
             await flush_tasks()
-        except Exception:
-            pass
         after_snap = await snapshot_member_state(self.bot, member)
         diff = diff_snapshots(before_snap, after_snap)
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.VERIFICATION,
-            initiator_kind='User',
+            initiator_kind="User",
             initiator_name=None,
             notes=None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)
         cs.started_at = before_snap and cs.started_at  # preserve default
-    # duration tracking removed
+        # duration tracking removed
         try:
             await post_if_changed(self.bot, cs)
         except Exception:
@@ -278,7 +282,7 @@ class HandleModal(Modal, title="Verification"):
             )
 
         if "We set your Discord nickname" not in description:
-            description += ("\n\nWe set your Discord nickname to your RSI handle.")
+            description += "\n\nWe set your Discord nickname to your RSI handle."
         embed = create_success_embed(description)
 
         # 9) Send follow-up success
@@ -292,9 +296,9 @@ class HandleModal(Modal, title="Verification"):
                     "assigned_role": assigned_role_type,
                 },
             )
-        except Exception as e:
+        except Exception:
             logger.exception(
-                f"Failed to send verification success message: {e}",
+                "Failed to send verification success message",
                 extra={"user_id": member.id},
             )
 
@@ -304,7 +308,7 @@ class ResetSettingsConfirmationModal(Modal):
     Modal to confirm resetting channel settings.
     """
 
-    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None) -> None:
         super().__init__(title="Reset Channel Settings", timeout=None)
         self.bot = bot
         self.guild_id = guild_id
@@ -318,7 +322,7 @@ class ResetSettingsConfirmationModal(Modal):
         )
         self.add_item(self.confirm)
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         # Defer the response to acknowledge the interaction
         await interaction.response.defer(ephemeral=True)
 
@@ -346,16 +350,18 @@ class ResetSettingsConfirmationModal(Modal):
                 return
 
                 # Reset the channel settings
-            await voice_cog._reset_current_channel_settings(member, guild_id, self.jtc_channel_id)
+            await voice_cog._reset_current_channel_settings(
+                member, guild_id, self.jtc_channel_id
+            )
             await followup_send_message(
                 interaction,
                 "Your channel settings have been reset to default.",
                 ephemeral=True,
             )
             logger.info(f"{member.display_name} reset their channel settings.")
-        except Exception as e:
+        except Exception:
             logger.exception(
-                f"Error resetting channel settings for {member.display_name}: {e}"
+                f"Error resetting channel settings for {member.display_name}"
             )
             await followup_send_message(
                 interaction,
@@ -369,7 +375,7 @@ class NameModal(Modal):
     Modal to change the voice channel name.
     """
 
-    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None) -> None:
         super().__init__(title="Change Channel Name", timeout=None)
         self.bot = bot
         self.guild_id = guild_id
@@ -382,7 +388,7 @@ class NameModal(Modal):
         )
         self.add_item(self.channel_name)
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         # Defer immediately
         await interaction.response.defer(ephemeral=True)
 
@@ -398,7 +404,9 @@ class NameModal(Modal):
             )
             return
 
-        channel = await get_user_channel(self.bot, member, guild_id, self.jtc_channel_id)
+        channel = await get_user_channel(
+            self.bot, member, guild_id, self.jtc_channel_id
+        )
         if not channel:
             await followup_send_message(
                 interaction, "You don't own a channel.", ephemeral=True
@@ -407,7 +415,9 @@ class NameModal(Modal):
 
         try:
             await edit_channel(channel, name=new_name)
-            await update_channel_settings(member.id, guild_id, self.jtc_channel_id, channel_name=new_name)
+            await update_channel_settings(
+                member.id, guild_id, self.jtc_channel_id, channel_name=new_name
+            )
 
             await followup_send_message(
                 interaction,
@@ -424,9 +434,9 @@ class NameModal(Modal):
                 "I don't have permission to change the channel name.",
                 ephemeral=True,
             )
-        except Exception as e:
+        except Exception:
             logger.exception(
-                f"Failed to change channel name for {member.display_name}: {e}"
+                f"Failed to change channel name for {member.display_name}"
             )
             await followup_send_message(
                 interaction,
@@ -440,7 +450,7 @@ class LimitModal(Modal):
     Modal to set the user limit for the voice channel.
     """
 
-    def __init__(self, bot, guild_id=None, jtc_channel_id=None):
+    def __init__(self, bot, guild_id=None, jtc_channel_id=None) -> None:
         super().__init__(title="Set User Limit", timeout=None)
         self.bot = bot
         self.guild_id = guild_id
@@ -453,13 +463,13 @@ class LimitModal(Modal):
         )
         self.add_item(self.user_limit)
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         # Defer immediately
         await interaction.response.defer(ephemeral=True)
 
         member = interaction.user
         guild_id = self.guild_id or interaction.guild.id
-        
+
         try:
             limit = int(self.user_limit.value.strip())
             if not (2 <= limit <= 99):
@@ -470,7 +480,9 @@ class LimitModal(Modal):
             return
 
             # Update user limit
-        channel = await get_user_channel(self.bot, member, guild_id, self.jtc_channel_id)
+        channel = await get_user_channel(
+            self.bot, member, guild_id, self.jtc_channel_id
+        )
         if not channel:
             await followup_send_message(
                 interaction, "You don't own a channel.", ephemeral=True
@@ -481,7 +493,9 @@ class LimitModal(Modal):
             await edit_channel(channel, user_limit=limit)
 
             # Update settings using the helper function
-            await update_channel_settings(member.id, guild_id, self.jtc_channel_id, user_limit=limit)
+            await update_channel_settings(
+                member.id, guild_id, self.jtc_channel_id, user_limit=limit
+            )
 
             embed = create_success_embed(f"User limit has been set to {limit}.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
@@ -494,7 +508,7 @@ class LimitModal(Modal):
             )
             embed = create_error_embed("I don't have permission to set the user limit.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-        except Exception as e:
-            logger.exception(f"Failed to set user limit: {e}")
+        except Exception:
+            logger.exception("Failed to set user limit")
             embed = create_error_embed("Failed to set user limit. Please try again.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)

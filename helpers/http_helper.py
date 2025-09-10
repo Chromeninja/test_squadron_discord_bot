@@ -1,8 +1,9 @@
 # Helpers/http_helper.py
 
-import aiohttp
 import asyncio
-from typing import Optional
+
+import aiohttp
+
 from helpers.logger import get_logger
 
 logger = get_logger(__name__)
@@ -11,7 +12,6 @@ logger = get_logger(__name__)
 class NotFoundError(Exception):
     """Raised when a 404 is encountered and the caller should treat the resource as gone."""
 
-    pass
 
 
 class HTTPClient:
@@ -19,8 +19,8 @@ class HTTPClient:
         self,
         timeout: int = 15,
         concurrency: int = 8,
-        user_agent: Optional[str] = None,
-    ):
+        user_agent: str | None = None,
+    ) -> None:
         """Thin wrapper around aiohttp with a concurrency semaphore and
         project‑specific error semantics.
 
@@ -33,7 +33,7 @@ class HTTPClient:
         """
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._sem = asyncio.Semaphore(concurrency)
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._user_agent = user_agent or "Mozilla/5.0 TESTBot"
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -43,11 +43,11 @@ class HTTPClient:
             )
         return self._session
 
-    async def close(self):
+    async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def fetch_html(self, url: str) -> Optional[str]:
+    async def fetch_html(self, url: str) -> str | None:
         """
         GET HTML with light rate limiting and clear error semantics:
           - 200: returns text
@@ -74,7 +74,7 @@ class HTTPClient:
                         # Treat other statuses as transient / generic failures
                     logger.warning(f"HTTP {status} for {url}")
                     return None
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Timeout while fetching {url}")
                 return None
             except aiohttp.ClientError as e:

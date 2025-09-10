@@ -2,7 +2,7 @@
 
 import secrets
 import time
-from typing import Tuple
+
 from helpers.logger import get_logger
 
 # Initialize logger
@@ -31,7 +31,7 @@ def generate_token(user_id: int) -> str:
     return token
 
 
-def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
+def validate_token(user_id: int, token: str) -> tuple[bool, str]:
     """
     Validates the provided token for the user.
 
@@ -40,7 +40,7 @@ def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
         token (str): The token to validate.
 
     Returns:
-        Tuple[bool, str]: Indicates if the token is valid and an accompanying message.
+        tuple[bool, str]: Indicates if the token is valid and an accompanying message.
     """
     token = token.zfill(4)
     user_token_info = token_store.get(user_id)
@@ -56,7 +56,7 @@ def validate_token(user_id: int, token: str) -> Tuple[bool, str]:
     return True, "Token is valid."
 
 
-def clear_token(user_id: int):
+def clear_token(user_id: int) -> None:
     """
     Clears the token for the user after successful verification or expiration.
 
@@ -68,7 +68,7 @@ def clear_token(user_id: int):
         logger.debug("Cleared token for user.", extra={"user_id": user_id})
 
 
-def cleanup_tokens():
+def cleanup_tokens() -> None:
     """
     Cleans up expired tokens from the token store.
     """
@@ -82,7 +82,7 @@ def cleanup_tokens():
         del token_store[user_id]
 
 
-def clear_all_tokens():
+def clear_all_tokens() -> None:
     """
     Clears the tokens for all users.
     """

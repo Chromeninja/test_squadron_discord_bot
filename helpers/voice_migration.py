@@ -1,3 +1,5 @@
+# helpers/voice_migration.py
+
 """Safe, application-driven migration helpers for voice/guild settings.
 
 This module contains an idempotent migration routine that can be run at
@@ -12,33 +14,32 @@ Policy used:
 - If the bot is in multiple guilds, log an actionable warning and do nothing
   (manual resolution required).
 """
-from typing import List, Optional
+
+import contextlib
 import json
-from helpers.logger import get_logger
+
 from helpers.database import Database
+from helpers.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-async def _parse_legacy_jtc(value: str) -> Optional[List[int]]:
+async def _parse_legacy_jtc(value: str) -> list[int] | None:
     if not value:
         return None
     # Try JSON first (most robust)
-    try:
+    with contextlib.suppress(Exception):
         parsed = json.loads(value)
         if isinstance(parsed, list):
             return [int(x) for x in parsed]
         if isinstance(parsed, int):
             return [int(parsed)]
-    except Exception:
-        pass
 
     # Fallback: comma-separated string of ints
-    try:
+    with contextlib.suppress(Exception):
         parts = [p.strip() for p in value.split(",") if p.strip()]
         return [int(p) for p in parts]
-    except Exception:
-        return None
+    return None
 
 
 async def run_voice_data_migration(bot) -> None:
@@ -58,14 +59,18 @@ async def run_voice_data_migration(bot) -> None:
             )
             row = await cursor.fetchone()
             if not row or not row[0]:
-                logger.debug("Voice migration: no legacy join_to_create_channel_ids found; skipping.")
+                logger.debug(
+                    "Voice migration: no legacy join_to_create_channel_ids found; "
+                    "skipping."
+                )
                 return
 
             legacy_val = row[0]
             jtc_list = await _parse_legacy_jtc(legacy_val)
             if not jtc_list:
                 logger.warning(
-                    "Voice migration: could not parse legacy join_to_create_channel_ids value; skipping. value=%r",
+                    "Voice migration: could not parse legacy "
+                    "join_to_create_channel_ids value; skipping. value=%r",
                     legacy_val,
                 )
                 return
@@ -76,21 +81,31 @@ async def run_voice_data_migration(bot) -> None:
                 ("join_to_create_channel_ids",),
             )
             if await cursor.fetchone():
-                logger.info("Voice migration: guild-scoped join_to_create_channel_ids already present; skipping migration.")
+                logger.info(
+                    "Voice migration: guild-scoped join_to_create_channel_ids "
+                    "already present; skipping migration."
+                )
                 return
 
-            # If bot is in exactly one guild, safely migrate the legacy list to that guild
+            # If bot is in exactly one guild, safely migrate the legacy list to
+            # that guild
             guilds = list(bot.guilds)
             if len(guilds) == 1:
                 target_guild_id = guilds[0].id
                 # Insert idempotently
                 await db.execute(
-                    "INSERT OR IGNORE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-                    (target_guild_id, "join_to_create_channel_ids", json.dumps(jtc_list)),
+                    "INSERT OR IGNORE INTO guild_settings "
+                    "(guild_id, key, value) VALUES (?, ?, ?)",
+                    (
+                        target_guild_id,
+                        "join_to_create_channel_ids",
+                        json.dumps(jtc_list),
+                    ),
                 )
                 await db.commit()
                 logger.info(
-                    "Voice migration: migrated legacy join_to_create_channel_ids to guild %s (N=%d entries).",
+                    "Voice migration: migrated legacy join_to_create_channel_ids "
+                    "to guild %s (N=%d entries).",
                     target_guild_id,
                     len(jtc_list),
                 )
@@ -98,16 +113,18 @@ async def run_voice_data_migration(bot) -> None:
 
             # Ambiguous: multiple guilds or zero guilds — leave for manual resolution
             if len(guilds) == 0:
-                logger.info("Voice migration: bot is not in any guilds; skipping automatic migration.")
+                logger.info(
+                    "Voice migration: bot is not in any guilds; skipping "
+                    "automatic migration."
+                )
             else:
                 logger.warning(
-                    "Voice migration: multiple guilds detected (%d); automatic migration skipped. Please run a per-guild migration tool.",
+                    "Voice migration: multiple guilds detected (%d); automatic "
+                    "migration skipped. Please run a per-guild migration tool.",
                     len(guilds),
                 )
 
-        except Exception as e:
-            try:
+        except Exception:
+            with contextlib.suppress(Exception):
                 await db.rollback()
-            except Exception:
-                pass
-            logger.exception("Voice migration: unexpected error: %s", e)
+            logger.exception("Voice migration: unexpected error")

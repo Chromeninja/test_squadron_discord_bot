@@ -1,21 +1,23 @@
 # Bot.py
 
+import asyncio
+import os
+import time
+
 import discord
 from discord.ext import commands
-import os
-import asyncio
-import time
 from dotenv import load_dotenv
 
 from config.config_loader import ConfigLoader
-from helpers.http_helper import HTTPClient
-from helpers.token_manager import cleanup_tokens
-from helpers.views import VerificationView, ChannelSettingsView
-from helpers.rate_limiter import cleanup_attempts
-from helpers.logger import get_logger
-from helpers.database import Database
-from helpers.task_queue import start_task_workers, task_queue
 from helpers.announcement import BulkAnnouncer
+from helpers.database import Database
+from helpers.http_helper import HTTPClient
+from helpers.logger import get_logger
+from helpers.rate_limiter import cleanup_attempts
+from helpers.task_queue import start_task_workers, task_queue
+from helpers.token_manager import cleanup_tokens
+from helpers.views import ChannelSettingsView, VerificationView
+from utils.tasks import spawn
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -35,7 +37,9 @@ if not TOKEN:
 # Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
 # Some deployments may accidentally supply an empty list / string; fall back to mention‑only behavior.
 raw_prefix = config["bot"].get("prefix")
-PREFIX = commands.when_mentioned if not raw_prefix else raw_prefix  # empty list, empty string, None -> default
+PREFIX = (
+    raw_prefix if raw_prefix else commands.when_mentioned
+)  # empty list, empty string, None -> default
 VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
 BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
 BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
@@ -43,7 +47,9 @@ MAIN_ROLE_ID = config["roles"]["main_role_id"]
 AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
 NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
 BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("bot_admins", [])]
-LEAD_MODERATOR_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("lead_moderators", [])]
+LEAD_MODERATOR_ROLE_IDS = [
+    int(role_id) for role_id in config["roles"].get("lead_moderators", [])
+]
 
 intents = discord.Intents.default()
 intents.guilds = True  # Needed for guild-related events
@@ -64,35 +70,35 @@ initial_extensions = [
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
-    def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
 
-            # Assign the entire config to the bot instance
-            self.config = config
+        # Assign the entire config to the bot instance
+        self.config = config
 
-            # Pass role and channel IDs to the bot for use in cogs
-            self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
-            self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
-            self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
-            self.MAIN_ROLE_ID = MAIN_ROLE_ID
-            self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
-            self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
-            self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
-            self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
+        # Pass role and channel IDs to the bot for use in cogs
+        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
+        self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
+        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
+        self.MAIN_ROLE_ID = MAIN_ROLE_ID
+        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
+        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
+        self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
+        self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
 
-            # Initialize uptime tracking
-            self.start_time = time.monotonic()
+        # Initialize uptime tracking
+        self.start_time = time.monotonic()
 
-            # Initialize the HTTP client with configurable user-agent (falls back internally)
-            rsi_cfg = (self.config or {}).get("rsi", {}) or {}
-            ua = rsi_cfg.get("user_agent")
-            self.http_client = HTTPClient(user_agent=ua)
+        # Initialize the HTTP client with configurable user-agent (falls back internally)
+        rsi_cfg = (self.config or {}).get("rsi", {}) or {}
+        ua = rsi_cfg.get("user_agent")
+        self.http_client = HTTPClient(user_agent=ua)
 
-            # Initialize role cache and warning tracking
-            self.role_cache = {}
-            self._missing_role_warned_guilds = set()
+        # Initialize role cache and warning tracking
+        self.role_cache = {}
+        self._missing_role_warned_guilds = set()
 
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         """Load cogs, initialize services, and sync commands."""
         # Initialize the database
         await Database.initialize()
@@ -103,7 +109,7 @@ class MyBot(commands.Bot):
 
             await run_voice_data_migration(self)
         except Exception as e:
-            logger.error(f"Voice data migration failed: {e}")
+            logger.exception(f"Voice data migration failed: {e}")
 
         # Add the BulkAnnouncer cog after DB is initialized
         await self.add_cog(BulkAnnouncer(self))
@@ -122,14 +128,14 @@ class MyBot(commands.Bot):
                 await self.load_extension(extension)
                 logger.info(f"Loaded extension: {extension}")
             except Exception as e:
-                logger.error(f"Failed to load extension {extension}: {e}")
+                logger.exception(f"Failed to load extension {extension}: {e}")
 
         # Cache roles after bot is ready
-        self.loop.create_task(self.cache_roles())
+        spawn(self.cache_roles())
 
         # Start cleanup tasks
-        self.loop.create_task(self.token_cleanup_task())
-        self.loop.create_task(self.attempts_cleanup_task())
+        spawn(self.token_cleanup_task())
+        spawn(self.attempts_cleanup_task())
 
         # Register persistent views (must happen every startup for persistence to work)
         self.add_view(VerificationView(self))
@@ -140,7 +146,7 @@ class MyBot(commands.Bot):
             await self.tree.sync()
             logger.info("All commands synced globally.")
         except Exception as e:
-            logger.error(f"Failed to sync commands: {e}")
+            logger.exception(f"Failed to sync commands: {e}")
 
         # Set command permissions for each guild (always attempt regardless of sync result)
         for guild in self.guilds:
@@ -149,9 +155,11 @@ class MyBot(commands.Bot):
         # Log all loaded commands after the setup (deterministic ordering)
         logger.info("Registered commands: ")
         for command in self.tree.walk_commands():
-            logger.info(f"- Command: {command.name}, Description: {command.description}")
+            logger.info(
+                f"- Command: {command.name}, Description: {command.description}"
+            )
 
-    async def on_ready(self):
+    async def on_ready(self) -> None:
         """Called when the bot is ready."""
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
@@ -164,7 +172,7 @@ class MyBot(commands.Bot):
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
 
-    async def check_bot_permissions(self, guild: discord.Guild):
+    async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
         required_permissions = [
             "manage_roles",
@@ -200,7 +208,7 @@ class MyBot(commands.Bot):
                 f"All required permissions are present in guild '{guild.name}'."
             )
 
-    async def cache_roles(self):
+    async def cache_roles(self) -> None:
         """Cache commonly used Role objects from the first guild."""
         await self.wait_until_ready()
         if not self.guilds:
@@ -242,7 +250,7 @@ class MyBot(commands.Bot):
                         f"Role with ID {role_id} not found in guild '{guild.name}' (already reported)."
                     )
 
-    async def set_admin_command_permissions(self, guild: discord.Guild):
+    async def set_admin_command_permissions(self, guild: discord.Guild) -> None:
         """Attempt per-command role permissions; fall back to runtime checks."""
 
         # Define the restricted commands and combine role IDs
@@ -286,10 +294,8 @@ class MyBot(commands.Bot):
                     # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
         if not valid_roles:
             logger.info(
-                (
-                    "No valid configured admin/lead-moderator roles present in guild '"
-                    + f"{guild.name}'. Skipping App Command permission setup and relying on runtime checks."
-                )
+                f"No valid configured admin/lead-moderator roles present in guild '{guild.name}'. "
+                "Skipping App Command permission setup and relying on runtime checks."
             )
             return
 
@@ -304,10 +310,10 @@ class MyBot(commands.Bot):
             and hasattr(self.tree, "set_permissions")
         ):
             logger.info(
-                (
+
                     "Per-command App Command permission API not available in this environment; "
                     "skipping and relying on runtime decorator checks."
-                )
+
             )
             return
 
@@ -332,10 +338,8 @@ class MyBot(commands.Bot):
                     except discord.HTTPException as e:
                         # Discord may reject the operation; log at INFO and continue
                         logger.info(
-                            (
-                                f"Discord rejected App Command permission update for '{cmd_name}' "
-                                + f"in guild '{guild.name}': {e}. Continuing with runtime checks."
-                            )
+                            f"Discord rejected App Command permission update for '{cmd_name}' "
+                            f"in guild '{guild.name}': {e}. Continuing with runtime checks."
                         )
                 else:
                     logger.debug(
@@ -344,13 +348,13 @@ class MyBot(commands.Bot):
         except Exception as e:
             # Catch-all: don't let permission setup break bot startup.
             logger.info(
-                (
+
                     f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
                     + "Using runtime decorator checks instead."
-                )
+
             )
 
-    async def token_cleanup_task(self):
+    async def token_cleanup_task(self) -> None:
         """
         Periodically cleans up expired tokens.
         """
@@ -359,7 +363,7 @@ class MyBot(commands.Bot):
             cleanup_tokens()
             logger.debug("Expired tokens cleaned up.")
 
-    async def attempts_cleanup_task(self):
+    async def attempts_cleanup_task(self) -> None:
         """
         Periodically cleans up expired rate-limiting data.
         """
@@ -382,7 +386,7 @@ class MyBot(commands.Bot):
         minutes, seconds = divmod(remainder, 60)
         return f"{hours}h {minutes}m {seconds}s"
 
-    async def close(self):
+    async def close(self) -> None:
         """
         Closes the bot and the HTTP client session.
         """

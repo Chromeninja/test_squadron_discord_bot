@@ -1,12 +1,15 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from helpers.views import VerificationView
 from tests.conftest import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
-async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mock_bot):
+async def test_get_token_button_calls_rate_limit_and_sends_embed(
+    monkeypatch, mock_bot
+) -> None:
     view = VerificationView(mock_bot)
 
     # Patch rate limiter and attempt logging (avoid DB)
@@ -18,11 +21,12 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mo
     # Patch send_message to capture calls
     sent = {"called": False}
 
-    async def fake_send_message(interaction, content, ephemeral=False, embed=None, view=None):
+    async def fake_send_message(
+        interaction, content, ephemeral=False, embed=None, view=None
+    ) -> None:
         sent["called"] = True
         assert ephemeral is True
         assert embed is not None
-        return None
 
     monkeypatch.setattr("helpers.views.send_message", fake_send_message)
 
@@ -32,7 +36,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(monkeypatch, mo
 
 
 @pytest.mark.asyncio
-async def test_verify_button_opens_modal_when_not_rate_limited(monkeypatch, mock_bot):
+async def test_verify_button_opens_modal_when_not_rate_limited(
+    monkeypatch, mock_bot
+) -> None:
     view = VerificationView(mock_bot)
     monkeypatch.setattr(
         "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
@@ -45,19 +51,19 @@ async def test_verify_button_opens_modal_when_not_rate_limited(monkeypatch, mock
 
 
 @pytest.mark.asyncio
-async def test_recheck_button_forwards_to_cog(monkeypatch, mock_bot):
+async def test_recheck_button_forwards_to_cog(monkeypatch, mock_bot) -> None:
     view = VerificationView(mock_bot)
 
     # Attach a fake VerificationCog with method recheck_button
     class FakeCog:
-        def __init__(self):
+        def __init__(self) -> None:
             self.called = False
 
-        async def recheck_button(self, interaction):
+        async def recheck_button(self, interaction) -> None:
             self.called = True
 
     fake_cog = FakeCog()
-    setattr(mock_bot, "_cog_VerificationCog", fake_cog)
+    mock_bot._cog_VerificationCog = fake_cog
 
     ix = FakeInteraction(FakeUser(9, "Recheck"))
     await view.recheck_button_callback(ix)

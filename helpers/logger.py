@@ -1,15 +1,16 @@
 # Helpers/logger.py
 
+import json
 import logging
 import logging.handlers
 import os
-import json
 import queue
+
 from config.config_loader import ConfigLoader
 
 
 class CustomJsonFormatter(logging.Formatter):
-    def __init__(self, datefmt=None):
+    def __init__(self, datefmt: str | None = None) -> None:
         super().__init__(datefmt=datefmt)
 
     def format(self, record: logging.LogRecord) -> str:
@@ -29,7 +30,7 @@ class CustomJsonFormatter(logging.Formatter):
         return json.dumps(record_dict, ensure_ascii=False)
 
 
-def setup_logging():
+def setup_logging() -> None:
     config = ConfigLoader.load_config()
     logging_config = config.get("logging", {})
     log_level_name = logging_config.get("level", "INFO").upper()
@@ -44,7 +45,7 @@ def setup_logging():
     if not os.path.exists("logs"):
         os.makedirs("logs")
 
-    log_queue = queue.Queue(maxsize=1000)
+    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=1000)
     queue_listener = _build_queue_listener(log_queue, log_level)
 
     queue_handler = logging.handlers.QueueHandler(log_queue)
@@ -94,7 +95,7 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def set_module_logging_level(module_name: str, level: int):
+def set_module_logging_level(module_name: str, level: int) -> None:
     """
     Sets the logging level for a specific module.
 

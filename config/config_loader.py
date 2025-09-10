@@ -1,8 +1,9 @@
 # Config/config_loader.py
 
-import yaml
 import logging
-from typing import Any, Dict
+from typing import Any
+
+import yaml
 
 
 class ConfigLoader:
@@ -10,10 +11,10 @@ class ConfigLoader:
     Singleton class to load and provide access to configuration data.
     """
 
-    _config: Dict[str, Any] = {}
+    _config: dict[str, Any] = {}
 
     @classmethod
-    def load_config(cls, config_path: str = "config/config.yaml") -> Dict[str, Any]:
+    def load_config(cls, config_path: str = "config/config.yaml") -> dict[str, Any]:
         """
         Loads the configuration from a YAML file if not already loaded.
 
@@ -25,7 +26,7 @@ class ConfigLoader:
         """
         if not cls._config:
             try:
-                with open(config_path, "r", encoding="utf-8") as file:
+                with open(config_path, encoding="utf-8") as file:
                     cls._config = yaml.safe_load(file) or {}
                 logging.info("Configuration loaded successfully.")
 
@@ -48,17 +49,19 @@ class ConfigLoader:
                 )
                 cls._config = {}
             except yaml.YAMLError as e:
-                logging.error(f"Error parsing the configuration file: {e}; using empty/default config.")
+                logging.exception(
+                    f"Error parsing the configuration file: {e}; using empty/default config."
+                )
                 cls._config = {}
             except UnicodeDecodeError as e:
-                logging.error(
+                logging.exception(
                     f"Encoding error while reading the configuration file: {e}; using empty/default config."
                 )
                 cls._config = {}
         return cls._config
 
     @classmethod
-    def _validate_logging_level(cls):
+    def _validate_logging_level(cls) -> None:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         logging_config = cls._config.get("logging", {})
         level = logging_config.get("level", "INFO").upper()
@@ -66,10 +69,11 @@ class ConfigLoader:
             logging.warning(
                 f"Invalid logging level '{level}' in config. Defaulting to 'INFO'."
             )
-            cls._config["logging"]["level"] = "INFO"
+            logging_cfg = cls._config.setdefault("logging", {})
+            logging_cfg["level"] = "INFO"
 
     @classmethod
-    def _convert_role_ids_to_int(cls):
+    def _convert_role_ids_to_int(cls) -> None:
         """
         Converts all role IDs in the configuration from strings to integers.
         """
@@ -89,7 +93,7 @@ class ConfigLoader:
                     roles[key] = int(roles[key])
                     logging.debug(f"Converted {key} to integer: {roles[key]}")
                 except ValueError:
-                    logging.error(f"Role ID for {key} must be an integer.")
+                    logging.exception(f"Role ID for {key} must be an integer.")
                     raise
 
                     # Define keys that are lists of role IDs
@@ -101,7 +105,7 @@ class ConfigLoader:
                     roles[key] = [int(role_id) for role_id in roles[key]]
                     logging.debug(f"Converted {key} to list of integers: {roles[key]}")
                 except ValueError:
-                    logging.error(f"All role IDs in {key} must be integers.")
+                    logging.exception(f"All role IDs in {key} must be integers.")
                     raise
 
                     # Convert selectable_roles from config to a list of integers if present
@@ -114,7 +118,7 @@ class ConfigLoader:
                     f"Converted selectable_roles to list of integers: {cls._config['selectable_roles']}"
                 )
             except ValueError:
-                logging.error("All selectable_roles must be integers.")
+                logging.exception("All selectable_roles must be integers.")
                 raise
 
     @classmethod

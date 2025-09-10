@@ -3,18 +3,19 @@ import time
 from helpers import token_manager as tm
 
 
-def test_generate_and_validate_token(monkeypatch):
+def test_generate_and_validate_token(monkeypatch) -> None:
     tm.clear_all_tokens()
     user_id = 42
     token = tm.generate_token(user_id)
-    assert len(token) == 4 and token.isdigit()
+    assert len(token) == 4
+    assert token.isdigit()
 
     ok, msg = tm.validate_token(user_id, token)
     assert ok is True
     assert "valid" in msg.lower()
 
 
-def test_validate_token_wrong_and_missing():
+def test_validate_token_wrong_and_missing() -> None:
     tm.clear_all_tokens()
     user_id = 43
     ok, msg = tm.validate_token(user_id, "0000")
@@ -27,7 +28,7 @@ def test_validate_token_wrong_and_missing():
     assert "invalid token" in msg.lower()
 
 
-def test_token_expiration(monkeypatch):
+def test_token_expiration(monkeypatch) -> None:
     tm.clear_all_tokens()
     user_id = 44
     token = tm.generate_token(user_id)
@@ -41,7 +42,7 @@ def test_token_expiration(monkeypatch):
     assert "expired" in msg.lower()
 
 
-def test_clear_and_cleanup_tokens(monkeypatch):
+def test_clear_and_cleanup_tokens(monkeypatch) -> None:
     tm.clear_all_tokens()
     user_id = 45
     tm.generate_token(user_id)

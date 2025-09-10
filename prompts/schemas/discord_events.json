@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "discord_events.json",
+  "title": "Discord Events Schema",
+  "description": "Schema definitions for Discord events and entities used by the bot",
+  
+  "definitions": {
+    "member": {
+      "type": "object",
+      "description": "Discord guild member object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Discord user ID"
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Display name in the guild"
+        },
+        "mention": {
+          "type": "string",
+          "description": "Discord mention string"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/role"
+          },
+          "description": "List of roles assigned to member"
+        },
+        "guild": {
+          "$ref": "#/definitions/guild"
+        }
+      },
+      "required": ["id", "display_name"]
+    },
+    
+    "role": {
+      "type": "object",
+      "description": "Discord role object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Discord role ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Role name"
+        },
+        "permissions": {
+          "type": "integer",
+          "description": "Permission bitfield"
+        }
+      },
+      "required": ["id", "name"]
+    },
+    
+    "guild": {
+      "type": "object",
+      "description": "Discord guild (server) object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Discord guild ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Guild name"
+        }
+      },
+      "required": ["id", "name"]
+    },
+    
+    "channel": {
+      "type": "object",
+      "description": "Discord channel object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Discord channel ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Channel name"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "voice", "category", "stage", "forum"],
+          "description": "Channel type"
+        },
+        "guild_id": {
+          "type": "integer",
+          "description": "Parent guild ID"
+        }
+      },
+      "required": ["id", "name", "type"]
+    },
+    
+    "voice_state": {
+      "type": "object",
+      "description": "Discord voice state object",
+      "properties": {
+        "channel": {
+          "oneOf": [
+            {"$ref": "#/definitions/channel"},
+            {"type": "null"}
+          ],
+          "description": "Voice channel member is connected to"
+        },
+        "member": {
+          "$ref": "#/definitions/member"
+        }
+      }
+    }
+  }
+}

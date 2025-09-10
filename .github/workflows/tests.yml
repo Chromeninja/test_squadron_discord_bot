@@ -49,5 +49,13 @@ jobs:
           mkdir -p config
           cp config/config-example.yaml config/config.yaml
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run tests with coverage
+        run: |
+          coverage run -m pytest -q
+          coverage xml
+
+      - name: Upload coverage as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml

@@ -48,9 +48,9 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+.pytest_cache/
 *.py,cover
 .hypothesis/
-.pytest_cache/
 cover/
 
 # Translations
@@ -112,28 +112,40 @@ dmypy.json
 # Pyright type checker
 pyrightconfig.json
 
-# vscode
-.vscode/
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+# Keep .vscode/extensions.json for project setup
 
 # Logs
 logs/
 *.log
 
-# Discord bot specific
+# Database files
 *.db
+*.sqlite
+*.sqlite3
 
-# Ignore all .env files
-.env*
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.development
+.env.production
 
-# Ignore OS-specific files
+# OS-specific files
 .DS_Store
 Thumbs.db
 
-# Ignore virtual environments
-.env/
-venv/
-
-#other
+# Project-specific
 all_code.txt
 verification_message_id.json
+
+# Node.js (for mixed projects)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Modern Python tools
+.ruff_cache/
 config/config.yaml

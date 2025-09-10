@@ -1,26 +1,29 @@
 # Cogs/admin.py
 
+import contextlib
+import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
 from config.config_loader import ConfigLoader
-from helpers.logger import get_logger
-from helpers.rate_limiter import reset_attempts, reset_all_attempts
-from helpers.token_manager import clear_token, clear_all_tokens
-from helpers.discord_api import send_message
 from helpers.database import Database
-from helpers.role_helper import reverify_member
+from helpers.discord_api import send_message
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import snapshot_member_state, diff_snapshots
-from helpers.task_queue import flush_tasks
+from helpers.logger import get_logger
 from helpers.permissions_helper import (
-    resolve_role_ids_for_guild,
     app_command_check_configured_roles,
+    resolve_role_ids_for_guild,
 )
+from helpers.rate_limiter import reset_all_attempts, reset_attempts
+from helpers.role_helper import reverify_member
+from helpers.snapshots import diff_snapshots, snapshot_member_state
+from helpers.task_queue import flush_tasks
+from helpers.token_manager import clear_all_tokens, clear_token
 
 logger = get_logger(__name__)
 config = ConfigLoader.load_config()
@@ -29,7 +32,7 @@ config = ConfigLoader.load_config()
 class Admin(commands.Cog):
     """Admin commands for managing the bot."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.BOT_ADMIN_ROLE_IDS = getattr(self.bot, "BOT_ADMIN_ROLE_IDS", [])
         if not hasattr(self.bot, "BOT_ADMIN_ROLE_IDS"):
@@ -74,7 +77,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     @app_command_check_configured_roles(config["roles"]["bot_admins"])
     @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
-    async def reset_all(self, interaction: discord.Interaction):
+    async def reset_all(self, interaction: discord.Interaction) -> None:
         """
         Reset verification timers for all members. Bot Admins only.
         """
@@ -102,7 +105,7 @@ class Admin(commands.Cog):
     )
     async def reset_user(
         self, interaction: discord.Interaction, member: discord.Member
-    ):
+    ) -> None:
         """
         Reset a specific user's verification timer. Bot Admins and Lead Moderators.
         """
@@ -129,7 +132,7 @@ class Admin(commands.Cog):
     @app_commands.checks.has_any_role(
         *config["roles"]["bot_admins"], *config["roles"]["lead_moderators"]
     )
-    async def status(self, interaction: discord.Interaction):
+    async def status(self, interaction: discord.Interaction) -> None:
         """
         Check bot status. Bot Admins and Lead Moderators.
         """
@@ -149,7 +152,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     @app_command_check_configured_roles(config["roles"]["bot_admins"])
     @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
-    async def view_logs(self, interaction: discord.Interaction):
+    async def view_logs(self, interaction: discord.Interaction) -> None:
         """
         View bot logs. Bot Admins only.
         """
@@ -167,7 +170,7 @@ class Admin(commands.Cog):
                 return
 
             with open(
-                log_file_path, "r", encoding="utf-8", errors="ignore"
+                log_file_path, encoding="utf-8", errors="ignore"
             ) as log_file:
                 logs = log_file.read()
 
@@ -213,7 +216,7 @@ class Admin(commands.Cog):
     @app_commands.guild_only()
     async def recheck_user(
         self, interaction: discord.Interaction, member: discord.Member
-    ):
+    ) -> None:
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         # Fetch last known verification row
@@ -225,26 +228,33 @@ class Admin(commands.Cog):
             row = await cursor.fetchone()
 
         if not row:
-            await interaction.followup.send(f"{member.mention} is not verified yet.", ephemeral=True)
+            await interaction.followup.send(
+                f"{member.mention} is not verified yet.", ephemeral=True
+            )
             return
 
         rsi_handle, old_status_record, last_ts = row
         try:
             date_str = (
-                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC") if last_ts else "unknown"
+                datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M UTC")
+                if last_ts
+                else "unknown"
             )
         except Exception:
             date_str = "unknown"
 
+        # Take snapshot BEFORE reverify so we can diff DB + nickname/roles changes correctly
+        import time as _t
+
         from helpers.http_helper import NotFoundError
         from helpers.username_404 import handle_username_404
 
-        # Take snapshot BEFORE reverify so we can diff DB + nickname/roles changes correctly
-        import time as _t
         _start = _t.time()
         before_snap = await snapshot_member_state(self.bot, member)
         try:
-            success, status_tuple, error_msg = await reverify_member(member, rsi_handle, self.bot)
+            success, status_tuple, error_msg = await reverify_member(
+                member, rsi_handle, self.bot
+            )
         except NotFoundError:
             # Handle 404 (handle changed)
             try:
@@ -259,7 +269,9 @@ class Admin(commands.Cog):
             return
 
         if not success:
-            await interaction.followup.send(error_msg or "Re-check failed.", ephemeral=True)
+            await interaction.followup.send(
+                error_msg or "Re-check failed.", ephemeral=True
+            )
             return
 
         # Determine old/new status
@@ -271,10 +283,8 @@ class Admin(commands.Cog):
 
         admin_display = interaction.user.display_name or interaction.user.name
         # Leadership snapshot diff (after roles/nick tasks flushed)
-        try:
+        with contextlib.suppress(Exception):
             await flush_tasks()
-        except Exception:
-            pass
         # Attempt to refetch member to ensure updated nickname/roles reflected
         try:
             refreshed = await member.guild.fetch_member(member.id)
@@ -286,22 +296,24 @@ class Admin(commands.Cog):
         diff = diff_snapshots(before_snap, after_snap)
         # Fallback: if no username diff but nickname task queued, use preferred nick
         try:
-            if diff.get('username_before') == diff.get('username_after') and getattr(member, '_nickname_changed_flag', False):
-                pref = getattr(member, '_preferred_verification_nick', None)
-                if pref and pref != diff.get('username_before'):
-                    diff['username_after'] = pref
+            if diff.get("username_before") == diff.get("username_after") and getattr(
+                member, "_nickname_changed_flag", False
+            ):
+                pref = getattr(member, "_preferred_verification_nick", None)
+                if pref and pref != diff.get("username_before"):
+                    diff["username_after"] = pref
         except Exception:
             pass
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.ADMIN_CHECK,
-            initiator_kind='Admin',
+            initiator_kind="Admin",
             initiator_name=admin_display,
             notes=None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)
-    # duration tracking removed
+        # duration tracking removed
         try:
             await post_if_changed(self.bot, cs)
         except Exception:
@@ -322,12 +334,99 @@ class Admin(commands.Cog):
             new_status,
         )
 
+    @app_commands.command(
+        name="cleanup-verification",
+        description="Clean up old verification messages (Bot Admins only).",
+    )
+    @app_command_check_configured_roles(config["roles"]["bot_admins"])
+    @app_commands.checks.has_any_role(*config["roles"]["bot_admins"])
+    @app_commands.guild_only()
+    async def cleanup_verification(self, interaction: discord.Interaction) -> None:
+        """Clean up old verification messages that are not the current persisted one."""
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
+        # Get verification channel
+        verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", None)
+        if not verification_channel_id:
+            await interaction.followup.send(
+                "❌ Verification channel ID not configured.", ephemeral=True
+            )
+            return
+
+        channel = self.bot.get_channel(verification_channel_id)
+        if not channel:
+            await interaction.followup.send(
+                "❌ Verification channel not found.", ephemeral=True
+            )
+            return
+
+        # Load current verification message ID
+        data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
+        message_id_file = data_dir / "verification_message_id.json"
+        current_message_id = None
+
+        if message_id_file.exists():
+            try:
+                data = json.loads(message_id_file.read_text(encoding="utf-8"))
+                current_message_id = data.get("message_id")
+            except (OSError, ValueError, KeyError):
+                pass
+
+        # Scan channel history for bot messages
+        deleted_count = 0
+        bot_id = self.bot.user.id
+
+        try:
+            async for message in channel.history(limit=100):
+                # Skip if not from bot
+                if message.author.id != bot_id:
+                    continue
+
+                # Skip current verification message
+                if current_message_id and message.id == current_message_id:
+                    continue
+
+                # Skip if not an embed message (likely not verification)
+                if not message.embeds:
+                    continue
+
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    logger.info(f"Deleted old verification message {message.id}")
+                except discord.NotFound:
+                    pass  # Already deleted
+                except discord.Forbidden:
+                    logger.warning(f"Cannot delete message {message.id} - forbidden")
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ Bot lacks permission to read message history.", ephemeral=True
+            )
+            return
+        except Exception as e:
+            logger.exception(f"Error during verification cleanup: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred during cleanup.", ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Cleanup completed. Deleted {deleted_count} old verification message(s).",
+            ephemeral=True,
+        )
+
+        logger.info(
+            f"Admin {interaction.user.id} cleaned up {deleted_count} verification messages"
+        )
+
     @reset_all.error
     @reset_user.error
     @status.error
     @recheck_user.error
     @view_logs.error
-    async def admin_command_error(self, interaction: discord.Interaction, error):
+    @cleanup_verification.error
+    async def admin_command_error(self, interaction: discord.Interaction, error) -> None:
         if isinstance(error, app_commands.errors.MissingAnyRole):
             logger.warning(
                 f"Permission error for {interaction.command.name} by user {interaction.user.id}."
@@ -358,7 +457,7 @@ class Admin(commands.Cog):
             )
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     logger.info("Setting up Admin cog.")
     await bot.add_cog(Admin(bot))
     logger.info("Admin cog successfully added.")
