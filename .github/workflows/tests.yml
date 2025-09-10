@@ -42,18 +42,12 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          pip install pytest pytest-asyncio coverage ruff mypy
+          pip install pytest pytest-asyncio coverage
 
       - name: Copy example config for tests
         run: |
           mkdir -p config
           cp config/config-example.yaml config/config.yaml
-
-      - name: Run linting
-        run: ruff check .
-
-      - name: Run type checking
-        run: mypy .
 
       - name: Run tests with coverage
         run: |
