@@ -3,7 +3,7 @@
 import logging
 import re
 import string
-
+# No typing imports needed as all type hints use built-in generics
 from bs4 import BeautifulSoup
 
 from config.config_loader import ConfigLoader
