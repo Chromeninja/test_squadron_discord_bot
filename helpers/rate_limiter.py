@@ -73,7 +73,7 @@ async def cleanup_attempts() -> None:
             )
             await db.commit()
     except Exception as e:
-        logger.exception(f"Failed to cleanup rate limit attempts: {e}")
+        logger.exception("Failed to cleanup rate limit attempts")
     logger.debug("Cleaned up expired rate-limiting data.")
 
 

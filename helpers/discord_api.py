@@ -41,7 +41,7 @@ async def create_voice_channel(
         logger.info(f"Created voice channel '{channel.name}' in '{category.name}'.")
         return channel
     except Exception as e:
-        logger.exception(f"Failed to create voice channel '{name}': {e}")
+        logger.exception(f"Failed to create voice channel '{name}'")
         raise
 
 
@@ -64,12 +64,12 @@ async def delete_channel(channel: discord.abc.GuildChannel) -> None:
         except discord.Forbidden:
             logger.exception(f"Bot lacks permissions to delete channel '{channel.id}'.")
         except discord.HTTPException as e:
-            logger.exception(f"HTTP error while deleting channel '{channel.id}': {e}")
+            logger.exception(f"HTTP error while deleting channel '{channel.id}'")
 
     try:
         await enqueue_task(_task)
     except Exception as e:
-        logger.exception(f"Failed to enqueue delete task for channel '{channel.id}': {e}")
+        logger.exception(f"Failed to enqueue delete task for channel '{channel.id}'")
 
 
 async def edit_channel(channel: discord.abc.GuildChannel, **kwargs) -> None:
@@ -85,7 +85,7 @@ async def edit_channel(channel: discord.abc.GuildChannel, **kwargs) -> None:
         except discord.Forbidden:
             logger.exception(f"Forbidden editing channel '{channel.id}'.")
         except discord.HTTPException as e:
-            logger.exception(f"HTTP error while editing channel '{channel.id}': {e}")
+            logger.exception(f"HTTP error while editing channel '{channel.id}'")
 
     try:
         await enqueue_task(_task)
@@ -94,7 +94,7 @@ async def edit_channel(channel: discord.abc.GuildChannel, **kwargs) -> None:
         )
     except Exception as e:
         logger.exception(
-            f"Failed to enqueue edit for channel '{getattr(channel, 'name', channel.id)}': {e}"
+            f"Failed to enqueue edit for channel '{getattr(channel, 'name', channel.id)}'"
         )
         raise
 
@@ -107,7 +107,7 @@ async def move_member(member: discord.Member, channel: discord.VoiceChannel) -> 
         await enqueue_task(_task)
         logger.info(f"Enqueued move of '{member.display_name}' to '{channel.name}'.")
     except Exception as e:
-        logger.exception(f"Failed to enqueue move for '{member.display_name}': {e}")
+        logger.exception(f"Failed to enqueue move for '{member.display_name}'")
         raise
 
         # -------------------------------------------------------------------------
@@ -125,7 +125,7 @@ async def add_roles(member: discord.Member, *roles, reason: str | None = None) -
         logger.info(f"Enqueued add_roles for '{member.display_name}': {role_names}.")
     except Exception as e:
         logger.exception(
-            f"Failed to enqueue add_roles for user '{member.display_name}': {e}"
+            f"Failed to enqueue add_roles for user '{member.display_name}'"
         )
         raise
 
@@ -159,15 +159,15 @@ async def edit_member(member: discord.Member, **kwargs) -> None:
                 f"Member {member.id} not found while editing (left the guild?)."
             )
         except discord.HTTPException as e:
-            logger.exception(f"HTTP error editing member {member.id}: {e}")
+            logger.exception(f"HTTP error editing member {member.id}")
         except Exception as e:
-            logger.exception(f"Unexpected error editing member {member.id}: {e}")
+            logger.exception(f"Unexpected error editing member {member.id}")
 
     try:
         await enqueue_task(_task)
         logger.info(f"Enqueued edit for user '{member.display_name}' with {kwargs}.")
     except Exception as e:
-        logger.exception(f"Failed to enqueue edit for user '{member.display_name}': {e}")
+        logger.exception(f"Failed to enqueue edit for user '{member.display_name}'")
         raise
 
         # -------------------------------------------------------------------------
@@ -231,7 +231,7 @@ async def send_message_task(
             else:
                 raise
     except Exception as e:
-        logger.exception(f"Failed to send message: {e}")
+        logger.exception("Failed to send message")
 
 
 async def followup_send_message(
@@ -274,7 +274,7 @@ async def followup_send_message_task(
             f"Sent follow-up message to {interaction.user.display_name}: {content}"
         )
     except Exception as e:
-        logger.exception(f"Failed to send follow-up message: {e}")
+        logger.exception("Failed to send follow-up message")
 
         # -------------------------------------------------------------------------
         # Channel text sends (e.g., channel.send)
@@ -315,7 +315,7 @@ async def channel_send_message_task(
         await channel.send(**kwargs)
         logger.info(f"Sent message to channel '{channel.name}': {content}")
     except Exception as e:
-        logger.exception(f"Failed to send message to channel '{channel.name}': {e}")
+        logger.exception(f"Failed to send message to channel '{channel.name}'")
 
         # -------------------------------------------------------------------------
         # Direct Messages (DM) to Members

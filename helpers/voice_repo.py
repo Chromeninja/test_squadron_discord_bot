@@ -392,7 +392,7 @@ async def transfer_channel_owner(
             return True
 
         except Exception as e:
-            logger.exception(f"Error transferring channel ownership: {e}")
+            logger.exception("Error transferring channel ownership")
             await db.execute("ROLLBACK")
             return False
 

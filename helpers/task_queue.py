@@ -31,7 +31,7 @@ async def worker() -> None:
             async with api_limiter:
                 await run_task(task)
         except Exception as e:
-            logger.exception(f"Error running queued task: {e}")
+            logger.exception("Error running queued task")
         finally:
             task_queue.task_done()
 
@@ -74,7 +74,7 @@ async def run_task(task) -> None:
                 await asyncio.sleep(delay)
                 continue
 
-            logger.exception(f"Exception in task: {e}")
+            logger.exception("Exception in task")
             return None
 
 

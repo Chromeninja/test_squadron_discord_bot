@@ -56,7 +56,7 @@ async def is_valid_rsi_handle(
         org_data = parse_rsi_organizations(org_html)
     except Exception as e:
         logger.exception(
-            f"Exception while parsing organization data for {user_handle}: {e}"
+            f"Exception while parsing organization data for {user_handle}"
         )
         return None, None, None
 
@@ -80,7 +80,7 @@ async def is_valid_rsi_handle(
             logger.warning(f"Could not extract cased handle for {user_handle}")
     except Exception as e:
         logger.exception(
-            f"Exception while extracting cased handle for {user_handle}: {e}"
+            f"Exception while extracting cased handle for {user_handle}"
         )
         cased_handle = None
 
@@ -97,7 +97,7 @@ async def is_valid_rsi_handle(
             )
     except Exception as e:
         logger.exception(
-            f"Exception while extracting community moniker for {user_handle}: {e}"
+            f"Exception while extracting community moniker for {user_handle}"
         )
         community_moniker = None
 
@@ -311,7 +311,7 @@ async def is_valid_rsi_bio(
         else:
             logger.warning(f"Could not extract bio text for handle: {user_handle}")
     except Exception as e:
-        logger.exception(f"Exception while extracting bio for {user_handle}: {e}")
+        logger.exception(f"Exception while extracting bio for {user_handle}")
         bio_text = None
 
     if bio_text is None:

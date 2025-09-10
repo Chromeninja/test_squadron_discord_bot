@@ -60,7 +60,7 @@ async def assert_base_permissions(
         await channel.edit(overwrites=overwrites)
         logger.debug(f"Base permissions asserted for channel {channel.id}")
     except Exception as e:
-        logger.exception(f"Error asserting base permissions for channel {channel.id}: {e}")
+        logger.exception(f"Error asserting base permissions for channel {channel.id}")
 
 
 async def enforce_permission_changes(
@@ -112,5 +112,5 @@ async def enforce_permission_changes(
         # Priority Speaker, Soundboard, and permit/reject settings
     except Exception as e:
         logger.exception(
-            f"Error enforcing permission changes for channel {channel.id}: {e}"
+            f"Error enforcing permission changes for channel {channel.id}"
         )

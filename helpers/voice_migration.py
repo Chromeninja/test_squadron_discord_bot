@@ -123,4 +123,4 @@ async def run_voice_data_migration(bot) -> None:
                 await db.rollback()
             except Exception:
                 pass
-            logger.exception("Voice migration: unexpected error: %s", e)
+            logger.exception("Voice migration: unexpected error")

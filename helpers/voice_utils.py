@@ -66,11 +66,11 @@ async def get_user_channel(
                         await db.commit()
                     except Exception as e:
                         logger.exception(
-                            f"Failed to remove stale channel mapping {channel_id}: {e}"
+                            f"Failed to remove stale channel mapping {channel_id}"
                         )
                     return None
                 except discord.HTTPException as e:
-                    logger.exception(f"Failed to fetch channel {channel_id}: {e}")
+                    logger.exception(f"Failed to fetch channel {channel_id}")
                     return None
 
             return channel
@@ -220,7 +220,7 @@ async def ensure_owner_overwrites(channel: discord.VoiceChannel, overwrites: dic
                     ow.connect = True
                     overwrites[owner] = ow
     except Exception as e:
-        logger.exception(f"Failed to set owner perms: {e}")
+        logger.exception("Failed to set owner perms")
 
 
 async def apply_voice_feature_toggle(
@@ -253,7 +253,7 @@ async def apply_voice_feature_toggle(
         )
     except Exception as e:
         logger.exception(
-            f"Failed to apply feature '{feature}' to channel '{channel.name}': {e}"
+            f"Failed to apply feature '{feature}' to channel '{channel.name}'"
         )
 
         # ------------------------------
