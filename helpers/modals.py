@@ -4,8 +4,10 @@ import contextlib
 import re
 
 import discord
-from discord.ui import Modal, TextInput
 from config.config_loader import ConfigLoader
+from discord.ui import Modal, TextInput
+from utils.logging import get_logger
+from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 from helpers.discord_api import (
     edit_channel,
@@ -17,20 +19,17 @@ from helpers.embeds import (
     create_success_embed,
 )
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.logger import get_logger
 from helpers.rate_limiter import (
     check_rate_limit,
     get_remaining_attempts,
     log_attempt,
     reset_attempts,
 )
-from helpers.token_manager import token_store, validate_token, clear_token
-from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
+from helpers.token_manager import clear_token, token_store, validate_token
 from helpers.voice_utils import get_user_channel, update_channel_settings
-from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
 
@@ -158,7 +157,7 @@ class HandleModal(Modal, title="Verification"):
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
                 _, wait_until = await check_rate_limit(member.id, "verification")
-                
+
                 # Get retry time in seconds for better user feedback
                 import time
                 retry_after_seconds = int(wait_until - time.time()) if wait_until > time.time() else 0

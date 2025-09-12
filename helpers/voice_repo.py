@@ -9,8 +9,8 @@ It abstracts away SQL queries and provides a consistent interface for the voice 
 
 from typing import Any
 
-from helpers.database import Database
-from helpers.logger import get_logger
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

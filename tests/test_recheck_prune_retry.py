@@ -1,9 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-
-from cogs.recheck import AutoRecheck
-from helpers.database import Database
+from cogs.admin.recheck import AutoRecheck
+from services.db.database import Database
 
 
 class FakeMember:

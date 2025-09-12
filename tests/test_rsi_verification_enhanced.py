@@ -2,12 +2,10 @@
 """Unit tests for enhanced RSI verification functions."""
 
 import pytest
+from verification.rsi_verification import extract_bio, find_token_in_bio, normalize_text
+from verification.rsi_verification import parse_rsi_organizations as parse_organizations
 from verification.rsi_verification import (
-    parse_rsi_organizations as parse_organizations,
     search_organization_case_insensitive as search_membership_status,
-    extract_bio,
-    find_token_in_bio,
-    normalize_text
 )
 
 # Sample HTML data for testing
@@ -144,7 +142,7 @@ def test_normalize_text():
 def test_parse_organizations_visible():
     """Test parsing visible organizations."""
     result = parse_organizations(SAMPLE_ORG_HTML_VISIBLE)
-    
+
     assert result["main_organization"] == "test squadron - best squadron!"
     assert len(result["affiliates"]) == 2
     assert "another org" in result["affiliates"]
@@ -153,7 +151,7 @@ def test_parse_organizations_visible():
 def test_parse_organizations_hidden():
     """Test parsing hidden organizations (should still work with enhanced selectors)."""
     result = parse_organizations(SAMPLE_ORG_HTML_HIDDEN)
-    
+
     # Enhanced selectors should find hidden orgs too
     assert result["main_organization"] == "test squadron - best squadron!"
     assert len(result["affiliates"]) == 1
@@ -162,7 +160,7 @@ def test_parse_organizations_hidden():
 def test_parse_organizations_mixed():
     """Test parsing mixed visibility organizations."""
     result = parse_organizations(SAMPLE_ORG_HTML_MIXED)
-    
+
     assert result["main_organization"] == "other main org"
     assert len(result["affiliates"]) >= 1
     assert "test squadron - best squadron!" in result["affiliates"]
@@ -170,16 +168,16 @@ def test_parse_organizations_mixed():
 def test_parse_organizations_empty():
     """Test parsing when no organizations found."""
     result = parse_organizations(SAMPLE_ORG_HTML_EMPTY)
-    
+
     assert result["main_organization"] == ""
     assert result["affiliates"] == []
 
 def test_parse_organizations_whitespace_dedup():
     """Test whitespace normalization and deduplication."""
     result = parse_organizations(SAMPLE_ORG_HTML_WHITESPACE)
-    
+
     assert result["main_organization"] == "test squadron - best squadron!"
-    # Should dedupe the duplicate after normalization, but since main is already TEST, 
+    # Should dedupe the duplicate after normalization, but since main is already TEST,
     # the affiliate should not include the duplicate
     assert len(result["affiliates"]) == 1
     assert "another org" in result["affiliates"]
@@ -190,15 +188,15 @@ def test_search_membership_status():
     # Test main member
     orgs = {"main_organization": "test squadron - best squadron!", "affiliates": ["other org"]}
     assert search_membership_status(orgs, "test squadron - best squadron!") == 1
-    
+
     # Test affiliate member
     orgs = {"main_organization": "other org", "affiliates": ["test squadron - best squadron!", "third org"]}
     assert search_membership_status(orgs, "test squadron - best squadron!") == 2
-    
+
     # Test non-member
     orgs = {"main_organization": "other org", "affiliates": ["third org", "fourth org"]}
     assert search_membership_status(orgs, "test squadron - best squadron!") == 0
-    
+
     # Test empty data
     orgs = {"main_organization": "", "affiliates": []}
     assert search_membership_status(orgs, "test squadron - best squadron!") == 0
@@ -209,17 +207,17 @@ def test_extract_bio():
     bio = extract_bio(SAMPLE_BIO_HTML)
     assert bio is not None
     assert "verification token is 1234" in bio
-    
+
     # Test alternative selector
     bio = extract_bio(SAMPLE_BIO_HTML_ALTERNATIVE)
     assert bio is not None
     assert "Token: 5678" in bio
-    
+
     # Test no token bio
     bio = extract_bio(SAMPLE_BIO_HTML_NO_TOKEN)
     assert bio is not None
     assert "regular text" in bio
-    
+
     # Test missing bio
     bio = extract_bio(SAMPLE_BIO_HTML_MISSING)
     assert bio is None
@@ -230,21 +228,21 @@ def test_find_token_in_bio():
     bio_text = "Welcome to my profile! My verification token is 1234 and I love gaming."
     assert find_token_in_bio(bio_text, "1234") == True
     assert find_token_in_bio(bio_text, "12") == False  # Partial match should fail
-    
+
     # Test zero-padded token
     bio_text = "My token is 0042 for verification."
     assert find_token_in_bio(bio_text, "42") == True  # Should zero-pad input
     assert find_token_in_bio(bio_text, "0042") == True
-    
+
     # Test multiple tokens
     bio_text = "Tokens: 1111, 2222, 3333. Use 2222 for verification."
     assert find_token_in_bio(bio_text, "2222") == True
     assert find_token_in_bio(bio_text, "4444") == False
-    
+
     # Test no token
     bio_text = "This bio has no verification tokens."
     assert find_token_in_bio(bio_text, "1234") == False
-    
+
     # Test edge cases
     assert find_token_in_bio("", "1234") == False
     assert find_token_in_bio("Some text", "") == False
@@ -257,45 +255,45 @@ def test_negative_cases():
     result = parse_organizations(malformed_html)
     assert result["main_organization"] == ""
     assert result["affiliates"] == []
-    
+
     bio = extract_bio(malformed_html)
     assert bio is None
-    
+
     # Test completely empty HTML
     empty_html = ""
     result = parse_organizations(empty_html)
     assert result["main_organization"] == ""
     assert result["affiliates"] == []
-    
+
     bio = extract_bio(empty_html)
     assert bio is None
 
 def test_ambiguous_token_matching():
     """Test token matching with multiple numbers and ambiguous contexts."""
-    
+
     # Test bio with multiple 4-digit numbers - all are found as potential tokens
     bio_text = "My ID is 5678, but verification token is 1234. Also born in 1990, phone 9876."
     assert find_token_in_bio(bio_text, "1234") == True  # Verification token
     assert find_token_in_bio(bio_text, "5678") == True  # ID number (also 4 digits)
-    assert find_token_in_bio(bio_text, "1990") == True  # Birth year (also 4 digits)  
+    assert find_token_in_bio(bio_text, "1990") == True  # Birth year (also 4 digits)
     assert find_token_in_bio(bio_text, "9876") == True  # Phone last 4 digits
     assert find_token_in_bio(bio_text, "0000") == False  # Not in bio
-    
+
     # Test bio with multiple instances of same number
     bio_text = "Token 1234 for verification. Don't use 1234 from other places. 1234 is special."
     assert find_token_in_bio(bio_text, "1234") == True  # Should find the token
-    
+
     # Test bio with similar but different numbers
     bio_text = "Codes: 1233, 1234, 1235. Your token is 1234."
     assert find_token_in_bio(bio_text, "1234") == True  # Should find exact match
     assert find_token_in_bio(bio_text, "1233") == True  # Also a 4-digit number
     assert find_token_in_bio(bio_text, "1235") == True  # Also a 4-digit number
     assert find_token_in_bio(bio_text, "1236") == False  # Not in bio
-    
+
     # Test with numbers embedded in words/text (should NOT match - needs word boundaries)
     bio_text = "abc1234def and token1234test but 1234 standalone is ok"
     assert find_token_in_bio(bio_text, "1234") == True  # Should find standalone occurrence
-    
+
     # Test with mixed contexts - only standalone 4-digit numbers count
     bio_text = "Born 1995, verification: 8901, zip 12345 (too long), apt #4567"
     assert find_token_in_bio(bio_text, "8901") == True  # Verification token
@@ -303,15 +301,15 @@ def test_ambiguous_token_matching():
     assert find_token_in_bio(bio_text, "4567") == True  # Apartment number (standalone 4 digits)
     assert find_token_in_bio(bio_text, "12345") == False  # Zip code (5 digits, doesn't match)
     assert find_token_in_bio(bio_text, "2345") == False  # Partial zip, not standalone
-    
+
     # Test edge case with repeated patterns
     bio_text = "Test 1111 Test 2222 Test 3333 verification 2222 end"
     assert find_token_in_bio(bio_text, "2222") == True  # Should find it despite repetition
     assert find_token_in_bio(bio_text, "1111") == True  # Also present as 4-digit number
     assert find_token_in_bio(bio_text, "3333") == True  # Also present as 4-digit number
     assert find_token_in_bio(bio_text, "4444") == False  # Not present
-    
-    # Test zero-padding behavior 
+
+    # Test zero-padding behavior
     bio_text = "My token is 0042 for verification."
     assert find_token_in_bio(bio_text, "42") == True  # Should zero-pad input and match
     assert find_token_in_bio(bio_text, "0042") == True  # Exact match

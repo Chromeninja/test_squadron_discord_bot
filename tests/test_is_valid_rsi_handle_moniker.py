@@ -1,5 +1,4 @@
 import pytest
-
 from verification import rsi_verification as rv
 
 

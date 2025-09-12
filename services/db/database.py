@@ -12,9 +12,9 @@ import time
 from contextlib import asynccontextmanager
 
 import aiosqlite
+from utils.logging import get_logger
 
-from helpers.logger import get_logger
-from helpers.schema import init_schema
+from .schema import init_schema
 
 logger = get_logger(__name__)
 

@@ -1,5 +1,4 @@
 import pytest
-
 from helpers.leadership_log import (
     ChangeSet,
     EventType,

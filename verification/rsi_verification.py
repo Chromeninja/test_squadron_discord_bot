@@ -3,9 +3,8 @@
 import logging
 import re
 import string
-from typing import Optional, Tuple
-from bs4 import BeautifulSoup
 
+from bs4 import BeautifulSoup
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient, NotFoundError
 
@@ -25,7 +24,7 @@ SELECTORS = {
         ],
         "affiliates": [
             'div[class*="org"][class*="affil"] a.value',
-            'div.org.affiliation a.value', 
+            'div.org.affiliation a.value',
             '.box-content.org.affiliation a.value'
         ]
     },
@@ -39,7 +38,7 @@ SELECTORS = {
     ]
 }
 
-def normalize_text(s: Optional[str]) -> str:
+def normalize_text(s: str | None) -> str:
     """Normalize text by collapsing whitespace and converting to lowercase."""
     return re.sub(r'\s+', ' ', s).strip().lower() if s else ''
 
@@ -255,10 +254,10 @@ def parse_rsi_organizations(html_content: str) -> dict:
     """
     logger.debug("Parsing RSI organizations from HTML content.", extra={"event": "rsi-parser.orgs"})
     soup = BeautifulSoup(html_content, "lxml")
-    
+
     main_org = None
     affiliates = []
-    
+
     # Try main org selectors (support both visible and hidden)
     for selector in SELECTORS["org"]["main"]:
         try:
@@ -272,11 +271,11 @@ def parse_rsi_organizations(html_content: str) -> dict:
         except Exception as e:
             logger.debug(f"Main org selector '{selector}' failed: {e}")
             continue
-    
+
     if not main_org:
-        logger.warning("Main organization section not found with any selector.", 
+        logger.warning("Main organization section not found with any selector.",
                       extra={"event": "rsi-parser.orgs", "selectors_tried": SELECTORS["org"]["main"]})
-    
+
     # Try affiliate selectors (support both visible and hidden)
     seen_affiliates = set()
     for selector in SELECTORS["org"]["affiliates"]:
@@ -287,7 +286,7 @@ def parse_rsi_organizations(html_content: str) -> dict:
                 if affiliate_text:
                     affiliate_normalized = normalize_text(affiliate_text)
                     # Skip if it's the same as main org or already seen
-                    if (affiliate_normalized and 
+                    if (affiliate_normalized and
                         affiliate_normalized not in seen_affiliates and
                         affiliate_normalized != main_org):
                         seen_affiliates.add(affiliate_normalized)
@@ -296,13 +295,13 @@ def parse_rsi_organizations(html_content: str) -> dict:
         except Exception as e:
             logger.debug(f"Affiliate selector '{selector}' failed: {e}")
             continue
-    
+
     if not affiliates:
-        logger.warning("No affiliate organizations found with any selector.", 
+        logger.warning("No affiliate organizations found with any selector.",
                       extra={"event": "rsi-parser.orgs"})
-    
+
     result = {"main_organization": main_org or "", "affiliates": affiliates}
-    
+
     logger.debug("Organization parsing complete", extra={
         "event": "rsi-parser.orgs",
         "main": main_org,
@@ -310,7 +309,7 @@ def parse_rsi_organizations(html_content: str) -> dict:
         "sample_affiliates": affiliates[:3] if affiliates else [],
         "matched_status": "main" if main_org == TEST_ORG_NAME else ("affiliate" if TEST_ORG_NAME in affiliates else "non_member")
     })
-    
+
     return result
 
 
@@ -439,12 +438,12 @@ def find_token_in_bio(bio_text: str, token: str) -> bool:
     """
     if not bio_text or not token:
         return False
-    
+
     # Ensure token is 4 digits with zero padding
     padded_token = token.zfill(4)
-    
+
     # Find all 4-digit numbers in bio
     token_pattern = r'\b\d{4}\b'
     found_tokens = re.findall(token_pattern, bio_text)
-    
+
     return padded_token in found_tokens

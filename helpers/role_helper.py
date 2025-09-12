@@ -5,11 +5,11 @@ import random
 import time
 
 import discord
+from services.db.database import Database
+from utils.logging import get_logger
 
 from helpers.announcement import enqueue_verification_event
-from helpers.database import Database
 from helpers.discord_api import add_roles, edit_member, remove_roles
-from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
 
 logger = get_logger(__name__)
@@ -285,8 +285,9 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
     Caller is responsible for catching NotFoundError (RSI 404) and invoking
     unified remediation handler.
     """
-    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
     from verification.rsi_verification import is_valid_rsi_handle
+
+    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
 
     verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
         rsi_handle, bot.http_client

@@ -66,6 +66,102 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 
 ## 🛠️ Getting Started
 
+### Discord Bot Permissions
+
+The bot requires specific Discord permissions to function properly. **Do not grant Administrator permissions** - instead, grant only these specific permissions for security:
+
+#### Required Permissions:
+- **View Channels** - Read messages and see channels
+- **Send Messages** - Send responses and notifications  
+- **Embed Links** - Send rich embed messages
+- **Read Message History** - Access previous messages for context
+- **Use Slash Commands** - Register and respond to slash commands
+- **Manage Roles** - Assign verification and member roles
+- **Manage Channels** - Create/delete voice channels and manage categories
+- **Connect** - Connect to voice channels
+- **Move Members** - Move users between voice channels
+- **Change Nickname** - Update user nicknames during verification
+- **Manage Nicknames** - Update other users' nicknames
+
+#### Permission Setup:
+1. Go to your Discord server settings
+2. Navigate to Roles → [Bot Role]
+3. Enable only the permissions listed above
+4. Ensure the bot's role is positioned high enough to manage the roles it needs to assign
+5. For voice categories: Right-click the voice category → Edit Category → Permissions → Add bot role with "Manage Channels" permission
+
+#### Role Configuration:
+Configure admin roles in `config/config.yaml`:
+```yaml
+roles:
+  bot_admins: [123456789012345678]  # Role IDs that can use admin commands
+  lead_moderators: [987654321098765432]  # Additional elevated roles
+```
+
+### Admin Commands
+
+The bot includes several administrative commands for configuration and management. All admin commands require users to have either the **Bot Admin** or **Lead Moderator** role configured in `config/config.yaml`.
+
+#### General Admin Commands (`/admin` group)
+
+| Command | Description | Required Role | Usage |
+|---------|-------------|---------------|-------|
+| `/status` | Show detailed bot health and status information | Bot Admin / Lead Moderator | `/status detailed:true` |
+| `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Bot Admin / Lead Moderator | `/guild-config` |
+| `/set-config` | Set a guild configuration value | Bot Admin / Lead Moderator | `/set-config key:"voice.cooldown_seconds" value:"30"` |
+
+#### Voice Admin Commands (`/voice` group)
+
+| Command | Description | Required Role | Usage |
+|---------|-------------|---------------|-------|
+| `/voice setup` | Set up voice channel system (create JTC channels and category) | Bot Admin | `/voice setup category:#Voice-Channels num_channels:2` |
+| `/voice admin_reset` | Reset a user's voice channel settings | Bot Admin / Lead Moderator | `/voice admin_reset user:@username` |
+| `/voice admin_list` | View saved voice channel settings for a user | Bot Admin / Lead Moderator | `/voice admin_list user:@username` |
+
+#### Configuration Examples
+
+**Setting Voice Cooldown:**
+```
+/set-config key:"voice.cooldown_seconds" value:"30"
+```
+
+**Setting Custom Voice Settings:**
+```
+/set-config key:"voice.max_channels_per_user" value:"3"
+/set-config key:"voice.channel_name_template" value:"{user}'s Channel"
+```
+
+**Viewing Current Configuration:**
+```
+/guild-config
+```
+
+**Setting Up Voice System:**
+```
+/voice setup category:#Voice-Channels num_channels:3
+```
+
+### Permission System
+
+The bot uses a **role-based permission system** rather than Discord's built-in Administrator permission for security:
+
+#### Role Hierarchy:
+1. **Bot Admin** - Full administrative access to all bot functions
+2. **Lead Moderator** - Administrative access to most functions (excluding some sensitive operations)
+3. **Regular Users** - Access to user-facing commands only
+
+#### Permission Checks:
+- Commands check for specific role IDs configured in `config/config.yaml`
+- Multiple roles can be assigned the same permissions
+- Role checks are performed on every command execution
+- No Discord Administrator permission is required or recommended
+
+#### Security Benefits:
+- **Principle of Least Privilege**: Users only get necessary permissions
+- **Granular Control**: Different roles can have different permission levels
+- **Audit Trail**: All admin actions are logged with user information
+- **No Overreach**: Bot cannot perform server-wide admin actions
+
 For detailed setup instructions, refer to `SETUP.txt` in the repository or the documentation source files under `docs/` (for example, `docs/verification_workflow.md`).
 
 ## 📄 Documentation
@@ -80,15 +176,3 @@ Comprehensive documentation is available and includes:
 Developer documentation source is included in the `docs/` directory (markdown files). The generated Sphinx HTML (`docs/build/html/...`) is not committed to this repository.
 
 If you prefer to view HTML docs locally, build them from the Sphinx sources on your machine (see "Building docs locally" below) — otherwise read the markdown files in `docs/`.
-
-## 🤝 Contributing
-
-Since this is a private repo for our dev team, feel free to fork and make changes as needed. Just make sure to test thoroughly before deploying to the live server!
-
-### **Contribution Guidelines:**
-
-1. **Fork the Repository**
-2. **Create a Feature Branch**
-3. **Commit Your Changes**
-4. **Push to the Branch**
-5. **Open a Pull Request**

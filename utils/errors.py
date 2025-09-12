@@ -21,6 +21,27 @@ import discord
 
 logger = logging.getLogger(__name__)
 
+
+# Base exception classes
+class BotError(Exception):
+    """Base exception for bot-related errors."""
+    pass
+
+
+class ConfigError(BotError):
+    """Exception raised for configuration-related errors."""
+    pass
+
+
+class DatabaseError(BotError):
+    """Exception raised for database-related errors."""
+    pass
+
+
+class ServiceError(BotError):
+    """Exception raised for service-related errors."""
+    pass
+
 class StructuredError:
     """Structured error information for AI analysis."""
 

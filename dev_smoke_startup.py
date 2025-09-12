@@ -10,12 +10,11 @@ import os
 import signal
 from types import SimpleNamespace
 
+from bot import PREFIX, MyBot, initial_extensions, intents
 from discord.ext import commands as dcommands
 from discord.ext import tasks as dctasks
-
-from bot import PREFIX, MyBot, initial_extensions, intents
-from helpers.database import Database
-from helpers.logger import get_logger
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

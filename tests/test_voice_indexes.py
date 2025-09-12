@@ -3,8 +3,7 @@ Test that verifies new composite indexes are created correctly.
 """
 
 import pytest
-
-from helpers.database import Database
+from services.db.database import Database
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,7 @@ logging:
 voice:
   cooldown_seconds: 5  # Cooldown period for voice channel creation (seconds)
   expiry_days: 30      # Expiry period for inactive voice channel data (days)
+  delete_delay_seconds: 10  # Delay before deleting empty voice channels (seconds)
 
 database:
   path: "TESTDatabase.db"

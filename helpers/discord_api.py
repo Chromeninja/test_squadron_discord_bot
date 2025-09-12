@@ -3,8 +3,8 @@
 from functools import partial
 
 import discord
+from utils.logging import get_logger
 
-from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
 
 logger = get_logger(__name__)

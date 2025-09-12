@@ -7,9 +7,9 @@ from enum import Enum
 from typing import Literal
 
 import discord  # legacy (embeds no longer dispatched)
+from utils.logging import get_logger
 
 from helpers.discord_api import channel_send_message
-from helpers.logger import get_logger
 
 logger = get_logger(__name__)
 

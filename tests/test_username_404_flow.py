@@ -2,11 +2,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
-from helpers.database import Database
 from helpers.http_helper import NotFoundError
 from helpers.role_helper import reverify_member
 from helpers.username_404 import handle_username_404
+from services.db.database import Database
 
 
 # --- Fixtures / fakes ---

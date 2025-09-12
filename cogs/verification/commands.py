@@ -7,8 +7,6 @@ from pathlib import Path
 
 import discord
 from discord.ext import commands
-
-from helpers.database import Database
 from helpers.discord_api import followup_send_message
 from helpers.embeds import (
     build_welcome_description,
@@ -19,13 +17,14 @@ from helpers.embeds import (
 )
 from helpers.http_helper import NotFoundError
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.logger import get_logger
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.role_helper import reverify_member
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from helpers.username_404 import handle_username_404
 from helpers.views import VerificationView
+from services.db.database import Database
+from utils.logging import get_logger
 from utils.tasks import spawn
 
 logger = get_logger(__name__)

@@ -3,8 +3,7 @@
 import asyncio
 
 import aiohttp
-
-from helpers.logger import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

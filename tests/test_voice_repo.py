@@ -10,8 +10,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-
-from helpers.database import Database
 from helpers.voice_repo import (
     cleanup_user_voice_data,
     get_stale_voice_entries,
@@ -21,6 +19,7 @@ from helpers.voice_repo import (
     transfer_channel_owner,
     upsert_channel_settings,
 )
+from services.db.database import Database
 
 
 @pytest_asyncio.fixture
