@@ -104,30 +104,15 @@ async def send_admin_recheck_notification(
     """
     from services.config_service import ConfigService
 
-    # Use admin announce channel, fallback to leadership channel if not configured
-    try:
-        config_service = ConfigService()
-        admin_announce_channel_id = await config_service.get_global_setting(
-            "admin_announce_channel_id", None
-        )
-
-        # Fallback to leadership channel if admin announce channel not configured
-        if not admin_announce_channel_id:
-            config = bot.config
-            admin_announce_channel_id = config.get("channels", {}).get(
-                "leadership_announcement_channel_id"
-            )
-    except Exception as e:
-        logger.warning(f"Error getting admin announce channel config: {e}")
-        # Final fallback to leadership channel
-        config = bot.config
-        admin_announce_channel_id = config.get("channels", {}).get(
-            "leadership_announcement_channel_id"
-        )
+    # Use leadership announcement channel for admin recheck notifications
+    config = bot.config
+    admin_announce_channel_id = config.get("channels", {}).get(
+        "leadership_announcement_channel_id"
+    )
 
     if not admin_announce_channel_id:
         logger.warning(
-            "No admin_announce_channel_id or leadership_announcement_channel_id configured for admin recheck notification"
+            "No leadership_announcement_channel_id configured for admin recheck notification"
         )
         return False, False
 

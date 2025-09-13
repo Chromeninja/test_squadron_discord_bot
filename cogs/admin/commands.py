@@ -605,7 +605,7 @@ class AdminCog(commands.Cog):
                 if success and role_assignment_result:
                     # role_assignment_result is the tuple (old_status, new_status) from assign_roles
                     if (
-                        isinstance(role_assignment_result, tuple | list)
+                        isinstance(role_assignment_result, (tuple, list))
                         and len(role_assignment_result) >= 2
                     ):
                         old_status_raw, new_status_raw = (

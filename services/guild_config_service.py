@@ -169,7 +169,7 @@ class GuildConfigService:
         """
         channels = await self.get(guild_id, "join_to_create_channel_ids")
         if isinstance(channels, list):
-            return [int(cid) for cid in channels if isinstance(cid, int | str)]
+            return [int(cid) for cid in channels if isinstance(cid, (int, str))]
         return []
 
     async def set_join_to_create_channels(
@@ -195,7 +195,7 @@ class GuildConfigService:
             Voice category ID or None if not configured
         """
         category_id = await self.get(guild_id, "voice_category_id")
-        if isinstance(category_id, int | str):
+        if isinstance(category_id, (int, str)):
             return int(category_id)
         return None
 

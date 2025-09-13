@@ -506,7 +506,7 @@ class VoiceService(BaseService):
         async with Database.get_connection() as db:
             async with db.execute(
                 """
-                SELECT timestamp FROM voice_cooldowns
+                SELECT last_creation FROM voice_cooldowns
                 WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
             """,
                 (guild_id, jtc_channel_id, user_id),
@@ -528,7 +528,7 @@ class VoiceService(BaseService):
             await db.execute(
                 """
                 INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, timestamp)
+                (guild_id, jtc_channel_id, user_id, last_creation)
                 VALUES (?, ?, ?, ?)
             """,
                 (guild_id, jtc_channel_id, user_id, int(time.time())),
@@ -686,18 +686,24 @@ class VoiceService(BaseService):
             if not can_create:
                 return VoiceChannelResult(False, error=reason)
 
-            # Create the channel
-            channel = await self.create_voice_channel(guild, jtc_channel, user)
+            # Create the channel using the JTC path that persists to user_voice_channels
+            await self._create_user_channel(guild, jtc_channel, user)
 
-            if channel:
+            # Retrieve the created channel ID from user_voice_channels
+            channel_id = await self.get_user_voice_channel(guild_id, jtc_channel_id, user_id)
+            channel = guild.get_channel(channel_id) if channel_id else None
+
+            if channel_id:
                 return VoiceChannelResult(
-                    True, channel_id=channel.id, channel_mention=channel.mention
+                    True,
+                    channel_id=channel_id,
+                    channel_mention=channel.mention if channel else None,
                 )
             else:
                 return VoiceChannelResult(False, error="Failed to create voice channel")
 
-        except Exception as e:
-            self.logger.exception("Error creating user voice channel", exc_info=e)
+        except Exception:
+            self.logger.exception("Error creating user voice channel")
             return VoiceChannelResult(
                 False, error="An error occurred while creating the channel"
             )

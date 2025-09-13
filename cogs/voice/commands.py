@@ -203,6 +203,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         name="owner",
         description="List all voice channels managed by the bot and their owners",
     )
+    @app_commands.guild_only()
     async def list_owners(self, interaction: discord.Interaction) -> None:
         """List all voice channels and their owners (Admin only)."""
         # Check permissions
@@ -281,6 +282,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         category="Category to place voice channels in",
         num_channels="Number of 'Join to Create' channels",
     )
+    @app_commands.guild_only()
     async def setup_voice_system(
         self,
         interaction: discord.Interaction,
@@ -332,6 +334,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @app_commands.describe(
         user="The user whose voice channel settings you want to view"
     )
+    @app_commands.guild_only()
     async def admin_list(
         self, interaction: discord.Interaction, user: discord.Member
     ) -> None:

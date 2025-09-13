@@ -111,7 +111,11 @@ def parse_organizations(html_content: str) -> dict[str, Any]:
             seen.add(affiliate)
             deduped_affiliates.append(affiliate)
 
-    result = {"main": main_org, "affiliates": deduped_affiliates}
+    result = {
+        "main_organization": main_org,
+        "main": main_org,  # backward/forward compatibility
+        "affiliates": deduped_affiliates,
+    }
 
     logger.debug(
         "Organization parsing complete",
@@ -137,7 +141,7 @@ def search_membership_status(orgs: dict[str, Any], target_org: str) -> int:
     Returns:
         1 if main member, 2 if affiliate, 0 if not found
     """
-    main = orgs.get("main")
+    main = orgs.get("main_organization") or orgs.get("main")
     affiliates = orgs.get("affiliates", [])
 
     if main == target_org:
@@ -238,7 +242,7 @@ async def is_valid_rsi_handle(
     try:
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
-        logger.exception(f"Handle not found (404): {user_handle}")
+        logger.exception("Handle not found (404)")
         raise
     if not org_html:
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
@@ -247,10 +251,9 @@ async def is_valid_rsi_handle(
     # Parse organization data with enhanced parser
     try:
         org_data = parse_organizations(org_html)
-    except Exception as e:
-        logger.exception(
-            f"Exception while parsing organization data for {user_handle}: {e}"
-        )
+    except Exception:
+        logger.exception("Exception while parsing organization data for %s", user_handle)
+        return None, None, None
         return None, None, None
 
     verify_value = search_membership_status(org_data, TEST_ORG_NAME)
@@ -271,10 +274,8 @@ async def is_valid_rsi_handle(
             logger.debug(f"Cased handle for {user_handle}: {cased_handle}")
         else:
             logger.warning(f"Could not extract cased handle for {user_handle}")
-    except Exception as e:
-        logger.exception(
-            f"Exception while extracting cased handle for {user_handle}: {e}"
-        )
+    except Exception:
+        logger.exception("Exception while extracting cased handle for %s", user_handle)
         cased_handle = None
 
     # Extract community moniker
@@ -286,10 +287,8 @@ async def is_valid_rsi_handle(
             )
         else:
             logger.info(f"Community moniker not found or empty for {user_handle}")
-    except Exception as e:
-        logger.exception(
-            f"Exception while extracting community moniker for {user_handle}: {e}"
-        )
+    except Exception:
+        logger.exception("Exception while extracting community moniker for %s", user_handle)
         community_moniker = None
 
     return verify_value, cased_handle, community_moniker
@@ -329,10 +328,8 @@ async def is_valid_rsi_bio(
             logger.debug(f"Bio text extracted: {bio_text}")
         else:
             logger.warning(f"Could not extract bio text for handle: {user_handle}")
-    except Exception as e:
-        logger.exception(
-            "Exception while extracting bio for %s", user_handle, exc_info=e
-        )
+    except Exception:
+        logger.exception("Exception while extracting bio for %s", user_handle)
         bio_text = None
 
     if bio_text is None:

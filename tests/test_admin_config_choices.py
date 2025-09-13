@@ -156,9 +156,19 @@ class TestAdminConfigCommand:
     def mock_bot(self):
         """Mock bot with services."""
         bot = MagicMock()
-        # Mock the guild config service methods
-        bot.services.config.set = AsyncMock()
-        bot.services.config.get = AsyncMock(return_value=120)  # Mock stored value
+        # Mock the guild config service methods. The AdminCog code awaits
+        # `set` and `get`, while tests assert on `set_guild_setting`/
+        # `get_guild_setting`. Create AsyncMocks for `set`/`get` and alias
+        # the guild-named helpers to the same mocks so both usages work.
+        set_mock = AsyncMock()
+        get_mock = AsyncMock(return_value=120)
+
+        bot.services.config.set = set_mock
+        bot.services.config.get = get_mock
+
+        # Aliases used by some tests / older API names
+        bot.services.config.set_guild_setting = set_mock
+        bot.services.config.get_guild_setting = get_mock
         bot.has_admin_permissions = AsyncMock(return_value=True)
         return bot
 
@@ -190,7 +200,7 @@ class TestAdminConfigCommand:
         mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
 
         # Should set the config with coerced integer value
-        admin_cog.bot.services.config.set.assert_called_once_with(
+        admin_cog.bot.services.config.set_guild_setting.assert_called_once_with(
             123456789, "voice.cooldown_seconds", 120
         )
 
@@ -213,7 +223,7 @@ class TestAdminConfigCommand:
         )
 
         # Should set the config with coerced boolean value
-        admin_cog.bot.services.config.set.assert_called_once_with(
+        admin_cog.bot.services.config.set_guild_setting.assert_called_once_with(
             123456789, "features.auto_role", True
         )
 
