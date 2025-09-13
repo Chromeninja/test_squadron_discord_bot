@@ -41,7 +41,7 @@ dev = [
 target-version = "py311"
 line-length = 88
 show-fixes = true
-src = ["src"]
+src = ["."]
 
 [tool.ruff.lint]
 select = [
@@ -81,7 +81,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*" = ["PLR2004", "S101", "TID252", "ARG"]
-"src/bot/adapters/discord/cogs/*" = ["PLR0913", "PLR0915"]  # Many parameters in Discord cogs
+"bot/adapters/discord/cogs/*" = ["PLR0913", "PLR0915"]  # Many parameters in Discord cogs
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -91,7 +91,12 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=src",
+    "--cov=bot",
+    "--cov=cogs",
+    "--cov=helpers",
+    "--cov=services",
+    "--cov=utils",
+    "--cov=verification",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
@@ -104,7 +109,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["bot", "cogs", "helpers", "services", "utils", "verification"]
 omit = [
     "*/tests/*",
     "*/test_*",
