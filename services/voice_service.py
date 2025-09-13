@@ -43,6 +43,35 @@ class VoiceService(BaseService):
 
     async def _initialize_impl(self) -> None:
         """Initialize voice service."""
+        # Ensure the database table exists with the last_creation column
+        async with Database.get_connection() as db:
+            # First, create the table if it doesn't exist
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS voice_cooldowns (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    jtc_channel_id INTEGER NOT NULL,
+                    last_creation INTEGER,
+                    PRIMARY KEY (guild_id, user_id, jtc_channel_id)
+                )
+                """
+            )
+            
+            # Check if the table has the wrong column name and fix it
+            cursor = await db.execute("PRAGMA table_info(voice_cooldowns)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            if 'timestamp' in column_names and 'last_creation' not in column_names:
+                # Migrate from timestamp to last_creation column
+                await db.execute("ALTER TABLE voice_cooldowns RENAME COLUMN timestamp TO last_creation")
+            elif 'last_creation' not in column_names and 'timestamp' not in column_names:
+                # Add last_creation column if neither exists
+                await db.execute("ALTER TABLE voice_cooldowns ADD COLUMN last_creation INTEGER")
+                
+            await db.commit()
+
         await self._ensure_voice_tables()
 
         # Load existing managed channels
