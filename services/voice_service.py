@@ -506,19 +506,19 @@ class VoiceService(BaseService):
         async with Database.get_connection() as db:
             async with db.execute(
                 """
-                SELECT timestamp FROM voice_cooldowns
+                SELECT last_creation FROM voice_cooldowns
                 WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
             """,
                 (guild_id, jtc_channel_id, user_id),
             ) as cursor:
                 row = await cursor.fetchone()
 
-            if not row:
-                return False
+        if not row:
+            return False
 
-            last_creation = row[0]
-            current_time = int(time.time())
-            return (current_time - last_creation) < cooldown_seconds
+        last_creation = row[0]
+        current_time = int(time.time())
+        return (current_time - last_creation) < cooldown_seconds
 
     async def _update_cooldown(
         self, guild_id: int, jtc_channel_id: int, user_id: int
@@ -528,7 +528,7 @@ class VoiceService(BaseService):
             await db.execute(
                 """
                 INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, timestamp)
+                (guild_id, jtc_channel_id, user_id, last_creation)
                 VALUES (?, ?, ?, ?)
             """,
                 (guild_id, jtc_channel_id, user_id, int(time.time())),
