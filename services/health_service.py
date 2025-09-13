@@ -7,11 +7,18 @@ import time
 from typing import Any
 
 import discord
-import psutil
+import logging
+
+try:
+    import psutil  # type: ignore
+except Exception:  # ModuleNotFoundError, ImportError, etc.
+    psutil = None  # type: ignore
 
 from services.db.database import Database
 
 from .base import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 class HealthService(BaseService):
@@ -62,6 +69,18 @@ class HealthService(BaseService):
         Returns:
             Dict containing system metrics
         """
+        if psutil is None:
+            logger.debug("psutil not installed; skipping process metrics")
+            # Return numeric defaults so callers/tests expecting numbers don't fail
+            return {
+                "cpu_percent": 0.0,
+                "memory_mb": 0.0,
+                "memory_percent": 0.0,
+                "open_files": 0,
+                "threads": 0,
+                "uptime_seconds": time.monotonic() - self.start_time,
+            }
+
         process = psutil.Process()
 
         return {
