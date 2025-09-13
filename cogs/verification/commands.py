@@ -7,8 +7,6 @@ from pathlib import Path
 
 import discord
 from discord.ext import commands
-
-from helpers.database import Database
 from helpers.discord_api import followup_send_message
 from helpers.embeds import (
     build_welcome_description,
@@ -19,13 +17,14 @@ from helpers.embeds import (
 )
 from helpers.http_helper import NotFoundError
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.logger import get_logger
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.role_helper import reverify_member
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from helpers.username_404 import handle_username_404
 from helpers.views import VerificationView
+from services.db.database import Database
+from utils.logging import get_logger
 from utils.tasks import spawn
 
 logger = get_logger(__name__)
@@ -37,7 +36,7 @@ data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
 def _load_verification_message_id() -> int | None:
     """
     Load the verification message ID from persistent storage.
-    
+
     Returns:
         The message ID if found and valid, None otherwise.
     """
@@ -51,17 +50,21 @@ def _load_verification_message_id() -> int | None:
         message_id = data.get("message_id")
         if isinstance(message_id, int):
             return message_id
-        logger.warning(f"Invalid message_id type in {message_id_file}: {type(message_id)}")
+        logger.warning(
+            f"Invalid message_id type in {message_id_file}: {type(message_id)}"
+        )
         return None
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to read verification message ID from {message_id_file}: {e}")
+        logger.warning(
+            f"Failed to read verification message ID from {message_id_file}: {e}"
+        )
         return None
 
 
 def _save_verification_message_id(message_id: int) -> None:
     """
     Save the verification message ID to persistent storage atomically.
-    
+
     Args:
         message_id: The Discord message ID to save.
     """
@@ -74,8 +77,7 @@ def _save_verification_message_id(message_id: int) -> None:
         # Write to temporary file first for atomicity
         temp_file = message_id_file.with_suffix(".tmp")
         temp_file.write_text(
-            json.dumps({"message_id": message_id}, indent=2),
-            encoding="utf-8"
+            json.dumps({"message_id": message_id}, indent=2), encoding="utf-8"
         )
 
         # Atomic replace
@@ -83,7 +85,9 @@ def _save_verification_message_id(message_id: int) -> None:
         logger.info(f"Saved verification message ID {message_id} to {message_id_file}")
 
     except OSError as e:
-        logger.error(f"Failed to save verification message ID to {message_id_file}: {e}")
+        logger.exception(
+            f"Failed to save verification message ID to {message_id_file}", exc_info=e
+        )
 
 
 class VerificationCog(commands.Cog):

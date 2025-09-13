@@ -1,9 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-
-from cogs.recheck import AutoRecheck
-from helpers.database import Database
+from cogs.admin.recheck import AutoRecheck
+from services.db.database import Database
 
 
 class FakeMember:
@@ -42,9 +41,7 @@ class FlakyGuild:
 
 
 @pytest.mark.asyncio
-async def test_no_prune_on_transient_cache_miss(
-    temp_db
-) -> None:
+async def test_no_prune_on_transient_cache_miss(temp_db) -> None:
     """If the member is found on the retry after a short sleep,
     rows must not be deleted."""
     # Initialize DB (temp_db fixture already initialized)

@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock
 
 import pytest
-
 from helpers.views import VerificationView
 from tests.conftest import FakeInteraction, FakeUser
 

@@ -11,14 +11,14 @@ messages, applying permission changes, and updating channel settings.
 import contextlib
 
 import discord
+from config.config_loader import ConfigLoader
 from discord import Interaction, SelectOption
 from discord.ui import Button, Select, UserSelect, View
+from services.db.database import Database
+from utils.logging import get_logger
 
-from config.config_loader import ConfigLoader
-from helpers.database import Database
 from helpers.discord_api import edit_channel, send_message
 from helpers.embeds import create_cooldown_embed, create_token_embed
-from helpers.logger import get_logger
 from helpers.modals import (
     HandleModal,
     LimitModal,
@@ -221,7 +221,9 @@ class VerificationView(View):
         except discord.HTTPException as e:
             if e.code != 10062:  # Not Unknown interaction (expired)
                 # Re-raise other HTTP exceptions, but log them first for debugging
-                logger.exception(f"HTTP exception (code {e.code}) in verify_button_callback: {e}")
+                logger.exception(
+                    f"HTTP exception (code {e.code}) in verify_button_callback: {e}"
+                )
                 raise
             logger.warning(
                 f"Interaction expired for user {member.display_name} ({member.id}). "
@@ -231,7 +233,7 @@ class VerificationView(View):
             try:
                 await interaction.followup.send(
                     "⚠️ This verification button has expired. Please request a new verification message.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
             except Exception:
                 # If even the followup fails, log it but don't crash
@@ -491,7 +493,7 @@ class ChannelSettingsView(View):
                 # Update the original message to preserve the view.
             await interaction.message.edit(view=self)
         except Exception as e:
-            logger.exception(f"Error in channel_settings_callback: {e}")
+            logger.exception("Error in channel_settings_callback", exc_info=e)
             await send_message(interaction, "An error occurred.", ephemeral=True)
 
     async def channel_permissions_callback(self, interaction: Interaction) -> None:
@@ -518,7 +520,7 @@ class ChannelSettingsView(View):
                 await send_message(interaction, "No option selected.", ephemeral=True)
                 return
         except Exception as e:
-            logger.exception(f"Error reading select value: {e}")
+            logger.exception("Error reading select value", exc_info=e)
             await send_message(interaction, "An error occurred.", ephemeral=True)
             return
 

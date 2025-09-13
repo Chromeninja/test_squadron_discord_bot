@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-
 from helpers import rate_limiter as rl
 
 

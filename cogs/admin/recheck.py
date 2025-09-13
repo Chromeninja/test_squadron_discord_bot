@@ -7,14 +7,13 @@ import time
 
 import discord
 from discord.ext import commands, tasks
-
-from helpers.database import Database
 from helpers.http_helper import NotFoundError
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.logger import get_logger
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
+from services.db.database import Database
+from utils.logging import get_logger
 from verification.rsi_verification import is_valid_rsi_handle
 
 logger = get_logger(__name__)

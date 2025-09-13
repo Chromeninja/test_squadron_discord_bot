@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from helpers.database import Database  # noqa: E402
+from services.db.database import Database  # noqa: E402
 
 
 # Ensure pytest-asyncio uses a dedicated loop
@@ -43,14 +43,25 @@ def mock_bot() -> None:
 @pytest_asyncio.fixture()
 async def temp_db(tmp_path):
     """Initialize Database to a temporary file for isolation across tests."""
+    # Save original state
     orig_path = Database._db_path
+    orig_initialized = Database._initialized
+
+    # Reset and initialize with temp database
     Database._initialized = False
+    Database._db_path = None
     db_file = tmp_path / "test.db"
     await Database.initialize(str(db_file))
+
+    # Verify initialization worked
+    assert Database._initialized is True
+    assert Database._db_path == str(db_file)
+
     yield str(db_file)
-    # Restore
+
+    # Restore original state completely
     Database._db_path = orig_path
-    Database._initialized = False
+    Database._initialized = orig_initialized
 
 
 class FakeUser:

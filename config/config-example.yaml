@@ -17,6 +17,7 @@ channels:
   verification_channel_id: 1313551608491282543         # Channel for running verification
   public_announcement_channel_id: 1395475641805176952  # Public channel for daily/threshold announcements
   leadership_announcement_channel_id: 1395475681512652944 # Private channel for leadership logs
+  admin_announce_channel_id: 1395475681512652944       # Channel for admin recheck notifications (defaults to leadership channel)
   bot_spam_channel_id: 1395475681512652999             # Bot spam channel for reverify notices
 
 roles:
@@ -41,6 +42,9 @@ logging:
 voice:
   cooldown_seconds: 5  # Cooldown period for voice channel creation (seconds)
   expiry_days: 30      # Expiry period for inactive voice channel data (days)
+  delete_delay_seconds: 10  # Delay before deleting empty voice channels (seconds)
+  startup_delay_ms: 2000  # Delay after bot ready before reconciliation (milliseconds)
+  startup_cleanup_mode: "delayed"  # How to handle empty channels on startup: "delayed" or "immediate"
 
 database:
   path: "TESTDatabase.db"

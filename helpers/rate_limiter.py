@@ -3,8 +3,8 @@
 import time
 
 from config.config_loader import ConfigLoader
-from helpers.database import Database
-from helpers.logger import get_logger
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

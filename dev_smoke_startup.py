@@ -10,12 +10,11 @@ import os
 import signal
 from types import SimpleNamespace
 
+from bot import PREFIX, MyBot, initial_extensions, intents
 from discord.ext import commands as dcommands
 from discord.ext import tasks as dctasks
-
-from bot import PREFIX, MyBot, initial_extensions, intents
-from helpers.database import Database
-from helpers.logger import get_logger
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -58,7 +57,7 @@ class DryRunBot(MyBot):
                 await self.load_extension(ext)
                 logger.info(f"[DRY-RUN] Loaded extension: {ext}")
             except Exception as e:
-                logger.error(f"[DRY-RUN] Failed to load {ext}: {e}")
+                logger.exception("[DRY-RUN] Failed to load %s", ext, exc_info=e)
 
         logger.info("[DRY-RUN] setup_hook complete (no login performed)")
 

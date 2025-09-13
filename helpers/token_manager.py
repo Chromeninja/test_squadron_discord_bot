@@ -3,7 +3,7 @@
 import secrets
 import time
 
-from helpers.logger import get_logger
+from utils.logging import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)

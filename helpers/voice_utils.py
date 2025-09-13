@@ -3,10 +3,10 @@
 import contextlib
 
 import discord
+from services.db.database import Database
+from utils.logging import get_logger
 
-from helpers.database import Database
 from helpers.discord_api import edit_channel, send_message
-from helpers.logger import get_logger
 from helpers.permissions_helper import FEATURE_CONFIG
 
 logger = get_logger(__name__)
@@ -188,7 +188,7 @@ async def set_voice_feature_setting(
 
     if guild_id and jtc_channel_id:
         query = f"""
-            INSERT OR REPLACE INTO {db_table} 
+            INSERT OR REPLACE INTO {db_table}
             (guild_id, jtc_channel_id, user_id, target_id, target_type, {db_column})
             VALUES (?, ?, ?, ?, ?, ?)
         """
@@ -200,7 +200,7 @@ async def set_voice_feature_setting(
     else:
         # Legacy mode for backward compatibility
         query = f"""
-            INSERT OR REPLACE INTO {db_table} 
+            INSERT OR REPLACE INTO {db_table}
             (user_id, target_id, target_type, {db_column})
             VALUES (?, ?, ?, ?)
         """
@@ -241,8 +241,8 @@ async def apply_voice_feature_toggle(
     channel: discord.VoiceChannel, feature: str, target, enable: bool
 ) -> None:
     """
-    Applies the actual Overwrite on the channel for the given feature (ptt, 
-    priority_speaker, soundboard). 'target' can be a discord.Member, discord.Role, 
+    Applies the actual Overwrite on the channel for the given feature (ptt,
+    priority_speaker, soundboard). 'target' can be a discord.Member, discord.Role,
     or default_role for "everyone".
     """
     cfg = FEATURE_CONFIG.get(feature)
@@ -286,7 +286,7 @@ async def fetch_channel_settings(
     Args:
         bot: The bot instance
         interaction: The interaction context
-        allow_inactive: Whether to return settings even if the user doesn't have 
+        allow_inactive: Whether to return settings even if the user doesn't have
             an active channel
         guild_id: Optional guild ID to filter by
         jtc_channel_id: Optional join-to-create channel ID to filter by
@@ -390,9 +390,7 @@ def create_voice_settings_embed(
     settings, formatted, title: str, footer: str
 ) -> discord.Embed:
     embed = discord.Embed(title=title, color=discord.Color.blue())
-    embed.add_field(
-        name="🗨️ Channel Name", value=settings["channel_name"], inline=False
-    )
+    embed.add_field(name="🗨️ Channel Name", value=settings["channel_name"], inline=False)
     embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
     embed.add_field(
         name="👥 User Limit", value=str(settings["user_limit"]), inline=True

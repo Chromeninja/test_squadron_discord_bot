@@ -5,18 +5,17 @@ import os
 import time
 
 import discord
+from config.config_loader import ConfigLoader
 from discord.ext import commands
 from dotenv import load_dotenv
-
-from config.config_loader import ConfigLoader
 from helpers.announcement import BulkAnnouncer
-from helpers.database import Database
 from helpers.http_helper import HTTPClient
-from helpers.logger import get_logger
 from helpers.rate_limiter import cleanup_attempts
 from helpers.task_queue import start_task_workers, task_queue
 from helpers.token_manager import cleanup_tokens
 from helpers.views import ChannelSettingsView, VerificationView
+from services.db.database import Database
+from utils.logging import get_logger
 from utils.tasks import spawn
 
 # Initialize logger
@@ -60,10 +59,12 @@ intents.presences = True  # Needed for member presence updates
 
 # List of initial extensions to load
 initial_extensions = [
-    "cogs.verification",
-    "cogs.admin",
-    "cogs.voice",
-    "cogs.recheck",
+    "cogs.verification.commands",
+    "cogs.admin.commands",
+    "cogs.admin.recheck",
+    "cogs.voice.commands",
+    "cogs.voice.events",
+    "cogs.voice.service_bridge",
 ]
 
 
@@ -103,13 +104,20 @@ class MyBot(commands.Bot):
         # Initialize the database
         await Database.initialize()
 
+        # Initialize services container
+        from services.service_container import ServiceContainer
+
+        self.services = ServiceContainer(self)
+        await self.services.initialize()
+        logger.info("ServiceContainer initialized")
+
         # Run application-driven voice data migration (safe, idempotent)
         try:
             from helpers.voice_migration import run_voice_data_migration
 
             await run_voice_data_migration(self)
         except Exception as e:
-            logger.exception(f"Voice data migration failed: {e}")
+            logger.exception("Voice data migration failed", exc_info=e)
 
         # Add the BulkAnnouncer cog after DB is initialized
         await self.add_cog(BulkAnnouncer(self))
@@ -128,7 +136,7 @@ class MyBot(commands.Bot):
                 await self.load_extension(extension)
                 logger.info(f"Loaded extension: {extension}")
             except Exception as e:
-                logger.exception(f"Failed to load extension {extension}: {e}")
+                logger.exception(f"Failed to load extension {extension}", exc_info=e)
 
         # Cache roles after bot is ready
         spawn(self.cache_roles())
@@ -146,7 +154,7 @@ class MyBot(commands.Bot):
             await self.tree.sync()
             logger.info("All commands synced globally.")
         except Exception as e:
-            logger.exception(f"Failed to sync commands: {e}")
+            logger.exception("Failed to sync commands", exc_info=e)
 
         # Set command permissions for each guild (always attempt regardless of sync result)
         for guild in self.guilds:
@@ -171,6 +179,13 @@ class MyBot(commands.Bot):
                 logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
+
+        # Run legacy settings migration after bot is ready and guilds are loaded
+        if hasattr(self, "services") and self.services.config:
+            try:
+                await self.services.config.maybe_migrate_legacy_settings(self)
+            except Exception as e:
+                logger.exception("Legacy settings migration failed", exc_info=e)
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
@@ -310,10 +325,8 @@ class MyBot(commands.Bot):
             and hasattr(self.tree, "set_permissions")
         ):
             logger.info(
-
-                    "Per-command App Command permission API not available in this environment; "
-                    "skipping and relying on runtime decorator checks."
-
+                "Per-command App Command permission API not available in this environment; "
+                "skipping and relying on runtime decorator checks."
             )
             return
 
@@ -348,10 +361,8 @@ class MyBot(commands.Bot):
         except Exception as e:
             # Catch-all: don't let permission setup break bot startup.
             logger.info(
-
-                    f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
-                    + "Using runtime decorator checks instead."
-
+                f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
+                + "Using runtime decorator checks instead."
             )
 
     async def token_cleanup_task(self) -> None:
@@ -385,6 +396,59 @@ class MyBot(commands.Bot):
         hours, remainder = divmod(delta, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours}h {minutes}m {seconds}s"
+
+    async def has_admin_permissions(self, user: discord.Member) -> bool:
+        """
+        Check if a user has admin permissions based on configured roles.
+
+        Args:
+            user: Discord member to check
+
+        Returns:
+            bool: True if user has bot admin or lead moderator roles
+        """
+        if not isinstance(user, discord.Member):
+            return False
+
+        user_role_ids = [role.id for role in user.roles]
+        admin_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
+
+        return any(role_id in admin_role_ids for role_id in user_role_ids)
+
+    async def get_guild_config(self, guild_id: int) -> dict:
+        """
+        Get configuration for a specific guild using the services container.
+
+        Args:
+            guild_id: Discord guild ID
+
+        Returns:
+            dict: Guild configuration data
+        """
+        if not hasattr(self, "services") or not self.services.config:
+            return {}
+
+        config_service = self.services.config
+
+        # Get common guild settings
+        jtc_channels = await config_service.get_join_to_create_channels(guild_id)
+        voice_category = await config_service.get_guild_setting(
+            guild_id, "voice_category_id"
+        )
+
+        # Get roles configuration
+        roles = await config_service.get_guild_roles(guild_id)
+
+        # Get channels configuration
+        channels = await config_service.get_guild_channels(guild_id)
+
+        return {
+            "guild_id": guild_id,
+            "join_to_create_channels": jtc_channels,
+            "voice_category_id": voice_category,
+            "roles": roles,
+            "channels": channels,
+        }
 
     async def close(self) -> None:
         """

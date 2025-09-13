@@ -3,15 +3,13 @@
 import asyncio
 
 import aiohttp
-
-from helpers.logger import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class NotFoundError(Exception):
     """Raised when a 404 is encountered and the caller should treat the resource as gone."""
-
 
 
 class HTTPClient:

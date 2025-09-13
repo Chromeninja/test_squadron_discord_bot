@@ -1,7 +1,6 @@
 import types
 
 import pytest
-
 from helpers.role_helper import assign_roles
 
 
