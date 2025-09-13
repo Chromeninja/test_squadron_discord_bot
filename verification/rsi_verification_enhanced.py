@@ -330,7 +330,9 @@ async def is_valid_rsi_bio(
         else:
             logger.warning(f"Could not extract bio text for handle: {user_handle}")
     except Exception as e:
-        logger.exception("Exception while extracting bio for %s", user_handle, exc_info=e)
+        logger.exception(
+            "Exception while extracting bio for %s", user_handle, exc_info=e
+        )
         bio_text = None
 
     if bio_text is None:

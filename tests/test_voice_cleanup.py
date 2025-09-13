@@ -36,6 +36,11 @@ class MockBot:
 
     def __init__(self):
         self._channels = {}
+        self.guilds = []  # Add missing guilds attribute
+
+    async def wait_until_ready(self):
+        """Mock wait_until_ready method."""
+        pass
 
     def get_channel(self, channel_id: int):
         """Get mock channel by ID."""
@@ -192,14 +197,17 @@ class TestVoiceCleanup:
         for channel_id in missing_channel_ids:
             assert channel_id not in voice_service.managed_voice_channels
 
-        # Verify database cleanup
+        # _load_managed_channels should NOT delete DB rows - it defers to reconciliation
+        # Verify database rows are still there (this is correct behavior)
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id IN (?, ?, ?)",
                 missing_channel_ids,
             )
             count = await cursor.fetchone()
-            assert count[0] == 0
+            assert (
+                count[0] == 3
+            )  # Should still be 3 since _load_managed_channels defers to reconciliation
 
     @pytest.mark.asyncio
     async def test_startup_reconciliation_active_channels(self, voice_service_with_bot):
@@ -248,7 +256,7 @@ class TestVoiceCleanup:
     async def test_startup_reconciliation_empty_channels_scheduled(
         self, voice_service_with_bot
     ):
-        """Test startup reconciliation schedules cleanup for empty channels."""
+        """Test startup reconciliation adds empty channels to managed set in delayed mode."""
         voice_service, mock_bot = voice_service_with_bot
 
         # Create empty channels
@@ -271,23 +279,119 @@ class TestVoiceCleanup:
                 )
                 await db.commit()
 
-        # Mock the schedule cleanup method to track calls
+        # Mock config to return delayed mode
         with patch.object(
-            voice_service, "_schedule_channel_cleanup", new_callable=AsyncMock
-        ) as mock_schedule:
+            voice_service.config_service, "get_global_setting"
+        ) as mock_config:
+            mock_config.return_value = "delayed"
+
             # Clear managed channels and reload
             voice_service.managed_voice_channels.clear()
             await voice_service._load_managed_channels()
 
-            # Verify channels are added to managed set
+            # Verify channels are added to managed set (delayed mode)
+            # In delayed mode, _load_managed_channels adds empty channels to managed set
+            # and defers cleanup decision to reconciliation
             for channel in empty_channels:
                 assert channel.id in voice_service.managed_voice_channels
 
-            # Verify cleanup was scheduled for each empty channel
-            assert mock_schedule.call_count == len(empty_channels)
-            scheduled_ids = [call[0][0] for call in mock_schedule.call_args_list]
-            for channel in empty_channels:
-                assert channel.id in scheduled_ids
+    @pytest.mark.asyncio
+    async def test_startup_reconciliation_empty_channels_immediate_cleanup(
+        self, voice_service_with_bot
+    ):
+        """Test startup reconciliation immediately cleans up empty channels in immediate mode."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        # Create empty channels
+        empty_channels = []
+        for i in range(2):
+            channel_id = 77880 + i
+            channel = MockVoiceChannel(channel_id=channel_id, members=[])  # Empty
+            mock_bot.add_channel(channel)
+            empty_channels.append(channel)
+
+            # Add to database
+            async with Database.get_connection() as db:
+                await db.execute(
+                    """
+                    INSERT INTO user_voice_channels
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (12345, 67890, 33333 + i, channel_id, 1234567890),
+                )
+                await db.commit()
+
+        # Mock config to return immediate mode (default)
+        with patch.object(
+            voice_service.config_service, "get_global_setting"
+        ) as mock_config:
+            mock_config.return_value = "immediate"
+
+            # Mock the cleanup method to track calls
+            with patch.object(
+                voice_service, "_cleanup_empty_channel", new_callable=AsyncMock
+            ) as mock_cleanup:
+                # Mock the schedule cleanup method to ensure it's not called
+                with patch.object(
+                    voice_service, "_schedule_channel_cleanup", new_callable=AsyncMock
+                ) as mock_schedule:
+                    # Clear managed channels and reload
+                    voice_service.managed_voice_channels.clear()
+                    await voice_service._load_managed_channels()
+
+                    # Verify channels are NOT added to managed set (immediate mode)
+                    for channel in empty_channels:
+                        assert channel.id not in voice_service.managed_voice_channels
+
+                    # Verify immediate cleanup was called for each empty channel
+                    assert mock_cleanup.call_count == len(empty_channels)
+                    cleaned_channel_ids = [
+                        call[0][0] for call in mock_cleanup.call_args_list
+                    ]
+                    for channel in empty_channels:
+                        assert channel.id in cleaned_channel_ids
+
+                    # Verify no scheduled cleanup was called
+                    mock_schedule.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_startup_reconciliation_default_delayed_mode(
+        self, voice_service_with_bot
+    ):
+        """Test that startup reconciliation defaults to delayed cleanup mode."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        # Create empty channel
+        channel_id = 77990
+        channel = MockVoiceChannel(channel_id=channel_id, members=[])
+        mock_bot.add_channel(channel)
+
+        # Add to database
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO user_voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (12345, 67890, 44444, channel_id, 1234567890),
+            )
+            await db.commit()
+
+        # Mock the cleanup method to track calls (don't mock config - use default)
+        with patch.object(
+            voice_service, "_cleanup_empty_channel", new_callable=AsyncMock
+        ) as mock_cleanup:
+            # Clear managed channels and reload
+            voice_service.managed_voice_channels.clear()
+            await voice_service._load_managed_channels()
+
+            # Verify channel IS added to managed set (default delayed mode)
+            assert channel_id in voice_service.managed_voice_channels
+
+            # Verify NO immediate cleanup was called (delayed mode)
+            mock_cleanup.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_scheduled_cleanup_fallback(self, voice_service_with_bot):
@@ -364,3 +468,128 @@ class TestVoiceCleanup:
 
         # Channel should still be managed
         assert channel.id in voice_service.managed_voice_channels
+
+    @pytest.mark.asyncio
+    async def test_cleanup_channel_not_found_exception(self, voice_service_with_bot):
+        """Test cleanup handles discord.NotFound exception gracefully."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        # Create and set up a channel
+        channel = MockVoiceChannel(channel_id=12347, members=[])
+        mock_bot.add_channel(channel)
+
+        # Add to managed channels and database
+        voice_service.managed_voice_channels.add(channel.id)
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO user_voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (12345, 67890, 11111, channel.id, 1234567890),
+            )
+            await db.commit()
+
+        # Mock discord.NotFound exception on delete
+        import discord
+
+        with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+            mock_delete.side_effect = discord.NotFound(MagicMock(), "Channel not found")
+
+            # Should not raise exception
+            await voice_service._cleanup_empty_channel(channel)
+
+            # Verify delete was attempted
+            mock_delete.assert_called_once()
+
+        # Verify cleanup occurred anyway (cache and DB)
+        assert channel.id not in voice_service.managed_voice_channels
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel.id,),
+            )
+            count = await cursor.fetchone()
+            assert count[0] == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_channel_forbidden_exception(self, voice_service_with_bot):
+        """Test cleanup handles discord.Forbidden exception gracefully."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        # Create and set up a channel
+        channel = MockVoiceChannel(channel_id=12348, members=[])
+        mock_bot.add_channel(channel)
+
+        # Add to managed channels and database
+        voice_service.managed_voice_channels.add(channel.id)
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO user_voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (12345, 67890, 11111, channel.id, 1234567890),
+            )
+            await db.commit()
+
+        # Mock discord.Forbidden exception on delete
+        import discord
+
+        with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+            mock_delete.side_effect = discord.Forbidden(
+                MagicMock(), "Insufficient permissions"
+            )
+
+            # Should not raise exception
+            await voice_service._cleanup_empty_channel(channel)
+
+            # Verify delete was attempted
+            mock_delete.assert_called_once()
+
+        # Verify cleanup occurred anyway (cache and DB)
+        assert channel.id not in voice_service.managed_voice_channels
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel.id,),
+            )
+            count = await cursor.fetchone()
+            assert count[0] == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_with_channel_id_none_channel(self, voice_service_with_bot):
+        """Test cleanup with channel ID when bot.get_channel returns None."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        # Add channel to managed channels and database without adding to bot
+        channel_id = 12349
+        voice_service.managed_voice_channels.add(channel_id)
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO user_voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (12345, 67890, 11111, channel_id, 1234567890),
+            )
+            await db.commit()
+
+        # Call cleanup with channel ID (bot.get_channel will return None)
+        await voice_service._cleanup_empty_channel(channel_id)
+
+        # Verify cleanup occurred (cache and DB)
+        assert channel_id not in voice_service.managed_voice_channels
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
+                (channel_id,),
+            )
+            count = await cursor.fetchone()
+            assert count[0] == 0

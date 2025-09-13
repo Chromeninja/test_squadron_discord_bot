@@ -43,7 +43,7 @@ def canonicalize_status_for_display(status: str) -> str:
 
 def format_admin_recheck_message(
     admin_display_name: str, user_id: int, old_status: str, new_status: str
-) -> str:
+) -> tuple[str, bool]:
     """
     Format admin recheck message with exact specification.
 
@@ -54,20 +54,32 @@ def format_admin_recheck_message(
         new_status: New status (internal format)
 
     Returns:
-        Formatted message string exactly as specified:
-        [Admin Check • Admin: {adminDisplay}] <@{userId}> 🔁 {StatusWord}
-        Status: {OldPretty} → {NewPretty}
+        tuple[str, bool]: (formatted_message, changed_bool)
+        - formatted_message: The formatted message string
+        - changed_bool: True if roles changed, False if no change
     """
     old_pretty = canonicalize_status_for_display(old_status)
     new_pretty = canonicalize_status_for_display(new_status)
 
-    # Determine status word based on whether status changed
-    status_word = "Updated" if old_status != new_status else "No Change"
+    # Determine if there was actually a status change
+    changed = old_status != new_status
 
-    return (
-        f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> 🔁 {status_word}\n"
-        f"Status: {old_pretty} → {new_pretty}"
-    )
+    # Set emoji and status word based on whether status changed
+    if changed:
+        emoji = "🔁"
+        status_word = "Updated"
+        # Two-line format with status change
+        message = (
+            f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> {emoji} {status_word}\n"
+            f"Status: {old_pretty} → {new_pretty}"
+        )
+    else:
+        emoji = "🥺"
+        status_word = "No changes"
+        # Single-line format for no change
+        message = f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> {emoji} {status_word}"
+
+    return message, changed
 
 
 async def send_admin_recheck_notification(
@@ -76,9 +88,9 @@ async def send_admin_recheck_notification(
     member: discord.Member,
     old_status: str,
     new_status: str,
-) -> bool:
+) -> tuple[bool, bool]:
     """
-    Send admin recheck notification to leadership channel.
+    Send admin recheck notification to admin announcements channel.
 
     Args:
         bot: Bot instance with config
@@ -88,39 +100,62 @@ async def send_admin_recheck_notification(
         new_status: New status (internal format)
 
     Returns:
-        bool: True if message was sent successfully, False otherwise
+        tuple[bool, bool]: (success, changed) where success indicates if message was sent and changed indicates if roles changed
     """
-    config = bot.config
-    leadership_channel_id = config.get("channels", {}).get(
-        "leadership_announcement_channel_id"
-    )
+    from services.config_service import ConfigService
 
-    if not leadership_channel_id:
-        logger.warning(
-            "No leadership_announcement_channel_id configured for admin recheck notification"
+    # Use admin announce channel, fallback to leadership channel if not configured
+    try:
+        config_service = ConfigService()
+        admin_announce_channel_id = await config_service.get_global_setting(
+            "admin_announce_channel_id", None
         )
-        return False
 
-    leadership_channel = bot.get_channel(leadership_channel_id)
-    if not leadership_channel:
-        logger.warning(
-            f"Leadership announcement channel {leadership_channel_id} not found"
+        # Fallback to leadership channel if admin announce channel not configured
+        if not admin_announce_channel_id:
+            config = bot.config
+            admin_announce_channel_id = config.get("channels", {}).get(
+                "leadership_announcement_channel_id"
+            )
+    except Exception as e:
+        logger.warning(f"Error getting admin announce channel config: {e}")
+        # Final fallback to leadership channel
+        config = bot.config
+        admin_announce_channel_id = config.get("channels", {}).get(
+            "leadership_announcement_channel_id"
         )
-        return False
+
+    if not admin_announce_channel_id:
+        logger.warning(
+            "No admin_announce_channel_id or leadership_announcement_channel_id configured for admin recheck notification"
+        )
+        return False, False
+
+    admin_channel = bot.get_channel(admin_announce_channel_id)
+    if not admin_channel:
+        logger.warning(
+            f"Admin announcement channel {admin_announce_channel_id} not found"
+        )
+        return False, False
 
     try:
-        message = format_admin_recheck_message(
+        message, changed = format_admin_recheck_message(
             admin_display_name=admin_display_name,
             user_id=member.id,
             old_status=old_status,
             new_status=new_status,
         )
 
-        await channel_send_message(leadership_channel, message)
-        return True
+        await channel_send_message(admin_channel, message)
+
+        logger.info(
+            f"Admin recheck notification sent to {admin_channel.name}: {message.replace(chr(10), ' | ')}"
+        )
+
+        return True, changed
     except Exception as e:
         logger.warning(f"Failed to send admin recheck notification: {e}")
-        return False
+        return False, False
 
 
 async def send_verification_announcements(

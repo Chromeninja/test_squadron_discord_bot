@@ -359,7 +359,9 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
             rsi_handle, http_client
         )  # May raise NotFoundError
     except Exception as e:
-        logger.exception("Error calling is_valid_rsi_handle for %s", rsi_handle, exc_info=e)
+        logger.exception(
+            "Error calling is_valid_rsi_handle for %s", rsi_handle, exc_info=e
+        )
         return False, "error", f"RSI verification failed: {e!s}"
 
     if verify_value is None or cased_handle is None:  # moniker optional

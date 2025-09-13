@@ -35,7 +35,9 @@ class BaseService(ABC):
                 self._initialized = True
                 self.logger.info(f"{self.name} service initialized successfully")
             except Exception as e:
-                self.logger.exception("Failed to initialize %s service", self.name, exc_info=e)
+                self.logger.exception(
+                    "Failed to initialize %s service", self.name, exc_info=e
+                )
                 raise
 
     async def shutdown(self) -> None:
@@ -47,7 +49,9 @@ class BaseService(ABC):
         try:
             await self._shutdown_impl()
         except Exception as e:
-            self.logger.exception("Error during %s service shutdown", self.name, exc_info=e)
+            self.logger.exception(
+                "Error during %s service shutdown", self.name, exc_info=e
+            )
         finally:
             self._initialized = False
 

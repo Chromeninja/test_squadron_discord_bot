@@ -93,7 +93,10 @@ class TestModernAdminRecheckUserCommand:
                             with patch(
                                 "helpers.announcement.send_admin_recheck_notification"
                             ) as mock_admin_notif:
-                                mock_admin_notif.return_value = True
+                                mock_admin_notif.return_value = (
+                                    True,
+                                    False,
+                                )  # Success, no change
 
                                 # Mock bulk announcer - should NOT be called for no change
                                 with patch(
@@ -166,7 +169,10 @@ class TestModernAdminRecheckUserCommand:
                             with patch(
                                 "helpers.announcement.send_admin_recheck_notification"
                             ) as mock_admin_notif:
-                                mock_admin_notif.return_value = True
+                                mock_admin_notif.return_value = (
+                                    True,
+                                    True,
+                                )  # Success, changed
 
                                 # Mock bulk announcer - should be called once for status change
                                 with patch(
@@ -244,7 +250,10 @@ class TestModernAdminRecheckUserCommand:
                         ) as mock_bulk_enqueue,
                     ):
 
-                        mock_admin_notif.return_value = True
+                        mock_admin_notif.return_value = (
+                            True,
+                            False,
+                        )  # Success, no change (fallback test)
 
                         # Execute the command
                         await admin_cog.recheck_user.callback(

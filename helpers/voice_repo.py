@@ -43,6 +43,57 @@ async def get_user_channel_id(
         return row[0] if row else None
 
 
+async def get_owner_id_by_channel(voice_channel_id: int) -> int | None:
+    """
+    Get the owner ID for a voice channel by its ID.
+
+    This function provides DB-first ownership verification, making it resilient
+    to bot restarts and cache invalidation.
+
+    Args:
+        voice_channel_id: The Discord voice channel ID
+
+    Returns:
+        The owner's Discord user ID or None if channel not found or not managed
+    """
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT owner_id
+                FROM user_voice_channels
+                WHERE voice_channel_id = ?
+                """,
+                (voice_channel_id,),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.exception(
+            f"Error retrieving owner for channel {voice_channel_id}: {e}",
+            exc_info=e,
+        )
+        return None
+
+
+async def is_channel_owner(voice_channel_id: int, user_id: int) -> bool:
+    """
+    Check if a specific user is the owner of a voice channel.
+
+    This is a convenience wrapper around get_owner_id_by_channel that returns
+    a boolean result for ownership checks.
+
+    Args:
+        voice_channel_id: The Discord voice channel ID
+        user_id: The Discord user ID to check
+
+    Returns:
+        True if the user owns the channel, False otherwise
+    """
+    owner_id = await get_owner_id_by_channel(voice_channel_id)
+    return owner_id == user_id if owner_id is not None else False
+
+
 async def upsert_channel_settings(
     user_id: int, guild_id: int, jtc_channel_id: int, **fields
 ) -> None:

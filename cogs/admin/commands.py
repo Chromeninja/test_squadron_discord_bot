@@ -625,16 +625,15 @@ class AdminCog(commands.Cog):
                 old_status_pretty = canonicalize_status_for_display(old_status_raw)
                 new_status_pretty = canonicalize_status_for_display(new_status_raw)
 
-                # Determine if there was a status change
-                status_changed = old_status_raw != new_status_raw
-
-                # Send admin notification to leadership channel using helper
-                await send_admin_recheck_notification(
-                    bot=self.bot,
-                    admin_display_name=interaction.user.display_name,
-                    member=member,
-                    old_status=old_status_raw or "unknown",
-                    new_status=new_status_raw or "unknown",
+                # Send admin notification to admin announcements channel using updated helper
+                notification_sent, status_changed = (
+                    await send_admin_recheck_notification(
+                        bot=self.bot,
+                        admin_display_name=interaction.user.display_name,
+                        member=member,
+                        old_status=old_status_raw or "unknown",
+                        new_status=new_status_raw or "unknown",
+                    )
                 )
 
                 # Only enqueue bulk announcer event if status actually changed
@@ -646,8 +645,11 @@ class AdminCog(commands.Cog):
                     )
                     admin_response_message = f"✅ Recheck complete: {member.mention} status changed from {old_status_pretty} to {new_status_pretty}"
                 else:
-                    # No change: do nothing (no enqueue, no flush)
+                    # No change: do not enqueue to bulk announcer
                     admin_response_message = f"ℹ️ Recheck complete: {member.mention} no status change ({old_status_pretty})"
+
+                if not notification_sent:
+                    admin_response_message += " (Admin notification failed to send)"
 
             except Exception as e:
                 self.logger.warning(

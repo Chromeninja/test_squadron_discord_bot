@@ -56,7 +56,7 @@ class TestAdminRecheckHelpers:
 
     def test_format_admin_recheck_message_status_change(self):
         """Test admin recheck message formatting with status change."""
-        message = format_admin_recheck_message(
+        message, changed = format_admin_recheck_message(
             admin_display_name="AdminUser",
             user_id=987654321,
             old_status="affiliate",
@@ -68,10 +68,11 @@ class TestAdminRecheckHelpers:
             "Status: Affiliate → Main"
         )
         assert message == expected
+        assert changed is True
 
     def test_format_admin_recheck_message_unknown_to_member(self):
         """Test admin recheck message formatting from unknown to member status."""
-        message = format_admin_recheck_message(
+        message, changed = format_admin_recheck_message(
             admin_display_name="ModeratorTest",
             user_id=555666777,
             old_status="unknown",
@@ -83,87 +84,144 @@ class TestAdminRecheckHelpers:
             "Status: Not a Member → Not a Member"
         )
         assert message == expected
+        assert (
+            changed is True
+        )  # Different internal status values even if display is same
+
+    def test_format_admin_recheck_message_no_change(self):
+        """Test format_admin_recheck_message with no status change."""
+        message, changed = format_admin_recheck_message(
+            admin_display_name="AdminUser",
+            user_id=123456789,
+            old_status="main",
+            new_status="main",
+        )
+
+        expected = "[Admin Check • Admin: AdminUser] <@123456789> 🥺 No changes"
+        assert message == expected
+        assert changed is False
+
+    def test_format_admin_recheck_message_with_change(self):
+        """Test format_admin_recheck_message with status change."""
+        message, changed = format_admin_recheck_message(
+            admin_display_name="AdminUser",
+            user_id=123456789,
+            old_status="affiliate",
+            new_status="main",
+        )
+
+        expected = (
+            "[Admin Check • Admin: AdminUser] <@123456789> 🔁 Updated\n"
+            "Status: Affiliate → Main"
+        )
+        assert message == expected
+        assert changed is True
 
     @pytest.mark.asyncio
     async def test_send_admin_recheck_notification_success(self):
         """Test successful admin recheck notification sending."""
-        # Mock bot and its components
-        mock_bot = MagicMock()
-        mock_bot.config = {
-            "channels": {"leadership_announcement_channel_id": 123456789}
-        }
+        # Mock config service
+        with patch("services.config_service.ConfigService") as mock_config_service:
+            mock_config_instance = AsyncMock()
+            mock_config_service.return_value = mock_config_instance
+            mock_config_instance.get_global_setting.return_value = 123456789
 
-        mock_channel = AsyncMock()
-        mock_bot.get_channel.return_value = mock_channel
+            # Mock bot and its components
+            mock_bot = MagicMock()
+            mock_bot.config = {
+                "channels": {"leadership_announcement_channel_id": 999999999}
+            }
 
-        # Mock member
-        mock_member = MagicMock()
-        mock_member.id = 987654321
+            mock_channel = AsyncMock()
+            mock_channel.name = "admin-announcements"
+            mock_bot.get_channel.return_value = mock_channel
 
-        # Mock channel_send_message
-        with patch(
-            "helpers.announcement.channel_send_message", new_callable=AsyncMock
-        ) as mock_send:
-            result = await send_admin_recheck_notification(
-                bot=mock_bot,
-                admin_display_name="TestAdmin",
-                member=mock_member,
-                old_status="affiliate",
-                new_status="main",
-            )
+            # Mock member
+            mock_member = MagicMock()
+            mock_member.id = 987654321
 
-        assert result is True
-        mock_send.assert_called_once()
+            # Mock channel_send_message
+            with patch(
+                "helpers.announcement.channel_send_message", new_callable=AsyncMock
+            ) as mock_send:
+                result = await send_admin_recheck_notification(
+                    bot=mock_bot,
+                    admin_display_name="TestAdmin",
+                    member=mock_member,
+                    old_status="affiliate",
+                    new_status="main",
+                )
 
-        # Verify the message content
-        call_args = mock_send.call_args
-        assert call_args[0][0] is mock_channel  # First arg is channel
+            success, changed = result
+            assert success is True
+            assert changed is True  # Status changed from affiliate to main
+            mock_send.assert_called_once()
 
-        message = call_args[0][1]  # Second arg is message
-        assert "[Admin Check • Admin: TestAdmin]" in message
-        assert "<@987654321>" in message
-        assert "🔁 Updated" in message
-        assert "Status: Affiliate → Main" in message
+            # Verify the message content
+            call_args = mock_send.call_args
+            assert call_args[0][0] is mock_channel  # First arg is channel
+
+            message = call_args[0][1]  # Second arg is message
+            assert "[Admin Check • Admin: TestAdmin]" in message
+            assert "<@987654321>" in message
+            assert "🔁 Updated" in message
+            assert "Status: Affiliate → Main" in message
 
     @pytest.mark.asyncio
     async def test_send_admin_recheck_notification_missing_config(self):
         """Test admin recheck notification with missing channel config."""
-        # Mock bot with missing config
-        mock_bot = MagicMock()
-        mock_bot.config = {"channels": {}}  # No leadership channel
+        # Mock config service to return None (no admin channel configured)
+        with patch("services.config_service.ConfigService") as mock_config_service:
+            mock_config_instance = AsyncMock()
+            mock_config_service.return_value = mock_config_instance
+            mock_config_instance.get_global_setting.return_value = None
 
-        mock_member = MagicMock()
-        mock_member.id = 987654321
+            # Mock bot with missing config
+            mock_bot = MagicMock()
+            mock_bot.config = {"channels": {}}  # No leadership channel either
 
-        result = await send_admin_recheck_notification(
-            bot=mock_bot,
-            admin_display_name="TestAdmin",
-            member=mock_member,
-            old_status="main",
-            new_status="main",
-        )
+            mock_member = MagicMock()
+            mock_member.id = 987654321
 
-        assert result is False
+            result = await send_admin_recheck_notification(
+                bot=mock_bot,
+                admin_display_name="TestAdmin",
+                member=mock_member,
+                old_status="main",
+                new_status="main",
+            )
+
+            success, changed = result
+            assert success is False
+            assert changed is False
 
     @pytest.mark.asyncio
     async def test_send_admin_recheck_notification_channel_not_found(self):
         """Test admin recheck notification when channel is not found."""
-        # Mock bot with config but channel not found
-        mock_bot = MagicMock()
-        mock_bot.config = {
-            "channels": {"leadership_announcement_channel_id": 123456789}
-        }
-        mock_bot.get_channel.return_value = None  # Channel not found
+        # Mock config service
+        with patch("services.config_service.ConfigService") as mock_config_service:
+            mock_config_instance = AsyncMock()
+            mock_config_service.return_value = mock_config_instance
+            mock_config_instance.get_global_setting.return_value = 123456789
 
-        mock_member = MagicMock()
-        mock_member.id = 987654321
+            # Mock bot with config but channel not found
+            mock_bot = MagicMock()
+            mock_bot.config = {
+                "channels": {"leadership_announcement_channel_id": 123456789}
+            }
+            mock_bot.get_channel.return_value = None  # Channel not found
 
-        result = await send_admin_recheck_notification(
-            bot=mock_bot,
-            admin_display_name="TestAdmin",
-            member=mock_member,
-            old_status="main",
-            new_status="main",
-        )
+            mock_member = MagicMock()
+            mock_member.id = 987654321
 
-        assert result is False
+            result = await send_admin_recheck_notification(
+                bot=mock_bot,
+                admin_display_name="TestAdmin",
+                member=mock_member,
+                old_status="main",
+                new_status="main",
+            )
+
+            success, changed = result
+            assert success is False
+            assert changed is False

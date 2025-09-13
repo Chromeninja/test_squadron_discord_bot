@@ -54,56 +54,61 @@ class VoiceService(BaseService):
         # Start cleanup task
         asyncio.create_task(self._cleanup_task())
 
+        # Start reconciliation after bot ready
+        asyncio.create_task(self._run_reconcile_after_ready())
+
     async def _load_managed_channels(self) -> None:
-        """Load existing managed channels from database and perform startup reconciliation."""
+        """Load existing managed channels from database. Do not delete DB rows if channel is not in cache; defer to reconciliation."""
         try:
+            # Get startup cleanup mode setting
+            startup_cleanup_mode = await self.config_service.get_global_setting(
+                "voice.startup_cleanup_mode", "delayed"
+            )
+
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     "SELECT voice_channel_id FROM user_voice_channels"
                 )
                 rows = await cursor.fetchall()
 
-                channels_to_cleanup = []
+                loaded_count = 0
+                deferred_count = 0
+                empty_immediate_count = 0
 
                 for (channel_id,) in rows:
-                    channel = None
-                    if self.bot:
-                        channel = self.bot.get_channel(channel_id)
-
-                    if not channel:
-                        # Channel missing => delete DB row and discard from cache
-                        await db.execute(
-                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                            (channel_id,),
-                        )
-                        self.logger.info(
-                            f"Removed stale channel {channel_id} from database"
-                        )
-
-                    elif len(channel.members) > 0:
-                        # Channel exists and has members => add to managed and skip deletion
-                        self.managed_voice_channels.add(channel_id)
-                        self.logger.info(
-                            f"Resuming management of active channel {channel_id} with {len(channel.members)} members"
-                        )
-
+                    channel = self.bot.get_channel(channel_id) if self.bot else None
+                    if channel is not None:
+                        # Channel is in cache, check if it's empty and handle per startup mode
+                        if (
+                            len(channel.members) == 0
+                            and startup_cleanup_mode == "immediate"
+                        ):
+                            # Empty channel with immediate cleanup mode - clean up now
+                            self.logger.info(
+                                f"startup: immediately cleaning empty channel {channel_id} per startup_cleanup_mode"
+                            )
+                            try:
+                                await self._cleanup_empty_channel(channel_id)
+                                empty_immediate_count += 1
+                            except Exception as e:
+                                self.logger.exception(
+                                    f"Error immediately cleaning up channel {channel_id}",
+                                    exc_info=e,
+                                )
+                        else:
+                            # Channel has members or delayed mode - add to managed set
+                            self.managed_voice_channels.add(channel_id)
+                            loaded_count += 1
                     else:
-                        # Channel exists but empty => schedule delayed check
-                        self.managed_voice_channels.add(channel_id)
-                        channels_to_cleanup.append(channel)
-                        self.logger.info(
-                            f"Scheduling delayed cleanup check for empty channel {channel_id}"
+                        deferred_count += 1
+                        self.logger.debug(
+                            f"startup: channel {channel_id} not in cache yet, deferring to reconcile"
                         )
 
-                await db.commit()
-
-                # Schedule delayed cleanup for empty channels found during startup
-                for channel in channels_to_cleanup:
-                    await self._schedule_channel_cleanup(channel.id)
-
-                self.logger.info(
-                    f"Loaded {len(self.managed_voice_channels)} managed voice channels, scheduled {len(channels_to_cleanup)} for cleanup check"
-                )
+                log_msg = f"Loaded {loaded_count} managed voice channels for later reconciliation; {deferred_count} deferred due to not in cache"
+                if empty_immediate_count > 0:
+                    log_msg += f"; {empty_immediate_count} empty channels immediately cleaned per startup_cleanup_mode"
+                self.logger.info(log_msg)
 
         except Exception as e:
             self.logger.exception("Error loading managed channels", exc_info=e)
@@ -860,40 +865,77 @@ class VoiceService(BaseService):
         except Exception as e:
             self.logger.exception("Error handling channel left", exc_info=e)
 
-    async def _cleanup_empty_channel(self, channel: discord.VoiceChannel) -> None:
+    async def _cleanup_empty_channel(
+        self, channel_or_id: discord.VoiceChannel | int
+    ) -> None:
         """Immediately cleanup an empty managed channel."""
-        try:
+        # Determine channel_id and channel object
+        if isinstance(channel_or_id, int):
+            channel_id = channel_or_id
+            channel = self.bot.get_channel(channel_id) if self.bot else None
+        else:
+            channel = channel_or_id
             channel_id = channel.id
 
-            # Delete the channel - handle idempotent 404 errors gracefully
-            try:
-                await channel.delete(reason="Empty managed voice channel cleanup")
-            except discord.NotFound:
-                # Channel already deleted - this is fine, continue with cleanup
-                self.logger.info(
-                    f"Channel {channel_id} already deleted, continuing cleanup"
-                )
-            except discord.Forbidden as e:
-                # Insufficient permissions - log and continue with cleanup
-                self.logger.info(
-                    f"Insufficient permissions to delete channel {channel_id}: {e}, continuing cleanup"
-                )
-
+        # If channel is None (already deleted), just clean up DB and cache
+        if channel is None:
+            self.logger.info(
+                f"Channel {channel_id} already deleted, cleaning up DB and cache"
+            )
             # Remove from managed channels set
             self.managed_voice_channels.discard(channel_id)
 
-            # Remove from database in a transaction
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                    (channel_id,),
+            # Remove from database
+            try:
+                async with Database.get_connection() as db:
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (channel_id,),
+                    )
+                    await db.commit()
+            except Exception as e:
+                self.logger.exception(
+                    "Error removing channel %s from database", channel_id, exc_info=e
                 )
-                await db.commit()
+            return
 
-            self.logger.info(f"Immediately cleaned up empty channel {channel_id}")
+        # Channel exists, try to delete it
+        try:
+            # Delete the channel - handle idempotent 404 errors gracefully
+            try:
+                await channel.delete(reason="Empty managed voice channel cleanup")
+                self.logger.info(f"Successfully deleted empty channel {channel_id}")
+            except discord.NotFound:
+                # Channel already deleted - this is fine, no stack trace needed
+                self.logger.info(f"Channel {channel_id} already deleted during cleanup")
+            except discord.Forbidden as e:
+                # Insufficient permissions - log warning and continue with cleanup
+                self.logger.warning(
+                    f"Insufficient permissions to delete channel {channel_id}: {e}, removing from tracking"
+                )
 
         except Exception as e:
-            self.logger.exception("Error cleaning up empty channel %s", channel.id, exc_info=e)
+            self.logger.exception(
+                "Unexpected error during channel deletion for %s",
+                channel_id,
+                exc_info=e,
+            )
+        finally:
+            # Always remove from managed channels set and database
+            self.managed_voice_channels.discard(channel_id)
+
+            try:
+                async with Database.get_connection() as db:
+                    await db.execute(
+                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        (channel_id,),
+                    )
+                    await db.commit()
+                self.logger.info(f"Cleaned up tracking for channel {channel_id}")
+            except Exception as e:
+                self.logger.exception(
+                    "Error removing channel %s from database", channel_id, exc_info=e
+                )
 
     async def _handle_join_to_create(
         self,
@@ -1102,16 +1144,8 @@ class VoiceService(BaseService):
                         f"Channel {channel_id} no longer empty, skipping cleanup"
                     )
                 else:
-                    # Channel already deleted or missing, just clean up database
-                    async with Database.get_connection() as db:
-                        await db.execute(
-                            "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
-                            (channel_id,),
-                        )
-                        await db.commit()
-                    logger.info(
-                        f"Cleaned up database entry for missing channel {channel_id}"
-                    )
+                    # Channel already deleted or missing, pass channel_id for cleanup
+                    await self._cleanup_empty_channel(channel_id)
 
             except Exception as e:
                 logger.exception("Error during scheduled cleanup", exc_info=e)
@@ -1119,35 +1153,408 @@ class VoiceService(BaseService):
         # Schedule the cleanup
         _ = asyncio.create_task(cleanup_after_delay())
 
-    async def handle_channel_deleted(self, guild_id: int, channel_id: int) -> None:
-        """
-        Handle cleanup when a voice channel is deleted.
+    async def _run_reconcile_after_ready(self) -> None:
+        """Run reconciliation after bot is ready with configurable delay."""
+        try:
+            # Wait for bot to be ready
+            if self.bot:
+                await self.bot.wait_until_ready()
 
-        Args:
-            guild_id: Discord guild ID
-            channel_id: Deleted channel ID
+                # Get configurable delay, default to 2000ms (2 seconds)
+                delay_ms = await self.config_service.get_global_setting(
+                    "voice.startup_delay_ms", 2000
+                )
+                await asyncio.sleep(delay_ms / 1000.0)
+
+                # Run the reconciliation
+                await self.reconcile_all_guilds_on_ready()
+
+                # After reconciliation, promote any members still in JTC channels
+                asyncio.create_task(self._promote_jtc_members_on_startup())
+            else:
+                self.logger.warning(
+                    "Bot instance not available for startup reconciliation"
+                )
+        except Exception as e:
+            self.logger.exception("Error during startup reconciliation", exc_info=e)
+
+    async def _promote_jtc_members_on_startup(self) -> None:
+        """
+        Promote any human members still sitting in JTC channels after bot restart.
+        This fixes the "users parked in JTC after reboot" case.
         """
         try:
-            async with Database.get_connection() as db:
-                await db.execute(
-                    """
-                    DELETE FROM user_voice_channels
-                    WHERE voice_channel_id = ?
-                """,
-                    (channel_id,),
+            # Ensure bot is ready
+            if not self.bot:
+                self.logger.warning(
+                    "Bot instance not available for JTC member promotion"
                 )
-                await db.commit()
+                return
+
+            await self.bot.wait_until_ready()
+            self.logger.info("Scanning JTC channels for members to promote...")
+
+            total_promoted = 0
+            total_errors = 0
+
+            # Process each guild the bot is in
+            for guild in self.bot.guilds:
+                try:
+                    # Get JTC channel IDs for this guild
+                    jtc_ids = await self.config_service.get_guild_jtc_channels(guild.id)
+
+                    if not jtc_ids:
+                        continue
+
+                    # Process each JTC channel
+                    for jtc_id in jtc_ids:
+                        try:
+                            # Try to get channel from cache first, then fetch
+                            vc = guild.get_channel(jtc_id)
+                            if not vc:
+                                try:
+                                    vc = await self.bot.fetch_channel(jtc_id)
+                                except discord.NotFound:
+                                    self.logger.warning(
+                                        f"JTC channel {jtc_id} no longer exists in guild {guild.name}"
+                                    )
+                                    continue
+                                except Exception as e:
+                                    self.logger.warning(
+                                        f"Failed to fetch JTC channel {jtc_id} in guild {guild.name}: {e}"
+                                    )
+                                    continue
+
+                            # Ensure it's a voice channel
+                            if not isinstance(vc, discord.VoiceChannel):
+                                self.logger.warning(
+                                    f"JTC channel {jtc_id} in guild {guild.name} is not a voice channel"
+                                )
+                                continue
+
+                            # Process each human member in the JTC channel
+                            for member in list(
+                                vc.members
+                            ):  # Use list() to avoid iteration issues during moves
+                                if member.bot:
+                                    continue  # Skip bots
+
+                                try:
+                                    self.logger.info(
+                                        f"Promoting {member.display_name} from JTC {vc.name} in guild {guild.name}"
+                                    )
+                                    # Reuse existing join handling logic
+                                    await self._handle_join_to_create(guild, vc, member)
+                                    total_promoted += 1
+                                except Exception as e:
+                                    self.logger.exception(
+                                        f"Failed to promote {member.display_name} ({member.id}) from JTC {jtc_id} in guild {guild.name}",
+                                        exc_info=e,
+                                    )
+                                    total_errors += 1
+
+                        except Exception as e:
+                            self.logger.exception(
+                                f"Error processing JTC channel {jtc_id} in guild {guild.name}",
+                                exc_info=e,
+                            )
+                            total_errors += 1
+
+                except Exception as e:
+                    self.logger.exception(
+                        f"Error processing guild {guild.name} ({guild.id}) for JTC promotion",
+                        exc_info=e,
+                    )
+
+            if total_promoted > 0 or total_errors > 0:
                 self.logger.info(
-                    f"Cleaned up deleted channel {channel_id} from database"
+                    f"JTC member promotion complete: {total_promoted} members promoted, {total_errors} errors"
+                )
+            else:
+                self.logger.info(
+                    "JTC member promotion complete: no members found in JTC channels"
                 )
 
         except Exception as e:
-            self.logger.exception("Error handling channel deletion", exc_info=e)
+            self.logger.exception("Error during JTC member promotion", exc_info=e)
+
+    async def reconcile_all_guilds_on_ready(self) -> None:
+        """
+        Reconcile all user voice channels after bot ready and member chunking.
+
+
+        For each guild the bot is in:
+        - Fetch all rows from user_voice_channels
+        - Check if channels still exist
+        - If not exists → remove DB row
+        - If exists and has members or owner connected → keep and rehydrate management
+        - If exists but empty → schedule deletion with delay
+        """
+        if not self.bot:
+            self.logger.warning("Bot instance not available for reconciliation")
+            return
+
+        self.logger.info("Starting voice channel reconciliation across all guilds")
+
+        total_reconciled = 0
+        total_removed = 0
+        total_rehydrated = 0
+        total_scheduled_cleanup = 0
+
+        try:
+            async with Database.get_connection() as db:
+                # Fetch all user voice channels across all guilds
+                cursor = await db.execute(
+                    """SELECT guild_id, voice_channel_id, owner_id, jtc_channel_id, created_at
+                       FROM user_voice_channels"""
+                )
+                all_channels = await cursor.fetchall()
+
+                for (
+                    guild_id,
+                    voice_channel_id,
+                    owner_id,
+                    jtc_channel_id,
+                    created_at,
+                ) in all_channels:
+                    try:
+                        await self._reconcile_single_channel(
+                            guild_id,
+                            voice_channel_id,
+                            owner_id,
+                            jtc_channel_id,
+                            created_at,
+                        )
+                        total_reconciled += 1
+
+                        # Track reconciliation results based on what happened
+                        channel = self.bot.get_channel(voice_channel_id)
+                        if not channel:
+                            total_removed += 1
+                        elif voice_channel_id in self.managed_voice_channels:
+                            total_rehydrated += 1
+                        else:
+                            total_scheduled_cleanup += 1
+
+                    except Exception as e:
+                        self.logger.exception(
+                            f"Error reconciling channel {voice_channel_id} (guild {guild_id})",
+                            exc_info=e,
+                        )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error during voice channel reconciliation", exc_info=e
+            )
+
+        self.logger.info(
+            f"Voice channel reconciliation complete: {total_reconciled} channels processed, "
+            f"{total_removed} removed, {total_rehydrated} rehydrated, {total_scheduled_cleanup} scheduled for cleanup"
+        )
+
+    async def _reconcile_single_channel(
+        self,
+        guild_id: int,
+        voice_channel_id: int,
+        owner_id: int,
+        jtc_channel_id: int,
+        created_at: int,
+    ) -> None:
+        """
+        Reconcile a single voice channel during startup.
+
+        Args:
+            guild_id: Discord guild ID
+            voice_channel_id: Voice channel ID to reconcile
+            owner_id: Channel owner ID
+            jtc_channel_id: JTC channel ID this channel belongs to
+            created_at: Timestamp when channel was created
+        """
+        # Try to get the channel, first from cache then fetch
+        channel = self.bot.get_channel(voice_channel_id)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(voice_channel_id)
+            except discord.NotFound:
+                channel = None
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch channel {voice_channel_id}: {e}")
+                channel = None
+
+        # Channel no longer exists - remove DB row
+        if not channel:
+            self.logger.info(f"Removing stale channel {voice_channel_id} from database")
+            async with Database.get_connection() as db:
+                await db.execute(
+                    "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                    (voice_channel_id,),
+                )
+                await db.commit()
+            return
+
+        # Channel exists - check if it should be kept active or cleaned up
+        should_keep_active = await self._should_keep_channel_active(channel, owner_id)
+
+        if should_keep_active:
+            # Add to managed channels and rehydrate settings
+            self.managed_voice_channels.add(voice_channel_id)
+            await self._rehydrate_channel_management(
+                channel, owner_id, jtc_channel_id, guild_id
+            )
+            self.logger.info(
+                f"Rehydrated channel {voice_channel_id} for owner {owner_id} with {len(channel.members)} members."
+            )
+        else:
+            # Check startup cleanup mode (immediate vs delayed)
+            startup_cleanup_mode = await self.config_service.get_global_setting(
+                "voice.startup_cleanup_mode", "delayed"
+            )
+
+            if startup_cleanup_mode == "immediate":
+                self.logger.info(
+                    f"Immediately cleaning up empty channel {channel.name} ({voice_channel_id}) per startup_cleanup_mode"
+                )
+                await self._cleanup_empty_channel(voice_channel_id)
+            else:
+                # Schedule deletion with delay to handle race conditions
+                self.logger.info(
+                    f"Scheduling cleanup for empty channel {channel.name} ({voice_channel_id})"
+                )
+                await self._schedule_channel_cleanup(voice_channel_id)
+
+    async def _should_keep_channel_active(
+        self, channel: discord.VoiceChannel, owner_id: int
+    ) -> bool:
+        """
+        Determine if a channel should be kept active during reconciliation.
+
+        Returns True if:
+        - Channel has members, OR
+        - Channel owner is actually connected to that channel
+        """
+        # Check if channel has any members
+        if len(channel.members) > 0:
+            return True
+
+        # Check if owner is connected to this specific channel
+        try:
+            guild = channel.guild
+            owner = guild.get_member(owner_id)
+            if (
+                owner
+                and owner.voice
+                and owner.voice.channel
+                and owner.voice.channel.id == channel.id
+            ):
+                return True
+        except Exception as e:
+            self.logger.warning(
+                f"Error checking owner connection for channel {channel.id}: {e}"
+            )
+
+        return False
+
+    async def _rehydrate_channel_management(
+        self,
+        channel: discord.VoiceChannel,
+        owner_id: int,
+        jtc_channel_id: int,
+        guild_id: int,
+    ) -> None:
+        """
+        Rehydrate channel management by applying stored settings and permissions.
+
+        Args:
+            channel: Discord voice channel
+            owner_id: Channel owner ID
+            jtc_channel_id: JTC channel ID
+            guild_id: Guild ID
+        """
+        try:
+            # Import here to avoid circular imports
+            from helpers.voice_permissions import enforce_permission_changes
+
+            # Re-apply channel overwrites/settings using existing helpers
+            # Signature: enforce_permission_changes(channel, bot, user_id, guild_id, jtc_channel_id)
+            await enforce_permission_changes(
+                channel, self.bot, owner_id, guild_id, jtc_channel_id
+            )
+
+            self.logger.info(
+                f"Applied permission overwrites for channel {channel.name} ({channel.id}) owner {owner_id}"
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error rehydrating channel management for {channel.id}", exc_info=e
+            )
 
     async def initialize_guild_voice_channels(self, guild_id: int) -> None:
-        """Initialize voice channel settings for a guild."""
-        # This would contain guild initialization logic
-        pass
+        """
+        Initialize voice channel settings for a guild.
+
+        Validates that configured join-to-create (JTC) channels exist in the guild.
+        Logs warnings for missing channels but does not create them automatically.
+
+        Args:
+            guild_id: Discord guild ID to initialize voice channels for
+        """
+        self.logger.info(f"Initializing voice channels for guild {guild_id}")
+
+        if not self.bot:
+            self.logger.warning(
+                f"Bot instance not available for guild {guild_id} voice initialization"
+            )
+            return
+
+        # Get the guild object
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            self.logger.warning(
+                f"Guild {guild_id} not found for voice channel initialization"
+            )
+            return
+
+        try:
+            # Get configured JTC channels for this guild
+            jtc_channel_ids = await self._get_guild_jtc_channels(guild_id)
+
+            if not jtc_channel_ids:
+                self.logger.info(
+                    f"No JTC channels configured for guild {guild.name} ({guild_id})"
+                )
+                return
+
+            # Validate each configured JTC channel exists
+            missing_channels = []
+            existing_channels = []
+
+            for channel_id in jtc_channel_ids:
+                channel = guild.get_channel(channel_id)
+                if channel and isinstance(channel, discord.VoiceChannel):
+                    existing_channels.append(channel_id)
+                else:
+                    missing_channels.append(channel_id)
+
+            # Log results
+            if existing_channels:
+                self.logger.info(
+                    f"Found {len(existing_channels)} valid JTC channels in guild {guild.name}"
+                )
+
+            if missing_channels:
+                self.logger.warning(
+                    f"Missing {len(missing_channels)} configured JTC channels in guild {guild.name}: {missing_channels}"
+                )
+
+            self.logger.info(
+                f"Voice channel initialization completed for guild {guild.name} ({guild_id})"
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error initializing voice channels for guild {guild_id}", exc_info=e
+            )
 
     async def _get_guild_jtc_channels(self, guild_id: int) -> list[int]:
         """Get join-to-create channel IDs for a guild."""

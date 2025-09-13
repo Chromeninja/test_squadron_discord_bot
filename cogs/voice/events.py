@@ -64,7 +64,20 @@ class VoiceEvents(commands.Cog):
             )
 
         except Exception as e:
-            logger.exception("Error handling channel deletion for %s", channel, exc_info=e)
+            logger.exception(
+                "Error handling channel deletion for %s", channel, exc_info=e
+            )
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Handle bot ready event for voice reconciliation."""
+        try:
+            # Wait for bot ready and member chunking, then start reconciliation
+            await self.voice_service.reconcile_all_guilds_on_ready()
+        except Exception as e:
+            logger.exception(
+                "Error during voice channel reconciliation on ready", exc_info=e
+            )
 
 
 async def setup(bot: commands.Bot) -> None:
