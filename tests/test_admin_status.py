@@ -6,18 +6,20 @@ from tests.conftest import FakeInteraction, FakeUser
 @pytest.mark.asyncio
 async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> None:
     # Mock the health service to return a simple status
-    mock_health = type('MockHealth', (), {})()
+    mock_health = type("MockHealth", (), {})()
+
     async def mock_run_health_checks(bot, services):
         return {
             "overall_status": "healthy",
             "services": {},
             "database": {"status": "healthy"},
-            "uptime": "1h"
+            "uptime": "1h",
         }
+
     mock_health.run_health_checks = mock_run_health_checks
 
     # Mock service container to return our mock health service
-    mock_services = type('MockServices', (), {})()
+    mock_services = type("MockServices", (), {})()
     mock_services.health = mock_health
     mock_services.get_all_services = lambda: []
     mock_bot.services = mock_services
@@ -25,6 +27,7 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
     # Mock admin permission check
     async def mock_has_admin_permissions(user):
         return True
+
     mock_bot.has_admin_permissions = mock_has_admin_permissions
 
     # Capture response - need to handle both send_message and followup

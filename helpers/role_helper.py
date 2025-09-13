@@ -46,17 +46,22 @@ async def assign_roles(
         TypeError: If bot parameter is not a proper Bot instance
     """
     from utils.logging import get_logger
+
     logger = get_logger(__name__)
 
     # Type validation at service boundary
     if isinstance(bot, str):
         error_msg = f"assign_roles received string '{bot}' instead of Bot instance. Check caller implementation."
-        logger.error(error_msg, extra={"user_id": member.id, "cased_handle": cased_handle})
+        logger.error(
+            error_msg, extra={"user_id": member.id, "cased_handle": cased_handle}
+        )
         raise TypeError(error_msg)
 
-    if not hasattr(bot, 'role_cache'):
+    if not hasattr(bot, "role_cache"):
         error_msg = f"Bot instance passed to assign_roles lacks role_cache attribute. Type: {type(bot).__name__}"
-        logger.error(error_msg, extra={"user_id": member.id, "cased_handle": cased_handle})
+        logger.error(
+            error_msg, extra={"user_id": member.id, "cased_handle": cased_handle}
+        )
         raise TypeError(error_msg)
 
     # Fetch previous status before DB update
@@ -332,16 +337,18 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         logger.error(error_msg, extra={"user_id": member.id, "rsi_handle": rsi_handle})
         raise TypeError(error_msg)
 
-    if not hasattr(bot, 'http_client') and not (hasattr(bot, 'services') and hasattr(bot.services, 'http_client')):
+    if not hasattr(bot, "http_client") and not (
+        hasattr(bot, "services") and hasattr(bot.services, "http_client")
+    ):
         error_msg = f"Bot instance passed to reverify_member lacks http_client attribute. Type: {type(bot).__name__}"
         logger.error(error_msg, extra={"user_id": member.id, "rsi_handle": rsi_handle})
         raise TypeError(error_msg)
 
     # Get HTTP client from bot services or fallback to bot.http_client
     http_client = None
-    if hasattr(bot, 'services') and hasattr(bot.services, 'http_client'):
+    if hasattr(bot, "services") and hasattr(bot.services, "http_client"):
         http_client = bot.services.http_client
-    elif hasattr(bot, 'http_client'):
+    elif hasattr(bot, "http_client"):
         http_client = bot.http_client
     else:
         logger.error("No HTTP client found in bot services or bot object")
@@ -352,12 +359,18 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
             rsi_handle, http_client
         )  # May raise NotFoundError
     except Exception as e:
-        logger.exception(f"Error calling is_valid_rsi_handle for {rsi_handle}: {e}")
+        logger.exception("Error calling is_valid_rsi_handle for %s", rsi_handle, exc_info=e)
         return False, "error", f"RSI verification failed: {e!s}"
 
     if verify_value is None or cased_handle is None:  # moniker optional
-        logger.error(f"is_valid_rsi_handle returned None values for {rsi_handle}: verify_value={verify_value}, cased_handle={cased_handle}")
-        return False, "unknown", "Failed to verify RSI handle - received invalid response from RSI services."
+        logger.error(
+            f"is_valid_rsi_handle returned None values for {rsi_handle}: verify_value={verify_value}, cased_handle={cased_handle}"
+        )
+        return (
+            False,
+            "unknown",
+            "Failed to verify RSI handle - received invalid response from RSI services.",
+        )
 
     role_type = await assign_roles(
         member, verify_value, cased_handle, bot, community_moniker=community_moniker

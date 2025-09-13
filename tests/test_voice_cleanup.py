@@ -17,7 +17,9 @@ from services.voice_service import VoiceService
 class MockVoiceChannel:
     """Mock Discord voice channel."""
 
-    def __init__(self, channel_id: int, name: str = "test-channel", members: list | None = None):
+    def __init__(
+        self, channel_id: int, name: str = "test-channel", members: list | None = None
+    ):
         self.id = channel_id
         self.name = name
         self.members = members or []
@@ -78,18 +80,21 @@ class TestVoiceCleanup:
         # Add to managed channels and database
         voice_service.managed_voice_channels.add(channel.id)
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (12345, 67890, 11111, channel.id, 1234567890))
+            """,
+                (12345, 67890, 11111, channel.id, 1234567890),
+            )
             await db.commit()
 
         # Mock member leaving
         mock_member = MagicMock()
         mock_member.display_name = "TestUser"
 
-        with patch.object(channel, 'delete', new_callable=AsyncMock) as mock_delete:
+        with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
             await voice_service._handle_channel_left(channel, mock_member)
 
             # Verify channel was deleted
@@ -104,7 +109,7 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
-                (channel.id,)
+                (channel.id,),
             )
             count = await cursor.fetchone()
             assert count[0] == 0
@@ -125,18 +130,21 @@ class TestVoiceCleanup:
         # Add to managed channels and database
         voice_service.managed_voice_channels.add(channel.id)
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (12345, 67890, 11111, channel.id, 1234567890))
+            """,
+                (12345, 67890, 11111, channel.id, 1234567890),
+            )
             await db.commit()
 
         # Mock member leaving (but others remain)
         leaving_member = MagicMock()
         leaving_member.display_name = "LeavingUser"
 
-        with patch.object(channel, 'delete', new_callable=AsyncMock) as mock_delete:
+        with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
             await voice_service._handle_channel_left(channel, leaving_member)
 
             # Verify channel was NOT deleted
@@ -149,13 +157,15 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
-                (channel.id,)
+                (channel.id,),
             )
             count = await cursor.fetchone()
             assert count[0] == 1
 
     @pytest.mark.asyncio
-    async def test_startup_reconciliation_missing_channels(self, voice_service_with_bot):
+    async def test_startup_reconciliation_missing_channels(
+        self, voice_service_with_bot
+    ):
         """Test startup reconciliation removes missing channels from database."""
         voice_service, mock_bot = voice_service_with_bot
 
@@ -164,11 +174,14 @@ class TestVoiceCleanup:
 
         async with Database.get_connection() as db:
             for i, channel_id in enumerate(missing_channel_ids):
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (12345, 67890, 11111 + i, channel_id, 1234567890))
+                """,
+                    (12345, 67890, 11111 + i, channel_id, 1234567890),
+                )
             await db.commit()
 
         # Clear managed channels and reload
@@ -183,7 +196,7 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id IN (?, ?, ?)",
-                missing_channel_ids
+                missing_channel_ids,
             )
             count = await cursor.fetchone()
             assert count[0] == 0
@@ -204,11 +217,14 @@ class TestVoiceCleanup:
 
             # Add to database
             async with Database.get_connection() as db:
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (12345, 67890, 11111 + i, channel_id, 1234567890))
+                """,
+                    (12345, 67890, 11111 + i, channel_id, 1234567890),
+                )
                 await db.commit()
 
         # Clear managed channels and reload
@@ -223,13 +239,15 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id IN (?, ?, ?)",
-                [ch.id for ch in active_channels]
+                [ch.id for ch in active_channels],
             )
             count = await cursor.fetchone()
             assert count[0] == 3
 
     @pytest.mark.asyncio
-    async def test_startup_reconciliation_empty_channels_scheduled(self, voice_service_with_bot):
+    async def test_startup_reconciliation_empty_channels_scheduled(
+        self, voice_service_with_bot
+    ):
         """Test startup reconciliation schedules cleanup for empty channels."""
         voice_service, mock_bot = voice_service_with_bot
 
@@ -243,15 +261,20 @@ class TestVoiceCleanup:
 
             # Add to database
             async with Database.get_connection() as db:
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (12345, 67890, 22222 + i, channel_id, 1234567890))
+                """,
+                    (12345, 67890, 22222 + i, channel_id, 1234567890),
+                )
                 await db.commit()
 
         # Mock the schedule cleanup method to track calls
-        with patch.object(voice_service, '_schedule_channel_cleanup', new_callable=AsyncMock) as mock_schedule:
+        with patch.object(
+            voice_service, "_schedule_channel_cleanup", new_callable=AsyncMock
+        ) as mock_schedule:
             # Clear managed channels and reload
             voice_service.managed_voice_channels.clear()
             await voice_service._load_managed_channels()
@@ -278,16 +301,21 @@ class TestVoiceCleanup:
 
         # Add to database
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (12345, 67890, 11111, channel.id, 1234567890))
+            """,
+                (12345, 67890, 11111, channel.id, 1234567890),
+            )
             await db.commit()
 
         # Set very short cleanup delay for testing
-        with patch.object(voice_service.config_service, 'get_global_setting', return_value=0.1):
-            with patch.object(channel, 'delete', new_callable=AsyncMock) as mock_delete:
+        with patch.object(
+            voice_service.config_service, "get_global_setting", return_value=0.1
+        ):
+            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
                 # Schedule cleanup and wait
                 await voice_service._schedule_channel_cleanup(channel.id)
                 await asyncio.sleep(0.2)  # Wait for cleanup to complete
@@ -302,7 +330,7 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM user_voice_channels WHERE voice_channel_id = ?",
-                (channel.id,)
+                (channel.id,),
             )
             count = await cursor.fetchone()
             assert count[0] == 0
@@ -318,8 +346,10 @@ class TestVoiceCleanup:
         voice_service.managed_voice_channels.add(channel.id)
 
         # Set very short cleanup delay for testing
-        with patch.object(voice_service.config_service, 'get_global_setting', return_value=0.1):
-            with patch.object(channel, 'delete', new_callable=AsyncMock) as mock_delete:
+        with patch.object(
+            voice_service.config_service, "get_global_setting", return_value=0.1
+        ):
+            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
                 # Schedule cleanup
                 await voice_service._schedule_channel_cleanup(channel.id)
 

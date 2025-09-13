@@ -73,10 +73,13 @@ class Database:
         """
         async with cls.get_connection() as db:
             # INSERT OR IGNORE ensures idempotent behavior - no clobbering of existing rows
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR IGNORE INTO verification(user_id, rsi_handle, membership_status, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker)
                 VALUES (?, '', 'unknown', 0, NULL, 0, 0, NULL)
-            """, (user_id,))
+            """,
+                (user_id,),
+            )
             await db.commit()
 
     @classmethod
@@ -335,7 +338,9 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def purge_voice_data(cls, guild_id: int, user_id: int | None = None) -> dict[str, int]:
+    async def purge_voice_data(
+        cls, guild_id: int, user_id: int | None = None
+    ) -> dict[str, int]:
         """
         Purge all voice-related data for a user or entire guild.
 
@@ -356,7 +361,7 @@ class Database:
             "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
-            "channel_soundboard_settings"
+            "channel_soundboard_settings",
         ]
 
         async with cls.get_connection() as db:
@@ -371,18 +376,17 @@ class Database:
                             # user_voice_channels uses owner_id instead of user_id
                             cursor = await db.execute(
                                 f"DELETE FROM {table} WHERE guild_id = ? AND owner_id = ?",
-                                (guild_id, user_id)
+                                (guild_id, user_id),
                             )
                         else:
                             cursor = await db.execute(
                                 f"DELETE FROM {table} WHERE guild_id = ? AND user_id = ?",
-                                (guild_id, user_id)
+                                (guild_id, user_id),
                             )
                     else:
                         # Delete all data for guild
                         cursor = await db.execute(
-                            f"DELETE FROM {table} WHERE guild_id = ?",
-                            (guild_id,)
+                            f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,)
                         )
 
                     deleted_counts[table] = cursor.rowcount
@@ -400,7 +404,9 @@ class Database:
         return deleted_counts
 
     @classmethod
-    async def cleanup_orphaned_jtc_data(cls, guild_id: int, valid_jtc_ids: set[int]) -> dict[str, int]:
+    async def cleanup_orphaned_jtc_data(
+        cls, guild_id: int, valid_jtc_ids: set[int]
+    ) -> dict[str, int]:
         """
         Clean up database rows scoped to JTC IDs that are not in the current guild config.
         This is a defense-in-depth measure for startup reconciliation.
@@ -421,7 +427,7 @@ class Database:
             "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
-            "channel_soundboard_settings"
+            "channel_soundboard_settings",
         ]
 
         async with cls.get_connection() as db:
@@ -436,9 +442,11 @@ class Database:
                         cursor = await db.execute(query, (guild_id,))
                     else:
                         # Delete rows where jtc_channel_id is not in the valid set
-                        placeholders = ','.join('?' * len(valid_jtc_ids))
+                        placeholders = ",".join("?" * len(valid_jtc_ids))
                         query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IS NOT NULL AND jtc_channel_id NOT IN ({placeholders})"
-                        cursor = await db.execute(query, [guild_id, *list(valid_jtc_ids)])
+                        cursor = await db.execute(
+                            query, [guild_id, *list(valid_jtc_ids)]
+                        )
 
                     deleted_counts[table] = cursor.rowcount
 
@@ -457,7 +465,9 @@ class Database:
         return deleted_counts
 
     @classmethod
-    async def purge_stale_jtc_data(cls, guild_id: int, stale_jtc_ids: set[int]) -> dict[str, int]:
+    async def purge_stale_jtc_data(
+        cls, guild_id: int, stale_jtc_ids: set[int]
+    ) -> dict[str, int]:
         """
         Purge voice data for specific stale JTC channel IDs in a guild.
 
@@ -480,12 +490,12 @@ class Database:
             "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
-            "channel_soundboard_settings"
+            "channel_soundboard_settings",
         ]
 
         # Convert set to list for SQL IN clause
         jtc_list = list(stale_jtc_ids)
-        placeholders = ','.join('?' * len(jtc_list))
+        placeholders = ",".join("?" * len(jtc_list))
 
         async with cls.get_connection() as db:
             # Start transaction

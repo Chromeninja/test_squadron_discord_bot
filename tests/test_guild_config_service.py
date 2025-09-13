@@ -43,15 +43,15 @@ async def populated_db(temp_db):
         # Insert test guild settings
         await db.execute(
             "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-            (123456789, "join_to_create_channel_ids", json.dumps([111, 222, 333]))
+            (123456789, "join_to_create_channel_ids", json.dumps([111, 222, 333])),
         )
         await db.execute(
             "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-            (123456789, "voice_category_id", "999888777")
+            (123456789, "voice_category_id", "999888777"),
         )
         await db.execute(
             "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-            (987654321, "join_to_create_channel_ids", json.dumps([444, 555]))
+            (987654321, "join_to_create_channel_ids", json.dumps([444, 555])),
         )
         await db.commit()
     return temp_db
@@ -82,11 +82,7 @@ class TestGuildConfigService:
     @pytest.mark.asyncio
     async def test_get_with_parser(self, populated_db, config_service):
         """Test getting a setting with a custom parser."""
-        result = await config_service.get(
-            123456789,
-            "voice_category_id",
-            parser=int
-        )
+        result = await config_service.get(123456789, "voice_category_id", parser=int)
         assert result == 999888777
         assert isinstance(result, int)
 
@@ -122,7 +118,7 @@ class TestGuildConfigService:
         async with Database.get_connection() as db:
             await db.execute(
                 "UPDATE guild_settings SET value = ? WHERE guild_id = ? AND key = ?",
-                (json.dumps([777, 888]), guild_id, key)
+                (json.dumps([777, 888]), guild_id, key),
             )
             await db.commit()
 
@@ -210,9 +206,7 @@ class TestGuildConfigService:
         async def write_value(value):
             await config_service.set(guild_id, key, value)
 
-        tasks = [
-            write_value(f"value_{i}") for i in range(10)
-        ]
+        tasks = [write_value(f"value_{i}") for i in range(10)]
 
         await asyncio.gather(*tasks)
 
@@ -245,7 +239,9 @@ class TestGuildConfigService:
         assert len(config_service._cache) == 0
 
     @pytest.mark.asyncio
-    async def test_maybe_migrate_legacy_settings_no_guilds(self, populated_db, config_service):
+    async def test_maybe_migrate_legacy_settings_no_guilds(
+        self, populated_db, config_service
+    ):
         """Test migration with no guilds."""
         mock_bot = MagicMock()
         mock_bot.guilds = []
@@ -255,7 +251,9 @@ class TestGuildConfigService:
         # No assertion needed, just ensure it doesn't raise
 
     @pytest.mark.asyncio
-    async def test_maybe_migrate_legacy_settings_multiple_guilds(self, populated_db, config_service):
+    async def test_maybe_migrate_legacy_settings_multiple_guilds(
+        self, populated_db, config_service
+    ):
         """Test migration with multiple guilds."""
         # Create legacy settings
         async with Database.get_connection() as db:
@@ -264,7 +262,7 @@ class TestGuildConfigService:
             )
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("join_to_create_channel_ids", json.dumps([111, 222]))
+                ("join_to_create_channel_ids", json.dumps([111, 222])),
             )
             await db.commit()
 
@@ -287,7 +285,9 @@ class TestGuildConfigService:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_maybe_migrate_legacy_settings_single_guild(self, temp_db, config_service):
+    async def test_maybe_migrate_legacy_settings_single_guild(
+        self, temp_db, config_service
+    ):
         """Test successful migration with single guild."""
         # Create legacy settings
         async with Database.get_connection() as db:
@@ -296,11 +296,11 @@ class TestGuildConfigService:
             )
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("join_to_create_channel_ids", json.dumps([111, 222]))
+                ("join_to_create_channel_ids", json.dumps([111, 222])),
             )
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("voice_category_id", "999")
+                ("voice_category_id", "999"),
             )
             await db.commit()
 
@@ -322,7 +322,9 @@ class TestGuildConfigService:
         assert category_result == 999
 
     @pytest.mark.asyncio
-    async def test_maybe_migrate_legacy_settings_existing_guild_settings(self, populated_db, config_service):
+    async def test_maybe_migrate_legacy_settings_existing_guild_settings(
+        self, populated_db, config_service
+    ):
         """Test that migration is skipped when guild settings already exist."""
         # Guild settings already exist in populated_db fixture
 
@@ -333,7 +335,7 @@ class TestGuildConfigService:
             )
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("join_to_create_channel_ids", json.dumps([999, 888]))
+                ("join_to_create_channel_ids", json.dumps([999, 888])),
             )
             await db.commit()
 

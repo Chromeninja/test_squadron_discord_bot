@@ -1,4 +1,4 @@
-#helpers/schema_validation.py
+# helpers/schema_validation.py
 
 """
 JSON Schema validation utilities for AI agent data consistency.
@@ -15,12 +15,14 @@ from typing import Any
 try:
     import jsonschema
     from jsonschema import Draft7Validator
+
     JSONSCHEMA_AVAILABLE = True
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
     logging.warning("jsonschema not available - schema validation disabled")
 
 logger = logging.getLogger(__name__)
+
 
 class SchemaValidator:
     """JSON Schema validator for bot data structures."""
@@ -53,13 +55,10 @@ class SchemaValidator:
                 logger.debug(f"Loaded schema: {schema_name}")
 
             except Exception as e:
-                logger.exception(f"Failed to load schema {schema_file}: {e}")
+                logger.exception("Failed to load schema %s", schema_file, exc_info=e)
 
     def validate(
-        self,
-        data: Any,
-        schema_name: str,
-        definition_path: str | None = None
+        self, data: Any, schema_name: str, definition_path: str | None = None
     ) -> tuple[bool, list[str]]:
         """
         Validate data against a schema.
@@ -87,7 +86,9 @@ class SchemaValidator:
             if definition_path:
                 schema = self._extract_definition(schema_name, definition_path)
                 if not schema:
-                    return False, [f"Definition '{definition_path}' not found in schema '{schema_name}'"]
+                    return False, [
+                        f"Definition '{definition_path}' not found in schema '{schema_name}'"
+                    ]
                 validator = Draft7Validator(schema)
 
             errors = []
@@ -99,10 +100,12 @@ class SchemaValidator:
             return is_valid, errors
 
         except Exception as e:
-            logger.exception(f"Schema validation failed: {e}")
+            logger.exception("Schema validation failed", exc_info=e)
             return False, [f"Validation error: {e!s}"]
 
-    def _extract_definition(self, schema_name: str, definition_path: str) -> dict[str, Any] | None:
+    def _extract_definition(
+        self, schema_name: str, definition_path: str
+    ) -> dict[str, Any] | None:
         """Extract a specific definition from a schema."""
         schema = self._schemas.get(schema_name)
         if not schema:
@@ -129,8 +132,12 @@ class SchemaValidator:
         info = {
             "title": schema.get("title", "Unknown"),
             "description": schema.get("description", "No description"),
-            "definitions": list(schema.get("definitions", {}).keys()) if "definitions" in schema else [],
-            "schema_id": schema.get("$id", "No ID")
+            "definitions": (
+                list(schema.get("definitions", {}).keys())
+                if "definitions" in schema
+                else []
+            ),
+            "schema_id": schema.get("$id", "No ID"),
         }
 
         return info
@@ -139,28 +146,39 @@ class SchemaValidator:
         """List all loaded schema names."""
         return list(self._schemas.keys())
 
+
 # Global validator instance
 validator = SchemaValidator()
+
 
 def validate_discord_member(member_data: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate Discord member data structure."""
     return validator.validate(member_data, "discord_events", "definitions/member")
 
+
 def validate_rsi_profile(profile_data: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate RSI profile data structure."""
     return validator.validate(profile_data, "api_responses", "definitions/rsi_profile")
 
+
 def validate_verification_record(record_data: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate verification record data structure."""
-    return validator.validate(record_data, "database_models", "definitions/verification_record")
+    return validator.validate(
+        record_data, "database_models", "definitions/verification_record"
+    )
+
 
 def validate_changeset(changeset_data: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate leadership log changeset data structure."""
-    return validator.validate(changeset_data, "database_models", "definitions/changeset")
+    return validator.validate(
+        changeset_data, "database_models", "definitions/changeset"
+    )
+
 
 # Decorator for automatic validation
 def validate_input(schema_name: str, definition_path: str | None = None):
     """Decorator to automatically validate function inputs."""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             # Find the first dict argument to validate
@@ -178,35 +196,48 @@ def validate_input(schema_name: str, definition_path: str | None = None):
                         break
 
             if data_to_validate:
-                is_valid, errors = validator.validate(data_to_validate, schema_name, definition_path)
+                is_valid, errors = validator.validate(
+                    data_to_validate, schema_name, definition_path
+                )
                 if not is_valid:
-                    logger.warning(f"Input validation failed for {func.__name__}: {errors}")
+                    logger.warning(
+                        f"Input validation failed for {func.__name__}: {errors}"
+                    )
                     # Don't raise exception - just log for now
 
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
+
 
 def validate_output(schema_name: str, definition_path: str | None = None):
     """Decorator to automatically validate function outputs."""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             result = func(*args, **kwargs)
 
             if isinstance(result, dict):
-                is_valid, errors = validator.validate(result, schema_name, definition_path)
+                is_valid, errors = validator.validate(
+                    result, schema_name, definition_path
+                )
                 if not is_valid:
-                    logger.warning(f"Output validation failed for {func.__name__}: {errors}")
+                    logger.warning(
+                        f"Output validation failed for {func.__name__}: {errors}"
+                    )
 
             return result
+
         return wrapper
+
     return decorator
+
 
 # AI-friendly validation reporting
 def generate_validation_report(
-    data: Any,
-    schema_name: str,
-    definition_path: str | None = None
+    data: Any, schema_name: str, definition_path: str | None = None
 ) -> dict[str, Any]:
     """Generate an AI-friendly validation report."""
     is_valid, errors = validator.validate(data, schema_name, definition_path)
@@ -217,23 +248,24 @@ def generate_validation_report(
         "validation_result": {
             "is_valid": is_valid,
             "error_count": len(errors),
-            "errors": errors
+            "errors": errors,
         },
         "schema_info": schema_info,
         "data_summary": {
             "type": type(data).__name__,
             "size": len(data) if hasattr(data, "__len__") else "unknown",
-            "keys": list(data.keys()) if isinstance(data, dict) else "not_dict"
+            "keys": list(data.keys()) if isinstance(data, dict) else "not_dict",
         },
-        "ai_recommendations": _generate_validation_recommendations(is_valid, errors, data)
+        "ai_recommendations": _generate_validation_recommendations(
+            is_valid, errors, data
+        ),
     }
 
     return report
 
+
 def _generate_validation_recommendations(
-    is_valid: bool,
-    errors: list[str],
-    data: Any
+    is_valid: bool, errors: list[str], data: Any
 ) -> list[str]:
     """Generate AI-friendly recommendations based on validation results."""
     recommendations = []

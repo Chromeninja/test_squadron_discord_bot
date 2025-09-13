@@ -9,6 +9,7 @@ from typing import Any, NamedTuple
 
 class VoiceChannelResult(NamedTuple):
     """Result of voice channel operation."""
+
     success: bool
     channel_id: int | None = None
     channel_mention: str | None = None
@@ -18,6 +19,7 @@ class VoiceChannelResult(NamedTuple):
 @dataclass
 class VoiceChannelInfo:
     """Information about a voice channel."""
+
     guild_id: int
     jtc_channel_id: int
     channel_id: int
@@ -30,6 +32,7 @@ class VoiceChannelInfo:
 @dataclass
 class GuildConfig:
     """Guild-specific configuration."""
+
     guild_id: int
     voice_category_id: int | None = None
     jtc_channel_ids: list[int] = None
@@ -44,6 +47,7 @@ class GuildConfig:
 
 class ServiceStatus(Enum):
     """Service initialization status."""
+
     UNINITIALIZED = "uninitialized"
     INITIALIZING = "initializing"
     READY = "ready"
@@ -52,6 +56,7 @@ class ServiceStatus(Enum):
 
 class LogLevel(Enum):
     """Log level enumeration."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"

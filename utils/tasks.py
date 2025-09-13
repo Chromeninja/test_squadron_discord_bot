@@ -29,7 +29,7 @@ def spawn(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
         task.add_done_callback(_log_task_exception)
         return task
     except Exception as e:
-        logger.exception(f"Failed to spawn task: {e}")
+        logger.exception("Failed to spawn task", exc_info=e)
         raise
 
 
@@ -37,10 +37,13 @@ def _log_task_exception(task: asyncio.Task[Any]) -> None:
     """Log exceptions from completed tasks."""
     try:
         if task.exception():
-            logger.exception(f"Task {task.get_name()} failed with exception", exc_info=task.exception())
+            logger.exception(
+                f"Task {task.get_name()} failed with exception",
+                exc_info=task.exception(),
+            )
     except Exception as e:
         # This shouldn't happen, but let's be safe
-        logger.exception(f"Error logging task exception: {e}")
+        logger.exception("Error logging task exception", exc_info=e)
 
 
 async def wait_for_any(*tasks: asyncio.Task[Any]) -> Any:

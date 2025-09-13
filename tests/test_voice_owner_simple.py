@@ -16,6 +16,7 @@ async def test_voice_owner_command_shows_db_owners():
 
     # Reset database for test
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         temp_db = f.name
     Database._initialized = False
@@ -172,6 +173,7 @@ async def test_voice_owner_command_no_channels():
 
     # Reset database for test
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         temp_db = f.name
     Database._initialized = False

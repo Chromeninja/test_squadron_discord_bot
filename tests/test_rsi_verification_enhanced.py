@@ -131,13 +131,18 @@ SAMPLE_BIO_HTML_MISSING = """
 </html>
 """
 
+
 def test_normalize_text():
     """Test text normalization function."""
     assert normalize_text("  TEST   Squadron  ") == "test squadron"
     assert normalize_text("Normal Text") == "normal text"
     assert normalize_text("") == ""
     assert normalize_text(None) == ""
-    assert normalize_text("Multiple\n\nLines\t\tWith\r\nSpaces") == "multiple lines with spaces"
+    assert (
+        normalize_text("Multiple\n\nLines\t\tWith\r\nSpaces")
+        == "multiple lines with spaces"
+    )
+
 
 def test_parse_organizations_visible():
     """Test parsing visible organizations."""
@@ -148,6 +153,7 @@ def test_parse_organizations_visible():
     assert "another org" in result["affiliates"]
     assert "third affiliate" in result["affiliates"]
 
+
 def test_parse_organizations_hidden():
     """Test parsing hidden organizations (should still work with enhanced selectors)."""
     result = parse_organizations(SAMPLE_ORG_HTML_HIDDEN)
@@ -157,6 +163,7 @@ def test_parse_organizations_hidden():
     assert len(result["affiliates"]) == 1
     assert "hidden affiliate" in result["affiliates"]
 
+
 def test_parse_organizations_mixed():
     """Test parsing mixed visibility organizations."""
     result = parse_organizations(SAMPLE_ORG_HTML_MIXED)
@@ -165,12 +172,14 @@ def test_parse_organizations_mixed():
     assert len(result["affiliates"]) >= 1
     assert "test squadron - best squadron!" in result["affiliates"]
 
+
 def test_parse_organizations_empty():
     """Test parsing when no organizations found."""
     result = parse_organizations(SAMPLE_ORG_HTML_EMPTY)
 
     assert result["main_organization"] == ""
     assert result["affiliates"] == []
+
 
 def test_parse_organizations_whitespace_dedup():
     """Test whitespace normalization and deduplication."""
@@ -183,14 +192,21 @@ def test_parse_organizations_whitespace_dedup():
     assert "another org" in result["affiliates"]
     # The duplicate TEST Squadron should not appear in affiliates since it's the main
 
+
 def test_search_membership_status():
     """Test membership status determination."""
     # Test main member
-    orgs = {"main_organization": "test squadron - best squadron!", "affiliates": ["other org"]}
+    orgs = {
+        "main_organization": "test squadron - best squadron!",
+        "affiliates": ["other org"],
+    }
     assert search_membership_status(orgs, "test squadron - best squadron!") == 1
 
     # Test affiliate member
-    orgs = {"main_organization": "other org", "affiliates": ["test squadron - best squadron!", "third org"]}
+    orgs = {
+        "main_organization": "other org",
+        "affiliates": ["test squadron - best squadron!", "third org"],
+    }
     assert search_membership_status(orgs, "test squadron - best squadron!") == 2
 
     # Test non-member
@@ -200,6 +216,7 @@ def test_search_membership_status():
     # Test empty data
     orgs = {"main_organization": "", "affiliates": []}
     assert search_membership_status(orgs, "test squadron - best squadron!") == 0
+
 
 def test_extract_bio():
     """Test bio extraction with multiple selectors."""
@@ -221,6 +238,7 @@ def test_extract_bio():
     # Test missing bio
     bio = extract_bio(SAMPLE_BIO_HTML_MISSING)
     assert bio is None
+
 
 def test_find_token_in_bio():
     """Test token finding in bio text."""
@@ -248,6 +266,7 @@ def test_find_token_in_bio():
     assert not find_token_in_bio("Some text", "")
     assert not find_token_in_bio(None, "1234")
 
+
 def test_negative_cases():
     """Test defensive behavior with malformed HTML."""
     # Test malformed HTML doesn't crash
@@ -268,11 +287,14 @@ def test_negative_cases():
     bio = extract_bio(empty_html)
     assert bio is None
 
+
 def test_ambiguous_token_matching():
     """Test token matching with multiple numbers and ambiguous contexts."""
 
     # Test bio with multiple 4-digit numbers - all are found as potential tokens
-    bio_text = "My ID is 5678, but verification token is 1234. Also born in 1990, phone 9876."
+    bio_text = (
+        "My ID is 5678, but verification token is 1234. Also born in 1990, phone 9876."
+    )
     assert find_token_in_bio(bio_text, "1234")  # Verification token
     assert find_token_in_bio(bio_text, "5678")  # ID number (also 4 digits)
     assert find_token_in_bio(bio_text, "1990")  # Birth year (also 4 digits)
@@ -299,7 +321,9 @@ def test_ambiguous_token_matching():
     assert find_token_in_bio(bio_text, "8901")  # Verification token
     assert find_token_in_bio(bio_text, "1995")  # Birth year (standalone 4 digits)
     assert find_token_in_bio(bio_text, "4567")  # Apartment number (standalone 4 digits)
-    assert not find_token_in_bio(bio_text, "12345")  # Zip code (5 digits, doesn't match)
+    assert not find_token_in_bio(
+        bio_text, "12345"
+    )  # Zip code (5 digits, doesn't match)
     assert not find_token_in_bio(bio_text, "2345")  # Partial zip, not standalone
 
     # Test edge case with repeated patterns
@@ -314,6 +338,7 @@ def test_ambiguous_token_matching():
     assert find_token_in_bio(bio_text, "42")  # Should zero-pad input and match
     assert find_token_in_bio(bio_text, "0042")  # Exact match
     assert find_token_in_bio(bio_text, "042")  # Should zero-pad to 0042
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -36,7 +36,8 @@ class GuildService(BaseService):
         """Ensure guild-related database tables exist."""
         async with Database.get_connection() as db:
             # Guild registration table
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS guild_registry (
                     guild_id INTEGER PRIMARY KEY,
                     guild_name TEXT NOT NULL,
@@ -44,10 +45,12 @@ class GuildService(BaseService):
                     last_seen INTEGER DEFAULT (strftime('%s','now')),
                     is_active INTEGER DEFAULT 1
                 )
-            """)
+            """
+            )
 
             # Guild-specific rate limits
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS guild_rate_limits (
                     guild_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
@@ -56,7 +59,8 @@ class GuildService(BaseService):
                     window_start INTEGER DEFAULT (strftime('%s','now')),
                     PRIMARY KEY (guild_id, user_id, action_type)
                 )
-            """)
+            """
+            )
 
             await db.commit()
 
@@ -70,11 +74,14 @@ class GuildService(BaseService):
         self._ensure_initialized()
 
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO guild_registry
                 (guild_id, guild_name, last_seen, is_active)
                 VALUES (?, ?, strftime('%s','now'), 1)
-            """, (guild.id, guild.name))
+            """,
+                (guild.id, guild.name),
+            )
             await db.commit()
 
         await self.cache_guild_roles(guild)
@@ -130,11 +137,7 @@ class GuildService(BaseService):
 
         self.logger.debug(f"Cached {len(cached_roles)} roles for guild {guild.name}")
 
-    async def get_cached_role(
-        self,
-        guild_id: int,
-        role_id: int
-    ) -> discord.Role | None:
+    async def get_cached_role(self, guild_id: int, role_id: int) -> discord.Role | None:
         """
         Get a cached role by ID.
 
@@ -151,10 +154,7 @@ class GuildService(BaseService):
             guild_roles = self._role_cache.get(guild_id, {})
             return guild_roles.get(role_id)
 
-    async def has_admin_role(
-        self,
-        member: discord.Member
-    ) -> bool:
+    async def has_admin_role(self, member: discord.Member) -> bool:
         """
         Check if a member has admin privileges in their guild.
 
@@ -179,10 +179,7 @@ class GuildService(BaseService):
 
         return bool(all_admin_roles & member_role_ids)
 
-    async def check_guild_permissions(
-        self,
-        guild: discord.Guild
-    ) -> dict[str, bool]:
+    async def check_guild_permissions(self, guild: discord.Guild) -> dict[str, bool]:
         """
         Check bot permissions in a guild.
 
@@ -210,10 +207,7 @@ class GuildService(BaseService):
             return dict.fromkeys(required_permissions, False)
 
         bot_perms = guild.me.guild_permissions
-        return {
-            perm: getattr(bot_perms, perm, False)
-            for perm in required_permissions
-        }
+        return {perm: getattr(bot_perms, perm, False) for perm in required_permissions}
 
     async def get_active_guilds(self) -> list[int]:
         """
@@ -224,9 +218,12 @@ class GuildService(BaseService):
         """
         self._ensure_initialized()
 
-        async with Database.get_connection() as db, db.execute(
-            "SELECT guild_id FROM guild_registry WHERE is_active = 1"
-        ) as cursor:
+        async with (
+            Database.get_connection() as db,
+            db.execute(
+                "SELECT guild_id FROM guild_registry WHERE is_active = 1"
+            ) as cursor,
+        ):
             return [row[0] async for row in cursor]
 
     async def update_guild_activity(self, guild_id: int) -> None:
@@ -237,11 +234,14 @@ class GuildService(BaseService):
             guild_id: Discord guild ID
         """
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 UPDATE guild_registry
                 SET last_seen = strftime('%s','now')
                 WHERE guild_id = ?
-            """, (guild_id,))
+            """,
+                (guild_id,),
+            )
             await db.commit()
 
     async def deactivate_guild(self, guild_id: int) -> None:
@@ -252,11 +252,14 @@ class GuildService(BaseService):
             guild_id: Discord guild ID
         """
         async with Database.get_connection() as db:
-            await db.execute("""
+            await db.execute(
+                """
                 UPDATE guild_registry
                 SET is_active = 0, last_seen = strftime('%s','now')
                 WHERE guild_id = ?
-            """, (guild_id,))
+            """,
+                (guild_id,),
+            )
             await db.commit()
 
         # Clear cache for this guild
@@ -268,10 +271,16 @@ class GuildService(BaseService):
 
     async def _has_reported_missing_roles(self, guild_id: int) -> bool:
         """Check if we've already reported missing roles for a guild."""
-        async with Database.get_connection() as db, db.execute("""
+        async with (
+            Database.get_connection() as db,
+            db.execute(
+                """
                 SELECT 1 FROM guild_settings
                 WHERE guild_id = ? AND key = 'missing_roles_reported'
-            """, (guild_id,)) as cursor:
+            """,
+                (guild_id,),
+            ) as cursor,
+        ):
             return bool(await cursor.fetchone())
 
     async def _mark_reported_missing_roles(self, guild_id: int) -> None:

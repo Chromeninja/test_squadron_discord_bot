@@ -74,7 +74,9 @@ class TestAdminListCommand:
         # User doesn't have admin role
         mock_interaction.user.roles = [MagicMock(id=123)]  # Non-admin role
 
-        await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+        await voice_commands.admin_list.callback(
+            voice_commands, mock_interaction, mock_target_user
+        )
 
         mock_interaction.response.send_message.assert_called_once()
         args = mock_interaction.response.send_message.call_args
@@ -96,10 +98,12 @@ class TestAdminListCommand:
                 "active_channel": None,
                 "is_active": False,
                 "jtc_channel_id": None,
-                "embeds": []
+                "embeds": [],
             }
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             mock_interaction.response.defer.assert_called_once()
             mock_interaction.followup.send.assert_called_once()
@@ -126,15 +130,17 @@ class TestAdminListCommand:
                 "settings": {
                     "channel_name": "Custom Channel",
                     "user_limit": 5,
-                    "lock": True
+                    "lock": True,
                 },
                 "active_channel": None,
                 "is_active": False,
                 "jtc_channel_id": 55555,
-                "embeds": [mock_embed]
+                "embeds": [mock_embed],
             }
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             # Verify the helper was called correctly
             mock_fetch.assert_called_once()
@@ -168,10 +174,12 @@ class TestAdminListCommand:
                 "active_channel": None,
                 "is_active": False,
                 "jtc_channel_id": 55555,
-                "embeds": [embed1, embed2]
+                "embeds": [embed1, embed2],
             }
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             # Verify multiple embeds were sent
             assert mock_interaction.followup.send.call_count == 2
@@ -188,7 +196,9 @@ class TestAdminListCommand:
         with patch("helpers.voice_settings.fetch_channel_settings") as mock_fetch:
             mock_fetch.side_effect = Exception("Database error")
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             # Verify error message was sent
             mock_interaction.followup.send.assert_called()
@@ -217,15 +227,17 @@ class TestAdminListCommand:
                 "settings": {
                     "channel_name": "Active Channel",
                     "user_limit": 10,
-                    "lock": False
+                    "lock": False,
                 },
                 "active_channel": mock_channel,
                 "is_active": True,
                 "jtc_channel_id": 55555,
-                "embeds": [mock_embed]
+                "embeds": [mock_embed],
             }
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             # Verify the embed was sent
             mock_interaction.followup.send.assert_called_once()
@@ -246,10 +258,12 @@ class TestAdminListCommand:
                 "active_channel": None,
                 "is_active": False,
                 "jtc_channel_id": 55555,
-                "embeds": []  # No embeds generated
+                "embeds": [],  # No embeds generated
             }
 
-            await voice_commands.admin_list.callback(voice_commands, mock_interaction, mock_target_user)
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
             # Verify fallback embed was sent
             mock_interaction.followup.send.assert_called_once()

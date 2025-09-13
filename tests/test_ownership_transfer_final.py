@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -28,8 +29,9 @@ async def test_db():
 
     finally:
         # Clean up
-        if os.path.exists(test_db_path):
-            os.unlink(test_db_path)
+        test_path = Path(test_db_path)
+        if test_path.exists():
+            test_path.unlink()
         # Reset singleton for next test
         Database._instance = None
 
@@ -40,7 +42,7 @@ async def voice_service(test_db):
     mock_config_service = MagicMock()
     mock_config_service.get_guild_config = AsyncMock()
     mock_config_service.get_guild_config.return_value = {
-        'voice': {'channels': {'default': {'user_limit': 0}}}
+        "voice": {"channels": {"default": {"user_limit": 0}}}
     }
 
     service = VoiceService(config_service=mock_config_service)
@@ -104,13 +106,13 @@ class TestOwnershipTransferSanity:
             await db.execute(
                 """INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id)
                    VALUES (?, ?, ?, ?)""",
-                (guild_id, jtc_channel_id, old_owner_id, voice_channel_id)
+                (guild_id, jtc_channel_id, old_owner_id, voice_channel_id),
             )
 
             await db.execute(
                 """INSERT INTO channel_settings (guild_id, jtc_channel_id, user_id, channel_name)
                    VALUES (?, ?, ?, ?)""",
-                (guild_id, jtc_channel_id, old_owner_id, "Old Owner's Channel")
+                (guild_id, jtc_channel_id, old_owner_id, "Old Owner's Channel"),
             )
 
             await db.commit()
@@ -127,20 +129,24 @@ class TestOwnershipTransferSanity:
             # Verify user_voice_channels updated (authoritative table)
             cursor = await db.execute(
                 "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
-                (voice_channel_id,)
+                (voice_channel_id,),
             )
             row = await cursor.fetchone()
-            assert row[0] == new_owner_id, "user_voice_channels.owner_id should be updated"
+            assert (
+                row[0] == new_owner_id
+            ), "user_voice_channels.owner_id should be updated"
 
             # Verify settings transferred
             cursor = await db.execute(
                 "SELECT user_id, channel_name FROM channel_settings WHERE jtc_channel_id = ? AND user_id = ?",
-                (jtc_channel_id, new_owner_id)
+                (jtc_channel_id, new_owner_id),
             )
             row = await cursor.fetchone()
             assert row is not None, f"New owner {new_owner_id} should have settings"
             assert row[0] == new_owner_id, "Settings should belong to new owner"
-            assert row[1] == "Old Owner's Channel", "Settings should be transferred from old owner"
+            assert (
+                row[1] == "Old Owner's Channel"
+            ), "Settings should be transferred from old owner"
 
     @pytest.mark.asyncio
     async def test_transfer_handles_missing_channel_gracefully(self, test_db):

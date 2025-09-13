@@ -13,7 +13,7 @@ from services.db.database import Database
 async def test_direct_db():
     """Test guild settings storage directly."""
     # Create temp database
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
     print(f"Using temp database: {db_path}")
@@ -30,14 +30,14 @@ async def test_direct_db():
         # Insert setting
         await db.execute(
             "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-            (guild_id, key, json.dumps(value))
+            (guild_id, key, json.dumps(value)),
         )
         await db.commit()
 
         # Retrieve setting
         async with db.execute(
             "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?",
-            (guild_id, key)
+            (guild_id, key),
         ) as cursor:
             row = await cursor.fetchone()
 

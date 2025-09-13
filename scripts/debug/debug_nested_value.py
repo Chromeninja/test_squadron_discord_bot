@@ -23,11 +23,7 @@ async def test_nested_value():
     print(f"Result for 'test.setting': {result1}")
 
     # Test with nested structure
-    nested_data = {
-        "test": {
-            "setting": {"nested": "value"}
-        }
-    }
+    nested_data = {"test": {"setting": {"nested": "value"}}}
 
     print("\nTesting nested key retrieval:")
     print(f"Data: {nested_data}")

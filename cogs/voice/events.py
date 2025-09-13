@@ -26,7 +26,7 @@ class VoiceEvents(commands.Cog):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, 'services') or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:
             raise RuntimeError("Bot services not initialized")
         return self.bot.services.voice
 
@@ -35,7 +35,7 @@ class VoiceEvents(commands.Cog):
         self,
         member: discord.Member,
         before: discord.VoiceState,
-        after: discord.VoiceState
+        after: discord.VoiceState,
     ) -> None:
         """Handle voice state changes for join-to-create functionality."""
         try:
@@ -43,7 +43,7 @@ class VoiceEvents(commands.Cog):
             await self.voice_service.handle_voice_state_change(
                 member=member,
                 before_channel=before.channel,
-                after_channel=after.channel
+                after_channel=after.channel,
             )
 
         except Exception as e:
@@ -60,14 +60,11 @@ class VoiceEvents(commands.Cog):
 
         try:
             await self.voice_service.handle_channel_deleted(
-                guild_id=channel.guild.id,
-                channel_id=channel.id
+                guild_id=channel.guild.id, channel_id=channel.id
             )
 
         except Exception as e:
-            logger.exception(
-                f"Error handling channel deletion for {channel}: {e}"
-            )
+            logger.exception("Error handling channel deletion for %s", channel, exc_info=e)
 
 
 async def setup(bot: commands.Bot) -> None:

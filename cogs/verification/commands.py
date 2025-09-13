@@ -50,10 +50,14 @@ def _load_verification_message_id() -> int | None:
         message_id = data.get("message_id")
         if isinstance(message_id, int):
             return message_id
-        logger.warning(f"Invalid message_id type in {message_id_file}: {type(message_id)}")
+        logger.warning(
+            f"Invalid message_id type in {message_id_file}: {type(message_id)}"
+        )
         return None
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to read verification message ID from {message_id_file}: {e}")
+        logger.warning(
+            f"Failed to read verification message ID from {message_id_file}: {e}"
+        )
         return None
 
 
@@ -73,8 +77,7 @@ def _save_verification_message_id(message_id: int) -> None:
         # Write to temporary file first for atomicity
         temp_file = message_id_file.with_suffix(".tmp")
         temp_file.write_text(
-            json.dumps({"message_id": message_id}, indent=2),
-            encoding="utf-8"
+            json.dumps({"message_id": message_id}, indent=2), encoding="utf-8"
         )
 
         # Atomic replace

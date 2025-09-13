@@ -26,7 +26,7 @@ class VoiceServiceBridge(commands.Cog):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, 'services') or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:
             raise RuntimeError("Bot services not initialized")
         return self.bot.services.voice
 
@@ -41,8 +41,6 @@ class VoiceServiceBridge(commands.Cog):
     async def get_user_voice_channel(self, guild_id: int, user_id: int):
         """Get a user's active voice channel."""
         return await self.voice_service.get_user_voice_channel_info(guild_id, user_id)
-
-
 
 
 async def setup(bot: commands.Bot) -> None:

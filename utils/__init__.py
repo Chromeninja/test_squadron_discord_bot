@@ -38,5 +38,5 @@ __all__ = [
     "get_logger",
     "setup_logging",
     "spawn",
-    "wait_for_any"
+    "wait_for_any",
 ]

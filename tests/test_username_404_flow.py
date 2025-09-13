@@ -11,6 +11,7 @@ from services.db.database import Database
 # --- Fixtures / fakes ---
 class FakeHTTPClient:
     """Fake HTTP client to test that the correct client object is passed."""
+
     def __init__(self, name="test_client") -> None:
         self.name = name
         self.call_count = 0
@@ -125,9 +126,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_username_404_new_handle_reflags(
-    temp_db, monkeypatch
-) -> None:
+async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> None:
     """Second call with DIFFERENT old handle should still process
     (distinct 404 cause)."""
     async with Database.get_connection() as db:
@@ -186,9 +185,7 @@ async def test_handle_username_404_new_handle_reflags(
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_404_posts_leadership_log(
-    temp_db, monkeypatch
-) -> None:
+async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> None:
     """Admin initiated recheck that hits 404 should emit leadership
     ChangeSet with 404 note."""
     async with Database.get_connection() as db:
@@ -290,15 +287,19 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     assert status_info == "error", "Status should be 'error'"
 
     # Verify that the correct HTTP client was passed
-    assert captured_http_client is not None, "HTTP client should have been passed to is_valid_rsi_handle"
-    assert captured_http_client is bot.http_client, "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(captured_http_client, FakeHTTPClient), "Should receive FakeHTTPClient instance"
+    assert (
+        captured_http_client is not None
+    ), "HTTP client should have been passed to is_valid_rsi_handle"
+    assert (
+        captured_http_client is bot.http_client
+    ), "Should pass bot.http_client to is_valid_rsi_handle"
+    assert isinstance(
+        captured_http_client, FakeHTTPClient
+    ), "Should receive FakeHTTPClient instance"
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_404_leadership_changeset(
-    temp_db, monkeypatch
-) -> None:
+async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> None:
     """Ensure leadership ChangeSet is posted with RSI 404 note when
     leadership channel configured."""
     async with Database.get_connection() as db:
@@ -406,9 +407,15 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     assert ok is True
 
     # Verify that the correct HTTP client was passed
-    assert captured_http_client is not None, "HTTP client should have been passed to is_valid_rsi_handle"
-    assert captured_http_client is bot.http_client, "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(captured_http_client, FakeHTTPClient), "Should receive FakeHTTPClient instance"
+    assert (
+        captured_http_client is not None
+    ), "HTTP client should have been passed to is_valid_rsi_handle"
+    assert (
+        captured_http_client is bot.http_client
+    ), "Should pass bot.http_client to is_valid_rsi_handle"
+    assert isinstance(
+        captured_http_client, FakeHTTPClient
+    ), "Should receive FakeHTTPClient instance"
 
     # needs_reverify cleared
     async with Database.get_connection() as db:

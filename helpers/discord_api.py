@@ -130,7 +130,9 @@ async def add_roles(member: discord.Member, *roles, reason: str | None = None) -
         raise
 
 
-async def remove_roles(member: discord.Member, *roles, reason: str | None = None) -> None:
+async def remove_roles(
+    member: discord.Member, *roles, reason: str | None = None
+) -> None:
     async def _task() -> None:
         await member.remove_roles(*roles, reason=reason)
 
@@ -344,7 +346,7 @@ async def send_direct_message_task(
     except discord.Forbidden:
         logger.warning(f"Cannot send DM to '{member.display_name}' (forbidden).")
     except Exception as e:
-        logger.exception(f"Failed to send DM to '{member.display_name}': {e}")
+        logger.exception("Failed to send DM to '%s'", member.display_name, exc_info=e)
 
         # -------------------------------------------------------------------------
         # Editing Messages
@@ -395,6 +397,6 @@ async def edit_message_task(
                 "Attempted to edit a message using an unknown webhook. Interaction may have expired."
             )
         else:
-            logger.exception(f"Failed to edit message: {e}")
+            logger.exception("Failed to edit message", exc_info=e)
     except Exception as e:
-        logger.exception(f"Failed to edit message: {e}")
+        logger.exception("Failed to edit message", exc_info=e)

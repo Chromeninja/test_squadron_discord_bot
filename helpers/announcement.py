@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 # Leadership log
 # ----------------------------
 
+
 def canonicalize_status_for_display(status: str) -> str:
     """
     Convert internal status strings to canonical display format.
@@ -41,10 +42,7 @@ def canonicalize_status_for_display(status: str) -> str:
 
 
 def format_admin_recheck_message(
-    admin_display_name: str,
-    user_id: int,
-    old_status: str,
-    new_status: str
+    admin_display_name: str, user_id: int, old_status: str, new_status: str
 ) -> str:
     """
     Format admin recheck message with exact specification.
@@ -77,7 +75,7 @@ async def send_admin_recheck_notification(
     admin_display_name: str,
     member: discord.Member,
     old_status: str,
-    new_status: str
+    new_status: str,
 ) -> bool:
     """
     Send admin recheck notification to leadership channel.
@@ -93,15 +91,21 @@ async def send_admin_recheck_notification(
         bool: True if message was sent successfully, False otherwise
     """
     config = bot.config
-    leadership_channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
+    leadership_channel_id = config.get("channels", {}).get(
+        "leadership_announcement_channel_id"
+    )
 
     if not leadership_channel_id:
-        logger.warning("No leadership_announcement_channel_id configured for admin recheck notification")
+        logger.warning(
+            "No leadership_announcement_channel_id configured for admin recheck notification"
+        )
         return False
 
     leadership_channel = bot.get_channel(leadership_channel_id)
     if not leadership_channel:
-        logger.warning(f"Leadership announcement channel {leadership_channel_id} not found")
+        logger.warning(
+            f"Leadership announcement channel {leadership_channel_id} not found"
+        )
         return False
 
     try:
@@ -109,7 +113,7 @@ async def send_admin_recheck_notification(
             admin_display_name=admin_display_name,
             user_id=member.id,
             old_status=old_status,
-            new_status=new_status
+            new_status=new_status,
         )
 
         await channel_send_message(leadership_channel, message)
@@ -287,7 +291,7 @@ class BulkAnnouncer(commands.Cog):
         self.max_mentions_per_message = max(self.max_mentions_per_message, 5)
         self.max_chars_per_message = min(self.max_chars_per_message, 1950)
 
-            # Daily timer
+        # Daily timer
         self.daily_flush.change_interval(
             time=datetime.time(
                 hour=self.hour_utc,

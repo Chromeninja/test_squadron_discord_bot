@@ -227,9 +227,11 @@ def _normalize_signature(cs: ChangeSet) -> str:
         (cs.username_before or "").lower(),
         (cs.username_after or "").lower(),
         "|".join(sorted([r.lower() for r in cs.roles_added])) if cs.roles_added else "",
-        "|".join(sorted([r.lower() for r in cs.roles_removed]))
-        if cs.roles_removed
-        else "",
+        (
+            "|".join(sorted([r.lower() for r in cs.roles_removed]))
+            if cs.roles_removed
+            else ""
+        ),
         (cs.notes or "").lower(),
         cs.event.value,
     ]

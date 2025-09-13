@@ -4,6 +4,7 @@ Tests for type validation in recheck user functionality.
 Tests ensure that proper Bot instances are passed to verification functions
 and that meaningful errors are raised when strings or invalid objects are passed.
 """
+
 from unittest.mock import MagicMock
 
 import discord
@@ -27,15 +28,19 @@ class TestRecheckUserTypeValidation:
     @pytest.fixture
     def invalid_bot_no_http_client(self):
         """Create a bot instance without http_client or services."""
+
         class InvalidBot:
             pass
+
         return InvalidBot()
 
     @pytest.fixture
     def invalid_bot_no_role_cache(self):
         """Create a bot instance without role_cache."""
+
         class InvalidBotNoCache:
             http_client = MagicMock()
+
         return InvalidBotNoCache()
 
     @pytest.mark.asyncio
@@ -46,15 +51,24 @@ class TestRecheckUserTypeValidation:
         with pytest.raises(TypeError) as exc_info:
             await reverify_member(mock_member, "test_handle", "bot_as_string")
 
-        assert "received string 'bot_as_string' instead of Bot instance" in str(exc_info.value)
+        assert "received string 'bot_as_string' instead of Bot instance" in str(
+            exc_info.value
+        )
 
     @pytest.mark.asyncio
-    async def test_reverify_member_invalid_bot_raises_error(self, mock_member, invalid_bot_no_http_client):
+    async def test_reverify_member_invalid_bot_raises_error(
+        self, mock_member, invalid_bot_no_http_client
+    ):
         """Test that reverify_member raises TypeError for bot without http_client."""
         with pytest.raises(TypeError) as exc_info:
-            await reverify_member(mock_member, "test_handle", invalid_bot_no_http_client)
+            await reverify_member(
+                mock_member, "test_handle", invalid_bot_no_http_client
+            )
 
-        assert "Bot instance passed to reverify_member lacks http_client attribute" in str(exc_info.value)
+        assert (
+            "Bot instance passed to reverify_member lacks http_client attribute"
+            in str(exc_info.value)
+        )
 
     @pytest.mark.asyncio
     async def test_assign_roles_string_bot_raises_error(self, mock_member):
@@ -63,15 +77,21 @@ class TestRecheckUserTypeValidation:
         with pytest.raises(TypeError) as exc_info:
             await assign_roles(mock_member, 1, "TestHandle", "bot_as_string")
 
-        assert "received string 'bot_as_string' instead of Bot instance" in str(exc_info.value)
+        assert "received string 'bot_as_string' instead of Bot instance" in str(
+            exc_info.value
+        )
 
     @pytest.mark.asyncio
-    async def test_assign_roles_invalid_bot_raises_error(self, mock_member, invalid_bot_no_role_cache):
+    async def test_assign_roles_invalid_bot_raises_error(
+        self, mock_member, invalid_bot_no_role_cache
+    ):
         """Test that assign_roles raises TypeError for bot without role_cache."""
         with pytest.raises(TypeError) as exc_info:
             await assign_roles(mock_member, 1, "TestHandle", invalid_bot_no_role_cache)
 
-        assert "Bot instance passed to assign_roles lacks role_cache attribute" in str(exc_info.value)
+        assert "Bot instance passed to assign_roles lacks role_cache attribute" in str(
+            exc_info.value
+        )
 
     def test_type_validation_prevents_attribute_error(self):
         """Test that our validation would prevent the original 'str' object has no attribute 'http_client' error."""
@@ -89,7 +109,7 @@ class TestRecheckUserTypeValidation:
             "string_instead_of_bot",
             123,  # number instead of bot
             None,  # None instead of bot
-            [],   # list instead of bot
+            [],  # list instead of bot
         ]
 
         for invalid_bot in problematic_cases:

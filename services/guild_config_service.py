@@ -17,7 +17,7 @@ from services.db.database import Database
 
 logger = get_logger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 JSONable = str | int | float | bool | None | dict[str, Any] | list[Any]
 
 
@@ -35,17 +35,15 @@ class GuildConfigService:
 
     def __init__(self, *, ttl_seconds: int = 60) -> None:
         self.ttl_seconds = ttl_seconds
-        self._cache: dict[tuple[int, str], tuple[Any, float]] = {}  # (guild_id, key) -> (value, timestamp)
+        self._cache: dict[tuple[int, str], tuple[Any, float]] = (
+            {}
+        )  # (guild_id, key) -> (value, timestamp)
         self._cache_lock = asyncio.Lock()
         self._write_locks: dict[tuple[int, str], asyncio.Lock] = {}
         self._write_locks_lock = asyncio.Lock()
 
     async def get(
-        self,
-        guild_id: int,
-        key: str,
-        *,
-        parser: Callable[[str], T] | None = None
+        self, guild_id: int, key: str, *, parser: Callable[[str], T] | None = None
     ) -> T | None:
         """
         Get a guild setting with optional parsing.
@@ -77,7 +75,7 @@ class GuildConfigService:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?",
-                (guild_id, key)
+                (guild_id, key),
             )
             row = await cursor.fetchone()
 
@@ -137,7 +135,7 @@ class GuildConfigService:
                     INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                     VALUES (?, ?, ?)
                     """,
-                    (guild_id, key, value_str)
+                    (guild_id, key, value_str),
                 )
                 await db.commit()
 
@@ -174,7 +172,9 @@ class GuildConfigService:
             return [int(cid) for cid in channels if isinstance(cid, int | str)]
         return []
 
-    async def set_join_to_create_channels(self, guild_id: int, channel_ids: list[int]) -> None:
+    async def set_join_to_create_channels(
+        self, guild_id: int, channel_ids: list[int]
+    ) -> None:
         """
         Set the Join-to-Create channel IDs for a guild.
 
@@ -199,7 +199,9 @@ class GuildConfigService:
             return int(category_id)
         return None
 
-    async def set_voice_category_id(self, guild_id: int, category_id: int | None) -> None:
+    async def set_voice_category_id(
+        self, guild_id: int, category_id: int | None
+    ) -> None:
         """
         Set the voice category ID for a guild.
 
@@ -226,18 +228,20 @@ class GuildConfigService:
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     "SELECT COUNT(*) FROM guild_settings WHERE key = ?",
-                    ("join_to_create_channel_ids",)
+                    ("join_to_create_channel_ids",),
                 )
                 existing_count = (await cursor.fetchone())[0]
 
                 if existing_count > 0:
-                    logger.debug("Guild-specific JTC settings already exist, skipping migration")
+                    logger.debug(
+                        "Guild-specific JTC settings already exist, skipping migration"
+                    )
                     return
 
                 # Check for legacy settings
                 cursor = await db.execute(
                     "SELECT key, value FROM settings WHERE key IN (?, ?)",
-                    ("join_to_create_channel_ids", "voice_category_id")
+                    ("join_to_create_channel_ids", "voice_category_id"),
                 )
                 legacy_settings = {row[0]: row[1] for row in await cursor.fetchall()}
 
@@ -270,7 +274,9 @@ class GuildConfigService:
             # Migrate JTC channels
             if "join_to_create_channel_ids" in legacy_settings:
                 try:
-                    legacy_jtc = json.loads(legacy_settings["join_to_create_channel_ids"])
+                    legacy_jtc = json.loads(
+                        legacy_settings["join_to_create_channel_ids"]
+                    )
                     await self.set_join_to_create_channels(guild_id, legacy_jtc)
                     migrated_settings.append("join_to_create_channel_ids")
                 except (json.JSONDecodeError, TypeError) as e:
@@ -292,9 +298,11 @@ class GuildConfigService:
                 )
 
         except Exception as e:
-            logger.exception(f"Error during legacy settings migration: {e}")
+            logger.exception("Error during legacy settings migration", exc_info=e)
 
-    async def _load_many(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], Any]:
+    async def _load_many(
+        self, keys: list[tuple[int, str]]
+    ) -> dict[tuple[int, str], Any]:
         """
         Batch load multiple settings from the database.
 
@@ -321,7 +329,7 @@ class GuildConfigService:
                 FROM guild_settings
                 WHERE (guild_id, key) IN ({placeholders})
                 """,
-                params
+                params,
             )
 
             now = time.monotonic()
@@ -345,7 +353,9 @@ class GuildConfigService:
 
         return results
 
-    async def clear_cache(self, guild_id: int | None = None, key: str | None = None) -> None:
+    async def clear_cache(
+        self, guild_id: int | None = None, key: str | None = None
+    ) -> None:
         """
         Clear cached settings.
 

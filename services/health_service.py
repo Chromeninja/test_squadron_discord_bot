@@ -111,12 +111,14 @@ class HealthService(BaseService):
                     "user_voice_channels",
                     "voice_cooldowns",
                     "channel_settings",
-                    "guild_registry"
+                    "guild_registry",
                 ]
 
                 for table in table_names:
                     try:
-                        async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                        async with db.execute(
+                            f"SELECT COUNT(*) FROM {table}"
+                        ) as cursor:
                             count = await cursor.fetchone()
                             tables_info[f"{table}_count"] = count[0] if count else 0
                     except Exception:
@@ -134,9 +136,7 @@ class HealthService(BaseService):
             }
 
     async def run_health_checks(
-        self,
-        bot: discord.Client,
-        services: list[BaseService]
+        self, bot: discord.Client, services: list[BaseService]
     ) -> dict[str, Any]:
         """
         Run comprehensive health checks.
@@ -169,7 +169,7 @@ class HealthService(BaseService):
             except Exception as e:
                 health_report["services"][service.name] = {
                     "status": "error",
-                    "error": str(e)
+                    "error": str(e),
                 }
                 service_statuses.append("error")
 

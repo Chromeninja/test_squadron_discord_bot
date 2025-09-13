@@ -1,6 +1,7 @@
 """
 Unit tests for admin config choices and validation.
 """
+
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -36,7 +37,9 @@ class TestConfigSchema:
 
     def test_validate_value_int_success(self):
         """Test successful integer validation."""
-        is_valid, error, coerced = ConfigSchema.validate_value("voice.cooldown_seconds", "120")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "voice.cooldown_seconds", "120"
+        )
 
         assert is_valid is True
         assert error == ""
@@ -46,18 +49,24 @@ class TestConfigSchema:
     def test_validate_value_int_range_error(self):
         """Test integer validation with range constraints."""
         # Test below minimum
-        is_valid, error, coerced = ConfigSchema.validate_value("voice.cooldown_seconds", "-1")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "voice.cooldown_seconds", "-1"
+        )
         assert is_valid is False
         assert "must be at least 0" in error
 
         # Test above maximum
-        is_valid, error, coerced = ConfigSchema.validate_value("voice.cooldown_seconds", "5000")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "voice.cooldown_seconds", "5000"
+        )
         assert is_valid is False
         assert "must be at most 3600" in error
 
     def test_validate_value_int_type_error(self):
         """Test integer validation with invalid type."""
-        is_valid, error, coerced = ConfigSchema.validate_value("voice.cooldown_seconds", "not_a_number")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "voice.cooldown_seconds", "not_a_number"
+        )
 
         assert is_valid is False
         assert "Cannot convert 'not_a_number' to int" in error
@@ -76,7 +85,9 @@ class TestConfigSchema:
         ]
 
         for input_val, expected in test_cases:
-            is_valid, error, coerced = ConfigSchema.validate_value("features.auto_role", input_val)
+            is_valid, error, coerced = ConfigSchema.validate_value(
+                "features.auto_role", input_val
+            )
             assert is_valid is True, f"Failed for input '{input_val}'"
             assert error == ""
             assert coerced == expected
@@ -84,7 +95,9 @@ class TestConfigSchema:
 
     def test_validate_value_bool_error(self):
         """Test boolean validation with invalid values."""
-        is_valid, error, coerced = ConfigSchema.validate_value("features.auto_role", "maybe")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "features.auto_role", "maybe"
+        )
 
         assert is_valid is False
         assert "Invalid boolean value" in error
@@ -107,7 +120,9 @@ class TestConfigSchema:
 
     def test_validate_value_list_int_success(self):
         """Test successful list<int> validation."""
-        is_valid, error, coerced = ConfigSchema.validate_value("roles.bot_admins", "[123456789, 987654321]")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "roles.bot_admins", "[123456789, 987654321]"
+        )
 
         assert is_valid is True
         assert error == ""
@@ -117,14 +132,18 @@ class TestConfigSchema:
 
     def test_validate_value_list_int_invalid_json(self):
         """Test list<int> validation with invalid JSON."""
-        is_valid, error, coerced = ConfigSchema.validate_value("roles.bot_admins", "[123, invalid")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "roles.bot_admins", "[123, invalid"
+        )
 
         assert is_valid is False
         assert "Invalid JSON array" in error
 
     def test_validate_value_list_int_invalid_element(self):
         """Test list<int> validation with invalid element type."""
-        is_valid, error, coerced = ConfigSchema.validate_value("roles.bot_admins", "[123, \"text\"]")
+        is_valid, error, coerced = ConfigSchema.validate_value(
+            "roles.bot_admins", '[123, "text"]'
+        )
 
         assert is_valid is False
         assert "List contains invalid int values" in error
@@ -164,10 +183,7 @@ class TestAdminConfigCommand:
         """Test set_config with valid integer value."""
         # Access the callback function directly
         await admin_cog.set_config.callback(
-            admin_cog,
-            mock_interaction,
-            key="voice.cooldown_seconds",
-            value="120"
+            admin_cog, mock_interaction, key="voice.cooldown_seconds", value="120"
         )
 
         # Should defer the response
@@ -193,10 +209,7 @@ class TestAdminConfigCommand:
     async def test_set_config_valid_bool_value(self, admin_cog, mock_interaction):
         """Test set_config with valid boolean value."""
         await admin_cog.set_config.callback(
-            admin_cog,
-            mock_interaction,
-            key="features.auto_role",
-            value="true"
+            admin_cog, mock_interaction, key="features.auto_role", value="true"
         )
 
         # Should set the config with coerced boolean value
@@ -216,7 +229,7 @@ class TestAdminConfigCommand:
             admin_cog,
             mock_interaction,
             key="voice.cooldown_seconds",
-            value="not_a_number"
+            value="not_a_number",
         )
 
         # Should not call set_guild_setting
@@ -239,7 +252,7 @@ class TestAdminConfigCommand:
             admin_cog,
             mock_interaction,
             key="voice.cooldown_seconds",
-            value="5000"  # Above max of 3600
+            value="5000",  # Above max of 3600
         )
 
         # Should not call set_guild_setting
@@ -257,23 +270,21 @@ class TestAdminConfigCommand:
         admin_cog.bot.has_admin_permissions = AsyncMock(return_value=False)
 
         await admin_cog.set_config.callback(
-            admin_cog,
-            mock_interaction,
-            key="voice.cooldown_seconds",
-            value="120"
+            admin_cog, mock_interaction, key="voice.cooldown_seconds", value="120"
         )
 
         # Should send permission error
         mock_interaction.response.send_message.assert_called_once_with(
-            "You don't have permission to use this command.",
-            ephemeral=True
+            "You don't have permission to use this command.", ephemeral=True
         )
 
         # Should not set config
         admin_cog.bot.services.config.set_guild_setting.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_value_autocomplete_int_suggestions(self, admin_cog, mock_interaction):
+    async def test_value_autocomplete_int_suggestions(
+        self, admin_cog, mock_interaction
+    ):
         """Test autocomplete for integer values."""
         # Mock interaction data with selected key
         mock_interaction.data = {
@@ -295,7 +306,9 @@ class TestAdminConfigCommand:
             assert isinstance(choice.value, str)
 
     @pytest.mark.asyncio
-    async def test_value_autocomplete_bool_suggestions(self, admin_cog, mock_interaction):
+    async def test_value_autocomplete_bool_suggestions(
+        self, admin_cog, mock_interaction
+    ):
         """Test autocomplete for boolean values."""
         mock_interaction.data = {
             "options": [{"name": "key", "value": "features.auto_role"}]
@@ -310,7 +323,9 @@ class TestAdminConfigCommand:
         assert "true" in values
 
     @pytest.mark.asyncio
-    async def test_value_autocomplete_no_key_selected(self, admin_cog, mock_interaction):
+    async def test_value_autocomplete_no_key_selected(
+        self, admin_cog, mock_interaction
+    ):
         """Test autocomplete when no key is selected."""
         mock_interaction.data = {"options": []}
 

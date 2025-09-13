@@ -20,28 +20,30 @@ SELECTORS = {
     "org": {
         "main": [
             'div[class*="org"][class*="main"] a.value',
-            'div.org.main a.value',
-            '.box-content.org.main a.value'
+            "div.org.main a.value",
+            ".box-content.org.main a.value",
         ],
         "affiliates": [
             'div[class*="org"][class*="affil"] a.value',
-            'div.org.affiliation a.value',
-            '.box-content.org.affiliation a.value'
-        ]
+            "div.org.affiliation a.value",
+            ".box-content.org.affiliation a.value",
+        ],
     },
     "bio": [
         '[data-testid*="bio"]',
-        '.bio',
-        '.profile-bio',
-        '.user-bio',
+        ".bio",
+        ".profile-bio",
+        ".user-bio",
         '[class*="bio"]',
-        'div.entry.bio div.value'  # current selector as fallback
-    ]
+        "div.entry.bio div.value",  # current selector as fallback
+    ],
 }
+
 
 def normalize_text(s: str | None) -> str:
     """Normalize text by collapsing whitespace and converting to lowercase."""
-    return re.sub(r'\s+', ' ', s).strip().lower() if s else ''
+    return re.sub(r"\s+", " ", s).strip().lower() if s else ""
+
 
 def parse_organizations(html_content: str) -> dict[str, Any]:
     """
@@ -53,7 +55,10 @@ def parse_organizations(html_content: str) -> dict[str, Any]:
     Returns:
         Dict containing main organization and affiliates list.
     """
-    logger.debug("Parsing RSI organizations from HTML content.", extra={"event": "rsi-parser.orgs"})
+    logger.debug(
+        "Parsing RSI organizations from HTML content.",
+        extra={"event": "rsi-parser.orgs"},
+    )
     soup = BeautifulSoup(html_content, "lxml")
 
     main_org = None
@@ -66,15 +71,22 @@ def parse_organizations(html_content: str) -> dict[str, Any]:
             if main_elements:
                 main_org = normalize_text(main_elements[0].get_text(strip=True))
                 if main_org:
-                    logger.debug(f"Main organization found with selector '{selector}': {main_org}")
+                    logger.debug(
+                        f"Main organization found with selector '{selector}': {main_org}"
+                    )
                     break
         except Exception as e:
             logger.debug(f"Main org selector '{selector}' failed: {e}")
             continue
 
     if not main_org:
-        logger.warning("Main organization section not found with any selector.",
-                      extra={"event": "rsi-parser.orgs", "selectors_tried": SELECTORS["org"]["main"]})
+        logger.warning(
+            "Main organization section not found with any selector.",
+            extra={
+                "event": "rsi-parser.orgs",
+                "selectors_tried": SELECTORS["org"]["main"],
+            },
+        )
 
     # Try affiliate selectors
     for selector in SELECTORS["org"]["affiliates"]:
@@ -101,14 +113,18 @@ def parse_organizations(html_content: str) -> dict[str, Any]:
 
     result = {"main": main_org, "affiliates": deduped_affiliates}
 
-    logger.debug("Organization parsing complete", extra={
-        "event": "rsi-parser.orgs",
-        "main": main_org,
-        "affiliates_count": len(deduped_affiliates),
-        "sample_affiliates": deduped_affiliates[:3] if deduped_affiliates else []
-    })
+    logger.debug(
+        "Organization parsing complete",
+        extra={
+            "event": "rsi-parser.orgs",
+            "main": main_org,
+            "affiliates_count": len(deduped_affiliates),
+            "sample_affiliates": deduped_affiliates[:3] if deduped_affiliates else [],
+        },
+    )
 
     return result
+
 
 def search_membership_status(orgs: dict[str, Any], target_org: str) -> int:
     """
@@ -129,11 +145,16 @@ def search_membership_status(orgs: dict[str, Any], target_org: str) -> int:
         return 1
 
     if target_org in affiliates:
-        logger.debug(f"User is affiliate member (target '{target_org}' found in affiliates)")
+        logger.debug(
+            f"User is affiliate member (target '{target_org}' found in affiliates)"
+        )
         return 2
 
-    logger.debug(f"User is not a member (main: '{main}', affiliates: {len(affiliates)})")
+    logger.debug(
+        f"User is not a member (main: '{main}', affiliates: {len(affiliates)})"
+    )
     return 0
+
 
 def extract_bio(html_content: str) -> str | None:
     """
@@ -150,20 +171,23 @@ def extract_bio(html_content: str) -> str | None:
 
     for selector in SELECTORS["bio"]:
         try:
-            if (bio_elem := soup.select_one(selector)):
+            if bio_elem := soup.select_one(selector):
                 bio_text = bio_elem.get_text(separator=" ", strip=True)
                 if bio_text:
-                    logger.debug(f"Bio extracted with selector '{selector}': {bio_text}")
+                    logger.debug(
+                        f"Bio extracted with selector '{selector}': {bio_text}"
+                    )
                     return bio_text
         except Exception as e:
             logger.debug(f"Bio selector '{selector}' failed: {e}")
             continue
 
-    logger.warning("Bio section not found with any selector.", extra={
-        "event": "rsi-parser.bio",
-        "selectors_tried": SELECTORS["bio"]
-    })
+    logger.warning(
+        "Bio section not found with any selector.",
+        extra={"event": "rsi-parser.bio", "selectors_tried": SELECTORS["bio"]},
+    )
     return None
+
 
 def find_token_in_bio(bio_text: str, token: str) -> bool:
     """
@@ -183,10 +207,11 @@ def find_token_in_bio(bio_text: str, token: str) -> bool:
     padded_token = token.zfill(4)
 
     # Find all 4-digit numbers in bio
-    token_pattern = r'\b\d{4}\b'
+    token_pattern = r"\b\d{4}\b"
     found_tokens = re.findall(token_pattern, bio_text)
 
     return padded_token in found_tokens
+
 
 async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient
@@ -223,7 +248,9 @@ async def is_valid_rsi_handle(
     try:
         org_data = parse_organizations(org_html)
     except Exception as e:
-        logger.exception(f"Exception while parsing organization data for {user_handle}: {e}")
+        logger.exception(
+            f"Exception while parsing organization data for {user_handle}: {e}"
+        )
         return None, None, None
 
     verify_value = search_membership_status(org_data, TEST_ORG_NAME)
@@ -245,21 +272,28 @@ async def is_valid_rsi_handle(
         else:
             logger.warning(f"Could not extract cased handle for {user_handle}")
     except Exception as e:
-        logger.exception(f"Exception while extracting cased handle for {user_handle}: {e}")
+        logger.exception(
+            f"Exception while extracting cased handle for {user_handle}: {e}"
+        )
         cased_handle = None
 
     # Extract community moniker
     try:
         community_moniker = extract_moniker(profile_html, cased_handle)
         if community_moniker:
-            logger.debug(f"Extracted community moniker for {user_handle}: {community_moniker}")
+            logger.debug(
+                f"Extracted community moniker for {user_handle}: {community_moniker}"
+            )
         else:
             logger.info(f"Community moniker not found or empty for {user_handle}")
     except Exception as e:
-        logger.exception(f"Exception while extracting community moniker for {user_handle}: {e}")
+        logger.exception(
+            f"Exception while extracting community moniker for {user_handle}: {e}"
+        )
         community_moniker = None
 
     return verify_value, cased_handle, community_moniker
+
 
 async def is_valid_rsi_bio(
     user_handle: str, token: str, http_client: HTTPClient
@@ -296,7 +330,7 @@ async def is_valid_rsi_bio(
         else:
             logger.warning(f"Could not extract bio text for handle: {user_handle}")
     except Exception as e:
-        logger.exception(f"Exception while extracting bio for {user_handle}: {e}")
+        logger.exception("Exception while extracting bio for %s", user_handle, exc_info=e)
         bio_text = None
 
     if bio_text is None:
@@ -310,6 +344,7 @@ async def is_valid_rsi_bio(
         logger.debug(f"Token '{token}' NOT found in bio for handle: {user_handle}")
 
     return token_found
+
 
 # Import existing functions for compatibility
 from verification.rsi_verification import extract_handle, extract_moniker

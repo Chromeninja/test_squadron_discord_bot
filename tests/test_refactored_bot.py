@@ -19,7 +19,7 @@ async def test_comprehensive_bot():
     print("=" * 50)
 
     # Create temporary database for testing
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         test_db_path = f.name
 
     print(f"📂 Using test database: {test_db_path}")
@@ -44,9 +44,13 @@ async def test_comprehensive_bot():
         await manager.config.set_guild_setting(guild_id, "moderation.auto_kick", True)
 
         # Retrieve settings
-        cooldown = await manager.config.get_guild_setting(guild_id, "voice.cooldown_seconds")
+        cooldown = await manager.config.get_guild_setting(
+            guild_id, "voice.cooldown_seconds"
+        )
         admin_role = await manager.config.get_guild_setting(guild_id, "roles.admin")
-        auto_kick = await manager.config.get_guild_setting(guild_id, "moderation.auto_kick")
+        auto_kick = await manager.config.get_guild_setting(
+            guild_id, "moderation.auto_kick"
+        )
 
         print(f"  ⚙️  Voice cooldown: {cooldown} seconds")
         print(f"  👑 Admin role ID: {admin_role}")
@@ -71,7 +75,9 @@ async def test_comprehensive_bot():
 
         # Get health check for the service itself
         health_check = await manager.health.health_check()
-        print(f"  ⏱️  Service uptime: {health_check.get('uptime_seconds', 0):.1f} seconds")
+        print(
+            f"  ⏱️  Service uptime: {health_check.get('uptime_seconds', 0):.1f} seconds"
+        )
         print(f"  � Metrics tracked: {health_check.get('metrics_tracked', 0)}")
 
         # Test service health check
@@ -80,7 +86,7 @@ async def test_comprehensive_bot():
         print(f"  🌐 Overall status: {all_health['status']}")
         print(f"  📋 Raw health data: {all_health}")
 
-        for service_name, service_health in all_health.get('services', {}).items():
+        for service_name, service_health in all_health.get("services", {}).items():
             print(f"  🔧 {service_name}: {service_health}")
 
         # Shutdown services
@@ -96,14 +102,16 @@ async def test_comprehensive_bot():
     except Exception as e:
         print(f"❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
     finally:
         # Cleanup
-        import os
+        from pathlib import Path
+
         try:
-            os.unlink(test_db_path)
+            Path(test_db_path).unlink()
             print("🧹 Cleaned up test database")
         except OSError:
             pass

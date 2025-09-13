@@ -33,9 +33,15 @@ def main() -> int:
     os.chdir(root_dir)
 
     checks = [
-        (["python", "-m", "ruff", "format", "--check", "."], "Code formatting (ruff format)"),
+        (
+            ["python", "-m", "ruff", "format", "--check", "."],
+            "Code formatting (ruff format)",
+        ),
         (["python", "-m", "ruff", "check", "."], "Linting (ruff check)"),
-        (["python", "-m", "mypy", "bot.py", "cogs/", "helpers/", "config/"], "Type checking (mypy)"),
+        (
+            ["python", "-m", "mypy", "bot.py", "cogs/", "helpers/", "config/"],
+            "Type checking (mypy)",
+        ),
         (["python", "-m", "pytest", "-q"], "Tests (pytest)"),
     ]
 

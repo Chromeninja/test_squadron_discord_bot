@@ -41,7 +41,7 @@ class ConfigService(BaseService):
             self.logger.warning("Global config file not found, using empty config")
             self._global_config = {}
         except yaml.YAMLError as e:
-            self.logger.exception(f"Error parsing global config: {e}")
+            self.logger.exception("Error parsing global config", exc_info=e)
             self._global_config = {}
 
     async def get(
@@ -79,10 +79,7 @@ class ConfigService(BaseService):
         return value
 
     async def get_guild_setting(
-        self,
-        guild_id: int,
-        key: str,
-        default: Any = None
+        self, guild_id: int, key: str, default: Any = None
     ) -> Any:
         """
         Get a setting for a specific guild.
@@ -113,12 +110,7 @@ class ConfigService(BaseService):
         global_value = self._get_nested_value(self._global_config, key)
         return global_value if global_value is not None else default
 
-    async def set_guild_setting(
-        self,
-        guild_id: int,
-        key: str,
-        value: Any
-    ) -> None:
+    async def set_guild_setting(self, guild_id: int, key: str, value: Any) -> None:
         """
         Set a guild-specific setting.
 
@@ -138,7 +130,7 @@ class ConfigService(BaseService):
                 INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                 VALUES (?, ?, ?)
                 """,
-                (guild_id, key, json.dumps(value))
+                (guild_id, key, json.dumps(value)),
             )
             await db.commit()
 
@@ -173,14 +165,17 @@ class ConfigService(BaseService):
 
         # Load from database
         settings = {}
-        async with Database.get_connection() as db, db.execute(
-            "SELECT key, value FROM guild_settings WHERE guild_id = ?",
-            (guild_id,)
-        ) as cursor:
+        async with (
+            Database.get_connection() as db,
+            db.execute(
+                "SELECT key, value FROM guild_settings WHERE guild_id = ?", (guild_id,)
+            ) as cursor,
+        ):
             async for row in cursor:
                 key, value_json = row
                 try:
                     import json
+
                     settings[key] = json.loads(value_json)
                 except (json.JSONDecodeError, TypeError):
                     self.logger.warning(
@@ -195,7 +190,7 @@ class ConfigService(BaseService):
 
     def _get_nested_value(self, data: dict[str, Any], key: str) -> Any:
         """Get a value from nested dict using dot notation."""
-        keys = key.split('.')
+        keys = key.split(".")
         current = data
 
         try:
@@ -219,7 +214,7 @@ class ConfigService(BaseService):
             "bot_verified_role_id",
             "main_role_id",
             "affiliate_role_id",
-            "non_member_role_id"
+            "non_member_role_id",
         ]
 
         for role_key in role_keys:
@@ -254,11 +249,13 @@ class ConfigService(BaseService):
             "verification_channel_id",
             "bot_spam_channel_id",
             "public_announcement_channel_id",
-            "leadership_announcement_channel_id"
+            "leadership_announcement_channel_id",
         ]
 
         for channel_key in channel_keys:
-            channel_id = await self.get_guild_setting(guild_id, f"channels.{channel_key}")
+            channel_id = await self.get_guild_setting(
+                guild_id, f"channels.{channel_key}"
+            )
             if channel_id:
                 channels[channel_key] = int(channel_id)
 

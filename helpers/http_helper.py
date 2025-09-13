@@ -12,7 +12,6 @@ class NotFoundError(Exception):
     """Raised when a 404 is encountered and the caller should treat the resource as gone."""
 
 
-
 class HTTPClient:
     def __init__(
         self,

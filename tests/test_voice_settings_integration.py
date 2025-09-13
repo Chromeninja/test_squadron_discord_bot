@@ -211,7 +211,9 @@ class TestVoiceServiceChannelCreation:
             mock_member.move_to = AsyncMock()
 
             # Mock enforce_permission_changes
-            with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
+            with patch(
+                "services.voice_service.enforce_permission_changes"
+            ) as mock_enforce:
                 mock_enforce.return_value = None
 
                 # Mock channel_send_message
@@ -271,9 +273,14 @@ class TestVoiceServiceChannelCreation:
                     create_args = mock_guild.create_voice_channel.call_args
 
                     # Should use default name format
-                    assert create_args.kwargs["name"] == f"{mock_member.display_name}'s Channel"
+                    assert (
+                        create_args.kwargs["name"]
+                        == f"{mock_member.display_name}'s Channel"
+                    )
                     # Should use JTC channel's user_limit
-                    assert create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
+                    assert (
+                        create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
+                    )
 
     @pytest.mark.asyncio
     async def test_load_channel_settings_success(self, voice_service):

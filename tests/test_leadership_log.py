@@ -71,9 +71,7 @@ async def test_user_verify_moniker_change(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_admin_recheck_handle_change_includes_handle_line(
-    monkeypatch
-) -> None:
+async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> None:
     """Handle change should now produce a Handle line
     (policy: handle drives nickname)."""
     bot = DummyBot()
@@ -186,7 +184,7 @@ def test_escape_md_prevents_markdown_injection() -> None:
 
 @pytest.mark.asyncio
 async def test_case_only_moniker_change_user_recheck_posts_no_change(
-    monkeypatch
+    monkeypatch,
 ) -> None:
     bot = DummyBot()
     sent = []
@@ -246,7 +244,7 @@ async def test_handle_and_username_change_both_lines(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_auto_moniker_initial_suppressed_handle_not_suppressed(
-    monkeypatch
+    monkeypatch,
 ) -> None:
     bot = DummyBot()
     sent = []
@@ -270,9 +268,7 @@ async def test_auto_moniker_initial_suppressed_handle_not_suppressed(
 
 
 @pytest.mark.asyncio
-async def test_auto_initial_moniker_population_suppressed(
-    monkeypatch
-) -> None:
+async def test_auto_initial_moniker_population_suppressed(monkeypatch) -> None:
     """Auto check should NOT show moniker change if previous
     value absent/none placeholder."""
     bot = DummyBot()

@@ -108,12 +108,12 @@ async def enforce_permission_changes(
         await assert_base_permissions(channel, bot_member, owner_member, default_role)
 
         # Apply all other permission settings from the database
-        await _apply_database_settings(channel, guild, user_id, guild_id, jtc_channel_id)
+        await _apply_database_settings(
+            channel, guild, user_id, guild_id, jtc_channel_id
+        )
 
     except Exception:
-        logger.exception(
-            f"Error enforcing permission changes for channel {channel.id}"
-        )
+        logger.exception(f"Error enforcing permission changes for channel {channel.id}")
 
 
 # Feature mapping configuration
@@ -171,9 +171,7 @@ async def _apply_database_settings(
         )
 
         # Apply lock setting
-        await _apply_lock_setting(
-            overwrites, guild, user_id, guild_id, jtc_channel_id
-        )
+        await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
 
         # Apply all changes in one batch
         await channel.edit(overwrites=overwrites)
@@ -192,11 +190,14 @@ async def _apply_permit_reject_settings(
 ) -> None:
     """Apply permit/reject settings from channel_permissions table."""
     async with Database.get_connection() as db:
-        cursor = await db.execute("""
+        cursor = await db.execute(
+            """
             SELECT target_id, target_type, permission
             FROM channel_permissions
             WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-        """, (user_id, guild_id, jtc_channel_id))
+        """,
+            (user_id, guild_id, jtc_channel_id),
+        )
 
         permissions = await cursor.fetchall()
 
@@ -239,11 +240,14 @@ async def _apply_voice_feature_settings(
         inverted = config.get("inverted", False)
 
         async with Database.get_connection() as db:
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT target_id, target_type, {column_name}
                 FROM {table_name}
                 WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-            """, (user_id, guild_id, jtc_channel_id))
+            """,
+                (user_id, guild_id, jtc_channel_id),
+            )
 
             settings = await cursor.fetchall()
 
@@ -266,7 +270,9 @@ async def _apply_voice_feature_settings(
                     setattr(overwrite, overwrite_property, value)
 
                     overwrites[target] = overwrite
-                    logger.debug(f"Applied {feature_name}={enabled} for {target_type} {target_id}")
+                    logger.debug(
+                        f"Applied {feature_name}={enabled} for {target_type} {target_id}"
+                    )
 
 
 async def _apply_lock_setting(
@@ -278,10 +284,13 @@ async def _apply_lock_setting(
 ) -> None:
     """Apply lock setting from channel_settings table."""
     async with Database.get_connection() as db:
-        cursor = await db.execute("""
+        cursor = await db.execute(
+            """
             SELECT lock FROM channel_settings
             WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-        """, (user_id, guild_id, jtc_channel_id))
+        """,
+            (user_id, guild_id, jtc_channel_id),
+        )
 
         row = await cursor.fetchone()
 

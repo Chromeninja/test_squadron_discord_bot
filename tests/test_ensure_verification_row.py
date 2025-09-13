@@ -24,7 +24,7 @@ async def test_ensure_verification_row_creates_minimal_row(temp_db):
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT user_id, rsi_handle, membership_status, last_updated, needs_reverify FROM verification WHERE user_id = ?",
-            (user_id,)
+            (user_id,),
         )
         row = await cursor.fetchone()
 
@@ -46,7 +46,7 @@ async def test_ensure_verification_row_idempotent(temp_db):
         await db.execute(
             """INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, needs_reverify)
                VALUES (?, ?, ?, ?, ?)""",
-            (user_id, "TestHandle", "main", 1234567890, 1)
+            (user_id, "TestHandle", "main", 1234567890, 1),
         )
         await db.commit()
 
@@ -57,7 +57,7 @@ async def test_ensure_verification_row_idempotent(temp_db):
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT user_id, rsi_handle, membership_status, last_updated, needs_reverify FROM verification WHERE user_id = ?",
-            (user_id,)
+            (user_id,),
         )
         row = await cursor.fetchone()
 
@@ -84,7 +84,7 @@ async def test_ensure_verification_row_enables_rate_limits(temp_db):
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT user_id, action, attempt_count FROM rate_limits WHERE user_id = ? AND action = ?",
-            (user_id, "verification")
+            (user_id, "verification"),
         )
         row = await cursor.fetchone()
 

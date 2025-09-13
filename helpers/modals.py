@@ -118,8 +118,8 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
-        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
-            cased_handle, self.bot.http_client
+        verify_value_check, _cased_handle_2, community_moniker_2 = (
+            await is_valid_rsi_handle(cased_handle, self.bot.http_client)
         )
         if verify_value_check is None:
             embed = create_error_embed(
@@ -160,7 +160,10 @@ class HandleModal(Modal, title="Verification"):
 
                 # Get retry time in seconds for better user feedback
                 import time
-                retry_after_seconds = int(wait_until - time.time()) if wait_until > time.time() else 0
+
+                retry_after_seconds = (
+                    int(wait_until - time.time()) if wait_until > time.time() else 0
+                )
 
                 # Create and send the cooldown embed with enhanced feedback
                 embed = create_cooldown_embed(wait_until)
@@ -172,7 +175,7 @@ class HandleModal(Modal, title="Verification"):
                     extra={
                         "user_id": member.id,
                         "remaining_attempts": 0,
-                        "retry_after": retry_after_seconds
+                        "retry_after": retry_after_seconds,
                     },
                 )
             else:
@@ -181,8 +184,12 @@ class HandleModal(Modal, title="Verification"):
                     error_msg.append("- Could not verify RSI organization membership.")
                 elif verify_value_check == 0:
                     # Check if this might be due to hidden affiliations
-                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
-                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
+                    error_msg.append(
+                        f"- You are not a member of {ORG_NAME} or its affiliates."
+                    )
+                    error_msg.append(
+                        f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status."
+                    )
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
                 error_msg.append(
@@ -198,7 +205,7 @@ class HandleModal(Modal, title="Verification"):
                         "user_id": member.id,
                         "remaining_attempts": remaining_attempts,
                         "verify_value": verify_value_check,
-                        "token_verify": token_verify
+                        "token_verify": token_verify,
                     },
                 )
             return
@@ -353,10 +360,16 @@ class ResetSettingsConfirmationModal(Modal):
             user_id = member.id
 
             # Delete user's managed channel if it exists
-            channel_result = await voice_cog.voice_service.delete_user_owned_channel(guild_id, user_id)
+            channel_result = await voice_cog.voice_service.delete_user_owned_channel(
+                guild_id, user_id
+            )
 
             # Purge voice data for this user with cache cleanup
-            deleted_counts = await voice_cog.voice_service.purge_voice_data_with_cache_clear(guild_id, user_id)
+            deleted_counts = (
+                await voice_cog.voice_service.purge_voice_data_with_cache_clear(
+                    guild_id, user_id
+                )
+            )
 
             total_deleted = sum(deleted_counts.values())
 
@@ -371,7 +384,9 @@ class ResetSettingsConfirmationModal(Modal):
                 success_msg,
                 ephemeral=True,
             )
-            logger.info(f"{member.display_name} reset their channel settings - deleted {total_deleted} records")
+            logger.info(
+                f"{member.display_name} reset their channel settings - deleted {total_deleted} records"
+            )
         except Exception:
             logger.exception(
                 f"Error resetting channel settings for {member.display_name}"
@@ -448,9 +463,7 @@ class NameModal(Modal):
                 ephemeral=True,
             )
         except Exception:
-            logger.exception(
-                f"Failed to change channel name for {member.display_name}"
-            )
+            logger.exception(f"Failed to change channel name for {member.display_name}")
             await followup_send_message(
                 interaction,
                 "An unexpected error occurred. Please try again later.",

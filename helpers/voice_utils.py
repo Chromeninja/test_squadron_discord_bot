@@ -390,9 +390,7 @@ def create_voice_settings_embed(
     settings, formatted, title: str, footer: str
 ) -> discord.Embed:
     embed = discord.Embed(title=title, color=discord.Color.blue())
-    embed.add_field(
-        name="🗨️ Channel Name", value=settings["channel_name"], inline=False
-    )
+    embed.add_field(name="🗨️ Channel Name", value=settings["channel_name"], inline=False)
     embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
     embed.add_field(
         name="👥 User Limit", value=str(settings["user_limit"]), inline=True

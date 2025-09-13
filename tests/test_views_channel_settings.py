@@ -4,7 +4,7 @@ from helpers.views import ChannelSettingsView
 
 @pytest.mark.asyncio
 async def test_channel_settings_select_has_custom_id_and_persistent_timeout(
-    mock_bot
+    mock_bot,
 ) -> None:
     view = ChannelSettingsView(mock_bot)
 

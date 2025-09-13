@@ -28,9 +28,10 @@ async def temp_db():
     yield db_path
 
     # Cleanup
-    import os
+    from pathlib import Path
+
     with contextlib.suppress(OSError):
-        os.unlink(db_path)
+        Path(db_path).unlink()
 
 
 @pytest.fixture
@@ -86,11 +87,7 @@ class TestConfigService:
         await config_service.initialize()
 
         # Set global config after initialization (since initialization loads from file)
-        config_service._global_config = {
-            "roles": {
-                "admin": 123456
-            }
-        }
+        config_service._global_config = {"roles": {"admin": 123456}}
 
         # Test nested key access
         value = await config_service.get_global_setting("roles.admin")
@@ -187,7 +184,13 @@ class TestHealthService:
         system_info = await health_service.get_system_info()
 
         # Check required fields are present
-        required_fields = ["cpu_percent", "memory_mb", "memory_percent", "threads", "uptime_seconds"]
+        required_fields = [
+            "cpu_percent",
+            "memory_mb",
+            "memory_percent",
+            "threads",
+            "uptime_seconds",
+        ]
         for field in required_fields:
             assert field in system_info
             assert isinstance(system_info[field], int | float)
@@ -316,7 +319,9 @@ async def test_integration_flow(temp_db):
 
     # Test configuration
     await manager.config.set_guild_setting(guild_id, "voice.cooldown_seconds", 10)
-    cooldown = await manager.config.get_guild_setting(guild_id, "voice.cooldown_seconds")
+    cooldown = await manager.config.get_guild_setting(
+        guild_id, "voice.cooldown_seconds"
+    )
     assert cooldown == 10
 
     # Test health checks (using base health_check method)

@@ -16,5 +16,6 @@ def main():
     print("🤖 Starting Discord bot...")
     subprocess.run([sys.executable, "bot.py"], check=False)
 
+
 if __name__ == "__main__":
     main()

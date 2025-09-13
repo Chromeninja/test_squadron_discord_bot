@@ -55,7 +55,7 @@ class ServiceManager:
             self.logger.info("All services initialized successfully")
 
         except Exception as e:
-            self.logger.exception(f"Failed to initialize services: {e}")
+            self.logger.exception("Failed to initialize services", exc_info=e)
             await self.shutdown()
             raise
 
@@ -73,7 +73,9 @@ class ServiceManager:
                 await service.shutdown()
                 self.logger.debug(f"Service {service_name} shutdown complete")
             except Exception as e:
-                self.logger.exception(f"Error shutting down service {service_name}: {e}")
+                self.logger.exception(
+                    f"Error shutting down service {service_name}: {e}"
+                )
 
         self._services.clear()
         self._initialized = False
@@ -129,15 +131,12 @@ class ServiceManager:
                 if health_results[service_name].get("status") != "healthy":
                     overall_healthy = False
             except Exception as e:
-                health_results[service_name] = {
-                    "status": "error",
-                    "error": str(e)
-                }
+                health_results[service_name] = {"status": "error", "error": str(e)}
                 overall_healthy = False
 
         return {
             "status": "healthy" if overall_healthy else "degraded",
-            "services": health_results
+            "services": health_results,
         }
 
     @property

@@ -54,40 +54,45 @@ def test_complete_enhanced_workflow():
 
     # Step 1: Parse organizations
     orgs = parse_rsi_organizations(org_html)
-    assert orgs['main_organization'] == 'other main org'
-    assert 'test squadron - best squadron!' in orgs['affiliates']
-    assert 'consolidated outland' in orgs['affiliates']
-    assert len(orgs['affiliates']) == 2
+    assert orgs["main_organization"] == "other main org"
+    assert "test squadron - best squadron!" in orgs["affiliates"]
+    assert "consolidated outland" in orgs["affiliates"]
+    assert len(orgs["affiliates"]) == 2
 
     # Step 2: Test membership status (case insensitive)
-    status = search_organization_case_insensitive(orgs, 'test squadron - best squadron!')
+    status = search_organization_case_insensitive(
+        orgs, "test squadron - best squadron!"
+    )
     assert status == 2  # Affiliate member
 
-    status = search_organization_case_insensitive(orgs, 'TEST SQUADRON - BEST SQUADRON!')
+    status = search_organization_case_insensitive(
+        orgs, "TEST SQUADRON - BEST SQUADRON!"
+    )
     assert status == 2  # Case insensitive match
 
-    status = search_organization_case_insensitive(orgs, 'other main org')
+    status = search_organization_case_insensitive(orgs, "other main org")
     assert status == 1  # Main member
 
-    status = search_organization_case_insensitive(orgs, 'unknown org')
+    status = search_organization_case_insensitive(orgs, "unknown org")
     assert status == 0  # Non-member
 
     # Step 3: Extract bio with enhanced selectors
     bio = extract_bio(bio_html)
     assert bio is not None
-    assert 'verification token is 0042' in bio
-    assert 'veteran pilot' in bio
+    assert "verification token is 0042" in bio
+    assert "veteran pilot" in bio
 
     # Step 4: Test enhanced token matching
-    assert find_token_in_bio(bio, '42')    # Zero-padded matching
-    assert find_token_in_bio(bio, '0042')  # Exact match
-    assert not find_token_in_bio(bio, '4')    # Partial should fail
-    assert not find_token_in_bio(bio, '1234') # Wrong token
+    assert find_token_in_bio(bio, "42")  # Zero-padded matching
+    assert find_token_in_bio(bio, "0042")  # Exact match
+    assert not find_token_in_bio(bio, "4")  # Partial should fail
+    assert not find_token_in_bio(bio, "1234")  # Wrong token
 
     # Step 5: Test text normalization helper
-    assert normalize_text('  TEST   Squadron  ') == 'test squadron'
-    assert normalize_text('') == ''
-    assert normalize_text(None) == ''
+    assert normalize_text("  TEST   Squadron  ") == "test squadron"
+    assert normalize_text("") == ""
+    assert normalize_text(None) == ""
+
 
 def test_hidden_affiliation_scenario():
     """
@@ -108,27 +113,30 @@ def test_hidden_affiliation_scenario():
     """
 
     orgs = parse_rsi_organizations(org_html_hidden_test)
-    status = search_organization_case_insensitive(orgs, 'test squadron - best squadron!')
+    status = search_organization_case_insensitive(
+        orgs, "test squadron - best squadron!"
+    )
 
     # This should return 0 (non-member) due to hidden affiliations
     assert status == 0
-    assert orgs['main_organization'] != 'test squadron - best squadron!'
-    assert len(orgs['affiliates']) == 0
+    assert orgs["main_organization"] != "test squadron - best squadron!"
+    assert len(orgs["affiliates"]) == 0
 
     # This scenario would trigger the "hidden affiliations" UX hint in the modal
+
 
 def test_edge_cases_robustness():
     """Test edge cases to ensure the enhanced system is robust."""
 
     # Empty HTML
     empty_orgs = parse_rsi_organizations("")
-    assert empty_orgs['main_organization'] == ""
-    assert empty_orgs['affiliates'] == []
+    assert empty_orgs["main_organization"] == ""
+    assert empty_orgs["affiliates"] == []
 
     # Malformed HTML
     malformed_orgs = parse_rsi_organizations("<div><span>broken")
-    assert malformed_orgs['main_organization'] == ""
-    assert malformed_orgs['affiliates'] == []
+    assert malformed_orgs["main_organization"] == ""
+    assert malformed_orgs["affiliates"] == []
 
     # Missing bio
     no_bio = extract_bio("<html><body><p>No bio here</p></body></html>")
@@ -138,6 +146,7 @@ def test_edge_cases_robustness():
     assert not find_token_in_bio("", "1234")
     assert not find_token_in_bio("some text", "")
     assert not find_token_in_bio(None, "1234")
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

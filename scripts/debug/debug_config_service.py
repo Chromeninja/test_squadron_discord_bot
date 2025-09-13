@@ -14,7 +14,7 @@ from services.db.database import Database
 async def test_config_service():
     """Test config service directly."""
     # Create temp database
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
     print(f"Using temp database: {db_path}")

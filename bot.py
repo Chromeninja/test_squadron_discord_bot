@@ -106,6 +106,7 @@ class MyBot(commands.Bot):
 
         # Initialize services container
         from services.service_container import ServiceContainer
+
         self.services = ServiceContainer(self)
         await self.services.initialize()
         logger.info("ServiceContainer initialized")
@@ -180,7 +181,7 @@ class MyBot(commands.Bot):
             await self.check_bot_permissions(guild)
 
         # Run legacy settings migration after bot is ready and guilds are loaded
-        if hasattr(self, 'services') and self.services.config:
+        if hasattr(self, "services") and self.services.config:
             try:
                 await self.services.config.maybe_migrate_legacy_settings(self)
             except Exception as e:
@@ -324,10 +325,8 @@ class MyBot(commands.Bot):
             and hasattr(self.tree, "set_permissions")
         ):
             logger.info(
-
-                    "Per-command App Command permission API not available in this environment; "
-                    "skipping and relying on runtime decorator checks."
-
+                "Per-command App Command permission API not available in this environment; "
+                "skipping and relying on runtime decorator checks."
             )
             return
 
@@ -362,10 +361,8 @@ class MyBot(commands.Bot):
         except Exception as e:
             # Catch-all: don't let permission setup break bot startup.
             logger.info(
-
-                    f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
-                    + "Using runtime decorator checks instead."
-
+                f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
+                + "Using runtime decorator checks instead."
             )
 
     async def token_cleanup_task(self) -> None:
@@ -428,14 +425,16 @@ class MyBot(commands.Bot):
         Returns:
             dict: Guild configuration data
         """
-        if not hasattr(self, 'services') or not self.services.config:
+        if not hasattr(self, "services") or not self.services.config:
             return {}
 
         config_service = self.services.config
 
         # Get common guild settings
         jtc_channels = await config_service.get_join_to_create_channels(guild_id)
-        voice_category = await config_service.get_guild_setting(guild_id, "voice_category_id")
+        voice_category = await config_service.get_guild_setting(
+            guild_id, "voice_category_id"
+        )
 
         # Get roles configuration
         roles = await config_service.get_guild_roles(guild_id)

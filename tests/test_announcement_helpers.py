@@ -1,4 +1,5 @@
 """Tests for admin recheck announcement helpers."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,7 +45,7 @@ class TestAdminRecheckHelpers:
             admin_display_name="TestAdmin",
             user_id=123456789,
             old_status="main",
-            new_status="main"
+            new_status="main",
         )
 
         expected = (
@@ -59,7 +60,7 @@ class TestAdminRecheckHelpers:
             admin_display_name="AdminUser",
             user_id=987654321,
             old_status="affiliate",
-            new_status="main"
+            new_status="main",
         )
 
         expected = (
@@ -74,7 +75,7 @@ class TestAdminRecheckHelpers:
             admin_display_name="ModeratorTest",
             user_id=555666777,
             old_status="unknown",
-            new_status="non_member"
+            new_status="non_member",
         )
 
         expected = (
@@ -89,9 +90,7 @@ class TestAdminRecheckHelpers:
         # Mock bot and its components
         mock_bot = MagicMock()
         mock_bot.config = {
-            'channels': {
-                'leadership_announcement_channel_id': 123456789
-            }
+            "channels": {"leadership_announcement_channel_id": 123456789}
         }
 
         mock_channel = AsyncMock()
@@ -102,13 +101,15 @@ class TestAdminRecheckHelpers:
         mock_member.id = 987654321
 
         # Mock channel_send_message
-        with patch('helpers.announcement.channel_send_message', new_callable=AsyncMock) as mock_send:
+        with patch(
+            "helpers.announcement.channel_send_message", new_callable=AsyncMock
+        ) as mock_send:
             result = await send_admin_recheck_notification(
                 bot=mock_bot,
                 admin_display_name="TestAdmin",
                 member=mock_member,
                 old_status="affiliate",
-                new_status="main"
+                new_status="main",
             )
 
         assert result is True
@@ -129,7 +130,7 @@ class TestAdminRecheckHelpers:
         """Test admin recheck notification with missing channel config."""
         # Mock bot with missing config
         mock_bot = MagicMock()
-        mock_bot.config = {'channels': {}}  # No leadership channel
+        mock_bot.config = {"channels": {}}  # No leadership channel
 
         mock_member = MagicMock()
         mock_member.id = 987654321
@@ -139,7 +140,7 @@ class TestAdminRecheckHelpers:
             admin_display_name="TestAdmin",
             member=mock_member,
             old_status="main",
-            new_status="main"
+            new_status="main",
         )
 
         assert result is False
@@ -150,9 +151,7 @@ class TestAdminRecheckHelpers:
         # Mock bot with config but channel not found
         mock_bot = MagicMock()
         mock_bot.config = {
-            'channels': {
-                'leadership_announcement_channel_id': 123456789
-            }
+            "channels": {"leadership_announcement_channel_id": 123456789}
         }
         mock_bot.get_channel.return_value = None  # Channel not found
 
@@ -164,7 +163,7 @@ class TestAdminRecheckHelpers:
             admin_display_name="TestAdmin",
             member=mock_member,
             old_status="main",
-            new_status="main"
+            new_status="main",
         )
 
         assert result is False

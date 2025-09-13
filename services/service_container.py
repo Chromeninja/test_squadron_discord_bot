@@ -25,7 +25,7 @@ class ServiceContainer:
     handles initialization order, and manages service dependencies.
     """
 
-    def __init__(self, bot: Optional['discord.Client'] = None) -> None:
+    def __init__(self, bot: Optional["discord.Client"] = None) -> None:
         self.logger = get_logger("services.container")
         self.bot = bot  # Store bot instance for services that need it
         self._config: ConfigService | None = None
@@ -108,7 +108,7 @@ class ServiceContainer:
             self.logger.info("All services initialized successfully")
 
         except Exception as e:
-            self.logger.exception(f"Failed to initialize services: {e}")
+            self.logger.exception("Failed to initialize services", exc_info=e)
             raise
 
     async def cleanup(self) -> None:

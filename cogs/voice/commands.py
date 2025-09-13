@@ -86,7 +86,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            logger.exception(f"Error in list_permissions command: {e}")
+            logger.exception("Error in list_permissions command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred while retrieving channel settings.",
@@ -118,7 +118,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await interaction.followup.send(f"❌ {result.error}", ephemeral=True)
 
         except Exception as e:
-            logger.exception(f"Error in claim_channel command: {e}")
+            logger.exception("Error in claim_channel command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred while claiming the channel.", ephemeral=True
@@ -152,7 +152,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await interaction.followup.send(f"❌ {result.error}", ephemeral=True)
 
         except Exception as e:
-            logger.exception(f"Error in transfer_ownership command: {e}")
+            logger.exception("Error in transfer_ownership command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred while transferring ownership.", ephemeral=True
@@ -269,7 +269,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            logger.exception(f"Error in list_owners command: {e}")
+            logger.exception("Error in list_owners command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred while retrieving channel information.",
@@ -319,7 +319,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 )
 
         except Exception as e:
-            logger.exception(f"Error in setup_voice_system command: {e}")
+            logger.exception("Error in setup_voice_system command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred during voice system setup.", ephemeral=True
@@ -386,7 +386,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            logger.exception(f"Error in admin_list command: {e}")
+            logger.exception("Error in admin_list command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 await interaction.followup.send(
                     "❌ An error occurred while retrieving user settings.",
@@ -418,23 +418,25 @@ class AdminCommands(app_commands.Group):
 
     @app_commands.command(
         name="reset",
-        description="Reset voice data for a user or entire guild (Admin only)"
+        description="Reset voice data for a user or entire guild (Admin only)",
     )
     @app_commands.describe(
         scope="Choose 'user' to reset a specific user's data, or 'all' to reset all guild data",
         member="The member to reset (required when scope is 'user')",
-        confirm="REQUIRED for 'all' scope - type YES to confirm destructive operation"
+        confirm="REQUIRED for 'all' scope - type YES to confirm destructive operation",
     )
-    @app_commands.choices(scope=[
-        app_commands.Choice(name="user", value="user"),
-        app_commands.Choice(name="all", value="all")
-    ])
+    @app_commands.choices(
+        scope=[
+            app_commands.Choice(name="user", value="user"),
+            app_commands.Choice(name="all", value="all"),
+        ]
+    )
     async def admin_reset(
         self,
         interaction: discord.Interaction,
         scope: app_commands.Choice[str],
         member: discord.Member = None,
-        confirm: str | None = None
+        confirm: str | None = None,
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
         # Check permissions
@@ -473,12 +475,12 @@ class AdminCommands(app_commands.Group):
                     "Re-run this command with `confirm: YES` (exactly as shown)\n\n"
                     "⚠️ **This action cannot be undone!**"
                 ),
-                color=discord.Color.orange()
+                color=discord.Color.orange(),
             )
             embed.add_field(
                 name="🔄 Correct Usage",
                 value="`/voice admin reset scope:all confirm:YES`",
-                inline=False
+                inline=False,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
@@ -496,16 +498,14 @@ class AdminCommands(app_commands.Group):
                 await self._reset_all_guild_data(interaction, guild_id)
 
         except Exception as e:
-            logger.exception(f"Error in admin_reset command: {e}")
+            logger.exception("Error in admin_reset command", exc_info=e)
             await interaction.followup.send(
-                "❌ An error occurred while processing the reset command.", ephemeral=True
+                "❌ An error occurred while processing the reset command.",
+                ephemeral=True,
             )
 
     async def _reset_user_data(
-        self,
-        interaction: discord.Interaction,
-        guild_id: int,
-        member: discord.Member
+        self, interaction: discord.Interaction, guild_id: int, member: discord.Member
     ) -> None:
         """Reset data for a specific user."""
 
@@ -514,16 +514,22 @@ class AdminCommands(app_commands.Group):
         )
 
         # Delete user's managed channel if it exists
-        channel_result = await self.voice_service.delete_user_owned_channel(guild_id, member.id)
+        channel_result = await self.voice_service.delete_user_owned_channel(
+            guild_id, member.id
+        )
 
         # Purge all voice-related database records for this user with cache cleanup
-        deleted_counts = await self.voice_service.purge_voice_data_with_cache_clear(guild_id, member.id)
+        deleted_counts = await self.voice_service.purge_voice_data_with_cache_clear(
+            guild_id, member.id
+        )
 
         # Create summary
         total_rows = sum(deleted_counts.values())
         channel_msg = ""
         if channel_result["channel_deleted"]:
-            channel_msg = f"\n🗑️ Deleted voice channel (ID: {channel_result['channel_id']})"
+            channel_msg = (
+                f"\n🗑️ Deleted voice channel (ID: {channel_result['channel_id']})"
+            )
         elif channel_result["channel_id"]:
             channel_msg = f"\n⚠️ Channel {channel_result['channel_id']} could not be deleted (may already be gone)"
 
@@ -537,24 +543,34 @@ class AdminCommands(app_commands.Group):
         # Log detailed breakdown for administrative tracking
         for table, count in deleted_counts.items():
             if count > 0:
-                logger.info(f"User reset - {table}: {count} records deleted for user {member.id}")
+                logger.info(
+                    f"User reset - {table}: {count} records deleted for user {member.id}"
+                )
 
         if channel_result["channel_deleted"]:
-            logger.info(f"User reset - voice channel {channel_result['channel_id']} successfully deleted")
+            logger.info(
+                f"User reset - voice channel {channel_result['channel_id']} successfully deleted"
+            )
         elif channel_result["channel_id"]:
-            logger.warning(f"User reset - voice channel {channel_result['channel_id']} deletion failed")
+            logger.warning(
+                f"User reset - voice channel {channel_result['channel_id']} deletion failed"
+            )
 
         embed = discord.Embed(
             title="✅ User Voice Data Reset Complete",
             description=f"Successfully reset voice data for {member.mention}",
-            color=discord.Color.green()
+            color=discord.Color.green(),
         )
 
         embed.add_field(
             name="📊 Database Records Deleted",
-            value=f"**Total:** {total_rows} rows\n" +
-                  "\n".join(f"**{table}:** {count}" for table, count in deleted_counts.items() if count > 0),
-            inline=False
+            value=f"**Total:** {total_rows} rows\n"
+            + "\n".join(
+                f"**{table}:** {count}"
+                for table, count in deleted_counts.items()
+                if count > 0
+            ),
+            inline=False,
         )
 
         if channel_msg:
@@ -564,7 +580,9 @@ class AdminCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    async def _reset_all_guild_data(self, interaction: discord.Interaction, guild_id: int) -> None:
+    async def _reset_all_guild_data(
+        self, interaction: discord.Interaction, guild_id: int
+    ) -> None:
         """Reset all voice data for the guild."""
 
         logger.info(
@@ -572,7 +590,9 @@ class AdminCommands(app_commands.Group):
         )
 
         # Get all managed channels for this guild before deletion
-        managed_channels = await self.voice_service.get_all_guild_managed_channels(guild_id)
+        managed_channels = await self.voice_service.get_all_guild_managed_channels(
+            guild_id
+        )
 
         # Delete all managed channels
         deleted_channels = []
@@ -583,9 +603,13 @@ class AdminCommands(app_commands.Group):
                 channel = self.bot.get_channel(channel_id)
                 if channel:
                     try:
-                        await channel.delete(reason=f"Admin guild-wide voice reset by {interaction.user}")
+                        await channel.delete(
+                            reason=f"Admin guild-wide voice reset by {interaction.user}"
+                        )
                         deleted_channels.append(channel_id)
-                        logger.info(f"Deleted voice channel {channel_id} during guild reset")
+                        logger.info(
+                            f"Deleted voice channel {channel_id} during guild reset"
+                        )
                     except (discord.NotFound, discord.Forbidden) as e:
                         failed_channels.append(channel_id)
                         logger.warning(f"Could not delete channel {channel_id}: {e}")
@@ -599,7 +623,9 @@ class AdminCommands(app_commands.Group):
                 self.voice_service.managed_voice_channels.discard(channel_id)
 
         # Purge all voice-related database records for this guild with cache cleanup
-        deleted_counts = await self.voice_service.purge_voice_data_with_cache_clear(guild_id)
+        deleted_counts = await self.voice_service.purge_voice_data_with_cache_clear(
+            guild_id
+        )
 
         # Create summary
         total_rows = sum(deleted_counts.values())
@@ -614,13 +640,19 @@ class AdminCommands(app_commands.Group):
         # Log detailed breakdown for administrative tracking
         for table, count in deleted_counts.items():
             if count > 0:
-                logger.info(f"Guild reset - {table}: {count} records deleted for guild {guild_id}")
+                logger.info(
+                    f"Guild reset - {table}: {count} records deleted for guild {guild_id}"
+                )
 
         # Log channel deletion details
         if deleted_channels:
-            logger.info(f"Guild reset - Successfully deleted channels: {deleted_channels}")
+            logger.info(
+                f"Guild reset - Successfully deleted channels: {deleted_channels}"
+            )
         if failed_channels:
-            logger.warning(f"Guild reset - Failed to delete channels: {failed_channels}")
+            logger.warning(
+                f"Guild reset - Failed to delete channels: {failed_channels}"
+            )
 
         # Log major administrative action
         logger.warning(
@@ -632,33 +664,39 @@ class AdminCommands(app_commands.Group):
         embed = discord.Embed(
             title="✅ Guild Voice Data Reset Complete",
             description="Successfully reset ALL voice data for this server",
-            color=discord.Color.red()  # Red to indicate this was a major action
+            color=discord.Color.red(),  # Red to indicate this was a major action
         )
 
         embed.add_field(
             name="📊 Database Records Deleted",
-            value=f"**Total:** {total_rows} rows\n" +
-                  "\n".join(f"**{table}:** {count}" for table, count in deleted_counts.items() if count > 0),
-            inline=False
+            value=f"**Total:** {total_rows} rows\n"
+            + "\n".join(
+                f"**{table}:** {count}"
+                for table, count in deleted_counts.items()
+                if count > 0
+            ),
+            inline=False,
         )
 
         channel_summary = []
         if deleted_channels:
             channel_summary.append(f"✅ **Deleted:** {len(deleted_channels)} channels")
         if failed_channels:
-            channel_summary.append(f"⚠️ **Failed/Missing:** {len(failed_channels)} channels")
+            channel_summary.append(
+                f"⚠️ **Failed/Missing:** {len(failed_channels)} channels"
+            )
 
         if channel_summary:
             embed.add_field(
                 name="🎤 Channel Actions",
                 value="\n".join(channel_summary),
-                inline=False
+                inline=False,
             )
 
         embed.add_field(
             name="⚠️ Warning",
             value="This action reset ALL voice data for the entire server. All users will need to recreate their settings.",
-            inline=False
+            inline=False,
         )
 
         embed.set_footer(text=f"Reset by {interaction.user.display_name}")

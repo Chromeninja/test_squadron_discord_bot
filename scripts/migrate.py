@@ -4,11 +4,12 @@ Migration script to help transition from the old bot to the service-driven archi
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 import yaml
-from utils.logging import get_logger
 from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -23,7 +24,7 @@ async def migrate_config_to_guild_settings() -> None:
 
     try:
         # Load existing config
-        with open("config/config.yaml", encoding="utf-8") as f:
+        with Path("config/config.yaml").open(encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
 
         # Initialize database
@@ -31,7 +32,9 @@ async def migrate_config_to_guild_settings() -> None:
 
         # Get all guilds from the database (if any exist)
         async with Database.get_connection() as db:
-            async with db.execute("SELECT DISTINCT guild_id FROM guild_registry") as cursor:
+            async with db.execute(
+                "SELECT DISTINCT guild_id FROM guild_registry"
+            ) as cursor:
                 guild_ids = [row[0] async for row in cursor]
 
         if not guild_ids:
@@ -45,7 +48,7 @@ async def migrate_config_to_guild_settings() -> None:
         logger.info(f"Configuration migration completed for {len(guild_ids)} guilds")
 
     except Exception as e:
-        logger.exception(f"Error during configuration migration: {e}")
+        logger.exception("Error during configuration migration", exc_info=e)
         raise
 
 
@@ -57,36 +60,48 @@ async def migrate_guild_config(guild_id: int, config: dict[str, Any]) -> None:
         # Migrate role settings
         roles = config.get("roles", {})
         for role_key, role_value in roles.items():
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                 VALUES (?, ?, ?)
-            """, (guild_id, f"roles.{role_key}", json.dumps(role_value)))
+            """,
+                (guild_id, f"roles.{role_key}", json.dumps(role_value)),
+            )
 
         # Migrate channel settings
         channels = config.get("channels", {})
         for channel_key, channel_value in channels.items():
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                 VALUES (?, ?, ?)
-            """, (guild_id, f"channels.{channel_key}", json.dumps(channel_value)))
+            """,
+                (guild_id, f"channels.{channel_key}", json.dumps(channel_value)),
+            )
 
         # Migrate voice settings
         voice = config.get("voice", {})
         for voice_key, voice_value in voice.items():
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                 VALUES (?, ?, ?)
-            """, (guild_id, f"voice.{voice_key}", json.dumps(voice_value)))
+            """,
+                (guild_id, f"voice.{voice_key}", json.dumps(voice_value)),
+            )
 
         # Migrate other settings
         other_keys = ["rate_limits", "organization", "logging", "bulk_announcement"]
         for key in other_keys:
             if key in config:
                 value = config[key]
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                     VALUES (?, ?, ?)
-                """, (guild_id, key, json.dumps(value)))
+                """,
+                    (guild_id, key, json.dumps(value)),
+                )
 
         await db.commit()
 
@@ -104,10 +119,12 @@ async def migrate_voice_tables() -> None:
 
         async with Database.get_connection() as db:
             # Check if old table exists
-            async with db.execute("""
+            async with db.execute(
+                """
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='user_voice_channels'
-            """) as cursor:
+            """
+            ) as cursor:
                 old_table_exists = bool(await cursor.fetchone())
 
             if not old_table_exists:
@@ -115,7 +132,8 @@ async def migrate_voice_tables() -> None:
                 return
 
             # Create new voice_channels table if it doesn't exist
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS voice_channels (
                     guild_id INTEGER NOT NULL,
                     jtc_channel_id INTEGER NOT NULL,
@@ -126,10 +144,12 @@ async def migrate_voice_tables() -> None:
                     is_active INTEGER DEFAULT 1,
                     PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
                 )
-            """)
+            """
+            )
 
             # Migrate data from old table to new table
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                 SELECT
@@ -141,7 +161,8 @@ async def migrate_voice_tables() -> None:
                     created_at as last_activity,
                     1 as is_active
                 FROM user_voice_channels
-            """)
+            """
+            )
 
             await db.commit()
 
@@ -152,10 +173,12 @@ async def migrate_voice_tables() -> None:
             logger.info(f"Migrated {count} voice channel records")
 
             # Note: We don't drop the old table to be safe
-            logger.info("Old table preserved for safety. You can drop 'user_voice_channels' manually if needed.")
+            logger.info(
+                "Old table preserved for safety. You can drop 'user_voice_channels' manually if needed."
+            )
 
     except Exception as e:
-        logger.exception(f"Error during voice table migration: {e}")
+        logger.exception("Error during voice table migration", exc_info=e)
         raise
 
 
@@ -189,10 +212,13 @@ async def create_sample_guild_config(guild_id: int) -> None:
 
     async with Database.get_connection() as db:
         for key, value in sample_config.items():
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
                 VALUES (?, ?, ?)
-            """, (guild_id, key, json.dumps(value)))
+            """,
+                (guild_id, key, json.dumps(value)),
+            )
 
         await db.commit()
 
@@ -203,10 +229,18 @@ async def main() -> None:
     """Main migration function."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Migration utilities for the refactored bot")
-    parser.add_argument("--migrate-config", action="store_true", help="Migrate config to guild settings")
-    parser.add_argument("--migrate-voice", action="store_true", help="Migrate voice tables")
-    parser.add_argument("--sample-guild", type=int, help="Create sample config for guild ID")
+    parser = argparse.ArgumentParser(
+        description="Migration utilities for the refactored bot"
+    )
+    parser.add_argument(
+        "--migrate-config", action="store_true", help="Migrate config to guild settings"
+    )
+    parser.add_argument(
+        "--migrate-voice", action="store_true", help="Migrate voice tables"
+    )
+    parser.add_argument(
+        "--sample-guild", type=int, help="Create sample config for guild ID"
+    )
     parser.add_argument("--all", action="store_true", help="Run all migrations")
 
     args = parser.parse_args()
