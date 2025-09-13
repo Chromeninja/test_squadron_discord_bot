@@ -440,7 +440,7 @@ async def transfer_channel_owner(
             await db.execute(
                 """
                 INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, timestamp)
+                (guild_id, jtc_channel_id, user_id, last_creation)
                 VALUES (?, ?, ?, strftime('%s','now'))
                 """,
                 (guild_id, jtc_channel_id, new_owner_id),
@@ -470,7 +470,7 @@ async def get_stale_voice_entries(cutoff_time: int) -> list[tuple[int, int, int]
         cursor = await db.execute(
             """
             SELECT guild_id, jtc_channel_id, user_id FROM voice_cooldowns
-            WHERE timestamp < ?
+            WHERE last_creation < ?
             """,
             (cutoff_time,),
         )

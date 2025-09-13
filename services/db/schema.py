@@ -88,7 +88,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             guild_id INTEGER NOT NULL,
             jtc_channel_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
+            last_creation INTEGER NOT NULL,
             PRIMARY KEY (guild_id, jtc_channel_id, user_id)
         )
         """
