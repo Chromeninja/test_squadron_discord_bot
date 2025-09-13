@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+
 from helpers.voice_permissions import (
     assert_base_permissions,
     enforce_permission_changes,

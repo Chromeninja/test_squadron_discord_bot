@@ -5,9 +5,10 @@ import os
 import time
 
 import discord
-from config.config_loader import ConfigLoader
 from discord.ext import commands
 from dotenv import load_dotenv
+
+from config.config_loader import ConfigLoader
 from helpers.announcement import BulkAnnouncer
 from helpers.http_helper import HTTPClient
 from helpers.rate_limiter import cleanup_attempts

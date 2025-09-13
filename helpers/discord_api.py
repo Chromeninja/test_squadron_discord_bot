@@ -3,9 +3,9 @@
 from functools import partial
 
 import discord
-from utils.logging import get_logger
 
 from helpers.task_queue import enqueue_task
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,7 @@ async def create_voice_channel(
             name=name,
             category=category,
             user_limit=user_limit,
-            overwrites=overwrites or {},
+            overwrites=overwrites,
         )
 
     try:

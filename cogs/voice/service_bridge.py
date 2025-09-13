@@ -8,6 +8,7 @@ This bridges the gap between the old cog structure and the new service-based arc
 from typing import TYPE_CHECKING
 
 from discord.ext import commands
+
 from utils.logging import get_logger
 
 if TYPE_CHECKING:

@@ -8,6 +8,7 @@ on user-created voice channels.
 """
 
 import discord
+
 from services.db.database import Database
 from utils.logging import get_logger
 

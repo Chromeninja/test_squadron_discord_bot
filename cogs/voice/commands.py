@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord import app_commands
 from discord.ext import commands
+
 from utils.logging import get_logger
 
 if TYPE_CHECKING:

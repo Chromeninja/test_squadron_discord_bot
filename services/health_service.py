@@ -3,11 +3,11 @@ Health service for monitoring bot health and providing status information.
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
 
 import discord
-import logging
 
 try:
     import psutil  # type: ignore

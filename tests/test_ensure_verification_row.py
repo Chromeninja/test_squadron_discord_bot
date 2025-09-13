@@ -1,6 +1,7 @@
 """Test the ensure_verification_row functionality."""
 
 import pytest
+
 from services.db.database import Database
 
 

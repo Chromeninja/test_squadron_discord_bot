@@ -5,12 +5,12 @@ import random
 import time
 
 import discord
-from services.db.database import Database
-from utils.logging import get_logger
 
 from helpers.announcement import enqueue_verification_event
 from helpers.discord_api import add_roles, edit_member, remove_roles
 from helpers.task_queue import enqueue_task
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -324,10 +324,9 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
     Raises:
         TypeError: If bot parameter is not a proper Bot/Client instance
     """
+    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
     from utils.logging import get_logger
     from verification.rsi_verification import is_valid_rsi_handle
-
-    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
 
     logger = get_logger(__name__)
 

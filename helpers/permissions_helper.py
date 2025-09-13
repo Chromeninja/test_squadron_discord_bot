@@ -19,9 +19,9 @@ import logging
 from collections.abc import Iterable
 
 import discord
-from services.db.database import Database
 
 from helpers.discord_api import edit_channel
+from services.db.database import Database
 
 logger = logging.getLogger(__name__)
 

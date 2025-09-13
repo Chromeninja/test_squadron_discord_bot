@@ -2,6 +2,7 @@
 """Unit tests for enhanced RSI verification functions."""
 
 import pytest
+
 from verification.rsi_verification import extract_bio, find_token_in_bio, normalize_text
 from verification.rsi_verification import parse_rsi_organizations as parse_organizations
 from verification.rsi_verification import (

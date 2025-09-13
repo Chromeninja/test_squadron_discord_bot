@@ -4,6 +4,7 @@
 from pathlib import Path
 
 import pytest
+
 from verification.rsi_verification import (
     extract_bio,
     find_token_in_bio,

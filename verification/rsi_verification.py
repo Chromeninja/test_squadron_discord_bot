@@ -5,6 +5,7 @@ import re
 import string
 
 from bs4 import BeautifulSoup
+
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient, NotFoundError
 

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+
 from cogs.admin.recheck import AutoRecheck
 from services.db.database import Database
 

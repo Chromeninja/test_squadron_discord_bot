@@ -8,6 +8,7 @@ consistent styling and branding for the TEST Squadron Discord bot.
 """
 
 import discord
+
 from utils.logging import get_logger
 
 # Initialize logger

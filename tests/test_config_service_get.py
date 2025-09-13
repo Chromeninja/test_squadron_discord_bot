@@ -5,6 +5,7 @@ Unit tests for ConfigService.get method.
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
 from services.config_service import ConfigService
 
 

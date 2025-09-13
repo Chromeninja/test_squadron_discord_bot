@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
-from cogs.admin.commands import AdminCog, ConfigSchema
 from discord import app_commands
+
+from cogs.admin.commands import AdminCog, ConfigSchema
 
 
 class TestConfigSchema:

@@ -4,11 +4,9 @@ import contextlib
 import re
 
 import discord
-from config.config_loader import ConfigLoader
 from discord.ui import Modal, TextInput
-from utils.logging import get_logger
-from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
+from config.config_loader import ConfigLoader
 from helpers.discord_api import (
     edit_channel,
     followup_send_message,
@@ -30,6 +28,8 @@ from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from helpers.token_manager import clear_token, token_store, validate_token
 from helpers.voice_utils import get_user_channel, update_channel_settings
+from utils.logging import get_logger
+from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
 

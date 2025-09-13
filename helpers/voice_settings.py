@@ -8,6 +8,7 @@ shared between different voice commands.
 from typing import Any
 
 import discord
+
 from services.db.database import Database
 from utils.logging import get_logger
 

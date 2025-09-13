@@ -1,4 +1,5 @@
 import pytest
+
 from verification.rsi_verification import _sanitize_moniker, extract_moniker
 
 SAMPLE_HTML = """<div class="profile"><div class="info">

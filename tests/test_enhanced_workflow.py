@@ -2,6 +2,7 @@
 """End-to-end test demonstrating the enhanced RSI verification workflow."""
 
 import pytest
+
 from verification.rsi_verification import (
     extract_bio,
     find_token_in_bio,

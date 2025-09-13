@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
+
 from services.db.database import Database
 from services.guild_config_service import GuildConfigService
 

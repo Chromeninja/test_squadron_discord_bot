@@ -7,15 +7,15 @@ import time
 from typing import Any, Optional
 
 import discord
+
 from helpers.discord_api import (
     channel_send_message,
     create_voice_channel,
     delete_channel,
 )
 from helpers.voice_permissions import enforce_permission_changes
-from utils.types import VoiceChannelInfo, VoiceChannelResult
-
 from services.db.database import Database
+from utils.types import VoiceChannelInfo, VoiceChannelResult
 
 from .base import BaseService
 from .config_service import ConfigService
@@ -1946,19 +1946,9 @@ class VoiceService(BaseService):
                     f"Join to Create {i + 1}" if num_channels > 1 else "Join to Create"
                 )
 
-                # Create the voice channel
-                overwrites = {
-                    category.guild.default_role: discord.PermissionOverwrite(
-                        connect=True
-                    ),
-                    category.guild.me: discord.PermissionOverwrite(
-                        manage_channels=True, move_members=True, connect=True
-                    ),
-                }
-
+                # Create the voice channel (inherit permissions from parent category)
                 jtc_channel = await category.create_voice_channel(
                     name=channel_name,
-                    overwrites=overwrites,
                     reason="Voice system setup",
                 )
 

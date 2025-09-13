@@ -1,4 +1,5 @@
 import pytest
+
 from cogs.admin.commands import AdminCog
 from tests.conftest import FakeInteraction, FakeUser
 

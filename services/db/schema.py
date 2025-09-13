@@ -7,6 +7,7 @@ This module centralizes all table creation logic to ensure consistency and avoid
 """
 
 import aiosqlite
+
 from utils.logging import get_logger
 
 logger = get_logger(__name__)

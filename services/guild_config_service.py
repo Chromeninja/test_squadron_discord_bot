@@ -11,9 +11,8 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from utils.logging import get_logger
-
 from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

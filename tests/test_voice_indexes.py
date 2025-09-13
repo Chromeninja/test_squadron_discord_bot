@@ -3,6 +3,7 @@ Test that verifies new composite indexes are created correctly.
 """
 
 import pytest
+
 from services.db.database import Database
 
 

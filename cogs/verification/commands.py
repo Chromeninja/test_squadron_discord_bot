@@ -7,6 +7,7 @@ from pathlib import Path
 
 import discord
 from discord.ext import commands
+
 from helpers.discord_api import followup_send_message
 from helpers.embeds import (
     build_welcome_description,
