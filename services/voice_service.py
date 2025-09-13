@@ -205,13 +205,30 @@ class VoiceService(BaseService):
             )
 
             # Voice cooldowns (per user per JTC channel)
+            # Check if table exists with correct schema
+            cursor = await db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='voice_cooldowns'"
+            )
+            table_exists = await cursor.fetchone() is not None
+
+            if table_exists:
+                # Check if it has the correct column name
+                cursor = await db.execute("PRAGMA table_info(voice_cooldowns)")
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+
+                # If it has 'last_creation' instead of 'timestamp', recreate the table
+                if 'last_creation' in column_names and 'timestamp' not in column_names:
+                    self.logger.info("Migrating voice_cooldowns table to use 'timestamp' column")
+                    await db.execute("DROP TABLE voice_cooldowns")
+
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_cooldowns (
                     guild_id INTEGER NOT NULL,
                     jtc_channel_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
-                    last_creation INTEGER NOT NULL,
+                    timestamp INTEGER NOT NULL,
                     PRIMARY KEY (guild_id, jtc_channel_id, user_id)
                 )
             """
@@ -396,6 +413,34 @@ class VoiceService(BaseService):
             )
             return False
 
+    async def handle_channel_deleted(self, guild_id: int, channel_id: int) -> None:
+        """
+        Handle when a voice channel is deleted externally (e.g., by Discord or manual deletion).
+        
+        This cleans up database records and removes the channel from managed tracking.
+        
+        Args:
+            guild_id: The guild ID where the channel was deleted
+            channel_id: The ID of the deleted channel
+        """
+        self._ensure_initialized()
+
+        try:
+            # Check if this was a managed channel
+            if await self._is_managed_channel(channel_id):
+                self.logger.info(f"Cleaning up records for deleted managed channel {channel_id}")
+
+                # Use the existing cleanup method which handles the case when channel is None (deleted)
+                await self._cleanup_empty_channel(channel_id)
+            else:
+                self.logger.debug(f"Channel {channel_id} was not a managed voice channel, no cleanup needed")
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error cleaning up deleted channel {channel_id} in guild {guild_id}",
+                exc_info=e
+            )
+
     async def get_user_voice_channel(
         self, guild_id: int, jtc_channel_id: int, user_id: int
     ) -> int | None:
@@ -506,7 +551,7 @@ class VoiceService(BaseService):
         async with Database.get_connection() as db:
             async with db.execute(
                 """
-                SELECT last_creation FROM voice_cooldowns
+                SELECT timestamp FROM voice_cooldowns
                 WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
             """,
                 (guild_id, jtc_channel_id, user_id),
@@ -528,7 +573,7 @@ class VoiceService(BaseService):
             await db.execute(
                 """
                 INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, last_creation)
+                (guild_id, jtc_channel_id, user_id, timestamp)
                 VALUES (?, ?, ?, ?)
             """,
                 (guild_id, jtc_channel_id, user_id, int(time.time())),
@@ -598,7 +643,7 @@ class VoiceService(BaseService):
                     await db.execute(
                         """
                         DELETE FROM voice_cooldowns
-                        WHERE last_creation < ?
+                        WHERE timestamp < ?
                     """,
                         (cutoff_time,),
                     )
