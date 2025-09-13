@@ -1071,6 +1071,22 @@ class VoiceService(BaseService):
             else:
                 user_limit = jtc_channel.user_limit
 
+            # Check permissions before attempting to create channel
+            if category is None:
+                raise RuntimeError(f"JTC channel {jtc_channel.name} has no category")
+                
+            bot_member = guild.get_member(self.bot.user.id)
+            if bot_member is None:
+                raise RuntimeError("Bot member not found in guild")
+                
+            # Check if bot has permissions to create channels in the category
+            perms = category.permissions_for(bot_member)
+            if not perms.manage_channels:
+                raise discord.Forbidden(
+                    response=None,
+                    message=f"Bot missing 'Manage Channels' permission in category '{category.name}'"
+                )
+
             # Create the channel first with basic permissions and saved settings
             channel = await guild.create_voice_channel(
                 name=channel_name,
@@ -1127,6 +1143,21 @@ class VoiceService(BaseService):
                     f"Error sending settings view to '{channel.name}': {e}"
                 )
 
+        except discord.Forbidden as e:
+            # Specific handling for permission errors
+            if "50013" in str(e) or "Missing Permissions" in str(e):
+                self.logger.error(
+                    f"Permission denied creating channel for {member.display_name} in '{jtc_channel.category.name if jtc_channel.category else 'no category'}': {e}"
+                )
+                try:
+                    await member.send(
+                        f"❌ I don't have permission to create voice channels in the **{jtc_channel.category.name if jtc_channel.category else 'current'}** category. "
+                        "Please ask a server admin to give me the 'Manage Channels' permission in that category."
+                    )
+                except:
+                    pass  # Ignore if we can't send DM
+            else:
+                self.logger.exception("Discord permission error creating user channel", exc_info=e)
         except Exception as e:
             self.logger.exception("Error creating user channel", exc_info=e)
 
