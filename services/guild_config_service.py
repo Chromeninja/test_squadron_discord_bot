@@ -24,7 +24,7 @@ JSONable = str | int | float | bool | None | dict[str, Any] | list[Any]
 class GuildConfigService:
     """
     Service for managing guild-scoped configuration settings.
-    
+
     Features:
     - In-memory caching with configurable TTL
     - Race-safe writes using per-key locks
@@ -49,12 +49,12 @@ class GuildConfigService:
     ) -> T | None:
         """
         Get a guild setting with optional parsing.
-        
+
         Args:
             guild_id: Discord guild ID
             key: Setting key
             parser: Optional function to parse the stored string value
-            
+
         Returns:
             Parsed value or None if not found
         """
@@ -113,7 +113,7 @@ class GuildConfigService:
     async def set(self, guild_id: int, key: str, value: JSONable) -> None:
         """
         Set a guild setting with cache invalidation.
-        
+
         Args:
             guild_id: Discord guild ID
             key: Setting key
@@ -151,7 +151,7 @@ class GuildConfigService:
     async def set_guild_setting(self, guild_id: int, key: str, value: JSONable) -> None:
         """
         Alias for set() method for backward compatibility.
-        
+
         Args:
             guild_id: Discord guild ID
             key: Setting key
@@ -162,22 +162,22 @@ class GuildConfigService:
     async def get_join_to_create_channels(self, guild_id: int) -> list[int]:
         """
         Get the list of Join-to-Create channel IDs for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
-            
+
         Returns:
             List of channel IDs, empty list if not configured
         """
         channels = await self.get(guild_id, "join_to_create_channel_ids")
         if isinstance(channels, list):
-            return [int(cid) for cid in channels if isinstance(cid, (int, str))]
+            return [int(cid) for cid in channels if isinstance(cid, int | str)]
         return []
 
     async def set_join_to_create_channels(self, guild_id: int, channel_ids: list[int]) -> None:
         """
         Set the Join-to-Create channel IDs for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
             channel_ids: List of Discord channel IDs
@@ -187,22 +187,22 @@ class GuildConfigService:
     async def get_voice_category_id(self, guild_id: int) -> int | None:
         """
         Get the voice category ID for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
-            
+
         Returns:
             Voice category ID or None if not configured
         """
         category_id = await self.get(guild_id, "voice_category_id")
-        if isinstance(category_id, (int, str)):
+        if isinstance(category_id, int | str):
             return int(category_id)
         return None
 
     async def set_voice_category_id(self, guild_id: int, category_id: int | None) -> None:
         """
         Set the voice category ID for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
             category_id: Discord category ID or None to unset
@@ -212,12 +212,12 @@ class GuildConfigService:
     async def maybe_migrate_legacy_settings(self, bot: Any) -> None:
         """
         Migrate legacy voice settings to guild-specific settings if needed.
-        
+
         Migration logic:
         - If guild_settings already has JTC entries, do nothing
         - If exactly one guild exists and legacy settings exist, migrate them
         - If zero or multiple guilds exist, log a warning and do nothing
-        
+
         Args:
             bot: Discord bot instance (for accessing guilds)
         """
@@ -292,15 +292,15 @@ class GuildConfigService:
                 )
 
         except Exception as e:
-            logger.error(f"Error during legacy settings migration: {e}")
+            logger.exception(f"Error during legacy settings migration: {e}")
 
     async def _load_many(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], Any]:
         """
         Batch load multiple settings from the database.
-        
+
         Args:
             keys: List of (guild_id, key) tuples
-            
+
         Returns:
             Dict mapping cache keys to values
         """
@@ -317,8 +317,8 @@ class GuildConfigService:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 f"""
-                SELECT guild_id, key, value 
-                FROM guild_settings 
+                SELECT guild_id, key, value
+                FROM guild_settings
                 WHERE (guild_id, key) IN ({placeholders})
                 """,
                 params
@@ -348,7 +348,7 @@ class GuildConfigService:
     async def clear_cache(self, guild_id: int | None = None, key: str | None = None) -> None:
         """
         Clear cached settings.
-        
+
         Args:
             guild_id: If provided, clear cache only for this guild
             key: If provided (with guild_id), clear cache only for this specific key
@@ -360,7 +360,7 @@ class GuildConfigService:
                 logger.debug("Cleared entire guild config cache")
             elif key is None:
                 # Clear cache for specific guild
-                keys_to_remove = [k for k in self._cache.keys() if k[0] == guild_id]
+                keys_to_remove = [k for k in self._cache if k[0] == guild_id]
                 for k in keys_to_remove:
                     del self._cache[k]
                 logger.debug(f"Cleared cache for guild {guild_id}")

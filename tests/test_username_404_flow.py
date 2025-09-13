@@ -9,6 +9,18 @@ from services.db.database import Database
 
 
 # --- Fixtures / fakes ---
+class FakeHTTPClient:
+    """Fake HTTP client to test that the correct client object is passed."""
+    def __init__(self, name="test_client") -> None:
+        self.name = name
+        self.call_count = 0
+
+    async def get(self, url, **kwargs):
+        """Fake get method for testing."""
+        self.call_count += 1
+        return SimpleNamespace(status=200, text=AsyncMock(return_value=""))
+
+
 class FakeRole:
     def __init__(self, rid, name) -> None:
         self.id = rid
@@ -249,27 +261,38 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
         )
         await db.commit()
 
-    # Fake bot + member
+    # Fake bot + member with proper HTTP client
     bot = SimpleNamespace()
-    bot.http_client = SimpleNamespace()
+    bot.http_client = FakeHTTPClient("recheck_test_client")
     bot.VERIFICATION_CHANNEL_ID = 42
     bot.role_cache = {}
 
     member = SimpleNamespace(id=202, mention="@UserX", guild=None)
 
-    # Force is_valid_rsi_handle to raise NotFoundError
+    # Track the HTTP client passed to is_valid_rsi_handle
+    captured_http_client = None
 
-    async def fake_is_valid(_: str, __) -> None:
+    async def fake_is_valid(handle: str, http_client) -> None:
+        nonlocal captured_http_client
+        captured_http_client = http_client
         raise NotFoundError
 
     monkeypatch.setattr(
         "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
     )
 
-    # Call reverify_member and expect NotFoundError to bubble
+    # Call reverify_member and expect it to return failure result (not raise)
+    result = await reverify_member(member, "HandleX", bot)
+    success, status_info, message = result
 
-    with pytest.raises(NotFoundError):
-        await reverify_member(member, "HandleX", bot)
+    # Should return failure due to NotFoundError
+    assert not success, "reverify_member should return False for NotFoundError"
+    assert status_info == "error", "Status should be 'error'"
+
+    # Verify that the correct HTTP client was passed
+    assert captured_http_client is not None, "HTTP client should have been passed to is_valid_rsi_handle"
+    assert captured_http_client is bot.http_client, "Should pass bot.http_client to is_valid_rsi_handle"
+    assert isinstance(captured_http_client, FakeHTTPClient), "Should receive FakeHTTPClient instance"
 
 
 @pytest.mark.asyncio
@@ -349,7 +372,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
         await db.commit()
 
     bot = SimpleNamespace()
-    bot.http_client = SimpleNamespace()
+    bot.http_client = FakeHTTPClient("reverify_test_client")
     bot.role_cache = {}
     bot.config = {"auto_recheck": {"cadence_days": {}}}
     # Provide required role ID attrs for assign_roles path (even if cache empty)
@@ -366,8 +389,13 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     # Avoid nickname path complexity
     monkeypatch.setattr("helpers.role_helper.can_modify_nickname", lambda m: False)
 
+    # Track the HTTP client passed to is_valid_rsi_handle
+    captured_http_client = None
+
     # Return successful verification
-    async def fake_is_valid(_: str, __) -> None:
+    async def fake_is_valid(handle: str, http_client) -> None:
+        nonlocal captured_http_client
+        captured_http_client = http_client
         return 1, "NewHandle", None
 
     monkeypatch.setattr(
@@ -376,6 +404,12 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
 
     ok, _role_type, _err = await reverify_member(member, "OldOne", bot)
     assert ok is True
+
+    # Verify that the correct HTTP client was passed
+    assert captured_http_client is not None, "HTTP client should have been passed to is_valid_rsi_handle"
+    assert captured_http_client is bot.http_client, "Should pass bot.http_client to is_valid_rsi_handle"
+    assert isinstance(captured_http_client, FakeHTTPClient), "Should receive FakeHTTPClient instance"
+
     # needs_reverify cleared
     async with Database.get_connection() as db:
         cur = await db.execute(

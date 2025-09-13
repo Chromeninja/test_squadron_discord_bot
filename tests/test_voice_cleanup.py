@@ -17,14 +17,14 @@ from services.voice_service import VoiceService
 class MockVoiceChannel:
     """Mock Discord voice channel."""
 
-    def __init__(self, channel_id: int, name: str = "test-channel", members: list = None):
+    def __init__(self, channel_id: int, name: str = "test-channel", members: list | None = None):
         self.id = channel_id
         self.name = name
         self.members = members or []
         self.guild = MagicMock()
         self.guild.id = 12345
 
-    async def delete(self, reason: str = None):
+    async def delete(self, reason: str | None = None):
         """Mock channel deletion."""
         pass
 
@@ -79,7 +79,7 @@ class TestVoiceCleanup:
         voice_service.managed_voice_channels.add(channel.id)
         async with Database.get_connection() as db:
             await db.execute("""
-                INSERT INTO user_voice_channels 
+                INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
             """, (12345, 67890, 11111, channel.id, 1234567890))
@@ -126,7 +126,7 @@ class TestVoiceCleanup:
         voice_service.managed_voice_channels.add(channel.id)
         async with Database.get_connection() as db:
             await db.execute("""
-                INSERT INTO user_voice_channels 
+                INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
             """, (12345, 67890, 11111, channel.id, 1234567890))
@@ -165,7 +165,7 @@ class TestVoiceCleanup:
         async with Database.get_connection() as db:
             for i, channel_id in enumerate(missing_channel_ids):
                 await db.execute("""
-                    INSERT INTO user_voice_channels 
+                    INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, (12345, 67890, 11111 + i, channel_id, 1234567890))
@@ -205,7 +205,7 @@ class TestVoiceCleanup:
             # Add to database
             async with Database.get_connection() as db:
                 await db.execute("""
-                    INSERT INTO user_voice_channels 
+                    INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, (12345, 67890, 11111 + i, channel_id, 1234567890))
@@ -244,7 +244,7 @@ class TestVoiceCleanup:
             # Add to database
             async with Database.get_connection() as db:
                 await db.execute("""
-                    INSERT INTO user_voice_channels 
+                    INSERT INTO user_voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, (12345, 67890, 22222 + i, channel_id, 1234567890))
@@ -279,7 +279,7 @@ class TestVoiceCleanup:
         # Add to database
         async with Database.get_connection() as db:
             await db.execute("""
-                INSERT INTO user_voice_channels 
+                INSERT INTO user_voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
                 VALUES (?, ?, ?, ?, ?)
             """, (12345, 67890, 11111, channel.id, 1234567890))

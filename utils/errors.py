@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -60,7 +60,7 @@ class StructuredError:
         self.component = component  # e.g., 'verification', 'voice', 'database'
         self.user_id = user_id
         self.guild_id = guild_id
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.stack_trace = traceback.format_exc() if error else None
 
     def to_dict(self) -> dict[str, Any]:
@@ -174,10 +174,11 @@ class ErrorReporter:
     def _save_to_file(self, error: StructuredError) -> None:
         """Save structured error to file for batch AI analysis."""
         try:
-            filename = f"errors_{datetime.utcnow().strftime('%Y-%m-%d')}.jsonl"
+            filename = f"errors_{datetime.now(UTC).strftime('%Y-%m-%d')}.jsonl"
             filepath = self.log_dir / filename
 
-            with open(filepath, "a", encoding="utf-8") as f:
+            # Use Path.open for better compatibility with pathlib
+            with filepath.open("a", encoding="utf-8") as f:
                 f.write(error.to_json() + "\n")
 
         except Exception as e:

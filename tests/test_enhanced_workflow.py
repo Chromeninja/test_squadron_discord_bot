@@ -43,8 +43,8 @@ def test_complete_enhanced_workflow():
     <body>
         <div class="profile">
             <div class="user-bio">
-                Welcome to my profile! I'm a veteran pilot. 
-                My Discord verification token is 0042. 
+                Welcome to my profile! I'm a veteran pilot.
+                My Discord verification token is 0042.
                 Looking forward to flying with TEST!
             </div>
         </div>
@@ -79,10 +79,10 @@ def test_complete_enhanced_workflow():
     assert 'veteran pilot' in bio
 
     # Step 4: Test enhanced token matching
-    assert find_token_in_bio(bio, '42') == True    # Zero-padded matching
-    assert find_token_in_bio(bio, '0042') == True  # Exact match
-    assert find_token_in_bio(bio, '4') == False    # Partial should fail
-    assert find_token_in_bio(bio, '1234') == False # Wrong token
+    assert find_token_in_bio(bio, '42')    # Zero-padded matching
+    assert find_token_in_bio(bio, '0042')  # Exact match
+    assert not find_token_in_bio(bio, '4')    # Partial should fail
+    assert not find_token_in_bio(bio, '1234') # Wrong token
 
     # Step 5: Test text normalization helper
     assert normalize_text('  TEST   Squadron  ') == 'test squadron'
@@ -135,9 +135,9 @@ def test_edge_cases_robustness():
     assert no_bio is None
 
     # Empty token search
-    assert find_token_in_bio("", "1234") == False
-    assert find_token_in_bio("some text", "") == False
-    assert find_token_in_bio(None, "1234") == False
+    assert not find_token_in_bio("", "1234")
+    assert not find_token_in_bio("some text", "")
+    assert not find_token_in_bio(None, "1234")
 
 if __name__ == "__main__":
     pytest.main([__file__])

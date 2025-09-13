@@ -47,7 +47,7 @@ class VoiceEvents(commands.Cog):
             )
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Error handling voice state update for {member} "
                 f"(before: {before.channel}, after: {after.channel}): {e}"
             )
@@ -65,7 +65,7 @@ class VoiceEvents(commands.Cog):
             )
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Error handling channel deletion for {channel}: {e}"
             )
 

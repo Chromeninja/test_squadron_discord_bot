@@ -3,6 +3,7 @@ Configuration service for per-guild settings and global configuration.
 """
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 import yaml
@@ -15,7 +16,7 @@ from .base import BaseService
 class ConfigService(BaseService):
     """
     Service for managing per-guild configuration and global settings.
-    
+
     Provides a clean interface for accessing guild-specific settings while
     falling back to global defaults.
     """
@@ -40,8 +41,42 @@ class ConfigService(BaseService):
             self.logger.warning("Global config file not found, using empty config")
             self._global_config = {}
         except yaml.YAMLError as e:
-            self.logger.error(f"Error parsing global config: {e}")
+            self.logger.exception(f"Error parsing global config: {e}")
             self._global_config = {}
+
+    async def get(
+        self,
+        guild_id: int,
+        key: str,
+        default: Any = None,
+        parser: Callable[[Any], Any] | None = None,
+    ) -> Any:
+        """
+        Get a setting for a specific guild with optional parsing.
+
+        Args:
+            guild_id: Discord guild ID
+            key: Setting key (supports dot notation like "roles.admin")
+            default: Default value if setting not found
+            parser: Optional function to parse/convert the value (e.g., int, float)
+
+        Returns:
+            Setting value (parsed if parser provided) or default
+        """
+        value = await self.get_guild_setting(guild_id, key, default)
+
+        # Apply parser if provided and value is not None/default
+        if parser and value is not None and value != default:
+            try:
+                return parser(value)
+            except (ValueError, TypeError) as e:
+                self.logger.warning(
+                    f"Failed to parse config value '{value}' for key '{key}' "
+                    f"with parser {parser.__name__}: {e}"
+                )
+                return default
+
+        return value
 
     async def get_guild_setting(
         self,
@@ -51,12 +86,12 @@ class ConfigService(BaseService):
     ) -> Any:
         """
         Get a setting for a specific guild.
-        
+
         Args:
             guild_id: Discord guild ID
             key: Setting key (supports dot notation like "roles.admin")
             default: Default value if setting not found
-            
+
         Returns:
             Setting value or default
         """
@@ -86,7 +121,7 @@ class ConfigService(BaseService):
     ) -> None:
         """
         Set a guild-specific setting.
-        
+
         Args:
             guild_id: Discord guild ID
             key: Setting key
@@ -118,11 +153,11 @@ class ConfigService(BaseService):
     async def get_global_setting(self, key: str, default: Any = None) -> Any:
         """
         Get a global setting.
-        
+
         Args:
             key: Setting key (supports dot notation)
             default: Default value if setting not found
-            
+
         Returns:
             Setting value or default
         """
@@ -138,20 +173,19 @@ class ConfigService(BaseService):
 
         # Load from database
         settings = {}
-        async with Database.get_connection() as db:
-            async with db.execute(
-                "SELECT key, value FROM guild_settings WHERE guild_id = ?",
-                (guild_id,)
-            ) as cursor:
-                async for row in cursor:
-                    key, value_json = row
-                    try:
-                        import json
-                        settings[key] = json.loads(value_json)
-                    except (json.JSONDecodeError, TypeError):
-                        self.logger.warning(
-                            f"Failed to parse setting {key} for guild {guild_id}"
-                        )
+        async with Database.get_connection() as db, db.execute(
+            "SELECT key, value FROM guild_settings WHERE guild_id = ?",
+            (guild_id,)
+        ) as cursor:
+            async for row in cursor:
+                key, value_json = row
+                try:
+                    import json
+                    settings[key] = json.loads(value_json)
+                except (json.JSONDecodeError, TypeError):
+                    self.logger.warning(
+                        f"Failed to parse setting {key} for guild {guild_id}"
+                    )
 
         # Cache the settings
         async with self._cache_lock:
@@ -174,7 +208,7 @@ class ConfigService(BaseService):
     async def get_guild_roles(self, guild_id: int) -> dict[str, int]:
         """
         Get role configuration for a guild.
-        
+
         Returns:
             Dict mapping role names to Discord role IDs
         """
@@ -210,7 +244,7 @@ class ConfigService(BaseService):
     async def get_guild_channels(self, guild_id: int) -> dict[str, int]:
         """
         Get channel configuration for a guild.
-        
+
         Returns:
             Dict mapping channel names to Discord channel IDs
         """
@@ -250,7 +284,7 @@ class ConfigService(BaseService):
     async def maybe_migrate_legacy_settings(self, bot) -> None:
         """
         Placeholder for legacy settings migration.
-        
+
         This method is called during bot startup to migrate any legacy
         configuration formats to the new service-based structure.
         """
@@ -259,7 +293,7 @@ class ConfigService(BaseService):
     async def add_guild_jtc_channel(self, guild_id: int, channel_id: int) -> None:
         """
         Add a join-to-create channel for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
             channel_id: Voice channel ID to add as JTC
@@ -280,7 +314,7 @@ class ConfigService(BaseService):
     async def remove_guild_jtc_channel(self, guild_id: int, channel_id: int) -> None:
         """
         Remove a join-to-create channel for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
             channel_id: Voice channel ID to remove from JTC list
@@ -301,10 +335,10 @@ class ConfigService(BaseService):
     async def get_guild_jtc_channels(self, guild_id: int) -> list[int]:
         """
         Get all join-to-create channels for a guild.
-        
+
         Args:
             guild_id: Discord guild ID
-            
+
         Returns:
             List of voice channel IDs configured as JTC channels
         """
@@ -316,7 +350,7 @@ class ConfigService(BaseService):
     def get_config(self) -> dict[str, Any]:
         """
         Get the global configuration dictionary.
-        
+
         Returns:
             Global configuration dictionary
         """
@@ -326,10 +360,10 @@ class ConfigService(BaseService):
     async def get_join_to_create_channels(self, guild_id: int) -> list[int]:
         """
         Alias for get_guild_jtc_channels for backward compatibility.
-        
+
         Args:
             guild_id: Discord guild ID
-            
+
         Returns:
             List of join-to-create channel IDs
         """

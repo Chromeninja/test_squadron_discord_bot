@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 import yaml
-from helpers.logger import get_logger
+from utils.logging import get_logger
 from services.db.database import Database
 
 logger = get_logger(__name__)
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 async def migrate_config_to_guild_settings() -> None:
     """
     Migrate global config to per-guild settings in the database.
-    
+
     This helps transition existing single-guild setups to multi-guild.
     """
     logger.info("Starting configuration migration")
@@ -105,7 +105,7 @@ async def migrate_voice_tables() -> None:
         async with Database.get_connection() as db:
             # Check if old table exists
             async with db.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='user_voice_channels'
             """) as cursor:
                 old_table_exists = bool(await cursor.fetchone())
@@ -130,13 +130,13 @@ async def migrate_voice_tables() -> None:
 
             # Migrate data from old table to new table
             await db.execute("""
-                INSERT OR REPLACE INTO voice_channels 
+                INSERT OR REPLACE INTO voice_channels
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                SELECT 
-                    guild_id, 
-                    jtc_channel_id, 
-                    owner_id, 
-                    voice_channel_id, 
+                SELECT
+                    guild_id,
+                    jtc_channel_id,
+                    owner_id,
+                    voice_channel_id,
                     created_at,
                     created_at as last_activity,
                     1 as is_active
@@ -162,7 +162,7 @@ async def migrate_voice_tables() -> None:
 async def create_sample_guild_config(guild_id: int) -> None:
     """
     Create a sample guild configuration for testing.
-    
+
     Args:
         guild_id: Discord guild ID to create config for
     """

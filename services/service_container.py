@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class ServiceContainer:
     """
     Central container for managing all bot services.
-    
+
     Provides a centralized access point for services throughout the bot,
     handles initialization order, and manages service dependencies.
     """
@@ -108,7 +108,7 @@ class ServiceContainer:
             self.logger.info("All services initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize services: {e}")
+            self.logger.exception(f"Failed to initialize services: {e}")
             raise
 
     async def cleanup(self) -> None:

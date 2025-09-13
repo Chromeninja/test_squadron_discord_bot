@@ -53,7 +53,7 @@ class SchemaValidator:
                 logger.debug(f"Loaded schema: {schema_name}")
 
             except Exception as e:
-                logger.error(f"Failed to load schema {schema_file}: {e}")
+                logger.exception(f"Failed to load schema {schema_file}: {e}")
 
     def validate(
         self,
@@ -63,12 +63,12 @@ class SchemaValidator:
     ) -> tuple[bool, list[str]]:
         """
         Validate data against a schema.
-        
+
         Args:
             data: Data to validate
             schema_name: Name of the schema file (without .json)
             definition_path: Optional path to specific definition (e.g., "definitions/member")
-        
+
         Returns:
             Tuple of (is_valid, error_messages)
         """
@@ -99,7 +99,7 @@ class SchemaValidator:
             return is_valid, errors
 
         except Exception as e:
-            logger.error(f"Schema validation failed: {e}")
+            logger.exception(f"Schema validation failed: {e}")
             return False, [f"Validation error: {e!s}"]
 
     def _extract_definition(self, schema_name: str, definition_path: str) -> dict[str, Any] | None:

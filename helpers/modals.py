@@ -337,7 +337,7 @@ class ResetSettingsConfirmationModal(Modal):
             logger.info(f"{member.display_name} failed to confirm channel reset.")
             return
 
-            # Try resetting channel settings
+            # Try resetting channel settings using the modern voice service
         try:
             # Access the Voice cog to reset channel settings
             voice_cog = self.bot.get_cog("voice")
@@ -348,16 +348,30 @@ class ResetSettingsConfirmationModal(Modal):
                 logger.error("Voice cog not found.")
                 return
 
-                # Reset the channel settings
-            await voice_cog._reset_current_channel_settings(
-                member, guild_id, self.jtc_channel_id
-            )
+            # Use the modern purge method for this specific user and JTC channel
+            guild_id = interaction.guild_id
+            user_id = member.id
+
+            # Delete user's managed channel if it exists
+            channel_result = await voice_cog.voice_service.delete_user_owned_channel(guild_id, user_id)
+
+            # Purge voice data for this user with cache cleanup
+            deleted_counts = await voice_cog.voice_service.purge_voice_data_with_cache_clear(guild_id, user_id)
+
+            total_deleted = sum(deleted_counts.values())
+
+            success_msg = "✅ Your channel settings have been reset to default."
+            if channel_result.get("channel_deleted"):
+                success_msg += "\n🗑️ Your voice channel was also deleted."
+            if total_deleted > 0:
+                success_msg += f"\n📊 Cleared {total_deleted} database records."
+
             await followup_send_message(
                 interaction,
-                "Your channel settings have been reset to default.",
+                success_msg,
                 ephemeral=True,
             )
-            logger.info(f"{member.display_name} reset their channel settings.")
+            logger.info(f"{member.display_name} reset their channel settings - deleted {total_deleted} records")
         except Exception:
             logger.exception(
                 f"Error resetting channel settings for {member.display_name}"

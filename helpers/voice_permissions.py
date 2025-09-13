@@ -148,7 +148,7 @@ async def _apply_database_settings(
 ) -> None:
     """
     Apply all database-driven settings to the channel.
-    
+
     This includes:
     - Permit/reject settings (connect permissions)
     - PTT settings (use_voice_activation)

@@ -16,7 +16,7 @@ from .voice_service import VoiceService
 class ServiceManager:
     """
     Manages the lifecycle and coordination of all bot services.
-    
+
     Provides a central point for initializing, accessing, and shutting down
     all services in the correct order.
     """
@@ -82,13 +82,13 @@ class ServiceManager:
     def get_service(self, service_name: str) -> BaseService:
         """
         Get a service by name.
-        
+
         Args:
             service_name: Name of the service to retrieve
-            
+
         Returns:
             The requested service
-            
+
         Raises:
             KeyError: If service is not found
             RuntimeError: If services are not initialized
@@ -104,7 +104,7 @@ class ServiceManager:
     def get_all_services(self) -> list[BaseService]:
         """
         Get all services.
-        
+
         Returns:
             List of all registered services
         """
@@ -113,7 +113,7 @@ class ServiceManager:
     async def health_check_all(self) -> dict[str, Any]:
         """
         Run health checks on all services.
-        
+
         Returns:
             Dict containing health status of all services
         """

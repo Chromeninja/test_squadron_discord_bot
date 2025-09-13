@@ -17,7 +17,7 @@ from .base import BaseService
 class HealthService(BaseService):
     """
     Service for monitoring and reporting bot health status.
-    
+
     Provides health checks, performance metrics, and system information
     for monitoring and debugging purposes.
     """
@@ -46,7 +46,7 @@ class HealthService(BaseService):
     async def record_metric(self, metric_name: str, increment: int = 1) -> None:
         """
         Record a metric event.
-        
+
         Args:
             metric_name: Name of the metric to increment
             increment: Amount to increment by (default 1)
@@ -58,7 +58,7 @@ class HealthService(BaseService):
     async def get_system_info(self) -> dict[str, Any]:
         """
         Get system information.
-        
+
         Returns:
             Dict containing system metrics
         """
@@ -76,10 +76,10 @@ class HealthService(BaseService):
     async def get_discord_info(self, bot: discord.Client) -> dict[str, Any]:
         """
         Get Discord-related information.
-        
+
         Args:
             bot: Discord bot instance
-            
+
         Returns:
             Dict containing Discord metrics
         """
@@ -94,7 +94,7 @@ class HealthService(BaseService):
     async def get_database_info(self) -> dict[str, Any]:
         """
         Get database health information.
-        
+
         Returns:
             Dict containing database metrics
         """
@@ -140,11 +140,11 @@ class HealthService(BaseService):
     ) -> dict[str, Any]:
         """
         Run comprehensive health checks.
-        
+
         Args:
             bot: Discord bot instance
             services: List of services to check
-            
+
         Returns:
             Dict containing complete health report
         """
@@ -188,7 +188,7 @@ class HealthService(BaseService):
     async def get_uptime_string(self) -> str:
         """
         Get formatted uptime string.
-        
+
         Returns:
             Human readable uptime string
         """

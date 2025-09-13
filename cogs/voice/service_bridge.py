@@ -42,9 +42,7 @@ class VoiceServiceBridge(commands.Cog):
         """Get a user's active voice channel."""
         return await self.voice_service.get_user_voice_channel_info(guild_id, user_id)
 
-    async def cleanup_stale_channels(self, guild_id: int) -> None:
-        """Clean up stale voice channels for a guild."""
-        await self.voice_service.cleanup_inactive_channels(guild_id)
+
 
 
 async def setup(bot: commands.Bot) -> None:

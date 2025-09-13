@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 class Services:
     """
     Lightweight services container for the Discord bot.
-    
+
     Holds named services and provides a clean interface for dependency injection.
     Framework-agnostic and async-ready.
     """
@@ -27,7 +27,7 @@ class Services:
     def initialize(self, *, ttl_seconds: int = 60) -> None:
         """
         Initialize all services.
-        
+
         Args:
             ttl_seconds: Cache TTL for the guild config service
         """

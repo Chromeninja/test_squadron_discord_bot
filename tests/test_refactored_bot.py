@@ -4,6 +4,7 @@ Create a comprehensive refactored bot with service architecture.
 """
 
 import asyncio
+import sys
 import tempfile
 
 import pytest
@@ -110,4 +111,4 @@ async def test_comprehensive_bot():
 
 if __name__ == "__main__":
     success = asyncio.run(test_comprehensive_bot())
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

@@ -428,11 +428,11 @@ def extract_bio(html_content: str) -> str | None:
 def find_token_in_bio(bio_text: str, token: str) -> bool:
     """
     Search for 4-digit token in bio text using regex pattern.
-    
+
     Args:
         bio_text: The bio text to search in
         token: The token to find (will be zero-padded if needed)
-        
+
     Returns:
         True if token found, False otherwise
     """

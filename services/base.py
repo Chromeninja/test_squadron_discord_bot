@@ -12,7 +12,7 @@ from utils.logging import get_logger
 class BaseService(ABC):
     """
     Abstract base class for all services in the bot.
-    
+
     Provides common functionality like logging, initialization lifecycle,
     and error handling patterns.
     """
@@ -68,7 +68,7 @@ class BaseService(ABC):
     async def health_check(self) -> dict[str, Any]:
         """
         Return health status of this service.
-        
+
         Returns:
             Dict containing health information
         """

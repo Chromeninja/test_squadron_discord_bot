@@ -19,7 +19,7 @@ async def get_user_channel_id(
     owner_id: int, guild_id: int, jtc_channel_id: int
 ) -> int | None:
     """
-    Get the voice channel ID owned by a specific user in a specific guild and 
+    Get the voice channel ID owned by a specific user in a specific guild and
     JTC context.
 
     Args:
@@ -111,7 +111,7 @@ async def list_permissions(
         user_id: The Discord user ID
         guild_id: The Discord guild ID
         jtc_channel_id: The join-to-create channel ID
-        table_name: The name of the table to query (channel_permissions, 
+        table_name: The name of the table to query (channel_permissions,
             channel_ptt_settings, etc.)
 
     Returns:
@@ -154,7 +154,7 @@ async def set_feature_row(
     enabled: bool,
 ) -> None:
     """
-    Set a feature permission row (PTT, Priority Speaker, Soundboard, or general 
+    Set a feature permission row (PTT, Priority Speaker, Soundboard, or general
     permissions).
 
     Args:
@@ -185,7 +185,7 @@ async def set_feature_row(
         cursor = await db.execute(
             f"""
             SELECT 1 FROM {table_name}
-            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ? 
+            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 AND target_id = ? AND target_type = ?
             """,
             (user_id, guild_id, jtc_channel_id, target_id, target_type),
@@ -198,7 +198,7 @@ async def set_feature_row(
                 f"""
                 UPDATE {table_name}
                 SET {feature_column} = ?
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ? 
+                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                     AND target_id = ? AND target_type = ?
                 """,
                 (
@@ -214,7 +214,7 @@ async def set_feature_row(
             # Insert new row
             await db.execute(
                 f"""
-                INSERT INTO {table_name} 
+                INSERT INTO {table_name}
                 (user_id, guild_id, jtc_channel_id, target_id, target_type, {feature_column})
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -323,7 +323,7 @@ async def transfer_channel_owner(
                     # Insert new settings
                     await db.execute(
                         """
-                        INSERT INTO channel_settings 
+                        INSERT INTO channel_settings
                         (user_id, guild_id, jtc_channel_id, channel_name, user_limit, lock)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
@@ -388,7 +388,7 @@ async def transfer_channel_owner(
             # Add or update voice cooldown for new owner
             await db.execute(
                 """
-                INSERT OR REPLACE INTO voice_cooldowns 
+                INSERT OR REPLACE INTO voice_cooldowns
                 (guild_id, jtc_channel_id, user_id, timestamp)
                 VALUES (?, ?, ?, strftime('%s','now'))
                 """,

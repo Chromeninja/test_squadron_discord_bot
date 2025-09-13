@@ -16,13 +16,116 @@ logger = get_logger(__name__)
 # ----------------------------
 # Leadership log
 # ----------------------------
+
+def canonicalize_status_for_display(status: str) -> str:
+    """
+    Convert internal status strings to canonical display format.
+
+    Args:
+        status: Internal status string (e.g., 'main', 'affiliate', 'non_member', 'unknown')
+
+    Returns:
+        Canonical display string: "Main", "Affiliate", or "Not a Member"
+    """
+    status_normalized = (status or "").lower().strip()
+
+    if status_normalized == "main":
+        return "Main"
+    elif status_normalized == "affiliate":
+        return "Affiliate"
+    elif status_normalized in ("non_member", "unknown"):
+        return "Not a Member"
+    else:
+        # Fallback for any unexpected status
+        return "Not a Member"
+
+
+def format_admin_recheck_message(
+    admin_display_name: str,
+    user_id: int,
+    old_status: str,
+    new_status: str
+) -> str:
+    """
+    Format admin recheck message with exact specification.
+
+    Args:
+        admin_display_name: Display name of the admin who initiated the recheck
+        user_id: Discord user ID for mention
+        old_status: Previous status (internal format)
+        new_status: New status (internal format)
+
+    Returns:
+        Formatted message string exactly as specified:
+        [Admin Check • Admin: {adminDisplay}] <@{userId}> 🔁 {StatusWord}
+        Status: {OldPretty} → {NewPretty}
+    """
+    old_pretty = canonicalize_status_for_display(old_status)
+    new_pretty = canonicalize_status_for_display(new_status)
+
+    # Determine status word based on whether status changed
+    status_word = "Updated" if old_status != new_status else "No Change"
+
+    return (
+        f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> 🔁 {status_word}\n"
+        f"Status: {old_pretty} → {new_pretty}"
+    )
+
+
+async def send_admin_recheck_notification(
+    bot,
+    admin_display_name: str,
+    member: discord.Member,
+    old_status: str,
+    new_status: str
+) -> bool:
+    """
+    Send admin recheck notification to leadership channel.
+
+    Args:
+        bot: Bot instance with config
+        admin_display_name: Display name of admin who initiated recheck
+        member: Discord member being rechecked
+        old_status: Previous status (internal format)
+        new_status: New status (internal format)
+
+    Returns:
+        bool: True if message was sent successfully, False otherwise
+    """
+    config = bot.config
+    leadership_channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
+
+    if not leadership_channel_id:
+        logger.warning("No leadership_announcement_channel_id configured for admin recheck notification")
+        return False
+
+    leadership_channel = bot.get_channel(leadership_channel_id)
+    if not leadership_channel:
+        logger.warning(f"Leadership announcement channel {leadership_channel_id} not found")
+        return False
+
+    try:
+        message = format_admin_recheck_message(
+            admin_display_name=admin_display_name,
+            user_id=member.id,
+            old_status=old_status,
+            new_status=new_status
+        )
+
+        await channel_send_message(leadership_channel, message)
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send admin recheck notification: {e}")
+        return False
+
+
 async def send_verification_announcements(
     bot,
     member: discord.Member,
     old_status: str,
     new_status: str,
     is_recheck: bool,
-    by_admin: str = None,
+    by_admin: str | None = None,
 ):
     """
     Posts verification/re-check logs to leadership channel.
@@ -295,7 +398,7 @@ class BulkAnnouncer(commands.Cog):
             if not id_mention_pairs:
                 continue
 
-            for batch_ids, batch_mentions in self._build_batches(
+            for _batch_ids, batch_mentions in self._build_batches(
                 id_mention_pairs,
                 header=header,
                 footer=footer,
@@ -374,7 +477,7 @@ class BulkAnnouncer(commands.Cog):
 
                 # Enforce char cap (simulate before adding)
             if current_mentions:
-                prospective = current_mentions + [mention]
+                prospective = [*current_mentions, mention]
                 if msg_len(prospective) > max_chars:
                     batches.append((current_ids, current_mentions))
                     current_ids, current_mentions = [], []

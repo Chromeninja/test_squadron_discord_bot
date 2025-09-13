@@ -36,7 +36,7 @@ data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
 def _load_verification_message_id() -> int | None:
     """
     Load the verification message ID from persistent storage.
-    
+
     Returns:
         The message ID if found and valid, None otherwise.
     """
@@ -60,7 +60,7 @@ def _load_verification_message_id() -> int | None:
 def _save_verification_message_id(message_id: int) -> None:
     """
     Save the verification message ID to persistent storage atomically.
-    
+
     Args:
         message_id: The Discord message ID to save.
     """
@@ -82,7 +82,9 @@ def _save_verification_message_id(message_id: int) -> None:
         logger.info(f"Saved verification message ID {message_id} to {message_id_file}")
 
     except OSError as e:
-        logger.error(f"Failed to save verification message ID to {message_id_file}: {e}")
+        logger.exception(
+            f"Failed to save verification message ID to {message_id_file}", exc_info=e
+        )
 
 
 class VerificationCog(commands.Cog):

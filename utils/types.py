@@ -15,12 +15,6 @@ class VoiceChannelResult(NamedTuple):
     error: str | None = None
 
 
-class CleanupResult(NamedTuple):
-    """Result of cleanup operation."""
-    deleted_count: int
-    errors: list[str] = []
-
-
 @dataclass
 class VoiceChannelInfo:
     """Information about a voice channel."""

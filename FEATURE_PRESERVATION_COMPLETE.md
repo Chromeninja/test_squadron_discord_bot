@@ -8,17 +8,15 @@ The refactoring has successfully preserved all critical functionality from the o
 
 #### **User Commands:**
 ✅ `/voice create` - Create a new voice channel  
-✅ `/voice settings` - Open voice channel settings interface  
-✅ `/voice list` - List all custom permissions and settings  
-✅ `/voice claim` - Claim ownership if current owner is absent  
+✅ `/voice list` - List all custom permissions and settings in your voice channel  
+✅ `/voice claim` - Claim ownership if the current owner is absent  
 ✅ `/voice transfer <user>` - Transfer channel ownership to another user  
 ✅ `/voice help` - Show help for all voice commands  
 
 #### **Admin Commands:**
 ✅ `/voice setup <category> [num_channels]` - Set up voice channel system  
 ✅ `/voice owner` - List all managed voice channels and owners  
-✅ `/voice cleanup [force]` - Clean up inactive voice channels  
-✅ `/voice admin_reset <user> [jtc_channel] [global]` - Reset user's voice settings  
+✅ `/voice admin reset <scope> [member] [confirm]` - Modern reset command with safety features
 ✅ `/voice admin_list <user>` - View user's voice channel settings  
 
 ### 🔧 Admin Commands (All 9 Commands Preserved)

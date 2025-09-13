@@ -46,10 +46,10 @@ def normalize_text(s: str | None) -> str:
 def parse_organizations(html_content: str) -> dict[str, Any]:
     """
     Parse RSI organizations from HTML content with robust selectors.
-    
+
     Args:
         html_content: The HTML content of the RSI organizations page.
-        
+
     Returns:
         Dict containing main organization and affiliates list.
     """
@@ -113,11 +113,11 @@ def parse_organizations(html_content: str) -> dict[str, Any]:
 def search_membership_status(orgs: dict[str, Any], target_org: str) -> int:
     """
     Search for membership status in organization data.
-    
+
     Args:
         orgs: Organization data from parse_organizations
         target_org: Target organization name (normalized)
-        
+
     Returns:
         1 if main member, 2 if affiliate, 0 if not found
     """
@@ -138,10 +138,10 @@ def search_membership_status(orgs: dict[str, Any], target_org: str) -> int:
 def extract_bio(html_content: str) -> str | None:
     """
     Extract bio text from RSI profile HTML with multiple fallback selectors.
-    
+
     Args:
         html_content: The HTML content of the RSI profile page.
-        
+
     Returns:
         Bio text or None if not found.
     """
@@ -168,11 +168,11 @@ def extract_bio(html_content: str) -> str | None:
 def find_token_in_bio(bio_text: str, token: str) -> bool:
     """
     Search for 4-digit token in bio text using regex pattern.
-    
+
     Args:
         bio_text: The bio text to search in
         token: The token to find (will be zero-padded if needed)
-        
+
     Returns:
         True if token found, False otherwise
     """
@@ -193,11 +193,11 @@ async def is_valid_rsi_handle(
 ) -> tuple[int | None, str | None, str | None]:
     """
     Validates the RSI handle by checking organization membership.
-    
+
     Args:
         user_handle: The RSI handle of the user.
         http_client: The HTTP client instance.
-        
+
     Returns:
         Tuple containing (verify_value, cased_handle, community_moniker)
     """
@@ -213,7 +213,7 @@ async def is_valid_rsi_handle(
     try:
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
-        logger.error(f"Handle not found (404): {user_handle}")
+        logger.exception(f"Handle not found (404): {user_handle}")
         raise
     if not org_html:
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
@@ -266,12 +266,12 @@ async def is_valid_rsi_bio(
 ) -> bool | None:
     """
     Validates the token by checking if it exists in the user's RSI bio.
-    
+
     Args:
         user_handle: The RSI handle of the user.
         token: The verification token (4-digit PIN).
         http_client: The HTTP client instance.
-        
+
     Returns:
         True if token found, False if not, None if error.
     """

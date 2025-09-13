@@ -61,7 +61,6 @@ intents.presences = True  # Needed for member presence updates
 initial_extensions = [
     "cogs.verification.commands",
     "cogs.admin.commands",
-    "cogs.admin.legacy_commands",
     "cogs.admin.recheck",
     "cogs.voice.commands",
     "cogs.voice.events",
@@ -117,7 +116,7 @@ class MyBot(commands.Bot):
 
             await run_voice_data_migration(self)
         except Exception as e:
-            logger.exception(f"Voice data migration failed: {e}")
+            logger.exception("Voice data migration failed", exc_info=e)
 
         # Add the BulkAnnouncer cog after DB is initialized
         await self.add_cog(BulkAnnouncer(self))
@@ -136,7 +135,7 @@ class MyBot(commands.Bot):
                 await self.load_extension(extension)
                 logger.info(f"Loaded extension: {extension}")
             except Exception as e:
-                logger.exception(f"Failed to load extension {extension}: {e}")
+                logger.exception(f"Failed to load extension {extension}", exc_info=e)
 
         # Cache roles after bot is ready
         spawn(self.cache_roles())
@@ -154,7 +153,7 @@ class MyBot(commands.Bot):
             await self.tree.sync()
             logger.info("All commands synced globally.")
         except Exception as e:
-            logger.exception(f"Failed to sync commands: {e}")
+            logger.exception("Failed to sync commands", exc_info=e)
 
         # Set command permissions for each guild (always attempt regardless of sync result)
         for guild in self.guilds:
@@ -185,7 +184,7 @@ class MyBot(commands.Bot):
             try:
                 await self.services.config.maybe_migrate_legacy_settings(self)
             except Exception as e:
-                logger.exception(f"Legacy settings migration failed: {e}")
+                logger.exception("Legacy settings migration failed", exc_info=e)
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
@@ -404,10 +403,10 @@ class MyBot(commands.Bot):
     async def has_admin_permissions(self, user: discord.Member) -> bool:
         """
         Check if a user has admin permissions based on configured roles.
-        
+
         Args:
             user: Discord member to check
-            
+
         Returns:
             bool: True if user has bot admin or lead moderator roles
         """
@@ -422,10 +421,10 @@ class MyBot(commands.Bot):
     async def get_guild_config(self, guild_id: int) -> dict:
         """
         Get configuration for a specific guild using the services container.
-        
+
         Args:
             guild_id: Discord guild ID
-            
+
         Returns:
             dict: Guild configuration data
         """

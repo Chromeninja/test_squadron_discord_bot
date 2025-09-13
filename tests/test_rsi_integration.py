@@ -50,10 +50,10 @@ def test_token_matching_integration():
     bio = extract_bio(html)
 
     # Test finding the correct token
-    assert find_token_in_bio(bio, '1234') == True
-    assert find_token_in_bio(bio, '1000') == True  # Hours mentioned in bio
-    assert find_token_in_bio(bio, '5678') == False
-    assert find_token_in_bio(bio, '12') == False  # Partial match should fail
+    assert find_token_in_bio(bio, '1234')
+    assert find_token_in_bio(bio, '1000')  # Hours mentioned in bio
+    assert not find_token_in_bio(bio, '5678')
+    assert not find_token_in_bio(bio, '12')  # Partial match should fail
 
 def test_membership_determination_integration():
     """Test complete membership determination workflow."""

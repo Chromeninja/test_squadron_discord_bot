@@ -57,7 +57,7 @@ class DryRunBot(MyBot):
                 await self.load_extension(ext)
                 logger.info(f"[DRY-RUN] Loaded extension: {ext}")
             except Exception as e:
-                logger.error(f"[DRY-RUN] Failed to load {ext}: {e}")
+                logger.exception(f"[DRY-RUN] Failed to load {ext}: {e}")
 
         logger.info("[DRY-RUN] setup_hook complete (no login performed)")
 

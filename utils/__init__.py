@@ -9,7 +9,6 @@ from .logging import get_logger, setup_logging
 from .tasks import spawn, wait_for_any
 from .types import (
     ChannelId,
-    CleanupResult,
     GuildConfig,
     GuildId,
     LogLevel,
@@ -24,7 +23,6 @@ from .types import (
 __all__ = [
     "BotError",
     "ChannelId",
-    "CleanupResult",
     "ConfigError",
     "DatabaseError",
     "GuildConfig",

@@ -62,7 +62,6 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
   - **`__init__.py`**: Reserved for future data storage needs.
 - **`requirements.txt`**: Lists the dependencies required for the project.
 - **`SETUP.txt`**: Guide on setting up the bot locally, including instructions for configuring environment variables.
-- **`Commands.txt`**: List of available commands.
 
 ## 🛠️ Getting Started
 
@@ -102,21 +101,39 @@ roles:
 
 The bot includes several administrative commands for configuration and management. All admin commands require users to have either the **Bot Admin** or **Lead Moderator** role configured in `config/config.yaml`.
 
-#### General Admin Commands (`/admin` group)
+> **💡 Live Command Discovery**: For the most up-to-date list of available commands, use `/help` in Discord or `/status` for detailed bot information. Commands listed below represent the core functionality but may not reflect the latest additions or changes.
+
+#### General Admin Commands
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
 | `/status` | Show detailed bot health and status information | Bot Admin / Lead Moderator | `/status detailed:true` |
 | `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Bot Admin / Lead Moderator | `/guild-config` |
 | `/set-config` | Set a guild configuration value | Bot Admin / Lead Moderator | `/set-config key:"voice.cooldown_seconds" value:"30"` |
+| `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |
+| `/reset-user` | Reset verification timer for a specific user | Bot Admin / Lead Moderator | `/reset-user member:@username` |
+| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
+| `/recheck-user` | Force a verification re-check for a user | Bot Admin / Lead Moderator | `/recheck-user member:@username` |
 
 #### Voice Admin Commands (`/voice` group)
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
 | `/voice setup` | Set up voice channel system (create JTC channels and category) | Bot Admin | `/voice setup category:#Voice-Channels num_channels:2` |
-| `/voice admin_reset` | Reset a user's voice channel settings | Bot Admin / Lead Moderator | `/voice admin_reset user:@username` |
+| `/voice admin reset` | Reset voice data with modern safety features | Bot Admin / Lead Moderator | `/voice admin reset scope:user member:@username` or `/voice admin reset scope:all confirm:YES` |
 | `/voice admin_list` | View saved voice channel settings for a user | Bot Admin / Lead Moderator | `/voice admin_list user:@username` |
+
+#### User Voice Commands (`/voice` group)
+
+| Command | Description | Available To | Usage |
+|---------|-------------|--------------|-------|
+| `/voice list` | List all custom permissions and settings in your voice channel | Voice channel owners | `/voice list` |
+| `/voice claim` | Claim ownership of a voice channel if the original owner left | All users | `/voice claim` |
+| `/voice transfer` | Transfer ownership of your voice channel to another user | Voice channel owners | `/voice transfer user:@username` |
+| `/voice help` | Show help information for voice commands | All users | `/voice help` |
+| `/voice owner` | List all voice channels managed by the bot and their owners | Admin only | `/voice owner` |
+
+> **Note**: Voice channel settings are automatically presented via an interactive interface when you create a channel. Use `/voice list` to view your current settings.
 
 #### Configuration Examples
 

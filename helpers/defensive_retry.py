@@ -101,11 +101,11 @@ def is_retryable_error(error: Exception) -> bool:
             return False
 
     # Network errors - retry
-    if isinstance(error, (aiohttp.ClientError, asyncio.TimeoutError)):
+    if isinstance(error, aiohttp.ClientError | asyncio.TimeoutError):
         return True
 
     # Connection errors - retry
-    if isinstance(error, (ConnectionError, OSError)):
+    if isinstance(error, ConnectionError | OSError):
         return True
 
     # Unknown errors - be conservative, don't retry
@@ -120,17 +120,17 @@ async def retry_async(
 ) -> T:
     """
     Retry an async function with exponential backoff.
-    
+
     Args:
         func: The async function to retry
         *args: Arguments to pass to func
         config: Custom retry configuration
         config_name: Name of predefined config to use if config is None
         **kwargs: Keyword arguments to pass to func
-    
+
     Returns:
         The result of the successful function call
-    
+
     Raises:
         The last exception if all retries are exhausted
     """
@@ -159,10 +159,10 @@ async def retry_async(
 
             # Check if we should retry
             if not is_retryable_error(e):
-                logger.error(
+                logger.exception(
                     f"Non-retryable error for {func.__name__}: {type(e).__name__}: {e}"
                 )
-                raise e
+                raise
 
             # Don't delay on the last attempt
             if attempt < config.max_attempts - 1:
@@ -183,7 +183,7 @@ def retry_decorator(
 ):
     """
     Decorator to add retry logic to async functions.
-    
+
     Example:
         @retry_decorator(config_name='external_api')
         async def fetch_rsi_profile(handle: str) -> dict:
@@ -274,6 +274,6 @@ async def with_circuit_breaker(
         result = await func(*args, **kwargs)
         circuit.record_success()
         return result
-    except Exception as e:
+    except Exception:
         circuit.record_failure()
-        raise e
+        raise
