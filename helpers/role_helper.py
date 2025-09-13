@@ -5,11 +5,11 @@ import random
 import time
 
 import discord
+from services.db.database import Database
+from utils.logging import get_logger
 
 from helpers.announcement import enqueue_verification_event
-from helpers.database import Database
 from helpers.discord_api import add_roles, edit_member, remove_roles
-from helpers.logger import get_logger
 from helpers.task_queue import enqueue_task
 
 logger = get_logger(__name__)
@@ -33,6 +33,37 @@ async def assign_roles(
     bot,
     community_moniker: str | None = None,
 ) -> None:
+    """Assign roles based on verification status.
+
+    Args:
+        member: Discord member to assign roles to
+        verify_value: Verification status (0, 1, 2)
+        cased_handle: Properly cased RSI handle
+        bot: Bot instance with role_cache and other attributes
+        community_moniker: Optional community moniker
+
+    Raises:
+        TypeError: If bot parameter is not a proper Bot instance
+    """
+    from utils.logging import get_logger
+
+    logger = get_logger(__name__)
+
+    # Type validation at service boundary
+    if isinstance(bot, str):
+        error_msg = f"assign_roles received string '{bot}' instead of Bot instance. Check caller implementation."
+        logger.error(
+            error_msg, extra={"user_id": member.id, "cased_handle": cased_handle}
+        )
+        raise TypeError(error_msg)
+
+    if not hasattr(bot, "role_cache"):
+        error_msg = f"Bot instance passed to assign_roles lacks role_cache attribute. Type: {type(bot).__name__}"
+        logger.error(
+            error_msg, extra={"user_id": member.id, "cased_handle": cased_handle}
+        )
+        raise TypeError(error_msg)
+
     # Fetch previous status before DB update
     prev_status = None
     async with Database.get_connection() as db:
@@ -284,16 +315,64 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
 
     Caller is responsible for catching NotFoundError (RSI 404) and invoking
     unified remediation handler.
+
+    Args:
+        member: Discord member to reverify
+        rsi_handle: RSI handle to verify
+        bot: Bot instance (commands.Bot or discord.Client) with http_client attribute
+
+    Raises:
+        TypeError: If bot parameter is not a proper Bot/Client instance
     """
-    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
+    from utils.logging import get_logger
     from verification.rsi_verification import is_valid_rsi_handle
 
-    verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-        rsi_handle, bot.http_client
-    )  # May raise NotFoundError
+    from helpers.http_helper import NotFoundError  # noqa: F401 (re-export for callers)
+
+    logger = get_logger(__name__)
+
+    # Type validation at service boundary
+    if isinstance(bot, str):
+        error_msg = f"reverify_member received string '{bot}' instead of Bot instance. Check caller implementation."
+        logger.error(error_msg, extra={"user_id": member.id, "rsi_handle": rsi_handle})
+        raise TypeError(error_msg)
+
+    if not hasattr(bot, "http_client") and not (
+        hasattr(bot, "services") and hasattr(bot.services, "http_client")
+    ):
+        error_msg = f"Bot instance passed to reverify_member lacks http_client attribute. Type: {type(bot).__name__}"
+        logger.error(error_msg, extra={"user_id": member.id, "rsi_handle": rsi_handle})
+        raise TypeError(error_msg)
+
+    # Get HTTP client from bot services or fallback to bot.http_client
+    http_client = None
+    if hasattr(bot, "services") and hasattr(bot.services, "http_client"):
+        http_client = bot.services.http_client
+    elif hasattr(bot, "http_client"):
+        http_client = bot.http_client
+    else:
+        logger.error("No HTTP client found in bot services or bot object")
+        return False, "error", "HTTP client unavailable for RSI verification."
+
+    try:
+        verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
+            rsi_handle, http_client
+        )  # May raise NotFoundError
+    except Exception as e:
+        logger.exception(
+            "Error calling is_valid_rsi_handle for %s", rsi_handle, exc_info=e
+        )
+        return False, "error", f"RSI verification failed: {e!s}"
 
     if verify_value is None or cased_handle is None:  # moniker optional
-        return False, "unknown", "Failed to verify RSI handle."
+        logger.error(
+            f"is_valid_rsi_handle returned None values for {rsi_handle}: verify_value={verify_value}, cased_handle={cased_handle}"
+        )
+        return (
+            False,
+            "unknown",
+            "Failed to verify RSI handle - received invalid response from RSI services.",
+        )
 
     role_type = await assign_roles(
         member, verify_value, cased_handle, bot, community_moniker=community_moniker

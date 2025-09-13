@@ -9,8 +9,8 @@ It abstracts away SQL queries and provides a consistent interface for the voice 
 
 from typing import Any
 
-from helpers.database import Database
-from helpers.logger import get_logger
+from services.db.database import Database
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ async def get_user_channel_id(
     owner_id: int, guild_id: int, jtc_channel_id: int
 ) -> int | None:
     """
-    Get the voice channel ID owned by a specific user in a specific guild and 
+    Get the voice channel ID owned by a specific user in a specific guild and
     JTC context.
 
     Args:
@@ -41,6 +41,57 @@ async def get_user_channel_id(
         )
         row = await cursor.fetchone()
         return row[0] if row else None
+
+
+async def get_owner_id_by_channel(voice_channel_id: int) -> int | None:
+    """
+    Get the owner ID for a voice channel by its ID.
+
+    This function provides DB-first ownership verification, making it resilient
+    to bot restarts and cache invalidation.
+
+    Args:
+        voice_channel_id: The Discord voice channel ID
+
+    Returns:
+        The owner's Discord user ID or None if channel not found or not managed
+    """
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT owner_id
+                FROM user_voice_channels
+                WHERE voice_channel_id = ?
+                """,
+                (voice_channel_id,),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.exception(
+            f"Error retrieving owner for channel {voice_channel_id}: {e}",
+            exc_info=e,
+        )
+        return None
+
+
+async def is_channel_owner(voice_channel_id: int, user_id: int) -> bool:
+    """
+    Check if a specific user is the owner of a voice channel.
+
+    This is a convenience wrapper around get_owner_id_by_channel that returns
+    a boolean result for ownership checks.
+
+    Args:
+        voice_channel_id: The Discord voice channel ID
+        user_id: The Discord user ID to check
+
+    Returns:
+        True if the user owns the channel, False otherwise
+    """
+    owner_id = await get_owner_id_by_channel(voice_channel_id)
+    return owner_id == user_id if owner_id is not None else False
 
 
 async def upsert_channel_settings(
@@ -111,7 +162,7 @@ async def list_permissions(
         user_id: The Discord user ID
         guild_id: The Discord guild ID
         jtc_channel_id: The join-to-create channel ID
-        table_name: The name of the table to query (channel_permissions, 
+        table_name: The name of the table to query (channel_permissions,
             channel_ptt_settings, etc.)
 
     Returns:
@@ -154,7 +205,7 @@ async def set_feature_row(
     enabled: bool,
 ) -> None:
     """
-    Set a feature permission row (PTT, Priority Speaker, Soundboard, or general 
+    Set a feature permission row (PTT, Priority Speaker, Soundboard, or general
     permissions).
 
     Args:
@@ -185,7 +236,7 @@ async def set_feature_row(
         cursor = await db.execute(
             f"""
             SELECT 1 FROM {table_name}
-            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ? 
+            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 AND target_id = ? AND target_type = ?
             """,
             (user_id, guild_id, jtc_channel_id, target_id, target_type),
@@ -198,7 +249,7 @@ async def set_feature_row(
                 f"""
                 UPDATE {table_name}
                 SET {feature_column} = ?
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ? 
+                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                     AND target_id = ? AND target_type = ?
                 """,
                 (
@@ -214,7 +265,7 @@ async def set_feature_row(
             # Insert new row
             await db.execute(
                 f"""
-                INSERT INTO {table_name} 
+                INSERT INTO {table_name}
                 (user_id, guild_id, jtc_channel_id, target_id, target_type, {feature_column})
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -323,7 +374,7 @@ async def transfer_channel_owner(
                     # Insert new settings
                     await db.execute(
                         """
-                        INSERT INTO channel_settings 
+                        INSERT INTO channel_settings
                         (user_id, guild_id, jtc_channel_id, channel_name, user_limit, lock)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
@@ -388,8 +439,8 @@ async def transfer_channel_owner(
             # Add or update voice cooldown for new owner
             await db.execute(
                 """
-                INSERT OR REPLACE INTO voice_cooldowns 
-                (guild_id, jtc_channel_id, user_id, timestamp)
+                INSERT OR REPLACE INTO voice_cooldowns
+                (guild_id, jtc_channel_id, user_id, last_creation)
                 VALUES (?, ?, ?, strftime('%s','now'))
                 """,
                 (guild_id, jtc_channel_id, new_owner_id),
@@ -419,7 +470,7 @@ async def get_stale_voice_entries(cutoff_time: int) -> list[tuple[int, int, int]
         cursor = await db.execute(
             """
             SELECT guild_id, jtc_channel_id, user_id FROM voice_cooldowns
-            WHERE timestamp < ?
+            WHERE last_creation < ?
             """,
             (cutoff_time,),
         )

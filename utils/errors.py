@@ -1,4 +1,4 @@
-#helpers/structured_errors.py
+# helpers/structured_errors.py
 
 """
 Structured error reporting for AI agent comprehension.
@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,32 @@ import aiohttp
 import discord
 
 logger = logging.getLogger(__name__)
+
+
+# Base exception classes
+class BotError(Exception):
+    """Base exception for bot-related errors."""
+
+    pass
+
+
+class ConfigError(BotError):
+    """Exception raised for configuration-related errors."""
+
+    pass
+
+
+class DatabaseError(BotError):
+    """Exception raised for database-related errors."""
+
+    pass
+
+
+class ServiceError(BotError):
+    """Exception raised for service-related errors."""
+
+    pass
+
 
 class StructuredError:
     """Structured error information for AI analysis."""
@@ -31,7 +57,7 @@ class StructuredError:
         severity: str = "error",
         component: str | None = None,
         user_id: int | None = None,
-        guild_id: int | None = None
+        guild_id: int | None = None,
     ):
         self.error = error
         self.context = context or {}
@@ -39,7 +65,7 @@ class StructuredError:
         self.component = component  # e.g., 'verification', 'voice', 'database'
         self.user_id = user_id
         self.guild_id = guild_id
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.stack_trace = traceback.format_exc() if error else None
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,7 +80,7 @@ class StructuredError:
             "context": self.context,
             "user_id": self.user_id,
             "guild_id": self.guild_id,
-            "ai_analysis_hints": self._generate_ai_hints()
+            "ai_analysis_hints": self._generate_ai_hints(),
         }
 
     def _generate_ai_hints(self) -> list[str]:
@@ -105,7 +131,7 @@ class StructuredError:
             "critical": logger.critical,
             "error": logger.error,
             "warning": logger.warning,
-            "info": logger.info
+            "info": logger.info,
         }.get(self.severity, logger.error)
 
         log_func(
@@ -115,6 +141,7 @@ class StructuredError:
 
         # Log detailed information at debug level
         logger.debug(f"Full error details: {self.to_json()}")
+
 
 class ErrorReporter:
     """Centralized error reporting system."""
@@ -130,7 +157,7 @@ class ErrorReporter:
         severity: str = "error",
         component: str | None = None,
         user_id: int | None = None,
-        guild_id: int | None = None
+        guild_id: int | None = None,
     ) -> StructuredError:
         """Report a structured error."""
         structured_error = StructuredError(
@@ -139,7 +166,7 @@ class ErrorReporter:
             severity=severity,
             component=component,
             user_id=user_id,
-            guild_id=guild_id
+            guild_id=guild_id,
         )
 
         # Log the error
@@ -153,17 +180,20 @@ class ErrorReporter:
     def _save_to_file(self, error: StructuredError) -> None:
         """Save structured error to file for batch AI analysis."""
         try:
-            filename = f"errors_{datetime.utcnow().strftime('%Y-%m-%d')}.jsonl"
+            filename = f"errors_{datetime.now(UTC).strftime('%Y-%m-%d')}.jsonl"
             filepath = self.log_dir / filename
 
-            with open(filepath, "a", encoding="utf-8") as f:
+            # Use Path.open for better compatibility with pathlib
+            with filepath.open("a", encoding="utf-8") as f:
                 f.write(error.to_json() + "\n")
 
         except Exception as e:
             logger.warning(f"Failed to save error to file: {e}")
 
+
 # Global error reporter instance
 error_reporter = ErrorReporter()
+
 
 def report_error(
     error: Exception,
@@ -171,7 +201,7 @@ def report_error(
     severity: str = "error",
     component: str | None = None,
     user_id: int | None = None,
-    guild_id: int | None = None
+    guild_id: int | None = None,
 ) -> StructuredError:
     """Convenience function for reporting errors."""
     return error_reporter.report(
@@ -180,15 +210,14 @@ def report_error(
         severity=severity,
         component=component,
         user_id=user_id,
-        guild_id=guild_id
+        guild_id=guild_id,
     )
 
+
 # Decorator for automatic error reporting
-def with_error_reporting(
-    component: str | None = None,
-    severity: str = "error"
-):
+def with_error_reporting(component: str | None = None, severity: str = "error"):
     """Decorator to automatically report errors from functions."""
+
     def decorator(func):
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -200,11 +229,16 @@ def with_error_reporting(
                     context={
                         "function": func.__name__,
                         "args": str(args)[:200],  # Truncate for privacy
-                        "kwargs": str({k: v for k, v in kwargs.items()
-                                     if k not in ["token", "password"]})[:200]
+                        "kwargs": str(
+                            {
+                                k: v
+                                for k, v in kwargs.items()
+                                if k not in ["token", "password"]
+                            }
+                        )[:200],
                     },
                     component=component,
-                    severity=severity
+                    severity=severity,
                 )
                 raise
 
@@ -218,11 +252,16 @@ def with_error_reporting(
                     context={
                         "function": func.__name__,
                         "args": str(args)[:200],
-                        "kwargs": str({k: v for k, v in kwargs.items()
-                                     if k not in ["token", "password"]})[:200]
+                        "kwargs": str(
+                            {
+                                k: v
+                                for k, v in kwargs.items()
+                                if k not in ["token", "password"]
+                            }
+                        )[:200],
                     },
                     component=component,
-                    severity=severity
+                    severity=severity,
                 )
                 raise
 
@@ -232,6 +271,7 @@ def with_error_reporting(
 
     return decorator
 
+
 # AI-friendly error analysis functions
 def analyze_error_patterns(log_file: Path) -> dict[str, Any]:
     """Analyze error patterns from structured error logs."""
@@ -240,29 +280,32 @@ def analyze_error_patterns(log_file: Path) -> dict[str, Any]:
         "component_errors": {},
         "severity_distribution": {},
         "common_contexts": {},
-        "recommendations": []
+        "recommendations": [],
     }
 
     try:
-        with open(log_file, encoding="utf-8") as f:
+        with Path(log_file).open(encoding="utf-8") as f:
             for line in f:
                 try:
                     error_data = json.loads(line.strip())
 
                     # Count error types
                     error_type = error_data.get("error_type", "Unknown")
-                    patterns["error_frequency"][error_type] = \
+                    patterns["error_frequency"][error_type] = (
                         patterns["error_frequency"].get(error_type, 0) + 1
+                    )
 
                     # Count by component
                     component = error_data.get("component", "Unknown")
-                    patterns["component_errors"][component] = \
+                    patterns["component_errors"][component] = (
                         patterns["component_errors"].get(component, 0) + 1
+                    )
 
                     # Count by severity
                     severity = error_data.get("severity", "unknown")
-                    patterns["severity_distribution"][severity] = \
+                    patterns["severity_distribution"][severity] = (
                         patterns["severity_distribution"].get(severity, 0) + 1
+                    )
 
                 except json.JSONDecodeError:
                     continue
@@ -274,6 +317,7 @@ def analyze_error_patterns(log_file: Path) -> dict[str, Any]:
     patterns["recommendations"] = _generate_recommendations(patterns)
 
     return patterns
+
 
 def _generate_recommendations(patterns: dict[str, Any]) -> list[str]:
     """Generate AI-friendly recommendations based on error patterns."""

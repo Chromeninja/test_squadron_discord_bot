@@ -19,8 +19,8 @@ import logging
 from collections.abc import Iterable
 
 import discord
+from services.db.database import Database
 
-from helpers.database import Database
 from helpers.discord_api import edit_channel
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,9 @@ async def store_permit_reject_in_db(
             await db.commit()
 
 
-async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_id=None) -> None:
+async def fetch_permit_reject_entries(
+    user_id: int, guild_id=None, jtc_channel_id=None
+) -> None:
     """
     Fetch all permit/reject entries for a user
 
@@ -120,7 +122,9 @@ async def fetch_permit_reject_entries(user_id: int, guild_id=None, jtc_channel_i
             return await cursor.fetchall()
 
 
-async def apply_permissions_changes(channel: discord.VoiceChannel, perm_settings: dict) -> None:
+async def apply_permissions_changes(
+    channel: discord.VoiceChannel, perm_settings: dict
+) -> None:
     action = perm_settings.get("action")
     targets = perm_settings.get("targets", [])
 
@@ -258,7 +262,9 @@ async def update_channel_owner(
         await db.commit()
 
 
-async def apply_permit_reject_settings(user_id: int, channel: discord.VoiceChannel) -> None:
+async def apply_permit_reject_settings(
+    user_id: int, channel: discord.VoiceChannel
+) -> None:
     entries = await fetch_permit_reject_entries(user_id)
     for target_id, target_type, permission in entries:
         try:

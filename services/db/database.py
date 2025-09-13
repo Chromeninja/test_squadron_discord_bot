@@ -12,9 +12,9 @@ import time
 from contextlib import asynccontextmanager
 
 import aiosqlite
+from utils.logging import get_logger
 
-from helpers.logger import get_logger
-from helpers.schema import init_schema
+from .schema import init_schema
 
 logger = get_logger(__name__)
 
@@ -59,6 +59,28 @@ class Database:
                     pass
             cls._initialized = True
             logger.info("Database initialized.")
+
+    @classmethod
+    async def ensure_verification_row(cls, user_id: int) -> None:
+        """
+        Ensure a verification row exists for the user before any rate_limits operations.
+
+        Prevents sqlite3.IntegrityError: FOREIGN KEY constraint failed by creating
+        a minimal placeholder verification row if none exists.
+
+        Args:
+            user_id: Discord user ID to ensure has a verification row
+        """
+        async with cls.get_connection() as db:
+            # INSERT OR IGNORE ensures idempotent behavior - no clobbering of existing rows
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO verification(user_id, rsi_handle, membership_status, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker)
+                VALUES (?, '', 'unknown', 0, NULL, 0, 0, NULL)
+            """,
+                (user_id,),
+            )
+            await db.commit()
 
     @classmethod
     async def _create_tables(cls, db: aiosqlite.Connection) -> None:
@@ -175,6 +197,9 @@ class Database:
 
     @classmethod
     async def increment_rate_limit(cls, user_id: int, action: str) -> None:
+        # Ensure verification row exists before touching rate_limits (prevent FK errors)
+        await cls.ensure_verification_row(user_id)
+
         now = int(time.time())
         async with cls.get_connection() as db:
             await db.execute(
@@ -311,3 +336,195 @@ class Database:
                 "DELETE FROM auto_recheck_state WHERE user_id = ?", (user_id,)
             )
             await db.commit()
+
+    @classmethod
+    async def purge_voice_data(
+        cls, guild_id: int, user_id: int | None = None
+    ) -> dict[str, int]:
+        """
+        Purge all voice-related data for a user or entire guild.
+
+        Args:
+            guild_id: The guild ID to purge data for
+            user_id: If provided, purge only this user's data. If None, purge all users in guild.
+
+        Returns:
+            Dict mapping table names to number of rows deleted.
+        """
+        deleted_counts = {}
+
+        # Define all voice-related tables to purge
+        voice_tables = [
+            "user_voice_channels",
+            "voice_cooldowns",
+            "channel_settings",
+            "channel_permissions",
+            "channel_ptt_settings",
+            "channel_priority_speaker_settings",
+            "channel_soundboard_settings",
+        ]
+
+        async with cls.get_connection() as db:
+            # Start transaction
+            await db.execute("BEGIN TRANSACTION")
+
+            try:
+                for table in voice_tables:
+                    if user_id is not None:
+                        # Delete for specific user in guild
+                        if table == "user_voice_channels":
+                            # user_voice_channels uses owner_id instead of user_id
+                            cursor = await db.execute(
+                                f"DELETE FROM {table} WHERE guild_id = ? AND owner_id = ?",
+                                (guild_id, user_id),
+                            )
+                        else:
+                            cursor = await db.execute(
+                                f"DELETE FROM {table} WHERE guild_id = ? AND user_id = ?",
+                                (guild_id, user_id),
+                            )
+                    else:
+                        # Delete all data for guild
+                        cursor = await db.execute(
+                            f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,)
+                        )
+
+                    deleted_counts[table] = cursor.rowcount
+
+                await db.commit()
+                logger.info(
+                    f"Voice data purged for guild {guild_id}, user {user_id}: {deleted_counts}"
+                )
+
+            except Exception as e:
+                await db.rollback()
+                logger.exception("Failed to purge voice data", exc_info=e)
+                raise
+
+        return deleted_counts
+
+    @classmethod
+    async def cleanup_orphaned_jtc_data(
+        cls, guild_id: int, valid_jtc_ids: set[int]
+    ) -> dict[str, int]:
+        """
+        Clean up database rows scoped to JTC IDs that are not in the current guild config.
+        This is a defense-in-depth measure for startup reconciliation.
+
+        Args:
+            guild_id: The guild ID to clean up
+            valid_jtc_ids: Set of JTC channel IDs that are currently configured
+
+        Returns:
+            Dict mapping table names to number of rows deleted.
+        """
+        deleted_counts = {}
+
+        # Define tables that reference jtc_channel_id
+        jtc_tables = [
+            "user_voice_channels",
+            "channel_settings",
+            "channel_permissions",
+            "channel_ptt_settings",
+            "channel_priority_speaker_settings",
+            "channel_soundboard_settings",
+        ]
+
+        async with cls.get_connection() as db:
+            # Start transaction
+            await db.execute("BEGIN TRANSACTION")
+
+            try:
+                for table in jtc_tables:
+                    if not valid_jtc_ids:
+                        # If no valid JTC IDs, delete all JTC-scoped data for this guild
+                        query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IS NOT NULL"
+                        cursor = await db.execute(query, (guild_id,))
+                    else:
+                        # Delete rows where jtc_channel_id is not in the valid set
+                        placeholders = ",".join("?" * len(valid_jtc_ids))
+                        query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IS NOT NULL AND jtc_channel_id NOT IN ({placeholders})"
+                        cursor = await db.execute(
+                            query, [guild_id, *list(valid_jtc_ids)]
+                        )
+
+                    deleted_counts[table] = cursor.rowcount
+
+                await db.commit()
+                total_deleted = sum(deleted_counts.values())
+                if total_deleted > 0:
+                    logger.info(
+                        f"Orphaned JTC data cleaned up for guild {guild_id}: {total_deleted} rows deleted across tables: {deleted_counts}"
+                    )
+
+            except Exception as e:
+                await db.rollback()
+                logger.exception("Failed to cleanup orphaned JTC data", exc_info=e)
+                raise
+
+        return deleted_counts
+
+    @classmethod
+    async def purge_stale_jtc_data(
+        cls, guild_id: int, stale_jtc_ids: set[int]
+    ) -> dict[str, int]:
+        """
+        Purge voice data for specific stale JTC channel IDs in a guild.
+
+        Args:
+            guild_id: The guild ID to purge data for
+            stale_jtc_ids: Set of JTC channel IDs that are no longer active
+
+        Returns:
+            Dict mapping table names to number of rows deleted.
+        """
+        if not stale_jtc_ids:
+            return {}
+
+        deleted_counts = {}
+
+        # Define tables that reference jtc_channel_id
+        jtc_tables = [
+            "user_voice_channels",
+            "channel_settings",
+            "channel_permissions",
+            "channel_ptt_settings",
+            "channel_priority_speaker_settings",
+            "channel_soundboard_settings",
+        ]
+
+        # Convert set to list for SQL IN clause
+        jtc_list = list(stale_jtc_ids)
+        placeholders = ",".join("?" * len(jtc_list))
+
+        async with cls.get_connection() as db:
+            # Start transaction
+            await db.execute("BEGIN TRANSACTION")
+
+            try:
+                for table in jtc_tables:
+                    # Handle voice_cooldowns which doesn't have jtc_channel_id yet in some schemas
+                    if table == "voice_cooldowns":
+                        # Check if jtc_channel_id column exists
+                        cursor = await db.execute(f"PRAGMA table_info({table})")
+                        columns = [row[1] for row in await cursor.fetchall()]
+                        if "jtc_channel_id" not in columns:
+                            # Skip voice_cooldowns if it doesn't have jtc_channel_id column
+                            deleted_counts[table] = 0
+                            continue
+
+                    query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IN ({placeholders})"
+                    cursor = await db.execute(query, [guild_id, *jtc_list])
+                    deleted_counts[table] = cursor.rowcount
+
+                await db.commit()
+                logger.info(
+                    f"Stale JTC data purged for guild {guild_id}, JTC IDs {stale_jtc_ids}: {deleted_counts}"
+                )
+
+            except Exception as e:
+                await db.rollback()
+                logger.exception("Failed to purge stale JTC data", exc_info=e)
+                raise
+
+        return deleted_counts

@@ -3,8 +3,8 @@
 import json
 import logging
 import logging.handlers
-import os
 import queue
+from pathlib import Path
 
 from config.config_loader import ConfigLoader
 
@@ -39,11 +39,12 @@ def setup_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    for handler in root_logger.handlers[:]:
+    for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
+    logs_dir = Path("logs")
+    if not logs_dir.exists():
+        logs_dir.mkdir(parents=True)
 
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=1000)
     queue_listener = _build_queue_listener(log_queue, log_level)
@@ -65,7 +66,7 @@ def _build_queue_listener(
     Creates a QueueListener that will dispatch logs from the queue
     to both file and console handlers.
     """
-    log_file = os.path.join("logs", "bot.log")
+    log_file = str(Path("logs") / "bot.log")
     file_handler = logging.handlers.TimedRotatingFileHandler(
         filename=log_file,
         when="midnight",

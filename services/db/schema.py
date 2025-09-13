@@ -7,8 +7,7 @@ This module centralizes all table creation logic to ensure consistency and avoid
 """
 
 import aiosqlite
-
-from helpers.logger import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -89,7 +88,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             guild_id INTEGER NOT NULL,
             jtc_channel_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
+            last_creation INTEGER NOT NULL,
             PRIMARY KEY (guild_id, jtc_channel_id, user_id)
         )
         """
@@ -230,5 +229,5 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-    
+
     logger.info("Schema initialization complete")

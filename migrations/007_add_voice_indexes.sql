@@ -44,7 +44,7 @@ ON channel_soundboard_settings(user_id, guild_id, jtc_channel_id);
 
 -- voice_cooldowns index for timestamp-based cleanup
 CREATE INDEX IF NOT EXISTS idx_voice_cooldowns_timestamp 
-ON voice_cooldowns(timestamp);
+ON voice_cooldowns(last_creation);
 
 -- SQLite doesn't support adding CHECK constraints to existing tables via ALTER TABLE,
 -- so we'll need to enforce boolean values during write operations in the code.

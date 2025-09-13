@@ -1,7 +1,8 @@
 # Config/config_loader.py
 
 import logging
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 
 import yaml
 
@@ -11,29 +12,30 @@ class ConfigLoader:
     Singleton class to load and provide access to configuration data.
     """
 
-    _config: dict[str, Any] = {}
+    _config: ClassVar[dict[str, Any]] = {}
 
     @classmethod
     def load_config(cls, config_path: str = "config/config.yaml") -> dict[str, Any]:
-        """
-        Loads the configuration from a YAML file if not already loaded.
+        """Load the configuration from a YAML file if not already loaded.
 
         Args:
-            config_path (str, optional): Path to the configuration file. Defaults to "config/config.yaml".
+            config_path: Path to the configuration file. Defaults to
+                ``config/config.yaml``.
 
         Returns:
             Dict[str, Any]: Loaded configuration dictionary.
         """
         if not cls._config:
             try:
-                with open(config_path, encoding="utf-8") as file:
+                with Path(config_path).open(encoding="utf-8") as file:
                     cls._config = yaml.safe_load(file) or {}
                 logging.info("Configuration loaded successfully.")
 
                 # Ensure we have a dict to operate on
                 if not isinstance(cls._config, dict):
                     logging.warning(
-                        "Configuration file did not contain a mapping; using empty config."
+                        "Configuration file didn't contain a mapping; "
+                        "using empty config."
                     )
                     cls._config = {}
 
@@ -45,17 +47,20 @@ class ConfigLoader:
 
             except FileNotFoundError:
                 logging.warning(
-                    f"Configuration file not found at path: {config_path}; using empty/default config."
+                    "Configuration file not found at path: %s; "
+                    "using empty/default config.",
+                    config_path,
                 )
                 cls._config = {}
-            except yaml.YAMLError as e:
+            except yaml.YAMLError:
                 logging.exception(
-                    f"Error parsing the configuration file: {e}; using empty/default config."
+                    "Error parsing configuration; using empty/default config."
                 )
                 cls._config = {}
-            except UnicodeDecodeError as e:
+            except UnicodeDecodeError:
                 logging.exception(
-                    f"Encoding error while reading the configuration file: {e}; using empty/default config."
+                    "Encoding error reading configuration; "
+                    "using empty/default config."
                 )
                 cls._config = {}
         return cls._config
@@ -91,31 +96,34 @@ class ConfigLoader:
             if key in roles:
                 try:
                     roles[key] = int(roles[key])
-                    logging.debug(f"Converted {key} to integer: {roles[key]}")
+                    logging.debug("Converted %s to integer: %s", key, roles[key])
                 except ValueError:
-                    logging.exception(f"Role ID for {key} must be an integer.")
+                    logging.exception("Role ID for %s must be an integer.", key)
                     raise
 
-                    # Define keys that are lists of role IDs
+        # Define keys that are lists of role IDs
         list_role_keys = ["bot_admins", "lead_moderators"]
 
         for key in list_role_keys:
             if key in roles:
                 try:
                     roles[key] = [int(role_id) for role_id in roles[key]]
-                    logging.debug(f"Converted {key} to list of integers: {roles[key]}")
+                    logging.debug(
+                        "Converted %s to list of integers: %s", key, roles[key]
+                    )
                 except ValueError:
-                    logging.exception(f"All role IDs in {key} must be integers.")
+                    logging.exception("All role IDs in %s must be integers.", key)
                     raise
 
-                    # Convert selectable_roles from config to a list of integers if present
+        # Convert selectable_roles from config to a list of integers if present
         if "selectable_roles" in cls._config:
             try:
                 cls._config["selectable_roles"] = [
                     int(role_id) for role_id in cls._config["selectable_roles"]
                 ]
                 logging.debug(
-                    f"Converted selectable_roles to list of integers: {cls._config['selectable_roles']}"
+                    "Converted selectable_roles to list of integers: %s",
+                    cls._config["selectable_roles"],
                 )
             except ValueError:
                 logging.exception("All selectable_roles must be integers.")
@@ -128,7 +136,8 @@ class ConfigLoader:
 
         Args:
             key (str): The key to retrieve.
-            default (Any, optional): The default value if key is not found. Defaults to None.
+            default (Any, optional): The default value if the key is not found.
+                Defaults to None.
 
         Returns:
             Any: The value associated with the key.

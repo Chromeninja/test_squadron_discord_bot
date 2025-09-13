@@ -4,8 +4,10 @@ import contextlib
 import re
 
 import discord
-from discord.ui import Modal, TextInput
 from config.config_loader import ConfigLoader
+from discord.ui import Modal, TextInput
+from utils.logging import get_logger
+from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 from helpers.discord_api import (
     edit_channel,
@@ -17,20 +19,17 @@ from helpers.embeds import (
     create_success_embed,
 )
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.logger import get_logger
 from helpers.rate_limiter import (
     check_rate_limit,
     get_remaining_attempts,
     log_attempt,
     reset_attempts,
 )
-from helpers.token_manager import token_store, validate_token, clear_token
-from verification.rsi_verification import is_valid_rsi_handle, is_valid_rsi_bio
 from helpers.role_helper import assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
+from helpers.token_manager import clear_token, token_store, validate_token
 from helpers.voice_utils import get_user_channel, update_channel_settings
-from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
 
@@ -119,8 +118,8 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
-        verify_value_check, _cased_handle_2, community_moniker_2 = await is_valid_rsi_handle(
-            cased_handle, self.bot.http_client
+        verify_value_check, _cased_handle_2, community_moniker_2 = (
+            await is_valid_rsi_handle(cased_handle, self.bot.http_client)
         )
         if verify_value_check is None:
             embed = create_error_embed(
@@ -158,10 +157,13 @@ class HandleModal(Modal, title="Verification"):
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
                 _, wait_until = await check_rate_limit(member.id, "verification")
-                
+
                 # Get retry time in seconds for better user feedback
                 import time
-                retry_after_seconds = int(wait_until - time.time()) if wait_until > time.time() else 0
+
+                retry_after_seconds = (
+                    int(wait_until - time.time()) if wait_until > time.time() else 0
+                )
 
                 # Create and send the cooldown embed with enhanced feedback
                 embed = create_cooldown_embed(wait_until)
@@ -173,7 +175,7 @@ class HandleModal(Modal, title="Verification"):
                     extra={
                         "user_id": member.id,
                         "remaining_attempts": 0,
-                        "retry_after": retry_after_seconds
+                        "retry_after": retry_after_seconds,
                     },
                 )
             else:
@@ -182,8 +184,12 @@ class HandleModal(Modal, title="Verification"):
                     error_msg.append("- Could not verify RSI organization membership.")
                 elif verify_value_check == 0:
                     # Check if this might be due to hidden affiliations
-                    error_msg.append(f"- You are not a member of {ORG_NAME} or its affiliates.")
-                    error_msg.append(f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status.")
+                    error_msg.append(
+                        f"- You are not a member of {ORG_NAME} or its affiliates."
+                    )
+                    error_msg.append(
+                        f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status."
+                    )
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
                 error_msg.append(
@@ -199,7 +205,7 @@ class HandleModal(Modal, title="Verification"):
                         "user_id": member.id,
                         "remaining_attempts": remaining_attempts,
                         "verify_value": verify_value_check,
-                        "token_verify": token_verify
+                        "token_verify": token_verify,
                     },
                 )
             return
@@ -338,7 +344,7 @@ class ResetSettingsConfirmationModal(Modal):
             logger.info(f"{member.display_name} failed to confirm channel reset.")
             return
 
-            # Try resetting channel settings
+            # Try resetting channel settings using the modern voice service
         try:
             # Access the Voice cog to reset channel settings
             voice_cog = self.bot.get_cog("voice")
@@ -349,16 +355,38 @@ class ResetSettingsConfirmationModal(Modal):
                 logger.error("Voice cog not found.")
                 return
 
-                # Reset the channel settings
-            await voice_cog._reset_current_channel_settings(
-                member, guild_id, self.jtc_channel_id
+            # Use the modern purge method for this specific user and JTC channel
+            guild_id = interaction.guild_id
+            user_id = member.id
+
+            # Delete user's managed channel if it exists
+            channel_result = await voice_cog.voice_service.delete_user_owned_channel(
+                guild_id, user_id
             )
+
+            # Purge voice data for this user with cache cleanup
+            deleted_counts = (
+                await voice_cog.voice_service.purge_voice_data_with_cache_clear(
+                    guild_id, user_id
+                )
+            )
+
+            total_deleted = sum(deleted_counts.values())
+
+            success_msg = "✅ Your channel settings have been reset to default."
+            if channel_result.get("channel_deleted"):
+                success_msg += "\n🗑️ Your voice channel was also deleted."
+            if total_deleted > 0:
+                success_msg += f"\n📊 Cleared {total_deleted} database records."
+
             await followup_send_message(
                 interaction,
-                "Your channel settings have been reset to default.",
+                success_msg,
                 ephemeral=True,
             )
-            logger.info(f"{member.display_name} reset their channel settings.")
+            logger.info(
+                f"{member.display_name} reset their channel settings - deleted {total_deleted} records"
+            )
         except Exception:
             logger.exception(
                 f"Error resetting channel settings for {member.display_name}"
@@ -435,9 +463,7 @@ class NameModal(Modal):
                 ephemeral=True,
             )
         except Exception:
-            logger.exception(
-                f"Failed to change channel name for {member.display_name}"
-            )
+            logger.exception(f"Failed to change channel name for {member.display_name}")
             await followup_send_message(
                 interaction,
                 "An unexpected error occurred. Please try again later.",

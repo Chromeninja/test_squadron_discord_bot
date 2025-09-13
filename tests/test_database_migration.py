@@ -4,8 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 import aiosqlite
 import pytest
-
-from helpers.database import Database
+from services.db.database import Database
 
 
 @pytest.mark.asyncio
@@ -23,10 +22,8 @@ async def test_create_tables_creates_rate_limits_and_migrates() -> None:
             """
         )
         await db.execute(
-
-                "INSERT INTO verification(user_id, rsi_handle, membership_status, "
-                "last_updated, last_recheck) VALUES (1, 'test', 'member', 0, 123)"
-
+            "INSERT INTO verification(user_id, rsi_handle, membership_status, "
+            "last_updated, last_recheck) VALUES (1, 'test', 'member', 0, 123)"
         )
         await db.commit()
 

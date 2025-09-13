@@ -1,5 +1,4 @@
 import pytest
-
 from verification import rsi_verification as rv
 
 
@@ -29,10 +28,8 @@ PROFILE_HTML = (
 async def test_is_valid_rsi_handle_returns_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser":
-                PROFILE_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": PROFILE_HTML,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -62,10 +59,8 @@ MALFORMED_PROFILE = (
 async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser":
-                MISSING_MONIKER_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": MISSING_MONIKER_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -78,10 +73,8 @@ async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
 async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser":
-                EMPTY_MONIKER_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": EMPTY_MONIKER_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -94,10 +87,8 @@ async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
 async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser":
-                MALFORMED_PROFILE,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": MALFORMED_PROFILE,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
@@ -124,8 +115,7 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
     """Profile HTML missing -> returns verify value but no handle/moniker."""
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
             # profile URL intentionally absent
         }
     )
@@ -137,7 +127,7 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
-    monkeypatch
+    monkeypatch,
 ) -> None:
     """Moniker identical (case-insensitive) to handle should be suppressed (None)."""
     profile_same_moniker = (
@@ -148,10 +138,8 @@ async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
     )
     http = FakeHTTP(
         {
-            "https://robertsspaceindustries.com/citizens/TestUser/organizations":
-                ORG_HTML,
-            "https://robertsspaceindustries.com/citizens/TestUser":
-                profile_same_moniker,
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": profile_same_moniker,
         }
     )
     verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)

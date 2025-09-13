@@ -5,10 +5,10 @@ import time
 
 import discord
 from discord.ext import commands, tasks
+from services.db.database import Database
+from utils.logging import get_logger
 
-from helpers.database import Database
 from helpers.discord_api import channel_send_message
-from helpers.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -16,13 +16,155 @@ logger = get_logger(__name__)
 # ----------------------------
 # Leadership log
 # ----------------------------
+
+
+def canonicalize_status_for_display(status: str) -> str:
+    """
+    Convert internal status strings to canonical display format.
+
+    Args:
+        status: Internal status string (e.g., 'main', 'affiliate', 'non_member', 'unknown')
+
+    Returns:
+        Canonical display string: "Main", "Affiliate", or "Not a Member"
+    """
+    status_normalized = (status or "").lower().strip()
+
+    if status_normalized == "main":
+        return "Main"
+    elif status_normalized == "affiliate":
+        return "Affiliate"
+    elif status_normalized in ("non_member", "unknown"):
+        return "Not a Member"
+    else:
+        # Fallback for any unexpected status
+        return "Not a Member"
+
+
+def format_admin_recheck_message(
+    admin_display_name: str, user_id: int, old_status: str, new_status: str
+) -> tuple[str, bool]:
+    """
+    Format admin recheck message with exact specification.
+
+    Args:
+        admin_display_name: Display name of the admin who initiated the recheck
+        user_id: Discord user ID for mention
+        old_status: Previous status (internal format)
+        new_status: New status (internal format)
+
+    Returns:
+        tuple[str, bool]: (formatted_message, changed_bool)
+        - formatted_message: The formatted message string
+        - changed_bool: True if roles changed, False if no change
+    """
+    old_pretty = canonicalize_status_for_display(old_status)
+    new_pretty = canonicalize_status_for_display(new_status)
+
+    # Determine if there was actually a status change
+    changed = old_status != new_status
+
+    # Set emoji and status word based on whether status changed
+    if changed:
+        emoji = "🔁"
+        status_word = "Updated"
+        # Two-line format with status change
+        message = (
+            f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> {emoji} {status_word}\n"
+            f"Status: {old_pretty} → {new_pretty}"
+        )
+    else:
+        emoji = "🥺"
+        status_word = "No changes"
+        # Single-line format for no change
+        message = f"[Admin Check • Admin: {admin_display_name}] <@{user_id}> {emoji} {status_word}"
+
+    return message, changed
+
+
+async def send_admin_recheck_notification(
+    bot,
+    admin_display_name: str,
+    member: discord.Member,
+    old_status: str,
+    new_status: str,
+) -> tuple[bool, bool]:
+    """
+    Send admin recheck notification to admin announcements channel.
+
+    Args:
+        bot: Bot instance with config
+        admin_display_name: Display name of admin who initiated recheck
+        member: Discord member being rechecked
+        old_status: Previous status (internal format)
+        new_status: New status (internal format)
+
+    Returns:
+        tuple[bool, bool]: (success, changed) where success indicates if message was sent and changed indicates if roles changed
+    """
+    from services.config_service import ConfigService
+
+    # Use admin announce channel, fallback to leadership channel if not configured
+    try:
+        config_service = ConfigService()
+        admin_announce_channel_id = await config_service.get_global_setting(
+            "admin_announce_channel_id", None
+        )
+
+        # Fallback to leadership channel if admin announce channel not configured
+        if not admin_announce_channel_id:
+            config = bot.config
+            admin_announce_channel_id = config.get("channels", {}).get(
+                "leadership_announcement_channel_id"
+            )
+    except Exception as e:
+        logger.warning(f"Error getting admin announce channel config: {e}")
+        # Final fallback to leadership channel
+        config = bot.config
+        admin_announce_channel_id = config.get("channels", {}).get(
+            "leadership_announcement_channel_id"
+        )
+
+    if not admin_announce_channel_id:
+        logger.warning(
+            "No admin_announce_channel_id or leadership_announcement_channel_id configured for admin recheck notification"
+        )
+        return False, False
+
+    admin_channel = bot.get_channel(admin_announce_channel_id)
+    if not admin_channel:
+        logger.warning(
+            f"Admin announcement channel {admin_announce_channel_id} not found"
+        )
+        return False, False
+
+    try:
+        message, changed = format_admin_recheck_message(
+            admin_display_name=admin_display_name,
+            user_id=member.id,
+            old_status=old_status,
+            new_status=new_status,
+        )
+
+        await channel_send_message(admin_channel, message)
+
+        logger.info(
+            f"Admin recheck notification sent to {admin_channel.name}: {message.replace(chr(10), ' | ')}"
+        )
+
+        return True, changed
+    except Exception as e:
+        logger.warning(f"Failed to send admin recheck notification: {e}")
+        return False, False
+
+
 async def send_verification_announcements(
     bot,
     member: discord.Member,
     old_status: str,
     new_status: str,
     is_recheck: bool,
-    by_admin: str = None,
+    by_admin: str | None = None,
 ):
     """
     Posts verification/re-check logs to leadership channel.
@@ -184,7 +326,7 @@ class BulkAnnouncer(commands.Cog):
         self.max_mentions_per_message = max(self.max_mentions_per_message, 5)
         self.max_chars_per_message = min(self.max_chars_per_message, 1950)
 
-            # Daily timer
+        # Daily timer
         self.daily_flush.change_interval(
             time=datetime.time(
                 hour=self.hour_utc,
@@ -295,7 +437,7 @@ class BulkAnnouncer(commands.Cog):
             if not id_mention_pairs:
                 continue
 
-            for batch_ids, batch_mentions in self._build_batches(
+            for _batch_ids, batch_mentions in self._build_batches(
                 id_mention_pairs,
                 header=header,
                 footer=footer,
@@ -374,7 +516,7 @@ class BulkAnnouncer(commands.Cog):
 
                 # Enforce char cap (simulate before adding)
             if current_mentions:
-                prospective = current_mentions + [mention]
+                prospective = [*current_mentions, mention]
                 if msg_len(prospective) > max_chars:
                     batches.append((current_ids, current_mentions))
                     current_ids, current_mentions = [], []

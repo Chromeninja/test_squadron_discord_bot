@@ -1,6 +1,5 @@
 import pytest
-
-from helpers.database import Database
+from services.db.database import Database
 
 
 @pytest.mark.asyncio

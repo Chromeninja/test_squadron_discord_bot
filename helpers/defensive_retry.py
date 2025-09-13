@@ -1,4 +1,4 @@
-#helpers/defensive_retry.py
+# helpers/defensive_retry.py
 
 """
 Robust retry mechanisms with exponential backoff for external API calls.
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+
 class RetryConfig:
     """Configuration for retry behavior."""
 
@@ -30,7 +31,7 @@ class RetryConfig:
         base_delay: float = 1.0,
         max_delay: float = 60.0,
         exponential_base: float = 2.0,
-        jitter: bool = True
+        jitter: bool = True,
     ):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
@@ -40,7 +41,7 @@ class RetryConfig:
 
     def calculate_delay(self, attempt: int) -> float:
         """Calculate delay for given attempt number (0-indexed)."""
-        delay = self.base_delay * (self.exponential_base ** attempt)
+        delay = self.base_delay * (self.exponential_base**attempt)
         delay = min(delay, self.max_delay)
 
         if self.jitter:
@@ -50,6 +51,7 @@ class RetryConfig:
 
         return max(0, delay)
 
+
 # Predefined retry configurations for different use cases
 RETRY_CONFIGS = {
     "discord_api": RetryConfig(
@@ -57,30 +59,27 @@ RETRY_CONFIGS = {
         base_delay=1.0,
         max_delay=16.0,
         exponential_base=2.0,
-        jitter=True
+        jitter=True,
     ),
     "external_api": RetryConfig(
         max_attempts=5,
         base_delay=2.0,
         max_delay=120.0,
         exponential_base=2.0,
-        jitter=True
+        jitter=True,
     ),
     "database": RetryConfig(
-        max_attempts=3,
-        base_delay=0.5,
-        max_delay=8.0,
-        exponential_base=2.0,
-        jitter=True
+        max_attempts=3, base_delay=0.5, max_delay=8.0, exponential_base=2.0, jitter=True
     ),
     "quick": RetryConfig(
         max_attempts=2,
         base_delay=0.1,
         max_delay=1.0,
         exponential_base=2.0,
-        jitter=False
-    )
+        jitter=False,
+    ),
 }
+
 
 def is_retryable_error(error: Exception) -> bool:
     """Determine if an error is worth retrying."""
@@ -101,36 +100,37 @@ def is_retryable_error(error: Exception) -> bool:
             return False
 
     # Network errors - retry
-    if isinstance(error, (aiohttp.ClientError, asyncio.TimeoutError)):
+    if isinstance(error, aiohttp.ClientError | asyncio.TimeoutError):
         return True
 
     # Connection errors - retry
-    if isinstance(error, (ConnectionError, OSError)):
+    if isinstance(error, ConnectionError | OSError):
         return True
 
     # Unknown errors - be conservative, don't retry
     return False
+
 
 async def retry_async(
     func: Callable[..., Awaitable[T]],
     *args: Any,
     config: RetryConfig | None = None,
     config_name: str = "discord_api",
-    **kwargs: Any
+    **kwargs: Any,
 ) -> T:
     """
     Retry an async function with exponential backoff.
-    
+
     Args:
         func: The async function to retry
         *args: Arguments to pass to func
         config: Custom retry configuration
         config_name: Name of predefined config to use if config is None
         **kwargs: Keyword arguments to pass to func
-    
+
     Returns:
         The result of the successful function call
-    
+
     Raises:
         The last exception if all retries are exhausted
     """
@@ -159,10 +159,10 @@ async def retry_async(
 
             # Check if we should retry
             if not is_retryable_error(e):
-                logger.error(
+                logger.exception(
                     f"Non-retryable error for {func.__name__}: {type(e).__name__}: {e}"
                 )
-                raise e
+                raise
 
             # Don't delay on the last attempt
             if attempt < config.max_attempts - 1:
@@ -177,27 +177,31 @@ async def retry_async(
     )
     raise last_exception
 
+
 def retry_decorator(
-    config: RetryConfig | None = None,
-    config_name: str = "discord_api"
+    config: RetryConfig | None = None, config_name: str = "discord_api"
 ):
     """
     Decorator to add retry logic to async functions.
-    
+
     Example:
         @retry_decorator(config_name='external_api')
         async def fetch_rsi_profile(handle: str) -> dict:
             # Function that might fail
             pass
     """
+
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             return await retry_async(
                 func, *args, config=config, config_name=config_name, **kwargs
             )
+
         return wrapper
+
     return decorator
+
 
 # Convenience decorators for common cases
 discord_retry = retry_decorator(config_name="discord_api")
@@ -205,15 +209,12 @@ external_api_retry = retry_decorator(config_name="external_api")
 database_retry = retry_decorator(config_name="database")
 quick_retry = retry_decorator(config_name="quick")
 
+
 # Context manager for batch operations with circuit breaker
 class CircuitBreaker:
     """Simple circuit breaker to prevent cascade failures."""
 
-    def __init__(
-        self,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0
-    ):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failure_count = 0
@@ -223,7 +224,10 @@ class CircuitBreaker:
     def is_open(self) -> bool:
         """Check if circuit breaker is open (blocking calls)."""
         if self.state == "open":
-            if asyncio.get_event_loop().time() - self.last_failure_time > self.recovery_timeout:
+            if (
+                asyncio.get_event_loop().time() - self.last_failure_time
+                > self.recovery_timeout
+            ):
                 self.state = "half_open"
                 logger.info("Circuit breaker moving to half-open state")
                 return False
@@ -248,18 +252,17 @@ class CircuitBreaker:
                 f"Circuit breaker opened after {self.failure_count} failures"
             )
 
+
 # Global circuit breakers for different services
 CIRCUIT_BREAKERS = {
     "rsi_api": CircuitBreaker(failure_threshold=10, recovery_timeout=300.0),
     "discord_api": CircuitBreaker(failure_threshold=20, recovery_timeout=60.0),
-    "database": CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
+    "database": CircuitBreaker(failure_threshold=5, recovery_timeout=30.0),
 }
 
+
 async def with_circuit_breaker(
-    func: Callable[..., Awaitable[T]],
-    circuit_name: str,
-    *args: Any,
-    **kwargs: Any
+    func: Callable[..., Awaitable[T]], circuit_name: str, *args: Any, **kwargs: Any
 ) -> T:
     """Execute function with circuit breaker protection."""
     circuit = CIRCUIT_BREAKERS.get(circuit_name)
@@ -274,6 +277,6 @@ async def with_circuit_breaker(
         result = await func(*args, **kwargs)
         circuit.record_success()
         return result
-    except Exception as e:
+    except Exception:
         circuit.record_failure()
-        raise e
+        raise
