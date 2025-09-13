@@ -1054,17 +1054,6 @@ class VoiceService(BaseService):
             # Create the channel in the same category as the JTC channel
             category = jtc_channel.category
 
-            # Set up initial permissions (basic setup)
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(connect=True),
-                member: discord.PermissionOverwrite(
-                    connect=True,
-                    manage_channels=True,
-                    manage_permissions=True,
-                    priority_speaker=True,
-                ),
-            }
-
             # Determine user limit - use saved limit if available, otherwise JTC default
             if saved_settings and saved_settings.get("user_limit") is not None:
                 user_limit = saved_settings["user_limit"]
@@ -1087,14 +1076,32 @@ class VoiceService(BaseService):
                     message=f"Bot missing 'Manage Channels' permission in category '{category.name}'"
                 )
 
-            # Create the channel first with basic permissions and saved settings
+            # Create the channel without overwrites to inherit from parent category
             channel = await guild.create_voice_channel(
                 name=channel_name,
                 category=category,
-                overwrites=overwrites,
                 bitrate=jtc_channel.bitrate,
                 user_limit=user_limit,
             )
+
+            # Set user permissions only if bot's role is higher than member's role
+            try:
+                if bot_member.top_role > member.top_role:
+                    await channel.set_permissions(
+                        member,
+                        connect=True,
+                        manage_channels=True,
+                    )
+                    self.logger.debug(f"Set user permissions for {member.display_name} on channel {channel.name}")
+                else:
+                    self.logger.warning(
+                        f"Skipping permission override for {member.display_name} - bot role '{bot_member.top_role.name}' "
+                        f"is not higher than member role '{member.top_role.name}'"
+                    )
+            except discord.Forbidden as e:
+                self.logger.warning(f"Could not set permissions for {member.display_name}: {e}")
+            except Exception as e:
+                self.logger.exception(f"Unexpected error setting permissions for {member.display_name}: {e}")
 
             # Apply all saved settings from database after creation
             await enforce_permission_changes(
