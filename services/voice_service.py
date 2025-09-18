@@ -1063,11 +1063,11 @@ class VoiceService(BaseService):
             # Check permissions before attempting to create channel
             if category is None:
                 raise RuntimeError(f"JTC channel {jtc_channel.name} has no category")
-                
+
             bot_member = guild.get_member(self.bot.user.id)
             if bot_member is None:
                 raise RuntimeError("Bot member not found in guild")
-                
+
             # Check if bot has permissions to create channels in the category
             perms = category.permissions_for(bot_member)
             if not perms.manage_channels:

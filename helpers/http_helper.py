@@ -70,6 +70,11 @@ class HTTPClient:
                         )
                         # This is a permanent "gone" state for RSI handles; let callers react accordingly.
                         raise NotFoundError("404")
+                    if status == 403:
+                        logger.warning(
+                            f"Fetch {url} -> HTTP 403 (access forbidden), possible bot detection or rate limiting"
+                        )
+                        return None
                         # Treat other statuses as transient / generic failures
                     logger.warning(f"HTTP {status} for {url}")
                     return None
