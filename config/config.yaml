@@ -1,0 +1,80 @@
+bot:
+  prefix: []
+rate_limits:
+  max_attempts: 5
+  window_seconds: 1800  # 30 min
+  recheck_window_seconds: 300
+  task_queue_workers: 2    # Number of task queue workers
+  api_max_rate: 45        # API requests per time period
+  api_time_period: 1      # Time period in seconds
+organization:
+  name: "TEST Squadron - Best Squardon!" 
+
+channels:
+  verification_channel_id: 1313551608491282543  # Replace with your verification channel ID
+  public_announcement_channel_id: 1395475641805176952   # Replace with your public announcement channel ID
+  leadership_announcement_channel_id: 1395475681512652944 # Replace with your leadership announcement channel ID
+  bot_spam_channel_id: 1409175865115545702 # Bot spam channel for username change alerts
+
+roles:
+  bot_verified_role_id: 1313551309869416528     # Replace with your BotVerified role ID
+  main_role_id: 1313551051076665394            # Replace with your Main role ID
+  affiliate_role_id: 1313551109373165671       # Replace with your Affiliate role ID
+  non_member_role_id: 1313551221625192458      # Replace with your Non-Member role ID
+  bot_admins:
+    - "246604397155581954"
+
+  lead_moderators:
+    - "1174838659065847859"
+
+selectable_roles:
+- 1313551051076665394 #Main
+- 1313551109373165671 #Affiliate
+- 1313551221625192458 #Non-Member
+- 1313551309869416528 #BotVerified
+
+logging:
+  level: "INFO"  # Set to "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+
+voice:
+  cooldown_seconds: 5  # Cooldown period for voice channel creation (seconds)
+  expiry_days: 30      # Expiry period for inactive voice channel data (days)
+  delete_delay_seconds: 10  # Delay before deleting empty voice channels (seconds)
+  join_to_create_channels: {}  # Guild ID -> List of JTC channel IDs mapping
+
+database:
+  path: "TESTDatabase.db"
+
+bulk_announcement:
+  hour_utc: 21
+  threshold: 50                # flush immediately when pending >= 50
+  max_mentions_per_message: 50  # safer default than 80
+  max_chars_per_message: 1800   # protect under Discord 2000-char limit
+
+rsi:
+  # Polite client hints
+  user_agent: "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
+  # Global cap for ALL RSI HTTP calls (manual + auto)
+  requests_per_minute: 30
+
+auto_recheck:
+  enabled: true
+
+  # How often to recheck each category (days)
+  cadence_days:
+    main: 1
+    affiliate: 1
+    non_member: 1
+
+  # Spread scheduling to avoid thundering herds
+  jitter_hours: 12
+
+  # Batch processing
+  batch:
+    run_every_minutes: 1       # wake up hourly
+    max_users_per_run: 50       # re-check at most 50 users per run
+
+  # Backoff when RSI fetch fails (network, 5xx, etc.)
+  backoff:
+    base_minutes: 180           # 3 hours
+    max_minutes: 1440           # 24 hours
