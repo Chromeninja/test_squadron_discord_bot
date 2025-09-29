@@ -38,10 +38,7 @@ def rsi_session(test_config):
     return session
 
 
-@pytest.mark.skipif(
-    os.getenv('RSI_LIVE') != '1',
-    reason="RSI live tests require RSI_LIVE=1 environment variable"
-)
+@pytest.mark.integration
 class TestRSILiveProbe:
     """Live tests for RSI probe functionality."""
 
@@ -54,6 +51,9 @@ class TestRSILiveProbe:
 
     def test_session_creation(self, test_config):
         """Test that we can create a session with proper headers."""
+        if os.getenv('RSI_LIVE') != '1':
+            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
+
         session = create_session(test_config['user_agent'])
         assert session is not None
         assert 'User-Agent' in session.headers
@@ -63,6 +63,9 @@ class TestRSILiveProbe:
 
     def test_warmup_functionality(self, rsi_session):
         """Test that warmup request works."""
+        if os.getenv('RSI_LIVE') != '1':
+            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
+
         # Test warmup function directly
         result = warmup(rsi_session)
         # Warmup may or may not succeed, just verify it doesn't crash
@@ -71,6 +74,9 @@ class TestRSILiveProbe:
     @pytest.mark.parametrize('handle', TEST_HANDLES)
     def test_probe_handle(self, rsi_session, test_config, handle):
         """Test probing individual handles."""
+        if os.getenv('RSI_LIVE') != '1':
+            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
+
         # Use temporary directory for save_bodies if specified
         save_bodies_dir = None
         if test_config['save_bodies']:
@@ -154,6 +160,9 @@ class TestRSILiveProbe:
 
     def test_probe_all_handles(self, rsi_session, test_config):
         """Test probing all handles together and provide summary."""
+        if os.getenv('RSI_LIVE') != '1':
+            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
+
         # Use temporary directory for save_bodies if specified
         save_bodies_dir = None
         if test_config['save_bodies']:
@@ -216,16 +225,3 @@ class TestRSILiveProbe:
             assert 'endpoints' in result
             assert 'summary' in result
             assert len(result['endpoints']) >= 2  # At least citizen and org
-
-
-# Allow running this test file directly for debugging
-if __name__ == '__main__':
-    if os.getenv('RSI_LIVE') != '1':
-        print("Set RSI_LIVE=1 to run live RSI tests")
-        print("Optional environment variables:")
-        print("  RSI_UA='Mozilla/5.0 TESTBot'")
-        print("  RSI_TRY_EN=1")
-        print("  RSI_SAVE_BODIES=/path/to/save/dir")
-        sys.exit(1)
-
-    pytest.main([__file__, '-v'])

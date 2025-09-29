@@ -347,8 +347,8 @@ class TestVoiceOwnerCommand:
 
                     for guild_id, jtc_id, owner_id, voice_id, created_at in test_data:
                         await db.execute(
-                            "INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                            (guild_id, jtc_id, owner_id, voice_id, created_at),
+                            "INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (guild_id, jtc_id, owner_id, voice_id, created_at, created_at, 1),
                         )
                     await db.commit()
 

@@ -125,7 +125,7 @@ class TestVoiceReconciliation:
 
             # Verify channel was removed from database
             mock_db.execute.assert_called_with(
-                "DELETE FROM user_voice_channels WHERE voice_channel_id = ?", (111,)
+                "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?", (111,)
             )
             mock_db.commit.assert_called_once()
 

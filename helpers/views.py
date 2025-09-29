@@ -29,10 +29,10 @@ from helpers.permissions_helper import (
 )
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.token_manager import generate_token, token_store
+from helpers.voice_settings import fetch_channel_settings
 from helpers.voice_utils import (
     apply_voice_feature_toggle,
     create_voice_settings_embed,
-    fetch_channel_settings,
     format_channel_settings,
     get_user_channel,
     get_user_game_name,
@@ -57,7 +57,7 @@ async def _get_guild_and_jtc_for_user_channel(
     if guild_id is not None:
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT jtc_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ?",
+                "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
                 (user.id, guild_id, channel.id),
             )
             row = await cursor.fetchone()
@@ -410,7 +410,7 @@ class ChannelSettingsView(View):
         # Get the JTC channel ID from the database
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT jtc_channel_id FROM user_voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ?",
+                "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
                 (interaction.user.id, guild_id, channel.id),
             )
             row = await cursor.fetchone()

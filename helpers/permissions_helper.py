@@ -173,7 +173,7 @@ async def apply_permissions_changes(
     try:
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1",
                 (channel.id,),
             )
             row = await cursor.fetchone()
@@ -247,9 +247,9 @@ async def update_channel_owner(
             # Update with guild and JTC channel context
             await db.execute(
                 """
-                UPDATE user_voice_channels
+                UPDATE voice_channels
                 SET owner_id = ?
-                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ?
+                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
                 """,
                 (new_owner_id, channel.id, guild_id, jtc_channel_id),
             )

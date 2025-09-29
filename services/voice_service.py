@@ -21,6 +21,13 @@ from .base import BaseService
 from .config_service import ConfigService
 
 
+# Function alias for test patching - avoids circular import
+def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_id: int):
+    """Alias for test patching to avoid circular imports."""
+    from helpers.voice_settings import update_last_used_jtc_channel as real_func
+    return real_func(guild_id, user_id, jtc_channel_id)
+
+
 class VoiceService(BaseService):
     """
     Service for managing voice channels in a race-safe, predictable manner.
@@ -67,7 +74,7 @@ class VoiceService(BaseService):
 
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    "SELECT voice_channel_id FROM user_voice_channels"
+                    "SELECT voice_channel_id FROM voice_channels WHERE is_active = 1"
                 )
                 rows = await cursor.fetchall()
 
@@ -171,34 +178,50 @@ class VoiceService(BaseService):
     async def _ensure_voice_tables(self) -> None:
         """Ensure voice-related database tables exist."""
         async with Database.get_connection() as db:
-            # Enhanced voice channels table
+            # Enhanced voice channels table - supports multiple channels per owner per JTC
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     guild_id INTEGER NOT NULL,
                     jtc_channel_id INTEGER NOT NULL,
                     owner_id INTEGER NOT NULL,
-                    voice_channel_id INTEGER NOT NULL,
+                    voice_channel_id INTEGER NOT NULL UNIQUE,
                     created_at INTEGER DEFAULT (strftime('%s','now')),
                     last_activity INTEGER DEFAULT (strftime('%s','now')),
-                    is_active INTEGER DEFAULT 1,
-                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
+                    is_active INTEGER DEFAULT 1
                 )
             """
             )
 
-            # Voice channel settings
+            # Create indexes for efficient queries
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_voice_channels_guild_owner_active
+                ON voice_channels(guild_id, owner_id, is_active)
+            """
+            )
+
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_voice_channels_guild_jtc_active
+                ON voice_channels(guild_id, jtc_channel_id, is_active)
+            """
+            )
+
+            # Voice channel settings - now references voice channels by voice_channel_id
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_channel_settings (
                     guild_id INTEGER NOT NULL,
                     jtc_channel_id INTEGER NOT NULL,
                     owner_id INTEGER NOT NULL,
+                    voice_channel_id INTEGER NOT NULL,
                     setting_key TEXT NOT NULL,
                     setting_value TEXT,
-                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id, setting_key),
-                    FOREIGN KEY (guild_id, jtc_channel_id, owner_id)
-                    REFERENCES voice_channels(guild_id, jtc_channel_id, owner_id)
+                    PRIMARY KEY (guild_id, jtc_channel_id, owner_id, voice_channel_id, setting_key),
+                    FOREIGN KEY (voice_channel_id)
+                    REFERENCES voice_channels(voice_channel_id)
                     ON DELETE CASCADE
                 )
             """
@@ -252,6 +275,9 @@ class VoiceService(BaseService):
     ) -> tuple[bool, str | None]:
         """
         Check if a user can create a voice channel.
+        
+        For multi-channel support, we only check time-based cooldown,
+        not whether the user already has an existing channel.
 
         Args:
             guild_id: Discord guild ID
@@ -263,12 +289,7 @@ class VoiceService(BaseService):
         """
         self._ensure_initialized()
 
-        # Check if user already has a channel in this JTC
-        existing = await self.get_user_voice_channel(guild_id, jtc_channel_id, user_id)
-        if existing:
-            return False, "You already have a voice channel in this category"
-
-        # Check cooldown
+        # Only check time-based cooldown (removed existing channel check for multi-channel support)
         cooldown_seconds = await self.config_service.get_guild_setting(
             guild_id, "voice.cooldown_seconds", 5
         )
@@ -400,9 +421,7 @@ class VoiceService(BaseService):
                 success = await delete_channel(voice_channel_id, reason)
 
                 # Clean up database records
-                await self._cleanup_voice_channel_records(
-                    guild_id, jtc_channel_id, owner_id
-                )
+                await self.cleanup_by_channel_id(voice_channel_id)
 
                 self.logger.info(f"Deleted voice channel {voice_channel_id}: {reason}")
                 return success
@@ -459,8 +478,10 @@ class VoiceService(BaseService):
             Database.get_connection() as db,
             db.execute(
                 """
-                SELECT voice_channel_id FROM user_voice_channels
-                WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ?
+                SELECT voice_channel_id FROM voice_channels
+                WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                ORDER BY created_at DESC
+                LIMIT 1
             """,
                 (guild_id, jtc_channel_id, user_id),
             ) as cursor,
@@ -485,9 +506,9 @@ class VoiceService(BaseService):
             Database.get_connection() as db,
             db.execute(
                 """
-                SELECT voice_channel_id FROM user_voice_channels
-                WHERE guild_id = ? AND owner_id = ?
-                ORDER BY voice_channel_id DESC
+                SELECT voice_channel_id FROM voice_channels
+                WHERE guild_id = ? AND owner_id = ? AND is_active = 1
+                ORDER BY created_at DESC
                 LIMIT 1
             """,
                 (guild_id, user_id),
@@ -529,9 +550,7 @@ class VoiceService(BaseService):
             channel = guild.get_channel(voice_channel_id)
             if not channel:
                 # Channel no longer exists, clean up database
-                await self._cleanup_voice_channel_records(
-                    guild.id, jtc_channel_id, owner_id
-                )
+                await self.cleanup_by_channel_id(voice_channel_id)
                 cleaned_count += 1
                 self.logger.debug(
                     f"Cleaned up stale voice channel record: {voice_channel_id}"
@@ -595,28 +614,26 @@ class VoiceService(BaseService):
             )
             await db.commit()
 
-    async def _cleanup_voice_channel_records(
-        self, guild_id: int, jtc_channel_id: int, owner_id: int
-    ) -> None:
-        """Clean up all database records for a voice channel."""
+    async def cleanup_by_channel_id(self, voice_channel_id: int) -> None:
+        """Clean up database records for a specific voice channel."""
         async with Database.get_connection() as db:
             # Mark channel as inactive
             await db.execute(
                 """
                 UPDATE voice_channels
                 SET is_active = 0
-                WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ?
+                WHERE voice_channel_id = ?
             """,
-                (guild_id, jtc_channel_id, owner_id),
+                (voice_channel_id,),
             )
 
-            # Clean up settings
+            # Clean up settings for this specific channel
             await db.execute(
                 """
                 DELETE FROM voice_channel_settings
-                WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ?
+                WHERE voice_channel_id = ?
             """,
-                (guild_id, jtc_channel_id, owner_id),
+                (voice_channel_id,),
             )
 
             await db.commit()
@@ -879,7 +896,7 @@ class VoiceService(BaseService):
         try:
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    "SELECT 1 FROM user_voice_channels WHERE voice_channel_id = ? LIMIT 1",
+                    "SELECT 1 FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1 LIMIT 1",
                     (channel_id,),
                 )
                 return await cursor.fetchone() is not None
@@ -934,13 +951,13 @@ class VoiceService(BaseService):
             try:
                 async with Database.get_connection() as db:
                     await db.execute(
-                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
                         (channel_id,),
                     )
                     await db.commit()
             except Exception as e:
                 self.logger.exception(
-                    "Error removing channel %s from database", channel_id, exc_info=e
+                    "Error updating channel %s in database", channel_id, exc_info=e
                 )
             return
 
@@ -972,14 +989,14 @@ class VoiceService(BaseService):
             try:
                 async with Database.get_connection() as db:
                     await db.execute(
-                        "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                        "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
                         (channel_id,),
                     )
                     await db.commit()
                 self.logger.info(f"Cleaned up tracking for channel {channel_id}")
             except Exception as e:
                 self.logger.exception(
-                    "Error removing channel %s from database", channel_id, exc_info=e
+                    "Error updating channel %s in database", channel_id, exc_info=e
                 )
 
     async def _handle_join_to_create(
@@ -993,23 +1010,6 @@ class VoiceService(BaseService):
             self.logger.info(
                 f"{member.display_name} joined JTC channel {jtc_channel.name}"
             )
-
-            # Check if user already has ANY existing channel in the guild (from any JTC)
-            existing = await self._get_any_user_voice_channel(guild.id, member.id)
-            if existing:
-                # Move them to their existing channel
-                try:
-                    existing_channel = guild.get_channel(existing)
-                    if existing_channel:
-                        await member.move_to(existing_channel)
-                        self.logger.info(
-                            f"Moved {member.display_name} to existing channel"
-                        )
-                        return
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to move member to existing channel: {e}"
-                    )
 
             # Check cooldown before creating new channel
             can_create, reason = await self.can_create_voice_channel(
@@ -1040,16 +1040,32 @@ class VoiceService(BaseService):
     ) -> None:
         """Create a new voice channel for a user."""
         try:
+            self.logger.info(
+                f"Creating channel for {member.display_name} (ID: {member.id}) in guild {guild.id}, JTC channel {jtc_channel.id} ('{jtc_channel.name}')"
+            )
+
             # Load saved settings from database
             saved_settings = await self._load_channel_settings(
                 guild.id, jtc_channel.id, member.id
             )
 
+            # Debug logging to see what settings are loaded
+            if saved_settings:
+                self.logger.info(
+                    f"✅ Loaded settings for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}: {saved_settings}"
+                )
+            else:
+                self.logger.info(
+                    f"❌ No saved settings found for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}"
+                )
+
             # Generate channel name - use saved name if available, otherwise default
             if saved_settings and saved_settings.get("channel_name"):
                 channel_name = saved_settings["channel_name"]
+                self.logger.info(f"✅ Using saved channel name: '{channel_name}'")
             else:
                 channel_name = f"{member.display_name}'s Channel"
+                self.logger.info(f"➡️  Using default channel name: '{channel_name}'")
 
             # Create the channel in the same category as the JTC channel
             category = jtc_channel.category
@@ -1120,6 +1136,9 @@ class VoiceService(BaseService):
             # Update cooldown
             await self._update_cooldown(guild.id, jtc_channel.id, member.id)
 
+            # Update last used JTC channel for deterministic settings behavior
+            await update_last_used_jtc_channel(guild.id, member.id, jtc_channel.id)
+
             # Add to managed channels set
             self.managed_voice_channels.add(channel.id)
 
@@ -1183,13 +1202,14 @@ class VoiceService(BaseService):
         """Store user channel in database."""
         try:
             async with Database.get_connection() as db:
+                # Use the new voice_channels table with multiple channels support
                 await db.execute(
                     """
-                    INSERT OR REPLACE INTO user_voice_channels
-                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO voice_channels
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (guild_id, jtc_channel_id, user_id, channel_id, int(time.time())),
+                    (guild_id, jtc_channel_id, user_id, channel_id, int(time.time()), int(time.time()), 1),
                 )
                 await db.commit()
 
@@ -1367,7 +1387,7 @@ class VoiceService(BaseService):
 
 
         For each guild the bot is in:
-        - Fetch all rows from user_voice_channels
+        - Fetch all rows from voice_channels
         - Check if channels still exist
         - If not exists → remove DB row
         - If exists and has members or owner connected → keep and rehydrate management
@@ -1389,7 +1409,7 @@ class VoiceService(BaseService):
                 # Fetch all user voice channels across all guilds
                 cursor = await db.execute(
                     """SELECT guild_id, voice_channel_id, owner_id, jtc_channel_id, created_at
-                       FROM user_voice_channels"""
+                       FROM voice_channels WHERE is_active = 1"""
                 )
                 all_channels = await cursor.fetchall()
 
@@ -1469,7 +1489,7 @@ class VoiceService(BaseService):
             self.logger.info(f"Removing stale channel {voice_channel_id} from database")
             async with Database.get_connection() as db:
                 await db.execute(
-                    "DELETE FROM user_voice_channels WHERE voice_channel_id = ?",
+                    "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
                     (voice_channel_id,),
                 )
                 await db.commit()
@@ -1662,6 +1682,9 @@ class VoiceService(BaseService):
             Dictionary of settings or None if no settings exist
         """
         try:
+            self.logger.debug(
+                f"Loading channel settings for user {user_id} in guild {guild_id}, JTC {jtc_channel_id}"
+            )
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     """
@@ -1674,14 +1697,19 @@ class VoiceService(BaseService):
                 row = await cursor.fetchone()
 
                 if not row:
+                    self.logger.debug(
+                        f"No settings row found for user {user_id}, guild {guild_id}, JTC {jtc_channel_id}"
+                    )
                     return None
 
                 channel_name, user_limit, lock = row
-                return {
+                result = {
                     "channel_name": channel_name,
                     "user_limit": user_limit,
                     "lock": lock,
                 }
+                self.logger.debug(f"Found settings: {result}")
+                return result
 
         except Exception as e:
             self.logger.exception("Error loading channel settings", exc_info=e)
@@ -1781,12 +1809,12 @@ class VoiceService(BaseService):
 
             channel = user.voice.channel
 
-            # Check if this is a managed voice channel from user_voice_channels
+            # Check if this is a managed voice channel from voice_channels
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     """
-                    SELECT owner_id, jtc_channel_id FROM user_voice_channels
-                    WHERE guild_id = ? AND voice_channel_id = ?
+                    SELECT owner_id, jtc_channel_id FROM voice_channels
+                    WHERE guild_id = ? AND voice_channel_id = ? AND is_active = 1
                 """,
                     (guild_id, channel.id),
                 )
@@ -1865,11 +1893,12 @@ class VoiceService(BaseService):
         """
         try:
             async with Database.get_connection() as db:
-                # Find the user's voice channel from user_voice_channels table
+                # Find the user's voice channel from voice_channels table
                 cursor = await db.execute(
                     """
-                    SELECT voice_channel_id, jtc_channel_id FROM user_voice_channels
-                    WHERE guild_id = ? AND owner_id = ?
+                    SELECT voice_channel_id, jtc_channel_id FROM voice_channels
+                    WHERE guild_id = ? AND owner_id = ? AND is_active = 1
+                    ORDER BY created_at DESC LIMIT 1
                 """,
                     (guild_id, current_owner_id),
                 )
@@ -1935,7 +1964,7 @@ class VoiceService(BaseService):
 
     async def get_all_voice_channels(self, guild_id: int) -> list[dict[str, Any]]:
         """
-        Get all managed voice channels for a guild from user_voice_channels table.
+        Get all managed voice channels for a guild from voice_channels table.
 
         Args:
             guild_id: Discord guild ID
@@ -1948,8 +1977,8 @@ class VoiceService(BaseService):
                 cursor = await db.execute(
                     """
                     SELECT owner_id, voice_channel_id, created_at
-                    FROM user_voice_channels
-                    WHERE guild_id = ?
+                    FROM voice_channels
+                    WHERE guild_id = ? AND is_active = 1
                     ORDER BY created_at DESC
                 """,
                     (guild_id,),
@@ -2181,7 +2210,7 @@ class VoiceService(BaseService):
         try:
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    "SELECT voice_channel_id FROM user_voice_channels WHERE guild_id = ?",
+                    "SELECT voice_channel_id FROM voice_channels WHERE guild_id = ? AND is_active = 1",
                     (guild_id,),
                 )
                 rows = await cursor.fetchall()
@@ -2261,8 +2290,8 @@ class VoiceService(BaseService):
                 cursor = await db.execute(
                     f"""
                     SELECT voice_channel_id, jtc_channel_id
-                    FROM user_voice_channels
-                    WHERE guild_id = ? AND jtc_channel_id IN ({placeholders})
+                    FROM voice_channels
+                    WHERE guild_id = ? AND jtc_channel_id IN ({placeholders}) AND is_active = 1
                     """,
                     [guild_id, *stale_jtc_list],
                 )

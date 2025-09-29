@@ -105,8 +105,8 @@ class TestOwnershipTransferSanity:
         # Insert initial data
         async with Database.get_connection() as db:
             await db.execute(
-                """INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id)
-                   VALUES (?, ?, ?, ?)""",
+                """INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, is_active)
+                   VALUES (?, ?, ?, ?, 1)""",
                 (guild_id, jtc_channel_id, old_owner_id, voice_channel_id),
             )
 
@@ -127,15 +127,15 @@ class TestOwnershipTransferSanity:
 
         # Verify database changes
         async with Database.get_connection() as db:
-            # Verify user_voice_channels updated (authoritative table)
+            # Verify voice_channels updated (authoritative table)
             cursor = await db.execute(
-                "SELECT owner_id FROM user_voice_channels WHERE voice_channel_id = ?",
+                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ?",
                 (voice_channel_id,),
             )
             row = await cursor.fetchone()
             assert (
                 row[0] == new_owner_id
-            ), "user_voice_channels.owner_id should be updated"
+            ), "voice_channels.owner_id should be updated"
 
             # Verify settings transferred
             cursor = await db.execute(
