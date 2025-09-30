@@ -54,6 +54,8 @@ class HTTPClient:
           - Other 4xx/5xx: returns None (transient or generic failure)
         """
         async with self._sem:
+            # Add delay between requests to avoid bot detection
+            await asyncio.sleep(0.5)
             session = await self._get_session()
             try:
                 async with session.get(

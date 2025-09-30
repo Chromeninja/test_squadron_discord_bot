@@ -94,7 +94,8 @@ class MyBot(commands.Bot):
         # Initialize the HTTP client with configurable user-agent (falls back internally)
         rsi_cfg = (self.config or {}).get("rsi", {}) or {}
         ua = rsi_cfg.get("user_agent")
-        self.http_client = HTTPClient(user_agent=ua)
+        # Reduce concurrency to avoid rate limiting from RSI website
+        self.http_client = HTTPClient(user_agent=ua, concurrency=3, timeout=20)
 
         # Initialize role cache and warning tracking
         self.role_cache = {}

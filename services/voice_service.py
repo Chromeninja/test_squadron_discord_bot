@@ -1025,6 +1025,35 @@ class VoiceService(BaseService):
                 f"{member.display_name} joined JTC channel {jtc_channel.name}"
             )
 
+            # Check if user already has an active channel in this JTC
+            async with Database.get_connection() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT voice_channel_id FROM voice_channels 
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                """,
+                    (guild.id, jtc_channel.id, member.id),
+                )
+                existing_channel_row = await cursor.fetchone()
+                
+            if existing_channel_row:
+                existing_channel_id = existing_channel_row[0]
+                existing_channel = self.bot.get_channel(existing_channel_id)
+                if existing_channel:
+                    # Channel still exists, move user to it instead
+                    self.logger.info(
+                        f"User {member.display_name} already has active channel {existing_channel_id}, moving them there"
+                    )
+                    try:
+                        await member.move_to(existing_channel)
+                        return
+                    except discord.Forbidden:
+                        self.logger.warning(f"Cannot move {member.display_name} to existing channel {existing_channel_id}")
+                else:
+                    # Channel doesn't exist anymore, clean it up
+                    self.logger.info(f"Cleaning up stale channel record {existing_channel_id}")
+                    await self._cleanup_empty_channel(existing_channel_id)
+
             # Check cooldown before creating new channel
             can_create, reason = await self.can_create_voice_channel(
                 guild.id, jtc_channel.id, member.id
@@ -1220,7 +1249,17 @@ class VoiceService(BaseService):
         """Store user channel in database."""
         try:
             async with Database.get_connection() as db:
-                # Use the new voice_channels table with multiple channels support
+                # First, mark any existing inactive channels for this user in this JTC as completely inactive
+                await db.execute(
+                    """
+                    UPDATE voice_channels 
+                    SET is_active = 0 
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                """,
+                    (guild_id, jtc_channel_id, user_id),
+                )
+                
+                # Now insert the new channel record
                 await db.execute(
                     """
                     INSERT INTO voice_channels
