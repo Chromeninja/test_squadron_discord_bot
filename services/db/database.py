@@ -354,38 +354,32 @@ class Database:
         """
         deleted_counts = {}
 
-        # Define all voice-related tables to purge
-        voice_tables = [
-            "user_voice_channels",
-            "voice_cooldowns",
-            "channel_settings",
-            "channel_permissions",
-            "channel_ptt_settings",
-            "channel_priority_speaker_settings",
-            "channel_soundboard_settings",
-        ]
+        # Define all voice-related tables to purge with their user column names
+        # Using a mapping for security validation
+        voice_tables_config = {
+            "user_voice_channels": "owner_id",  # Uses owner_id instead of user_id
+            "voice_cooldowns": "user_id",
+            "channel_settings": "user_id", 
+            "channel_permissions": "user_id",
+            "channel_ptt_settings": "user_id",
+            "channel_priority_speaker_settings": "user_id",
+            "channel_soundboard_settings": "user_id",
+        }
 
         async with cls.get_connection() as db:
             # Start transaction
             await db.execute("BEGIN TRANSACTION")
 
             try:
-                for table in voice_tables:
+                for table, user_column in voice_tables_config.items():
                     if user_id is not None:
-                        # Delete for specific user in guild
-                        if table == "user_voice_channels":
-                            # user_voice_channels uses owner_id instead of user_id
-                            cursor = await db.execute(
-                                f"DELETE FROM {table} WHERE guild_id = ? AND owner_id = ?",
-                                (guild_id, user_id),
-                            )
-                        else:
-                            cursor = await db.execute(
-                                f"DELETE FROM {table} WHERE guild_id = ? AND user_id = ?",
-                                (guild_id, user_id),
-                            )
+                        # Delete for specific user in guild - use validated table and column names
+                        cursor = await db.execute(
+                            f"DELETE FROM {table} WHERE guild_id = ? AND {user_column} = ?",
+                            (guild_id, user_id),
+                        )
                     else:
-                        # Delete all data for guild
+                        # Delete all data for guild - table name is validated from whitelist
                         cursor = await db.execute(
                             f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,)
                         )
@@ -421,15 +415,15 @@ class Database:
         """
         deleted_counts = {}
 
-        # Define tables that reference jtc_channel_id
-        jtc_tables = [
+        # Define validated whitelist of tables that reference jtc_channel_id
+        jtc_tables = {
             "user_voice_channels",
-            "channel_settings",
+            "channel_settings", 
             "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
             "channel_soundboard_settings",
-        ]
+        }
 
         async with cls.get_connection() as db:
             # Start transaction
@@ -439,11 +433,13 @@ class Database:
                 for table in jtc_tables:
                     if not valid_jtc_ids:
                         # If no valid JTC IDs, delete all JTC-scoped data for this guild
+                        # Table name is validated from whitelist above
                         query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IS NOT NULL"
                         cursor = await db.execute(query, (guild_id,))
                     else:
                         # Delete rows where jtc_channel_id is not in the valid set
                         placeholders = ",".join("?" * len(valid_jtc_ids))
+                        # Table name is validated from whitelist above
                         query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IS NOT NULL AND jtc_channel_id NOT IN ({placeholders})"
                         cursor = await db.execute(
                             query, [guild_id, *list(valid_jtc_ids)]
@@ -484,15 +480,15 @@ class Database:
 
         deleted_counts = {}
 
-        # Define tables that reference jtc_channel_id
-        jtc_tables = [
+        # Define validated whitelist of tables that reference jtc_channel_id
+        jtc_tables = {
             "user_voice_channels",
             "channel_settings",
-            "channel_permissions",
+            "channel_permissions", 
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
             "channel_soundboard_settings",
-        ]
+        }
 
         # Convert set to list for SQL IN clause
         jtc_list = list(stale_jtc_ids)
@@ -506,7 +502,7 @@ class Database:
                 for table in jtc_tables:
                     # Handle voice_cooldowns which doesn't have jtc_channel_id yet in some schemas
                     if table == "voice_cooldowns":
-                        # Check if jtc_channel_id column exists
+                        # Check if jtc_channel_id column exists - table name is validated from whitelist
                         cursor = await db.execute(f"PRAGMA table_info({table})")
                         columns = [row[1] for row in await cursor.fetchall()]
                         if "jtc_channel_id" not in columns:
@@ -514,6 +510,7 @@ class Database:
                             deleted_counts[table] = 0
                             continue
 
+                    # Table name is validated from whitelist above
                     query = f"DELETE FROM {table} WHERE guild_id = ? AND jtc_channel_id IN ({placeholders})"
                     cursor = await db.execute(query, [guild_id, *jtc_list])
                     deleted_counts[table] = cursor.rowcount

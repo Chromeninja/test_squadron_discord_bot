@@ -534,8 +534,23 @@ async def cleanup_legacy_user_voice_data(user_id: int) -> None:
         ("voice_cooldowns", "user_id"),
     ]
 
+    # Validate table and column names against whitelist for security
+    valid_tables_columns = {
+        "channel_permissions": "user_id",
+        "channel_ptt_settings": "user_id", 
+        "channel_priority_speaker_settings": "user_id",
+        "channel_soundboard_settings": "user_id",
+        "voice_cooldowns": "user_id",
+    }
+    
     async with Database.get_connection() as db:
         for table, column in tables_to_delete:
+            # Security check: validate table and column names
+            if valid_tables_columns.get(table) != column:
+                logger.error(f"Invalid table/column combination: {table}.{column}")
+                continue
+                
+            # Safe to use string formatting since we validated against whitelist
             await db.execute(f"DELETE FROM {table} WHERE {column} = ?", (user_id,))
 
         await db.commit()

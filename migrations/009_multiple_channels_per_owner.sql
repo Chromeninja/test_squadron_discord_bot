@@ -31,8 +31,9 @@ CREATE TABLE IF NOT EXISTS voice_channels_new (
 );
 
 -- Create indexes for efficient queries
-CREATE INDEX IF NOT EXISTS idx_voice_channels_new_guild_owner_active
-ON voice_channels_new(guild_id, owner_id, is_active);
+-- owner_id first for better selectivity since each user typically has few channels
+CREATE INDEX IF NOT EXISTS idx_voice_channels_new_owner_guild_active
+ON voice_channels_new(owner_id, guild_id, is_active);
 
 CREATE INDEX IF NOT EXISTS idx_voice_channels_new_guild_jtc_active
 ON voice_channels_new(guild_id, jtc_channel_id, is_active);
