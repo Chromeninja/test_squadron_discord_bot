@@ -48,9 +48,17 @@ class VoiceService(BaseService):
         # Track managed voice channels like the old code
         self.managed_voice_channels: set[int] = set()
 
+        # Debug logging configuration - defaults to False for production
+        self.debug_logging_enabled = False
+
     async def _initialize_impl(self) -> None:
         """Initialize voice service."""
         await self._ensure_voice_tables()
+
+        # Load debug logging configuration
+        self.debug_logging_enabled = await self.config_service.get_global_setting(
+            "voice_debug_logging_enabled", False
+        )
 
         # Load existing managed channels
         await self._load_managed_channels()
@@ -1049,22 +1057,25 @@ class VoiceService(BaseService):
             )
 
             # Debug logging to see what settings are loaded
-            if saved_settings:
-                self.logger.info(
-                    f"✅ Loaded settings for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}: {saved_settings}"
-                )
-            else:
-                self.logger.info(
-                    f"❌ No saved settings found for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}"
-                )
+            if self.debug_logging_enabled:
+                if saved_settings:
+                    self.logger.debug(
+                        f"✅ Loaded settings for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}: {saved_settings}"
+                    )
+                else:
+                    self.logger.debug(
+                        f"❌ No saved settings found for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}"
+                    )
 
             # Generate channel name - use saved name if available, otherwise default
             if saved_settings and saved_settings.get("channel_name"):
                 channel_name = saved_settings["channel_name"]
-                self.logger.info(f"✅ Using saved channel name: '{channel_name}'")
+                if self.debug_logging_enabled:
+                    self.logger.debug(f"✅ Using saved channel name: '{channel_name}'")
             else:
                 channel_name = f"{member.display_name}'s Channel"
-                self.logger.info(f"➡️  Using default channel name: '{channel_name}'")
+                if self.debug_logging_enabled:
+                    self.logger.debug(f"➡️  Using default channel name: '{channel_name}'")
 
             # Create the channel in the same category as the JTC channel
             category = jtc_channel.category
@@ -2288,15 +2299,17 @@ class VoiceService(BaseService):
             if not stale_jtc_list:
                 return {"deleted_channels": [], "failed_channels": [], "errors": []}
 
+            # Build parameterized query to avoid SQL injection
             placeholders = ",".join("?" * len(stale_jtc_list))
+            query = f"""
+                SELECT voice_channel_id, jtc_channel_id
+                FROM voice_channels
+                WHERE guild_id = ? AND jtc_channel_id IN ({placeholders}) AND is_active = 1
+            """
 
             async with Database.get_connection() as db:
                 cursor = await db.execute(
-                    f"""
-                    SELECT voice_channel_id, jtc_channel_id
-                    FROM voice_channels
-                    WHERE guild_id = ? AND jtc_channel_id IN ({placeholders}) AND is_active = 1
-                    """,
+                    query,
                     [guild_id, *stale_jtc_list],
                 )
                 stale_managed_channels = await cursor.fetchall()

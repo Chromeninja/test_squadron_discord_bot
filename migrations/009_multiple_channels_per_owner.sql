@@ -3,6 +3,17 @@
 
 BEGIN TRANSACTION;
 
+-- Safety check: Abort if new schema already exists to prevent conflicts
+-- Check if voice_channels already has the new schema (id column + autoincrement)
+SELECT CASE 
+    WHEN EXISTS (
+        SELECT 1 FROM sqlite_master 
+        WHERE type = 'table' AND name = 'voice_channels'
+        AND sql LIKE '%id INTEGER PRIMARY KEY AUTOINCREMENT%'
+    )
+    THEN RAISE(ABORT, 'Migration 009 already applied: voice_channels table already has new schema')
+END;
+
 -- First, check if we need to migrate from the old schema
 -- If voice_channels table exists with PRIMARY KEY (guild_id, jtc_channel_id, owner_id),
 -- we need to migrate the data
@@ -60,6 +71,15 @@ WHERE EXISTS (
 )
 AND voice_channel_id NOT IN (SELECT voice_channel_id FROM voice_channels_new);
 
+-- Verify data migration was successful before dropping old table
+SELECT CASE 
+    WHEN (SELECT COUNT(*) FROM voice_channels_new) < (
+        SELECT COUNT(*) FROM voice_channels 
+        WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'voice_channels')
+    )
+    THEN RAISE(ABORT, 'Data migration failed: voice_channels_new has fewer rows than voice_channels')
+END;
+
 -- Drop old table and rename new one
 DROP TABLE IF EXISTS voice_channels;
 ALTER TABLE voice_channels_new RENAME TO voice_channels;
@@ -98,6 +118,13 @@ WHERE EXISTS (
     SELECT 1 FROM sqlite_master 
     WHERE type = 'table' AND name = 'voice_channel_settings'
 );
+
+-- Verify settings migration was successful before dropping old table
+SELECT CASE 
+    WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'voice_channel_settings')
+    AND (SELECT COUNT(*) FROM voice_channel_settings_new) < (SELECT COUNT(*) FROM voice_channel_settings)
+    THEN RAISE(ABORT, 'Settings migration failed: voice_channel_settings_new has fewer rows than voice_channel_settings')
+END;
 
 -- Drop old settings table and rename new one
 DROP TABLE IF EXISTS voice_channel_settings;

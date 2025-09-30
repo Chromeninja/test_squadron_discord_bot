@@ -77,8 +77,8 @@ class TestStrictScoping:
         calls = mock_db_connection.get_connection_calls()
         for call in calls:
             query = call[0][0]
-            params = call[0][1]
             if "WHERE" in query:
+                params = call[0][1]
                 # All queries should have guild_id, jtc_channel_id, user_id
                 assert guild_id in params
                 assert jtc_channel_id in params
@@ -196,8 +196,8 @@ class TestStrictScoping:
             calls = mock_conn.execute.call_args_list
             for call in calls:
                 query = call[0][0]
-                params = call[0][1]
                 if "WHERE" in query:
+                    params = call[0][1]
                     # All queries should have guild_id, jtc_channel_id, user_id
                     assert guild_id in params
                     assert jtc_channel_id in params

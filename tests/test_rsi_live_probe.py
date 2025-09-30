@@ -172,55 +172,74 @@ class TestRSILiveProbe:
                 for handle in self.TEST_HANDLES
             ]
 
-        # Use temporary directory for save_bodies if specified
-        if test_config['save_bodies']:
-            with TemporaryDirectory() as tmpdir:
-                results = probe_all_handles(tmpdir)
-        else:
-            results = probe_all_handles()
+        # Get probe results using helper method
+        results = self._execute_probe_with_config(probe_all_handles, test_config)
 
-        # Generate summary using new structure
+        # Analyze and print summary using helper method
+        summary_stats = self._analyze_probe_results(results, test_config)
+
+        # Test always passes - we're just diagnosing issues
+        assert len(results) == len(self.TEST_HANDLES)
+        self._validate_results_structure(results)
+
+    def _execute_probe_with_config(self, probe_function, test_config):
+        """Helper method to execute probe with or without temporary directory."""
+        save_bodies = test_config['save_bodies']
+        if save_bodies:
+            with TemporaryDirectory() as tmpdir:
+                return probe_function(tmpdir)
+        return probe_function()
+
+    def _analyze_probe_results(self, results, test_config):
+        """Helper method to analyze probe results and print summary."""
         total_handles = len(results)
-        handles_with_403 = 0
-        handles_with_5xx = 0
-        handles_with_tiny_responses = 0
-        handles_with_warnings = 0
+        handles_with_403 = sum(1 for r in results if r['summary']['has_403'])
+        handles_with_5xx = sum(1 for r in results if r['summary']['has_5xx'])
+        handles_with_tiny_responses = sum(1 for r in results if r['summary']['has_tiny'])
+        handles_with_warnings = sum(1 for r in results if r['summary']['total_warnings'] > 0)
 
         print("\n📊 RSI Live Probe Summary:")
         print(f"   Total handles tested: {total_handles}")
         print(f"   User-Agent: {test_config['user_agent']}")
         print(f"   Try /en/ paths: {'Yes' if test_config['try_en'] else 'No'}")
 
-        for result in results:
-            handle = result['handle']
-            summary = result['summary']
-            result['endpoints']
-
-            if summary['has_403']:
-                handles_with_403 += 1
-                print(f"   🚨 {handle}: HTTP 403 detected")
-
-            if summary['has_5xx']:
-                handles_with_5xx += 1
-                print(f"   🚨 {handle}: HTTP 5xx detected")
-
-            if summary['has_tiny']:
-                handles_with_tiny_responses += 1
-                print(f"   ⚠️  {handle}: Tiny response detected")
-
-            if summary['total_warnings'] > 0:
-                handles_with_warnings += 1
-                print(f"   ⚠️  {handle}: {summary['total_warnings']} warning(s)")
+        # Print individual handle issues
+        self._print_handle_issues(results)
 
         print(f"   Handles with 403 errors: {handles_with_403}")
         print(f"   Handles with 5xx errors: {handles_with_5xx}")
         print(f"   Handles with tiny responses: {handles_with_tiny_responses}")
         print(f"   Handles with warnings: {handles_with_warnings}")
 
-        # Test always passes - we're just diagnosing issues
-        assert len(results) == len(self.TEST_HANDLES)
+        return {
+            'total': total_handles,
+            'handles_with_403': handles_with_403,
+            'handles_with_5xx': handles_with_5xx,
+            'handles_with_tiny_responses': handles_with_tiny_responses,
+            'handles_with_warnings': handles_with_warnings,
+        }
 
-        # Ensure all results have the expected structure
+    def _print_handle_issues(self, results):
+        """Helper method to print individual handle issues."""
+        for result in results:
+            handle = result['handle']
+            summary = result['summary']
+
+            error_messages = []
+            if summary['has_403']:
+                error_messages.append(f"   🚨 {handle}: HTTP 403 detected")
+            if summary['has_5xx']:
+                error_messages.append(f"   🚨 {handle}: HTTP 5xx detected")
+            if summary['has_tiny']:
+                error_messages.append(f"   ⚠️  {handle}: Tiny response detected")
+            if summary['total_warnings'] > 0:
+                error_messages.append(f"   ⚠️  {handle}: {summary['total_warnings']} warning(s)")
+
+            for message in error_messages:
+                print(message)
+
+    def _validate_results_structure(self, results):
+        """Helper method to validate results structure."""
         for result in results:
             assert 'handle' in result
             assert 'endpoints' in result
