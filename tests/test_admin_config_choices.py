@@ -57,7 +57,7 @@ class TestConfigSchema:
         assert "must be at least 0" in error
 
         # Test above maximum
-        is_valid, error, coerced = ConfigSchema.validate_value(
+        is_valid, error, _coerced = ConfigSchema.validate_value(
             "voice.cooldown_seconds", "5000"
         )
         assert is_valid is False
@@ -65,7 +65,7 @@ class TestConfigSchema:
 
     def test_validate_value_int_type_error(self):
         """Test integer validation with invalid type."""
-        is_valid, error, coerced = ConfigSchema.validate_value(
+        is_valid, error, _coerced = ConfigSchema.validate_value(
             "voice.cooldown_seconds", "not_a_number"
         )
 
@@ -96,7 +96,7 @@ class TestConfigSchema:
 
     def test_validate_value_bool_error(self):
         """Test boolean validation with invalid values."""
-        is_valid, error, coerced = ConfigSchema.validate_value(
+        is_valid, error, _coerced = ConfigSchema.validate_value(
             "features.auto_role", "maybe"
         )
 
@@ -114,7 +114,7 @@ class TestConfigSchema:
 
     def test_validate_value_unknown_key(self):
         """Test validation with unknown configuration key."""
-        is_valid, error, coerced = ConfigSchema.validate_value("unknown.key", "value")
+        is_valid, error, _coerced = ConfigSchema.validate_value("unknown.key", "value")
 
         assert is_valid is False
         assert "Unknown configuration key" in error
@@ -133,7 +133,7 @@ class TestConfigSchema:
 
     def test_validate_value_list_int_invalid_json(self):
         """Test list<int> validation with invalid JSON."""
-        is_valid, error, coerced = ConfigSchema.validate_value(
+        is_valid, error, _coerced = ConfigSchema.validate_value(
             "roles.bot_admins", "[123, invalid"
         )
 
@@ -142,7 +142,7 @@ class TestConfigSchema:
 
     def test_validate_value_list_int_invalid_element(self):
         """Test list<int> validation with invalid element type."""
-        is_valid, error, coerced = ConfigSchema.validate_value(
+        is_valid, error, _coerced = ConfigSchema.validate_value(
             "roles.bot_admins", '[123, "text"]'
         )
 

@@ -13,5 +13,4 @@ def test_smoke_import():
 
     # Import a config module
 
-    # Test passes if all imports succeed
-    assert True
+    # Test passes if all imports succeed without exceptions

@@ -92,7 +92,7 @@ async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
             "https://robertsspaceindustries.com/citizens/TestUser": MALFORMED_PROFILE,
         }
     )
-    verify_value, cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
+    verify_value, _cased_handle, moniker = await rv.is_valid_rsi_handle("TestUser", http)
     # Handle should still be found (CaseHandle) absence due to malformed
     # structure may null it
     assert verify_value == 1

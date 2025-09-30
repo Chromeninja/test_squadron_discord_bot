@@ -171,8 +171,8 @@ class TestMultipleChannelsPerOwner:
         new_channel = MockVoiceChannel(channel_id=77777, name="TestUser's Channel")
 
         with patch.object(guild, 'create_voice_channel', return_value=new_channel) as mock_create:
-            with patch('helpers.voice_permissions.enforce_permission_changes') as mock_enforce:
-                with patch('helpers.discord_api.channel_send_message') as mock_send:
+            with patch('helpers.voice_permissions.enforce_permission_changes'):
+                with patch('helpers.discord_api.channel_send_message'):
                     # Mock cooldown check to allow creation
                     with patch.object(voice_service, 'can_create_voice_channel', return_value=(True, None)):
                         # Call the JTC handler
@@ -187,7 +187,7 @@ class TestMultipleChannelsPerOwner:
                         # Check database has both channels
                         async with Database.get_connection() as db:
                             cursor = await db.execute(
-                                """SELECT COUNT(*) FROM voice_channels 
+                                """SELECT COUNT(*) FROM voice_channels
                                    WHERE guild_id = ? AND owner_id = ? AND is_active = 1""",
                                 (12345, 11111)
                             )
@@ -198,7 +198,7 @@ class TestMultipleChannelsPerOwner:
     @pytest.mark.asyncio
     async def test_cleanup_by_channel_id_only_affects_specific_channel(self, voice_service_with_bot):
         """Test that cleanup_by_channel_id only affects the specific channel."""
-        voice_service, mock_bot = voice_service_with_bot
+        voice_service, _mock_bot = voice_service_with_bot
 
         # Create multiple channels for the same user
         async with Database.get_connection() as db:
@@ -277,7 +277,7 @@ class TestMultipleChannelsPerOwner:
     @pytest.mark.asyncio
     async def test_get_user_voice_channel_returns_latest_for_jtc(self, voice_service_with_bot):
         """Test that get_user_voice_channel returns the most recent channel for a JTC."""
-        voice_service, mock_bot = voice_service_with_bot
+        voice_service, _mock_bot = voice_service_with_bot
 
         # Create multiple channels for the same user and JTC
         base_time = int(time.time())

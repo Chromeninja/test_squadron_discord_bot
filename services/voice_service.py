@@ -275,7 +275,7 @@ class VoiceService(BaseService):
     ) -> tuple[bool, str | None]:
         """
         Check if a user can create a voice channel.
-        
+
         For multi-channel support, we only check time-based cooldown,
         not whether the user already has an existing channel.
 
@@ -415,7 +415,7 @@ class VoiceService(BaseService):
                     )
                     return False
 
-                guild_id, jtc_channel_id, owner_id = row
+                guild_id, _jtc_channel_id, _owner_id = row
 
                 # Delete from Discord
                 success = await delete_channel(voice_channel_id, reason)
@@ -435,9 +435,9 @@ class VoiceService(BaseService):
     async def handle_channel_deleted(self, guild_id: int, channel_id: int) -> None:
         """
         Handle when a voice channel is deleted externally (e.g., by Discord or manual deletion).
-        
+
         This cleans up database records and removes the channel from managed tracking.
-        
+
         Args:
             guild_id: The guild ID where the channel was deleted
             channel_id: The ID of the deleted channel
@@ -545,7 +545,7 @@ class VoiceService(BaseService):
         ):
             voice_channels = await cursor.fetchall()
 
-        for voice_channel_id, jtc_channel_id, owner_id in voice_channels:
+        for voice_channel_id, _jtc_channel_id, _owner_id in voice_channels:
             # Check if channel still exists on Discord
             channel = guild.get_channel(voice_channel_id)
             if not channel:
@@ -567,15 +567,14 @@ class VoiceService(BaseService):
         self, guild_id: int, jtc_channel_id: int, user_id: int, cooldown_seconds: int
     ) -> bool:
         """Check if a user is on cooldown for voice channel creation."""
-        async with Database.get_connection() as db:
-            async with db.execute(
-                """
+        async with Database.get_connection() as db, db.execute(
+            """
                 SELECT timestamp FROM voice_cooldowns
                 WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
             """,
-                (guild_id, jtc_channel_id, user_id),
-            ) as cursor:
-                row = await cursor.fetchone()
+            (guild_id, jtc_channel_id, user_id),
+        ) as cursor:
+            row = await cursor.fetchone()
 
         if not row:
             return False
@@ -1172,7 +1171,7 @@ class VoiceService(BaseService):
         except discord.Forbidden as e:
             # Specific handling for permission errors
             if "50013" in str(e) or "Missing Permissions" in str(e):
-                self.logger.error(
+                self.logger.exception(
                     f"Permission denied creating channel for {member.display_name} in '{jtc_channel.category.name if jtc_channel.category else 'no category'}': {e}"
                 )
                 try:
@@ -2283,7 +2282,12 @@ class VoiceService(BaseService):
 
         try:
             # Find managed channels that belong to stale JTC IDs
-            stale_jtc_list = list(stale_jtc_ids)
+            stale_jtc_list = [int(x) for x in stale_jtc_ids]  # defensive cast
+
+            # Short-circuit if no stale JTC channels to avoid IN () syntax
+            if not stale_jtc_list:
+                return {"deleted_channels": [], "failed_channels": [], "errors": []}
+
             placeholders = ",".join("?" * len(stale_jtc_list))
 
             async with Database.get_connection() as db:

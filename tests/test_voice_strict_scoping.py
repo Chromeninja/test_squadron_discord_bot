@@ -1,7 +1,7 @@
 """
 Tests for strict voice settings scoping per JTC/guild/user.
 
-Ensures voice settings are properly scoped to (guild_id, jtc_channel_id, user_id) and 
+Ensures voice settings are properly scoped to (guild_id, jtc_channel_id, user_id) and
 there's no unintended bleeding between JTCs.
 """
 
@@ -23,8 +23,7 @@ from services.voice_service import VoiceService
 @pytest.fixture
 def mock_bot():
     """Create a mock Discord bot."""
-    bot = MagicMock(spec=discord.Client)
-    return bot
+    return MagicMock(spec=discord.Client)
 
 
 @pytest.fixture
@@ -72,7 +71,7 @@ class TestStrictScoping:
         mock_db_connection.set_fetchone_result(("Test Channel", 10, 1))
         mock_db_connection.set_fetchall_result([(user_id, "user", "permit")])
 
-        settings = await voice_service._load_channel_settings(guild_id, jtc_channel_id, user_id)
+        await voice_service._load_channel_settings(guild_id, jtc_channel_id, user_id)
 
         # Verify queries are made with strict scoping
         calls = mock_db_connection.get_connection_calls()
@@ -191,7 +190,7 @@ class TestStrictScoping:
             mock_cursor.fetchone.return_value = ("Test Channel", 10, 1)
             mock_cursor.fetchall.return_value = [(user_id, "user", "permit")]
 
-            settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
+            await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
 
             # Verify all queries use strict scoping
             calls = mock_conn.execute.call_args_list

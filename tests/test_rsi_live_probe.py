@@ -19,6 +19,19 @@ sys.path.insert(0, str(tools_dir))
 
 from rsi_probe import create_session, probe_handle, warmup
 
+# Mark entire module as integration tests
+pytestmark = pytest.mark.integration
+
+# Env check for opt-in
+RUN_LIVE = os.getenv("RSI_LIVE") == "1"
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_not_opted_in():
+    """Skip integration tests unless RSI_LIVE=1 is set."""
+    if not RUN_LIVE:
+        pytest.skip("Set RSI_LIVE=1 to run live probe tests.")
+
 
 @pytest.fixture
 def test_config():
@@ -51,9 +64,6 @@ class TestRSILiveProbe:
 
     def test_session_creation(self, test_config):
         """Test that we can create a session with proper headers."""
-        if os.getenv('RSI_LIVE') != '1':
-            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
-
         session = create_session(test_config['user_agent'])
         assert session is not None
         assert 'User-Agent' in session.headers
@@ -63,9 +73,6 @@ class TestRSILiveProbe:
 
     def test_warmup_functionality(self, rsi_session):
         """Test that warmup request works."""
-        if os.getenv('RSI_LIVE') != '1':
-            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
-
         # Test warmup function directly
         result = warmup(rsi_session)
         # Warmup may or may not succeed, just verify it doesn't crash
@@ -74,9 +81,6 @@ class TestRSILiveProbe:
     @pytest.mark.parametrize('handle', TEST_HANDLES)
     def test_probe_handle(self, rsi_session, test_config, handle):
         """Test probing individual handles."""
-        if os.getenv('RSI_LIVE') != '1':
-            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
-
         # Use temporary directory for save_bodies if specified
         save_bodies_dir = None
         if test_config['save_bodies']:
@@ -160,23 +164,20 @@ class TestRSILiveProbe:
 
     def test_probe_all_handles(self, rsi_session, test_config):
         """Test probing all handles together and provide summary."""
-        if os.getenv('RSI_LIVE') != '1':
-            pytest.skip("RSI live tests require RSI_LIVE=1 environment variable")
+
+        # Helper function to probe all handles
+        def probe_all_handles(save_dir=None):
+            return [
+                probe_handle(rsi_session, handle, test_config['try_en'], save_dir)
+                for handle in self.TEST_HANDLES
+            ]
 
         # Use temporary directory for save_bodies if specified
-        save_bodies_dir = None
         if test_config['save_bodies']:
             with TemporaryDirectory() as tmpdir:
-                save_bodies_dir = tmpdir
-                results = []
-                for handle in self.TEST_HANDLES:
-                    result = probe_handle(rsi_session, handle, test_config['try_en'], save_bodies_dir)
-                    results.append(result)
+                results = probe_all_handles(tmpdir)
         else:
-            results = []
-            for handle in self.TEST_HANDLES:
-                result = probe_handle(rsi_session, handle, test_config['try_en'], save_bodies_dir)
-                results.append(result)
+            results = probe_all_handles()
 
         # Generate summary using new structure
         total_handles = len(results)
@@ -193,7 +194,7 @@ class TestRSILiveProbe:
         for result in results:
             handle = result['handle']
             summary = result['summary']
-            endpoints = result['endpoints']
+            result['endpoints']
 
             if summary['has_403']:
                 handles_with_403 += 1

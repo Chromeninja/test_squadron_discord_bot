@@ -120,10 +120,10 @@ def mock_db_connection():
     """
     Patches Database.get_connection() to yield an async mock connection
     with helpers to set cursor.fetchone.return_value.
-    
+
     Patches both the direct import path and the services.voice_service path
     to ensure compatibility with all test patterns.
-    
+
     Returns a helper object with methods to configure the mock database responses.
     """
 
@@ -149,9 +149,8 @@ def mock_db_connection():
             """Assert a specific query was called with parameters."""
             calls = self.get_connection_calls()
             for call in calls:
-                if call[0][0] == query:
-                    if params is None or call[0][1] == params:
-                        return True
+                if call[0][0] == query and (params is None or call[0][1] == params):
+                    return True
             raise AssertionError(f"Query not found: {query} with params {params}")
 
     helper = MockDBHelper()

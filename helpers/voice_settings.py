@@ -9,7 +9,6 @@ from typing import Any
 
 import discord
 
-from helpers.voice_utils import get_user_channel
 from services.db.database import Database
 from utils.logging import get_logger
 
@@ -276,8 +275,8 @@ async def _get_last_used_jtc_channel(guild_id: int, user_id: int) -> int | None:
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """
-                SELECT last_used_jtc_channel_id 
-                FROM user_jtc_preferences 
+                SELECT last_used_jtc_channel_id
+                FROM user_jtc_preferences
                 WHERE guild_id = ? AND user_id = ?
                 """,
                 (guild_id, user_id),

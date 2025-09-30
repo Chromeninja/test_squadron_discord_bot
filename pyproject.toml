@@ -102,6 +102,8 @@ addopts = [
     "--cov-report=html",
     "--cov-report=xml",
     "--cov-fail-under=44",
+    "-m", "not integration",
+    "-q",
 ]
 asyncio_mode = "auto"
 markers = [

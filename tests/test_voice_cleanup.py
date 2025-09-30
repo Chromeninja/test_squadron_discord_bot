@@ -173,7 +173,7 @@ class TestVoiceCleanup:
         self, voice_service_with_bot
     ):
         """Test startup reconciliation removes missing channels from database."""
-        voice_service, mock_bot = voice_service_with_bot
+        voice_service, _mock_bot = voice_service_with_bot
 
         # Add non-existent channels to database
         missing_channel_ids = [99997, 99998, 99999]
@@ -419,14 +419,13 @@ class TestVoiceCleanup:
         # Set very short cleanup delay for testing
         with patch.object(
             voice_service.config_service, "get_global_setting", return_value=0.1
-        ):
-            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
-                # Schedule cleanup and wait
-                await voice_service._schedule_channel_cleanup(channel.id)
-                await asyncio.sleep(0.2)  # Wait for cleanup to complete
+        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+            # Schedule cleanup and wait
+            await voice_service._schedule_channel_cleanup(channel.id)
+            await asyncio.sleep(0.2)  # Wait for cleanup to complete
 
-                # Verify channel was deleted
-                mock_delete.assert_called_once()
+            # Verify channel was deleted
+            mock_delete.assert_called_once()
 
         # Verify cleanup
         assert channel.id not in voice_service.managed_voice_channels
@@ -453,19 +452,18 @@ class TestVoiceCleanup:
         # Set very short cleanup delay for testing
         with patch.object(
             voice_service.config_service, "get_global_setting", return_value=0.1
-        ):
-            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
-                # Schedule cleanup
-                await voice_service._schedule_channel_cleanup(channel.id)
+        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+            # Schedule cleanup
+            await voice_service._schedule_channel_cleanup(channel.id)
 
-                # Add a member before cleanup occurs
-                mock_member = MagicMock()
-                channel.members.append(mock_member)
+            # Add a member before cleanup occurs
+            mock_member = MagicMock()
+            channel.members.append(mock_member)
 
-                await asyncio.sleep(0.2)  # Wait for cleanup attempt
+            await asyncio.sleep(0.2)  # Wait for cleanup attempt
 
-                # Verify channel was NOT deleted
-                mock_delete.assert_not_called()
+            # Verify channel was NOT deleted
+            mock_delete.assert_not_called()
 
         # Channel should still be managed
         assert channel.id in voice_service.managed_voice_channels
@@ -565,7 +563,7 @@ class TestVoiceCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_with_channel_id_none_channel(self, voice_service_with_bot):
         """Test cleanup with channel ID when bot.get_channel returns None."""
-        voice_service, mock_bot = voice_service_with_bot
+        voice_service, _mock_bot = voice_service_with_bot
 
         # Add channel to managed channels and database without adding to bot
         channel_id = 12349

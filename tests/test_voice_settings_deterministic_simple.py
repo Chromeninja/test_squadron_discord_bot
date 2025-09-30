@@ -4,6 +4,7 @@ Simple tests for deterministic voice settings core functionality.
 These tests focus on the database functions and core logic without complex mocking.
 """
 
+from contextlib import nullcontext as does_not_raise
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -182,10 +183,5 @@ class TestDeterministicVoiceSettingsCore:
             assert result2 == []
 
             # update_last_used_jtc_channel should not raise exception
-            try:
+            with does_not_raise():
                 await update_last_used_jtc_channel(guild_id, user_id, 55555)
-                # If we get here, the function handled the error gracefully
-                assert True
-            except Exception:
-                # If exception is raised, test fails
-                assert False, "Function should handle errors gracefully"

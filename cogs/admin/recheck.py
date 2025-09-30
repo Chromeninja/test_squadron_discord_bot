@@ -135,7 +135,7 @@ class AutoRecheck(commands.Cog):
             _start = _t.time()
             before_snap = await snapshot_member_state(self.bot, member)
             # Apply roles; get (old_status, new_status)
-            old_status, new_status = await assign_roles(
+            _old_status, _new_status = await assign_roles(
                 member,
                 verify_value,
                 cased_handle,

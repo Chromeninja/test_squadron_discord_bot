@@ -119,7 +119,7 @@ class Database:
                 new_cols = []
                 select_cols = []
                 for r in rows:
-                    cid, name, col_type, notnull, dflt_value, pk = r
+                    _cid, name, col_type, notnull, dflt_value, pk = r
                     if name == "last_recheck":
                         continue
                     col_def = f"{name} {col_type or 'TEXT'}"
