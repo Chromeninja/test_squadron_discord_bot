@@ -46,7 +46,7 @@ jobs:
           if [ -f requirements-dev.txt ]; then
             pip install -r requirements-dev.txt
           fi
-          pip install pytest pytest-asyncio pytest-cov coverage psutil
+          pip install pytest pytest-asyncio pytest-cov coverage psutil requests
 
       - name: Copy example config for tests
         run: |
