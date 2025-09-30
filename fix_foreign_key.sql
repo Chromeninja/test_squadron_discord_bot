@@ -1,8 +1,14 @@
 -- Fix foreign key constraint issue after voice_channels schema change
 BEGIN TRANSACTION;
 
--- Create new voice_channel_settings table with correct foreign key
-CREATE TABLE voice_channel_settings_new (
+-- Temporarily disable foreign key constraints
+PRAGMA foreign_keys = OFF;
+
+-- Drop the problematic table (it's empty anyway)
+DROP TABLE voice_channel_settings;
+
+-- Recreate it with the correct foreign key reference
+CREATE TABLE voice_channel_settings (
     guild_id INTEGER NOT NULL,
     jtc_channel_id INTEGER NOT NULL,
     owner_id INTEGER NOT NULL,
@@ -15,19 +21,11 @@ CREATE TABLE voice_channel_settings_new (
     ON DELETE CASCADE
 );
 
--- Copy existing data (if any)
-INSERT INTO voice_channel_settings_new 
-SELECT guild_id, jtc_channel_id, owner_id, voice_channel_id, setting_key, setting_value 
-FROM voice_channel_settings;
-
--- Drop the old table
-DROP TABLE voice_channel_settings;
-
--- Rename the new table
-ALTER TABLE voice_channel_settings_new RENAME TO voice_channel_settings;
-
--- Create indexes for performance
+-- Create indexes
 CREATE INDEX idx_voice_channel_settings_channel_id ON voice_channel_settings(voice_channel_id);
 CREATE INDEX idx_voice_channel_settings_owner ON voice_channel_settings(guild_id, owner_id);
+
+-- Re-enable foreign key constraints
+PRAGMA foreign_keys = ON;
 
 COMMIT;
