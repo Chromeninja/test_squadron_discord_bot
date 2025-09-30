@@ -126,11 +126,12 @@ async def test_get_user_channel() -> None:
         result = await get_user_channel(bot, user, 1, 101)
         assert result == channel
 
-        # Check SQL query - should not have ORDER BY
+        # Check SQL query - should include is_active filter and ORDER BY LIMIT
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels "
+            "SELECT voice_channel_id FROM voice_channels "
             "WHERE owner_id = ? AND guild_id = ? AND "
-            "jtc_channel_id = ?",
+            "jtc_channel_id = ? AND is_active = 1 "
+            "ORDER BY created_at DESC LIMIT 1",
             (1001, 1, 101),
         )
 
@@ -141,11 +142,11 @@ async def test_get_user_channel() -> None:
         result = await get_user_channel(bot, user, 1)
         assert result == channel
 
-        # Check SQL query - should have ORDER BY
+        # Check SQL query - should include is_active filter and ORDER BY LIMIT
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels "
-            "WHERE owner_id = ? AND guild_id = ? ORDER BY "
-            "created_at DESC",
+            "SELECT voice_channel_id FROM voice_channels "
+            "WHERE owner_id = ? AND guild_id = ? AND is_active = 1 "
+            "ORDER BY created_at DESC LIMIT 1",
             (1001, 1),
         )
 
@@ -156,9 +157,10 @@ async def test_get_user_channel() -> None:
         result = await get_user_channel(bot, user)
         assert result == channel
 
-        # Check SQL query - should have ORDER BY
+        # Check SQL query - should include is_active filter and ORDER BY LIMIT
         db.execute.assert_called_with(
-            "SELECT voice_channel_id FROM user_voice_channels "
-            "WHERE owner_id = ? ORDER BY created_at DESC",
+            "SELECT voice_channel_id FROM voice_channels "
+            "WHERE owner_id = ? AND is_active = 1 "
+            "ORDER BY created_at DESC LIMIT 1",
             (1001,),
         )

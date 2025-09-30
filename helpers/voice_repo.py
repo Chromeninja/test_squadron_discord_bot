@@ -34,8 +34,9 @@ async def get_user_channel_id(
         cursor = await db.execute(
             """
             SELECT voice_channel_id
-            FROM user_voice_channels
-            WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ?
+            FROM voice_channels
+            WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
+            ORDER BY created_at DESC LIMIT 1
             """,
             (owner_id, guild_id, jtc_channel_id),
         )
@@ -61,8 +62,8 @@ async def get_owner_id_by_channel(voice_channel_id: int) -> int | None:
             cursor = await db.execute(
                 """
                 SELECT owner_id
-                FROM user_voice_channels
-                WHERE voice_channel_id = ?
+                FROM voice_channels
+                WHERE voice_channel_id = ? AND is_active = 1
                 """,
                 (voice_channel_id,),
             )
@@ -305,8 +306,8 @@ async def transfer_channel_owner(
             # Get current owner
             cursor = await db.execute(
                 """
-                SELECT owner_id FROM user_voice_channels
-                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ?
+                SELECT owner_id FROM voice_channels
+                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
                 """,
                 (voice_channel_id, guild_id, jtc_channel_id),
             )
@@ -322,9 +323,9 @@ async def transfer_channel_owner(
             # Transfer channel ownership
             await db.execute(
                 """
-                UPDATE user_voice_channels
+                UPDATE voice_channels
                 SET owner_id = ?
-                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ?
+                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
                 """,
                 (new_owner_id, voice_channel_id, guild_id, jtc_channel_id),
             )
@@ -490,7 +491,7 @@ async def cleanup_user_voice_data(
         user_id: The Discord user ID
     """
     tables_to_delete = [
-        "user_voice_channels",
+        "voice_channels",
         "channel_settings",
         "channel_permissions",
         "channel_ptt_settings",
@@ -501,8 +502,8 @@ async def cleanup_user_voice_data(
 
     async with Database.get_connection() as db:
         for table in tables_to_delete:
-            # user_voice_channels uses owner_id instead of user_id
-            id_column = "owner_id" if table == "user_voice_channels" else "user_id"
+            # voice_channels uses owner_id instead of user_id
+            id_column = "owner_id" if table == "voice_channels" else "user_id"
 
             await db.execute(
                 f"""
@@ -524,7 +525,7 @@ async def cleanup_legacy_user_voice_data(user_id: int) -> None:
         user_id: The Discord user ID
     """
     tables_to_delete = [
-        ("user_voice_channels", "owner_id"),
+        ("voice_channels", "owner_id"),
         ("channel_settings", "user_id"),
         ("channel_permissions", "user_id"),
         ("channel_ptt_settings", "user_id"),
@@ -533,8 +534,23 @@ async def cleanup_legacy_user_voice_data(user_id: int) -> None:
         ("voice_cooldowns", "user_id"),
     ]
 
+    # Validate table and column names against whitelist for security
+    valid_tables_columns = {
+        "channel_permissions": "user_id",
+        "channel_ptt_settings": "user_id", 
+        "channel_priority_speaker_settings": "user_id",
+        "channel_soundboard_settings": "user_id",
+        "voice_cooldowns": "user_id",
+    }
+    
     async with Database.get_connection() as db:
         for table, column in tables_to_delete:
+            # Security check: validate table and column names
+            if valid_tables_columns.get(table) != column:
+                logger.error(f"Invalid table/column combination: {table}.{column}")
+                continue
+                
+            # Safe to use string formatting since we validated against whitelist
             await db.execute(f"DELETE FROM {table} WHERE {column} = ?", (user_id,))
 
         await db.commit()

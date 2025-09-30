@@ -32,11 +32,10 @@ async def migrate_config_to_guild_settings() -> None:
         await Database.initialize()
 
         # Get all guilds from the database (if any exist)
-        async with Database.get_connection() as db:
-            async with db.execute(
-                "SELECT DISTINCT guild_id FROM guild_registry"
-            ) as cursor:
-                guild_ids = [row[0] async for row in cursor]
+        async with Database.get_connection() as db, db.execute(
+            "SELECT DISTINCT guild_id FROM guild_registry"
+        ) as cursor:
+            guild_ids = [row[0] async for row in cursor]
 
         if not guild_ids:
             logger.warning("No guilds found in database. Skipping migration.")

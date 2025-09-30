@@ -235,7 +235,7 @@ class TestVoiceService:
         user_id = 111
 
         # Test creation when allowed
-        can_create, reason = await voice_service.can_create_voice_channel(
+        can_create, _reason = await voice_service.can_create_voice_channel(
             guild_id, jtc_channel_id, user_id
         )
 

@@ -60,8 +60,8 @@ async def fetch_channel_settings(
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     """
-                    SELECT jtc_channel_id FROM user_voice_channels
-                    WHERE voice_channel_id = ? AND owner_id = ?
+                    SELECT jtc_channel_id FROM voice_channels
+                    WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1
                 """,
                     (user.voice.channel.id, user.id),
                 )
@@ -101,23 +101,47 @@ async def fetch_channel_settings(
                             result["settings"] = settings
                             result["jtc_channel_id"] = jtc_channel_id
             else:
-                # For user list: get all saved settings for this user
-                all_settings = await _get_all_user_jtc_settings(guild_id, user.id)
-                if all_settings and not result["settings"]:
-                    # Get the most recent or first available settings
-                    jtc_channel_id = next(iter(all_settings.keys()))
-                    settings = all_settings[jtc_channel_id]
-                    result["settings"] = settings
-                    result["jtc_channel_id"] = jtc_channel_id
-
-                    embed = await _create_settings_embed(
-                        user,
-                        settings,
-                        None,
-                        is_active=False,
-                        jtc_channel_id=jtc_channel_id,
+                # For user list: get saved settings using last used JTC for deterministic behavior
+                last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
+                if last_used_jtc:
+                    # Load settings for last used JTC
+                    settings = await _get_all_user_settings(
+                        guild_id, last_used_jtc, user.id
                     )
-                    result["embeds"].append(embed)
+                    if settings:
+                        result["settings"] = settings
+                        result["jtc_channel_id"] = last_used_jtc
+
+                        embed = await _create_settings_embed(
+                            user,
+                            settings,
+                            None,
+                            is_active=False,
+                            jtc_channel_id=last_used_jtc,
+                        )
+                        result["embeds"].append(embed)
+                else:
+                    # No last used JTC found, get available JTCs for selection
+                    available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
+                    if available_jtcs:
+                        # Create an informative embed prompting user to select a JTC
+                        embed = discord.Embed(
+                            title="🎙️ Multiple JTC Channels Found",
+                            description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
+                            color=discord.Color.orange()
+                        )
+
+                        jtc_list = []
+                        for jtc_id in available_jtcs:
+                            jtc_list.append(f"• JTC Channel ID: {jtc_id}")
+
+                        embed.add_field(
+                            name="Available JTC Channels",
+                            value="\n".join(jtc_list),
+                            inline=False
+                        )
+                        result["embeds"].append(embed)
+                    # If no available JTCs, result stays empty (no settings)
 
         return result
 
@@ -243,6 +267,62 @@ async def _get_all_user_jtc_settings(
         logger.exception("Error getting all user JTC settings", exc_info=e)
 
     return all_settings
+
+
+async def _get_last_used_jtc_channel(guild_id: int, user_id: int) -> int | None:
+    """Get the last used JTC channel for a user in a guild."""
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT last_used_jtc_channel_id
+                FROM user_jtc_preferences
+                WHERE guild_id = ? AND user_id = ?
+                """,
+                (guild_id, user_id),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.exception("Error getting last used JTC channel", exc_info=e)
+        return None
+
+
+async def _get_available_jtc_channels(guild_id: int, user_id: int) -> list[int]:
+    """Get all JTC channels where a user has settings."""
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT DISTINCT jtc_channel_id
+                FROM channel_settings
+                WHERE guild_id = ? AND user_id = ?
+                ORDER BY jtc_channel_id
+                """,
+                (guild_id, user_id),
+            )
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+    except Exception as e:
+        logger.exception("Error getting available JTC channels", exc_info=e)
+        return []
+
+
+async def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_id: int) -> None:
+    """Update the last used JTC channel for a user."""
+    try:
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO user_jtc_preferences
+                (guild_id, user_id, last_used_jtc_channel_id, updated_at)
+                VALUES (?, ?, ?, strftime('%s','now'))
+                """,
+                (guild_id, user_id, jtc_channel_id),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.exception("Error updating last used JTC channel", exc_info=e)
 
 
 async def _create_settings_embed(

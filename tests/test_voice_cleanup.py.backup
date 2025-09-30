@@ -89,10 +89,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel.id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel.id, 1234567890),
             )
             await db.commit()
 
@@ -139,10 +139,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel.id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel.id, 1234567890),
             )
             await db.commit()
 
@@ -173,7 +173,7 @@ class TestVoiceCleanup:
         self, voice_service_with_bot
     ):
         """Test startup reconciliation removes missing channels from database."""
-        voice_service, _mock_bot = voice_service_with_bot
+        voice_service, mock_bot = voice_service_with_bot
 
         # Add non-existent channels to database
         missing_channel_ids = [99997, 99998, 99999]
@@ -183,10 +183,10 @@ class TestVoiceCleanup:
                 await db.execute(
                     """
                     INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (12345, 67890, 11111 + i, channel_id, 1234567890, 1234567890, 1),
+                    (12345, 67890, 11111 + i, channel_id, 1234567890),
                 )
             await db.commit()
 
@@ -197,9 +197,6 @@ class TestVoiceCleanup:
         # Verify missing channels are not in managed set
         for channel_id in missing_channel_ids:
             assert channel_id not in voice_service.managed_voice_channels
-
-        # Run reconciliation to properly handle missing channels
-        await voice_service.reconcile_all_guilds_on_ready()
 
         # _load_managed_channels should NOT delete DB rows - it defers to reconciliation
         # Verify database rows are still there (this is correct behavior)
@@ -212,14 +209,6 @@ class TestVoiceCleanup:
             assert (
                 count[0] == 3
             )  # Should still be 3 since _load_managed_channels defers to reconciliation
-
-            # Assert that is_active is 0 for missing channels after reconciliation
-            cursor = await db.execute(
-                "SELECT is_active FROM voice_channels WHERE voice_channel_id IN (?, ?, ?)",
-                missing_channel_ids,
-            )
-            is_active_values = await cursor.fetchall()
-            assert all(row[0] == 0 for row in is_active_values), "is_active should be 0 for missing channels after reconciliation"
 
     @pytest.mark.asyncio
     async def test_startup_reconciliation_active_channels(self, voice_service_with_bot):
@@ -240,10 +229,10 @@ class TestVoiceCleanup:
                 await db.execute(
                     """
                     INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (12345, 67890, 11111 + i, channel_id, 1234567890, 1234567890, 1),
+                    (12345, 67890, 11111 + i, channel_id, 1234567890),
                 )
                 await db.commit()
 
@@ -284,10 +273,10 @@ class TestVoiceCleanup:
                 await db.execute(
                     """
                     INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (12345, 67890, 22222 + i, channel_id, 1234567890, 1234567890, 1),
+                    (12345, 67890, 22222 + i, channel_id, 1234567890),
                 )
                 await db.commit()
 
@@ -327,10 +316,10 @@ class TestVoiceCleanup:
                 await db.execute(
                     """
                     INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (12345, 67890, 33333 + i, channel_id, 1234567890, 1234567890, 1),
+                    (12345, 67890, 33333 + i, channel_id, 1234567890),
                 )
                 await db.commit()
 
@@ -384,10 +373,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 44444, channel_id, 1234567890, 1234567890, 1),
+                (12345, 67890, 44444, channel_id, 1234567890),
             )
             await db.commit()
 
@@ -420,23 +409,24 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel.id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel.id, 1234567890),
             )
             await db.commit()
 
         # Set very short cleanup delay for testing
         with patch.object(
             voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
-            # Schedule cleanup and wait
-            await voice_service._schedule_channel_cleanup(channel.id)
-            await asyncio.sleep(0.2)  # Wait for cleanup to complete
+        ):
+            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+                # Schedule cleanup and wait
+                await voice_service._schedule_channel_cleanup(channel.id)
+                await asyncio.sleep(0.2)  # Wait for cleanup to complete
 
-            # Verify channel was deleted
-            mock_delete.assert_called_once()
+                # Verify channel was deleted
+                mock_delete.assert_called_once()
 
         # Verify cleanup
         assert channel.id not in voice_service.managed_voice_channels
@@ -463,18 +453,19 @@ class TestVoiceCleanup:
         # Set very short cleanup delay for testing
         with patch.object(
             voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
-            # Schedule cleanup
-            await voice_service._schedule_channel_cleanup(channel.id)
+        ):
+            with patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+                # Schedule cleanup
+                await voice_service._schedule_channel_cleanup(channel.id)
 
-            # Add a member before cleanup occurs
-            mock_member = MagicMock()
-            channel.members.append(mock_member)
+                # Add a member before cleanup occurs
+                mock_member = MagicMock()
+                channel.members.append(mock_member)
 
-            await asyncio.sleep(0.2)  # Wait for cleanup attempt
+                await asyncio.sleep(0.2)  # Wait for cleanup attempt
 
-            # Verify channel was NOT deleted
-            mock_delete.assert_not_called()
+                # Verify channel was NOT deleted
+                mock_delete.assert_not_called()
 
         # Channel should still be managed
         assert channel.id in voice_service.managed_voice_channels
@@ -494,10 +485,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel.id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel.id, 1234567890),
             )
             await db.commit()
 
@@ -539,10 +530,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel.id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel.id, 1234567890),
             )
             await db.commit()
 
@@ -574,7 +565,7 @@ class TestVoiceCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_with_channel_id_none_channel(self, voice_service_with_bot):
         """Test cleanup with channel ID when bot.get_channel returns None."""
-        voice_service, _mock_bot = voice_service_with_bot
+        voice_service, mock_bot = voice_service_with_bot
 
         # Add channel to managed channels and database without adding to bot
         channel_id = 12349
@@ -583,10 +574,10 @@ class TestVoiceCleanup:
             await db.execute(
                 """
                 INSERT INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (12345, 67890, 11111, channel_id, 1234567890, 1234567890, 1),
+                (12345, 67890, 11111, channel_id, 1234567890),
             )
             await db.commit()
 

@@ -217,7 +217,7 @@ class HandleModal(Modal, title="Verification"):
         before_snap = await snapshot_member_state(self.bot, member)
 
         # Verification successful
-        old_status, assigned_role_type = await assign_roles(
+        _old_status, assigned_role_type = await assign_roles(
             member,
             verify_value_check,
             cased_handle_used,

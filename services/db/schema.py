@@ -61,7 +61,32 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
-    # User voice channels
+    # Voice channels (new table replacing user_voice_channels)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS voice_channels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            jtc_channel_id INTEGER NOT NULL,
+            owner_id INTEGER NOT NULL,
+            voice_channel_id INTEGER NOT NULL UNIQUE,
+            created_at INTEGER DEFAULT (strftime('%s','now')),
+            last_activity INTEGER DEFAULT (strftime('%s','now')),
+            is_active INTEGER DEFAULT 1
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_voice_channels_owner ON voice_channels(owner_id, guild_id, jtc_channel_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_voice_channels_active ON voice_channels(guild_id, jtc_channel_id, is_active)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_voice_channels_voice_channel_id ON voice_channels(voice_channel_id)"
+    )
+
+    # User voice channels (legacy table - keeping for backward compatibility)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS user_voice_channels (
@@ -229,6 +254,22 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             last_error TEXT
         )
         """
+    )
+
+    # User JTC preferences (for deterministic inactive channel selection)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_jtc_preferences (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            last_used_jtc_channel_id INTEGER NOT NULL,
+            updated_at INTEGER DEFAULT (strftime('%s','now')),
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_jtc_preferences_updated ON user_jtc_preferences(updated_at)"
     )
 
     logger.info("Schema initialization complete")

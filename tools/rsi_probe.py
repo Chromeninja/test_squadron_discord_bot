@@ -8,16 +8,16 @@ Mirrors the bot's production HTTP calls exactly - same User-Agent, timeout, and 
 Examples:
   Production parity test (default):
     python tools/rsi_probe.py --handles HyperZonic,OverlordCustomsLLC,squeakytoy --no-warmup
-  
+
   Test with old User-Agent:
     python tools/rsi_probe.py --handles HyperZonic --no-warmup --user-agent "Mozilla/5.0 TESTBot"
-  
+
   Canonical-path experiment:
     python tools/rsi_probe.py --handles HyperZonic --no-warmup --try-en --save-bodies rsi_out
-  
+
   Comprehensive 403 detection tests:
     python tools/rsi_probe.py --test-403 --handles HANDLE1,HANDLE2,HANDLE3
-  
+
   Live tests:
     python -m pip install requests pytest
     RSI_LIVE=1 pytest -v tests/test_rsi_live_probe.py
@@ -45,7 +45,7 @@ def create_session(user_agent: str = "TEST-Squadron-Verification-Bot/1.0 (+https
 def fetch(session: requests.Session, url: str) -> dict[str, Any]:
     """
     Centralized GET helper with 15s timeout and production-like settings.
-    
+
     Returns:
         Dict with status, body, headers, history, final_url, content_type, redirected
     """
@@ -79,10 +79,10 @@ def warmup(session: requests.Session) -> bool:
     """
     Perform a warm-up GET on the RSI homepage.
     Only used when --no-warmup is not set.
-    
+
     Args:
         session: The requests session to use
-        
+
     Returns:
         True if warmup was successful, False otherwise
     """
@@ -267,13 +267,13 @@ def probe_handle(session: requests.Session, handle: str, try_en: bool = False,
                 save_bodies_dir: str | None = None) -> dict[str, Any]:
     """
     Probe a specific RSI handle for citizen and organization pages.
-    
+
     Args:
         session: The requests session to use
         handle: The RSI handle to probe
         try_en: If True, also probe /en/citizens/... variants
         save_bodies_dir: Directory to save bodies for problematic responses
-        
+
     Returns:
         Dictionary containing probe results with new structure
     """
@@ -364,7 +364,7 @@ def print_report(results: list[dict[str, Any]]) -> None:
     for result in results:
         handle = result['handle']
         endpoints = result['endpoints']
-        summary = result['summary']
+        result['summary']
 
         print(f"\n🎯 Handle: {handle}")
         print("-" * 40)
@@ -507,7 +507,7 @@ def main():
 Examples:
   Parity run (most realistic vs. bot):
     %(prog)s --handles HyperZonic,OverlordCustomsLLC,squeakytoy --no-warmup --user-agent "Mozilla/5.0 TESTBot"
-  
+
   Canonical-path experiment:
     %(prog)s --handles HyperZonic --no-warmup --try-en --save-bodies rsi_out
         """,
@@ -577,9 +577,8 @@ Examples:
     session = create_session(args.user_agent)
 
     # Warmup if not disabled
-    if not args.no_warmup:
-        if not warmup(session):
-            print("❌ Warmup failed. Continuing anyway, but results may be unreliable.")
+    if not args.no_warmup and not warmup(session):
+        print("❌ Warmup failed. Continuing anyway, but results may be unreliable.")
 
     # Probe each handle
     results = []

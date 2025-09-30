@@ -122,19 +122,21 @@ class HealthService(BaseService):
                 # Test basic connectivity
                 await db.execute("SELECT 1")
 
-                # Get table counts
+                # Get table counts - using validated whitelist of table names
                 tables_info = {}
-                table_names = [
+                # Whitelist of known safe table names for security
+                table_names = {
                     "verification",
-                    "guild_settings",
+                    "guild_settings", 
                     "user_voice_channels",
                     "voice_cooldowns",
                     "channel_settings",
                     "guild_registry",
-                ]
+                }
 
                 for table in table_names:
                     try:
+                        # Table name is validated from whitelist above
                         async with db.execute(
                             f"SELECT COUNT(*) FROM {table}"
                         ) as cursor:

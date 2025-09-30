@@ -2,6 +2,7 @@ import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -13,7 +14,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from services.config_service import ConfigService  # noqa: E402
 from services.db.database import Database  # noqa: E402
+from services.voice_service import VoiceService  # noqa: E402
 
 
 # Ensure pytest-asyncio uses a dedicated loop
@@ -110,3 +113,62 @@ class FakeInteraction:
             return None
 
         self.message = SimpleNamespace(edit=_edit)
+
+
+@pytest.fixture
+def mock_db_connection():
+    """
+    Patches Database.get_connection() to yield an async mock connection
+    with helpers to set cursor.fetchone.return_value.
+
+    Patches both the direct import path and the services.voice_service path
+    to ensure compatibility with all test patterns.
+
+    Returns a helper object with methods to configure the mock database responses.
+    """
+
+    class MockDBHelper:
+        def __init__(self):
+            self.mock_conn = AsyncMock()
+            self.mock_cursor = AsyncMock()
+            self.mock_conn.execute.return_value = self.mock_cursor
+
+        def set_fetchone_result(self, result):
+            """Set the result that cursor.fetchone() will return."""
+            self.mock_cursor.fetchone.return_value = result
+
+        def set_fetchall_result(self, result):
+            """Set the result that cursor.fetchall() will return."""
+            self.mock_cursor.fetchall.return_value = result
+
+        def get_connection_calls(self):
+            """Get all calls made to connection.execute()."""
+            return self.mock_conn.execute.call_args_list
+
+        def assert_query_called_with(self, query, params=None):
+            """Assert a specific query was called with parameters."""
+            calls = self.get_connection_calls()
+            for call in calls:
+                if call[0][0] == query and (params is None or call[0][1] == params):
+                    return True
+            raise AssertionError(f"Query not found: {query} with params {params}")
+
+    helper = MockDBHelper()
+
+    # Patch both possible import paths to ensure compatibility
+    with patch("services.voice_service.Database.get_connection") as mock_db1, \
+         patch("services.db.database.Database.get_connection") as mock_db2:
+
+        mock_db1.return_value.__aenter__.return_value = helper.mock_conn
+        mock_db2.return_value.__aenter__.return_value = helper.mock_conn
+        yield helper
+
+
+@pytest.fixture
+def voice_service(mock_bot):
+    """Create a VoiceService instance for testing."""
+    config_service = MagicMock(spec=ConfigService)
+    service = VoiceService(config_service, mock_bot)
+    # Skip actual initialization to avoid database/network calls
+    service._initialized = True
+    return service

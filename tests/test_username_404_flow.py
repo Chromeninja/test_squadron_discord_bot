@@ -281,7 +281,7 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
 
     # Call reverify_member and expect it to return failure result (not raise)
     result = await reverify_member(member, "HandleX", bot)
-    success, status_info, message = result
+    success, status_info, _message = result
 
     # Should return failure due to NotFoundError
     assert not success, "reverify_member should return False for NotFoundError"
