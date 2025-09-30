@@ -359,7 +359,7 @@ class Database:
         voice_tables_config = {
             "user_voice_channels": "owner_id",  # Uses owner_id instead of user_id
             "voice_cooldowns": "user_id",
-            "channel_settings": "user_id", 
+            "channel_settings": "user_id",
             "channel_permissions": "user_id",
             "channel_ptt_settings": "user_id",
             "channel_priority_speaker_settings": "user_id",
@@ -418,7 +418,7 @@ class Database:
         # Define validated whitelist of tables that reference jtc_channel_id
         jtc_tables = {
             "user_voice_channels",
-            "channel_settings", 
+            "channel_settings",
             "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
@@ -484,7 +484,7 @@ class Database:
         jtc_tables = {
             "user_voice_channels",
             "channel_settings",
-            "channel_permissions", 
+            "channel_permissions",
             "channel_ptt_settings",
             "channel_priority_speaker_settings",
             "channel_soundboard_settings",

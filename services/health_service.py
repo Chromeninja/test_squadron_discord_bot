@@ -127,7 +127,7 @@ class HealthService(BaseService):
                 # Whitelist of known safe table names for security
                 table_names = {
                     "verification",
-                    "guild_settings", 
+                    "guild_settings",
                     "user_voice_channels",
                     "voice_cooldowns",
                     "channel_settings",

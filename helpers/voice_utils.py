@@ -272,11 +272,20 @@ def create_voice_settings_embed(
     settings, formatted, title: str, footer: str
 ) -> discord.Embed:
     embed = discord.Embed(title=title, color=discord.Color.blue())
-    embed.add_field(name="🗨️ Channel Name", value=settings["channel_name"], inline=False)
-    embed.add_field(name="🔒 Lock State", value=settings["lock_state"], inline=True)
-    embed.add_field(
-        name="👥 User Limit", value=str(settings["user_limit"]), inline=True
-    )
+
+    # Handle channel name
+    channel_name = settings.get("channel_name", "Default Channel Name")
+    embed.add_field(name="🗨️ Channel Name", value=channel_name, inline=False)
+
+    # Handle lock state - convert boolean to string
+    lock = settings.get("lock", False)
+    lock_state = "🔒 Locked" if lock else "🔓 Unlocked"
+    embed.add_field(name="🔒 Lock State", value=lock_state, inline=True)
+
+    # Handle user limit
+    user_limit = settings.get("user_limit", 0)
+    limit_text = str(user_limit) if user_limit and user_limit > 0 else "No limit"
+    embed.add_field(name="👥 User Limit", value=limit_text, inline=True)
     embed.add_field(
         name="✅ Permits/Rejects",
         value="\n".join(formatted["permission_lines"]),
@@ -316,20 +325,23 @@ def format_channel_settings(settings, interaction) -> None:
         return f"Unknown: {tid}"
 
     permission_lines = []
-    for tid, ttype, perm in settings["perm_rows"]:
+    permissions = settings.get("permissions", settings.get("perm_rows", []))
+    for tid, ttype, perm in permissions:
         permission_lines.append(f"- {format_target(tid, ttype)} => **{perm}**")
     if not permission_lines:
         permission_lines = ["No custom permissions set."]
 
     ptt_lines = []
-    for tid, ttype, enabled in settings["ptt_rows"]:
+    ptt_settings = settings.get("ptt_settings", settings.get("ptt_rows", []))
+    for tid, ttype, enabled in ptt_settings:
         text = "Enabled" if enabled else "Disabled"
         ptt_lines.append(f"- {format_target(tid, ttype)} => **PTT {text}**")
     if not ptt_lines:
         ptt_lines = ["PTT is not configured."]
 
     priority_lines = []
-    for tid, ttype, enabled in settings["priority_rows"]:
+    priority_settings = settings.get("priority_settings", settings.get("priority_rows", []))
+    for tid, ttype, enabled in priority_settings:
         text = "Enabled" if enabled else "Disabled"
         priority_lines.append(
             f"- {format_target(tid, ttype)} => **PrioritySpeaker {text}**"
@@ -338,7 +350,8 @@ def format_channel_settings(settings, interaction) -> None:
         priority_lines = ["No priority speakers set."]
 
     soundboard_lines = []
-    for tid, ttype, enabled in settings["soundboard_rows"]:
+    soundboard_settings = settings.get("soundboard_settings", settings.get("soundboard_rows", []))
+    for tid, ttype, enabled in soundboard_settings:
         text = "Enabled" if enabled else "Disabled"
         soundboard_lines.append(
             f"- {format_target(tid, ttype)} => **Soundboard {text}**"

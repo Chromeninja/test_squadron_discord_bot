@@ -59,7 +59,7 @@ class VoiceService(BaseService):
         self.debug_logging_enabled = await self.config_service.get_global_setting(
             "voice_debug_logging_enabled", False
         )
-        
+
         # Production safety warning
         if self.debug_logging_enabled:
             self.logger.warning(
@@ -1234,7 +1234,7 @@ class VoiceService(BaseService):
                     (guild_id, jtc_channel_id, user_id),
                 )
                 existing_row = await cursor.fetchone()
-                
+
                 if existing_row:
                     old_channel_id = existing_row[0]
                     if old_channel_id != channel_id:
@@ -1252,7 +1252,7 @@ class VoiceService(BaseService):
                                 "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
                                 (old_channel_id,),
                             )
-                
+
                 # Use INSERT OR REPLACE to handle the primary key constraint
                 await db.execute(
                     """
@@ -2216,7 +2216,7 @@ class VoiceService(BaseService):
                 result["success"] = True  # No channel to delete is considered success
                 return result
 
-            channel_id = channel_info.voice_channel_id
+            channel_id = channel_info.channel_id
             result["channel_id"] = channel_id
 
             # Try to get the actual Discord channel and delete it
@@ -2295,7 +2295,7 @@ class VoiceService(BaseService):
             managed_channels = []
             channel_info = await self.get_user_voice_channel_info(guild_id, user_id)
             if channel_info:
-                managed_channels = [channel_info.voice_channel_id]
+                managed_channels = [channel_info.channel_id]
 
         # Purge database records
         deleted_counts = await Database.purge_voice_data(guild_id, user_id)

@@ -465,14 +465,18 @@ class ChannelSettingsView(View):
                     _, jtc_channel_id = await _get_guild_and_jtc_for_user_channel(
                         interaction.user, channel
                     )
-                settings = await fetch_channel_settings(
+                result = await fetch_channel_settings(
                     self.bot,
                     interaction,
-                    guild_id=guild_id,
-                    jtc_channel_id=jtc_channel_id,
                 )
-                if not settings:
+                if not result or not result.get("settings"):
+                    await interaction.response.send_message(
+                        "❌ No channel settings found. Create or join a voice channel first!",
+                        ephemeral=True
+                    )
                     return
+
+                settings = result["settings"]
                 formatted = format_channel_settings(settings, interaction)
                 embed = create_voice_settings_embed(
                     settings=settings,
