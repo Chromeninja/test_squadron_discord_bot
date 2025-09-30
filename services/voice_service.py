@@ -913,7 +913,9 @@ class VoiceService(BaseService):
                     "SELECT 1 FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1 LIMIT 1",
                     (channel_id,),
                 )
-                return await cursor.fetchone() is not None
+                is_managed = await cursor.fetchone() is not None
+                self.logger.debug(f"Channel {channel_id} is {'managed' if is_managed else 'not managed'}")
+                return is_managed
         except Exception as e:
             self.logger.exception("Error checking if channel is managed", exc_info=e)
             return False
@@ -932,12 +934,15 @@ class VoiceService(BaseService):
     ) -> None:
         """Handle cleanup when a member leaves a managed channel."""
         try:
+            self.logger.info(f"Member {member.display_name} left managed channel {channel.name} (ID: {channel.id})")
             # Check if channel is now empty
             if len(channel.members) == 0:
                 self.logger.info(
-                    f"Channel {channel.name} is now empty, performing immediate cleanup"
+                    f"Channel {channel.name} (ID: {channel.id}) is now empty, performing immediate cleanup"
                 )
                 await self._cleanup_empty_channel(channel)
+            else:
+                self.logger.info(f"Channel {channel.name} still has {len(channel.members)} members, no cleanup needed")
         except Exception as e:
             self.logger.exception("Error handling channel left", exc_info=e)
 
@@ -1220,16 +1225,45 @@ class VoiceService(BaseService):
         """Store user channel in database."""
         try:
             async with Database.get_connection() as db:
-                # Insert the new channel record (supports multiple channels per user per JTC)
+                # Check if there's already an active channel for this user in this JTC
+                cursor = await db.execute(
+                    """
+                    SELECT voice_channel_id FROM voice_channels 
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                """,
+                    (guild_id, jtc_channel_id, user_id),
+                )
+                existing_row = await cursor.fetchone()
+                
+                if existing_row:
+                    old_channel_id = existing_row[0]
+                    if old_channel_id != channel_id:
+                        self.logger.info(f"User {user_id} already has active channel {old_channel_id}, cleaning it up and creating new channel {channel_id}")
+                        # Try to cleanup the old channel if it exists
+                        old_channel = self.bot.get_channel(old_channel_id) if self.bot else None
+                        if old_channel:
+                            try:
+                                await self._cleanup_empty_channel(old_channel)
+                            except Exception as e:
+                                self.logger.warning(f"Failed to cleanup old channel {old_channel_id}: {e}")
+                        else:
+                            # Channel doesn't exist, just mark as inactive
+                            await db.execute(
+                                "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
+                                (old_channel_id,),
+                            )
+                
+                # Use INSERT OR REPLACE to handle the primary key constraint
                 await db.execute(
                     """
-                    INSERT INTO voice_channels
+                    INSERT OR REPLACE INTO voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                     (guild_id, jtc_channel_id, user_id, channel_id, int(time.time()), int(time.time()), 1),
                 )
                 await db.commit()
+                self.logger.debug(f"Stored channel {channel_id} for user {user_id} in JTC {jtc_channel_id}")
 
         except Exception as e:
             self.logger.exception("Error storing user channel", exc_info=e)
