@@ -46,7 +46,7 @@ jobs:
           if [ -f requirements-dev.txt ]; then
             pip install -r requirements-dev.txt
           fi
-          pip install pytest pytest-asyncio coverage psutil
+          pip install pytest pytest-asyncio pytest-cov coverage psutil
 
       - name: Copy example config for tests
         run: |
@@ -55,8 +55,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          coverage run -m pytest -q
-          coverage xml
+          pytest -q --cov=. --cov-report=xml
 
       - name: Upload coverage as artifact
         uses: actions/upload-artifact@v4
