@@ -67,7 +67,7 @@ async def get_user_channel(
                         # Remove stale mapping so future checks don't keep trying
                         # to fetch
                         delete_query = (
-                            "DELETE FROM voice_channels WHERE voice_channel_id = ?"
+                            "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?"
                         )
                         delete_params = (channel_id,)
                         if guild_id and jtc_channel_id:

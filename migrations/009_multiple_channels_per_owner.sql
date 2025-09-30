@@ -113,6 +113,7 @@ JOIN voice_channels vc ON (
     vs.guild_id = vc.guild_id 
     AND vs.jtc_channel_id = vc.jtc_channel_id 
     AND vs.owner_id = vc.owner_id
+    AND vs.voice_channel_id = vc.voice_channel_id
 )
 WHERE EXISTS (
     SELECT 1 FROM sqlite_master 

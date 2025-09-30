@@ -59,6 +59,13 @@ class VoiceService(BaseService):
         self.debug_logging_enabled = await self.config_service.get_global_setting(
             "voice_debug_logging_enabled", False
         )
+        
+        # Production safety warning
+        if self.debug_logging_enabled:
+            self.logger.warning(
+                "Voice debug logging is ENABLED - this may log PII and generate high volume. "
+                "Ensure this is intentional and disable in production."
+            )
 
         # Load existing managed channels
         await self._load_managed_channels()
@@ -1060,22 +1067,22 @@ class VoiceService(BaseService):
             if self.debug_logging_enabled:
                 if saved_settings:
                     self.logger.debug(
-                        f"✅ Loaded settings for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}: {saved_settings}"
+                        f"Loaded settings for user {member.id} in JTC {jtc_channel.id}: {len(saved_settings)} settings"
                     )
                 else:
                     self.logger.debug(
-                        f"❌ No saved settings found for {member.display_name} (ID: {member.id}) in JTC {jtc_channel.id}"
+                        f"No saved settings found for user {member.id} in JTC {jtc_channel.id}"
                     )
 
             # Generate channel name - use saved name if available, otherwise default
             if saved_settings and saved_settings.get("channel_name"):
                 channel_name = saved_settings["channel_name"]
                 if self.debug_logging_enabled:
-                    self.logger.debug(f"✅ Using saved channel name: '{channel_name}'")
+                    self.logger.debug(f"Using saved channel name for user {member.id}")
             else:
                 channel_name = f"{member.display_name}'s Channel"
                 if self.debug_logging_enabled:
-                    self.logger.debug(f"➡️  Using default channel name: '{channel_name}'")
+                    self.logger.debug(f"Using default channel name for user {member.id}")
 
             # Create the channel in the same category as the JTC channel
             category = jtc_channel.category
@@ -1192,6 +1199,7 @@ class VoiceService(BaseService):
                     )
                 except:
                     pass  # Ignore if we can't send DM
+                return  # Stop execution as channel creation failed
             else:
                 self.logger.exception("Discord permission error creating user channel", exc_info=e)
         except Exception as e:
