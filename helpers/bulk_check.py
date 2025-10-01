@@ -153,9 +153,9 @@ def build_summary_embed(
     members: list[discord.Member],
     rows: list[StatusRow],
     show_details: bool,
-    truncated_count: int
+    truncated_count: int = 0
 ) -> discord.Embed:
-    """Create a Discord-appropriate embed with counts and up to 25 details."""
+    """Create a Discord-appropriate embed with counts and dynamic truncation to fit Discord limits."""
 
     # Count by membership status
     counts = {
@@ -197,10 +197,11 @@ def build_summary_embed(
 
     # Add details if requested and not too many
     if show_details and rows:
-        details_to_show = min(25, len(rows))
         detail_lines = []
-
-        for i, row in enumerate(rows[:details_to_show]):
+        field_value_length = 0
+        max_field_length = 1000  # Leave some buffer below Discord's 1024 limit
+        
+        for i, row in enumerate(rows):
             # Format status for display
             if row.membership_status == "main":
                 status = "Verified/Main"
@@ -213,11 +214,15 @@ def build_summary_embed(
             else:
                 status = "Not in DB"
 
-            # Format RSI handle
+            # Format RSI handle (truncate if too long)
             rsi_display = row.rsi_handle if row.rsi_handle else "—"
+            if len(rsi_display) > 20:
+                rsi_display = rsi_display[:17] + "..."
 
-            # Format voice channel
+            # Format voice channel (truncate if too long)
             vc_display = row.voice_channel if row.voice_channel else "—"
+            if len(vc_display) > 20:
+                vc_display = vc_display[:17] + "..."
 
             # Format last updated time
             if row.last_updated and row.last_updated > 0:
@@ -225,9 +230,20 @@ def build_summary_embed(
             else:
                 updated_display = "Never"
 
-            detail_lines.append(
-                f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
-            )
+            # Build the line
+            detail_line = f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+            
+            # Check if adding this line would exceed the limit
+            test_length = field_value_length + len(detail_line) + 1  # +1 for newline
+            if test_length > max_field_length:
+                # Add a truncation message if we're stopping early
+                remaining_count = len(rows) - i
+                if remaining_count > 0:
+                    truncated_count = max(truncated_count, remaining_count)
+                break
+            
+            detail_lines.append(detail_line)
+            field_value_length = test_length
 
         if detail_lines:
             embed.add_field(

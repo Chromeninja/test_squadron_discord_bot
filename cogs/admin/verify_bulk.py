@@ -140,17 +140,14 @@ class VerifyCommands(app_commands.Group):
                 )
                 return
 
-            # Calculate truncation for display
-            truncated_count = max(0, len(status_rows) - 25) if show_details else 0
-
-            # Build summary embed
+            # Build summary embed (truncation is handled dynamically inside)
             try:
                 embed = build_summary_embed(
                     invoker=interaction.user,
                     members=members,
                     rows=status_rows,
                     show_details=show_details,
-                    truncated_count=truncated_count
+                    truncated_count=0  # Will be calculated dynamically inside the function
                 )
             except Exception as e:
                 logger.error(f"Error building embed: {e}")
