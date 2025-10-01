@@ -1,5 +1,6 @@
 # cogs/admin/verify_bulk.py
 
+import io
 import time
 
 import discord
@@ -174,8 +175,10 @@ class VerifyCommands(app_commands.Group):
             if export_csv and status_rows:
                 try:
                     filename, content_bytes = await write_csv(status_rows)
+                    
+                    # Create a BytesIO object from the content bytes
                     csv_file = discord.File(
-                        fp=discord.utils._BytesIOProxy(content_bytes),
+                        fp=io.BytesIO(content_bytes),
                         filename=filename
                     )
 
