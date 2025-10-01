@@ -114,6 +114,7 @@ The bot includes several administrative commands for configuration and managemen
 | `/reset-user` | Reset verification timer for a specific user | Bot Admin / Lead Moderator | `/reset-user member:@username` |
 | `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
 | `/recheck-user` | Force a verification re-check for a user | Bot Admin / Lead Moderator | `/recheck-user member:@username` |
+| `/verify check` | Check verification status for multiple users (read-only) | Bot Admin / Lead Moderator | `/verify check targets:users members_text:"@user1 @user2"` |
 
 #### Voice Admin Commands (`/voice` group)
 
@@ -157,6 +158,31 @@ The bot includes several administrative commands for configuration and managemen
 ```
 /voice setup category:#Voice-Channels num_channels:3
 ```
+
+#### Verification Status Check Examples
+
+The `/verify check` command provides read-only verification status checking with multiple targeting modes:
+
+**Check specific users:**
+```
+/verify check targets:"specific users" members_text:"@user1 @user2 123456789012345678"
+```
+
+**Check all members in a voice channel:**
+```
+/verify check targets:"voice channel" channel:#General-Voice show_details:true
+```
+
+**Check all members in any active voice channel:**
+```
+/verify check targets:"all active voice" show_details:true export_csv:true
+```
+
+**Options:**
+- `show_details:true` - Include detailed status, RSI handles, voice channels, and last update times
+- `export_csv:true` - Send a detailed CSV file via DM with full results
+
+The command respects the `auto_recheck.batch.max_users_per_run` configuration limit (default: 50 users per check).
 
 ### Permission System
 
