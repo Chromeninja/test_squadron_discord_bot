@@ -176,7 +176,7 @@ class TestRSILiveProbe:
         results = self._execute_probe_with_config(probe_all_handles, test_config)
 
         # Analyze and print summary using helper method
-        summary_stats = self._analyze_probe_results(results, test_config)
+        self._analyze_probe_results(results, test_config)
 
         # Test always passes - we're just diagnosing issues
         assert len(results) == len(self.TEST_HANDLES)

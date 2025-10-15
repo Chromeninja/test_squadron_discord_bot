@@ -94,7 +94,7 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     user_ids = [m.id for m in member_list]
 
     # Build a mapping from user_id to member for quick lookup
-    member_map = {m.id: m for m in member_list}
+    {m.id: m for m in member_list}
 
     async with Database.get_connection() as db:
         # Fetch verification data for all users at once
@@ -200,7 +200,7 @@ def build_summary_embed(
         detail_lines = []
         field_value_length = 0
         max_field_length = 1000  # Leave some buffer below Discord's 1024 limit
-        
+
         for i, row in enumerate(rows):
             # Format status for display
             if row.membership_status == "main":
@@ -232,7 +232,7 @@ def build_summary_embed(
 
             # Build the line
             detail_line = f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
-            
+
             # Check if adding this line would exceed the limit
             test_length = field_value_length + len(detail_line) + 1  # +1 for newline
             if test_length > max_field_length:
@@ -241,7 +241,7 @@ def build_summary_embed(
                 if remaining_count > 0:
                     truncated_count = max(truncated_count, remaining_count)
                 break
-            
+
             detail_lines.append(detail_line)
             field_value_length = test_length
 

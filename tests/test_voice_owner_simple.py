@@ -266,11 +266,11 @@ async def test_voice_owner_command_accessible_to_all():
 
         # Verify the command was allowed to proceed (defer was called)
         mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
-        
+
         # Verify followup was called (not a permission denied response)
         mock_interaction.followup.send.assert_called_once()
         call_args = mock_interaction.followup.send.call_args
-        
+
         # Should show "No managed voice channels" message, not permission denied
         assert "No managed voice channels found" in call_args[0][0]
         assert call_args[1]["ephemeral"] is True

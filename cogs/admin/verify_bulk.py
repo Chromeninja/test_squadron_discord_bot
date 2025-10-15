@@ -93,7 +93,7 @@ class VerifyCommands(app_commands.Group):
                     channel
                 )
             except Exception as e:
-                logger.error(f"Error collecting targets: {e}")
+                logger.exception(f"Error collecting targets: {e}")
                 await interaction.followup.send(
                     f"❌ Error collecting target members: {e!s}",
                     ephemeral=True
@@ -134,7 +134,7 @@ class VerifyCommands(app_commands.Group):
             try:
                 status_rows = await fetch_status_rows(members)
             except Exception as e:
-                logger.error(f"Error fetching status data: {e}")
+                logger.exception(f"Error fetching status data: {e}")
                 await interaction.followup.send(
                     f"❌ Error fetching verification data: {e!s}",
                     ephemeral=True
@@ -151,7 +151,7 @@ class VerifyCommands(app_commands.Group):
                     truncated_count=0  # Will be calculated dynamically inside the function
                 )
             except Exception as e:
-                logger.error(f"Error building embed: {e}")
+                logger.exception(f"Error building embed: {e}")
                 await interaction.followup.send(
                     f"❌ Error formatting results: {e!s}",
                     ephemeral=True
@@ -175,7 +175,7 @@ class VerifyCommands(app_commands.Group):
             if export_csv and status_rows:
                 try:
                     filename, content_bytes = await write_csv(status_rows)
-                    
+
                     # Create a BytesIO object from the content bytes
                     csv_file = discord.File(
                         fp=io.BytesIO(content_bytes),
@@ -196,7 +196,7 @@ class VerifyCommands(app_commands.Group):
                         )
 
                 except Exception as e:
-                    logger.error(f"Error generating CSV: {e}")
+                    logger.exception(f"Error generating CSV: {e}")
                     await interaction.followup.send(
                         f"⚠️ Error generating CSV export: {e!s}",
                         ephemeral=True
@@ -240,7 +240,7 @@ class VerifyCommands(app_commands.Group):
                 await post_if_changed(self.bot, changeset)
 
             except Exception as e:
-                logger.error(f"Error posting leadership log: {e}")
+                logger.exception(f"Error posting leadership log: {e}")
                 # Don't fail the command for logging errors
 
             logger.info(

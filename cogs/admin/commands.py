@@ -3,9 +3,9 @@ Refactored admin cog with service integration and health monitoring.
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import discord
 from discord import app_commands
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 class ConfigSchema:
     """Configuration schema defining allowed keys, types, and descriptions."""
 
-    ALLOWED_KEYS = {
+    ALLOWED_KEYS: ClassVar[dict[str, dict[str, Any]]] = {
         "roles.bot_admins": {
             "type": list,
             "element_type": int,
@@ -149,10 +149,10 @@ class ConfigSchema:
         expected_type = config_info["type"]
         example = config_info.get("json_example", "")
 
-        if expected_type == list:
+        if expected_type is list:
             element_type = config_info.get("element_type", str).__name__
             return f"Expected: JSON array of {element_type} - Example: {example}"
-        elif expected_type == int:
+        elif expected_type is int:
             constraints = []
             if "min" in config_info:
                 constraints.append(f"min: {config_info['min']}")
@@ -160,9 +160,9 @@ class ConfigSchema:
                 constraints.append(f"max: {config_info['max']}")
             constraint_str = f" ({', '.join(constraints)})" if constraints else ""
             return f"Expected: integer{constraint_str} - Example: {example}"
-        elif expected_type == bool:
+        elif expected_type is bool:
             return f"Expected: boolean (true/false) - Example: {example}"
-        elif expected_type == str:
+        elif expected_type is str:
             return f"Expected: string - Example: {example}"
         else:
             return f"Expected: {expected_type.__name__} - Example: {example}"
@@ -183,7 +183,7 @@ class ConfigSchema:
 
         # Try to coerce the value to the expected type
         try:
-            if expected_type == bool:
+            if expected_type is bool:
                 # Handle boolean conversion specially
                 if isinstance(value, str):
                     if value.lower() in ("true", "1", "yes", "on", "enabled"):
@@ -198,16 +198,16 @@ class ConfigSchema:
                         )
                 else:
                     coerced_value = bool(value)
-            elif expected_type == int:
+            elif expected_type is int:
                 coerced_value = int(value)
                 # Check range constraints
                 if "min" in config_info and coerced_value < config_info["min"]:
                     return False, f"Value must be at least {config_info['min']}", None
                 if "max" in config_info and coerced_value > config_info["max"]:
                     return False, f"Value must be at most {config_info['max']}", None
-            elif expected_type == str:
+            elif expected_type is str:
                 coerced_value = str(value)
-            elif expected_type == list:
+            elif expected_type is list:
                 # Handle list types with JSON parsing
                 if isinstance(value, str):
                     try:
@@ -405,7 +405,7 @@ class AdminCog(commands.Cog):
                 title="📋 Bot Logs Preview (Last ~50 lines)",
                 description=f"```\n{preview_content}\n```",
                 color=discord.Color.blue(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             embed.set_footer(text="Full log file sent via DM")
 
@@ -424,12 +424,12 @@ class AdminCog(commands.Cog):
                     log_bytes = full_content.encode("utf-8")
                     file_obj = discord.File(
                         io.BytesIO(log_bytes),
-                        filename=f"bot_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        filename=f"bot_logs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.txt",
                     )
 
                     await interaction.user.send(
                         content="📋 **Full Bot Log File**\n"
-                        f"Generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+                        f"Generated on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
                         f"Total lines: {len(all_lines)}",
                         file=file_obj,
                     )
@@ -440,7 +440,7 @@ class AdminCog(commands.Cog):
                         title="📋 Full Bot Log",
                         description=f"```\n{full_content}\n```",
                         color=discord.Color.blue(),
-                        timestamp=datetime.utcnow(),
+                        timestamp=datetime.now(UTC),
                     )
                     await interaction.user.send(embed=dm_embed)
                     dm_success = True
@@ -1009,7 +1009,7 @@ class AdminCog(commands.Cog):
                 )
             )
 
-        if expected_type == bool:
+        if expected_type is bool:
             # Boolean suggestions
             suggestions = ["true", "false"]
             for suggestion in suggestions:
@@ -1019,7 +1019,7 @@ class AdminCog(commands.Cog):
                             name=f"{suggestion} - {description}", value=suggestion
                         )
                     )
-        elif expected_type == list:
+        elif expected_type is list:
             # List suggestions with JSON examples
             example = config_info.get("json_example", "[]")
             element_type = config_info.get("element_type", str).__name__
@@ -1036,7 +1036,7 @@ class AdminCog(commands.Cog):
                             value=suggestion,
                         )
                     )
-        elif expected_type == int:
+        elif expected_type is int:
             # Integer suggestions with constraints
             default_val = config_info.get("default", 0)
             min_val = config_info.get("min")
@@ -1072,7 +1072,7 @@ class AdminCog(commands.Cog):
                             value=suggestion,
                         )
                     )
-        elif expected_type == str:
+        elif expected_type is str:
             # String suggestions
             default_val = config_info.get("default", "")
             if default_val:
@@ -1157,11 +1157,11 @@ class AdminCog(commands.Cog):
 
             # Get the parser function based on type
             parser = None
-            if expected_type == int:
+            if expected_type is int:
                 parser = int
-            elif expected_type == list:
+            elif expected_type is list:
                 element_type = config_info.get("element_type", str)
-                if element_type == int:
+                if element_type is int:
 
                     def parser(x):
                         return (
@@ -1173,7 +1173,7 @@ class AdminCog(commands.Cog):
                     def parser(x):
                         return json.loads(x) if isinstance(x, str) else x
 
-            elif expected_type == bool:
+            elif expected_type is bool:
 
                 def parser(x):
                     return json.loads(x.lower()) if isinstance(x, str) else bool(x)
@@ -1189,7 +1189,7 @@ class AdminCog(commands.Cog):
                 if hasattr(expected_type, "__name__")
                 else str(expected_type)
             )
-            if expected_type == list:
+            if expected_type is list:
                 element_type = config_info.get("element_type", str).__name__
                 type_name = f"list[{element_type}]"
 

@@ -477,10 +477,10 @@ class TestVoiceOwnerCommand:
 
             # Verify the command proceeded (defer was called, not permission denied)
             mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
-            
+
             # Verify followup was called
             assert mock_interaction.followup.send.called
-            
+
             # Get call args - could be positional or kwargs
             call_args = mock_interaction.followup.send.call_args
             if call_args[0]:  # positional args
@@ -492,7 +492,7 @@ class TestVoiceOwnerCommand:
                     assert call_args[1]['ephemeral'] is True
                     return
                 message = call_args[1].get("content", "")
-            
+
             # Should show "No managed voice channels" not permission denied
             assert "No managed voice channels found" in message or call_args[1].get('ephemeral') is True
 
