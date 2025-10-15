@@ -230,8 +230,8 @@ async def test_voice_owner_command_no_channels():
 
 
 @pytest.mark.asyncio
-async def test_voice_owner_command_permission_denied():
-    """Test voice owner command with insufficient permissions."""
+async def test_voice_owner_command_accessible_to_all():
+    """Test voice owner command is accessible to all members (not just admins)."""
 
     # Create mock bot with service container
     mock_bot = AsyncMock()
@@ -250,25 +250,33 @@ async def test_voice_owner_command_permission_denied():
     # Create voice commands cog
     voice_commands = VoiceCommands(mock_bot)
 
-    # Create mock interaction
+    # Create mock interaction with non-admin user
     mock_interaction = AsyncMock(spec=discord.Interaction)
-    mock_interaction.response.send_message = AsyncMock()
+    mock_interaction.response.defer = AsyncMock()
+    mock_interaction.followup.send = AsyncMock()
     mock_interaction.user = AsyncMock(spec=discord.Member)
     mock_interaction.user.roles = [MagicMock(id=111)]  # Not admin
+    mock_interaction.guild_id = 123456
+    mock_interaction.guild = MagicMock()
+    mock_interaction.guild.name = "Test Guild"
 
     # Mock no admin permissions (different role ID)
     with patch.object(voice_service, "get_admin_role_ids", return_value=[999999]):
         await voice_commands.list_owners.callback(voice_commands, mock_interaction)
 
-        # Verify permission denied message
-        mock_interaction.response.send_message.assert_called_once()
-        call_args = mock_interaction.response.send_message.call_args
-
-        assert "You don't have permission" in call_args[0][0]
+        # Verify the command was allowed to proceed (defer was called)
+        mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
+        
+        # Verify followup was called (not a permission denied response)
+        mock_interaction.followup.send.assert_called_once()
+        call_args = mock_interaction.followup.send.call_args
+        
+        # Should show "No managed voice channels" message, not permission denied
+        assert "No managed voice channels found" in call_args[0][0]
         assert call_args[1]["ephemeral"] is True
 
         print(
-            "✅ Test passed: Voice owner command correctly denies access to non-admins!"
+            "✅ Test passed: Voice owner command is accessible to all members!"
         )
 
 
@@ -282,7 +290,7 @@ if __name__ == "__main__":
         try:
             await test_voice_owner_command_shows_db_owners()
             await test_voice_owner_command_no_channels()
-            await test_voice_owner_command_permission_denied()
+            await test_voice_owner_command_accessible_to_all()
             print("\n🎉 All tests passed!")
         except Exception as e:
             print(f"\n❌ Test failed: {e}")

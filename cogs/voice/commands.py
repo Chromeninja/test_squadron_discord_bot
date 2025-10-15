@@ -188,7 +188,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         embed.add_field(
             name="/voice owner",
-            value="List all voice channels and their owners (Admin only)",
+            value="List all voice channels and their owners",
             inline=False,
         )
 
@@ -205,15 +205,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         description="List all voice channels managed by the bot and their owners",
     )
     async def list_owners(self, interaction: discord.Interaction) -> None:
-        """List all voice channels and their owners (Admin only)."""
-        # Check permissions
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
-        if not any(role.id in admin_role_ids for role in interaction.user.roles):
-            await interaction.response.send_message(
-                "❌ You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
+        """List all voice channels and their owners."""
         try:
             await interaction.response.defer(ephemeral=True)
 

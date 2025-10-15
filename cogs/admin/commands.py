@@ -284,7 +284,9 @@ class AdminCog(commands.Cog):
         """
         Reset verification timers for all members. Bot Admins only.
         """
-        if not await self.bot.has_admin_permissions(interaction.user):
+        # Check Bot Admin permissions only (exclude Lead Moderators)
+        user_role_ids = {role.id for role in interaction.user.roles}
+        if not any(role_id in self.bot.BOT_ADMIN_ROLE_IDS for role_id in user_role_ids):
             await interaction.response.send_message(
                 "You don't have permission to use this command.", ephemeral=True
             )
@@ -1124,8 +1126,9 @@ class AdminCog(commands.Cog):
             )
             return
 
-        # Check permissions
-        if not await self.bot.has_admin_permissions(interaction.user):
+        # Check Bot Admin permissions only (exclude Lead Moderators)
+        user_role_ids = {role.id for role in interaction.user.roles}
+        if not any(role_id in self.bot.BOT_ADMIN_ROLE_IDS for role_id in user_role_ids):
             await interaction.response.send_message(
                 "You don't have permission to use this command.", ephemeral=True
             )
