@@ -1,19 +1,10 @@
 # cogs/admin/verify_bulk.py
 
-import io
-import time
-
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers.bulk_check import (
-    build_summary_embed,
-    collect_targets,
-    fetch_status_rows,
-    write_csv,
-)
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.bulk_check import collect_targets
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -33,9 +24,7 @@ class VerifyCommands(app_commands.Group):
     @app_commands.describe(
         targets="Target selection mode",
         members_text="User mentions/IDs (required for 'users' mode)",
-        channel="Voice channel to check (required for 'voice_channel' mode)",
-        show_details="Include detailed status information in the response",
-        export_csv="Send detailed CSV results via DM"
+        channel="Voice channel to check (required for 'voice_channel' mode)"
     )
     @app_commands.choices(targets=[
         app_commands.Choice(name="specific users", value="users"),
@@ -48,9 +37,7 @@ class VerifyCommands(app_commands.Group):
         interaction: discord.Interaction,
         targets: app_commands.Choice[str],
         members_text: str | None = None,
-        channel: discord.VoiceChannel | None = None,
-        show_details: bool = False,
-        export_csv: bool = False
+        channel: discord.VoiceChannel | None = None
     ) -> None:
         """Check verification status for multiple users without making changes."""
 
@@ -63,8 +50,6 @@ class VerifyCommands(app_commands.Group):
 
         # Defer response immediately as this might take some time
         await interaction.response.defer(ephemeral=True)
-
-        start_time = time.monotonic()
 
         try:
             # Validate parameters based on targets mode
@@ -119,134 +104,62 @@ class VerifyCommands(app_commands.Group):
                     )
                 return
 
-            # Check against rate limit cap
-            max_users = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
-            if len(members) > max_users:
-                await interaction.followup.send(
-                    f"❌ Too many members selected ({len(members)}). "
-                    f"Maximum allowed per run: {max_users}. "
-                    f"Please use a more targeted selection.",
-                    ephemeral=True
-                )
-                return
-
-            # Fetch verification status data
+            # Enqueue job via verification bulk service
             try:
-                status_rows = await fetch_status_rows(members)
-            except Exception as e:
-                logger.exception(f"Error fetching status data: {e}")
-                await interaction.followup.send(
-                    f"❌ Error fetching verification data: {e!s}",
-                    ephemeral=True
-                )
-                return
-
-            # Build summary embed (truncation is handled dynamically inside)
-            try:
-                embed = build_summary_embed(
-                    invoker=interaction.user,
+                batch_size = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
+                
+                # Check if another job is running
+                is_running = self.bot.services.verify_bulk.is_running()
+                queue_size_before = self.bot.services.verify_bulk.queue_size()
+                
+                # Determine scope label and channel
+                scope_label = targets.name  # "specific users", "voice channel", or "all active voice"
+                scope_channel = f"#{channel.name}" if channel else None
+                
+                # Enqueue the manual job
+                job_id = await self.bot.services.verify_bulk.enqueue_manual(
+                    interaction=interaction,
                     members=members,
-                    rows=status_rows,
-                    show_details=show_details,
-                    truncated_count=0  # Will be calculated dynamically inside the function
+                    scope_label=scope_label,
+                    scope_channel=scope_channel
                 )
-            except Exception as e:
-                logger.exception(f"Error building embed: {e}")
-                await interaction.followup.send(
-                    f"❌ Error formatting results: {e!s}",
-                    ephemeral=True
-                )
-                return
-
-            # Send the main response
-            response_parts = []
-            if export_csv and status_rows:
-                response_parts.append("📊 Results summary below. CSV with full details will be sent via DM.")
-
-            response_content = "\n".join(response_parts) if response_parts else None
-
-            await interaction.followup.send(
-                content=response_content,
-                embed=embed,
-                ephemeral=True
-            )
-
-            # Handle CSV export if requested
-            if export_csv and status_rows:
-                try:
-                    filename, content_bytes = await write_csv(status_rows)
-
-                    # Create a BytesIO object from the content bytes
-                    csv_file = discord.File(
-                        fp=io.BytesIO(content_bytes),
-                        filename=filename
-                    )
-
-                    # Try to send DM
-                    try:
-                        await interaction.user.send(
-                            f"📊 Verification status export from {interaction.guild.name}",
-                            file=csv_file
-                        )
-                    except (discord.Forbidden, discord.HTTPException) as dm_error:
-                        logger.warning(f"Could not DM CSV to user {interaction.user.id}: {dm_error}")
-                        await interaction.followup.send(
-                            "⚠️ Could not send CSV via DM. Please ensure your DMs are open.",
-                            ephemeral=True
-                        )
-
-                except Exception as e:
-                    logger.exception(f"Error generating CSV: {e}")
+                
+                # Provide immediate feedback
+                if is_running:
                     await interaction.followup.send(
-                        f"⚠️ Error generating CSV export: {e!s}",
+                        f"⏳ Your verification check has been queued at position {queue_size_before + 1}. "
+                        f"There's an active job running.\n"
+                        f"Checking {len(members)} users (batch size: {batch_size}). "
+                        f"Final results will be posted in leadership chat.",
                         ephemeral=True
                     )
-
-            # Log to leadership channel
-            try:
-                duration_ms = int((time.monotonic() - start_time) * 1000)
-
-                # Count by status for summary
-                status_counts = {}
-                for row in status_rows:
-                    status = row.membership_status or "not_in_db"
-                    status_counts[status] = status_counts.get(status, 0) + 1
-
-                # Format summary for leadership log
-                count_parts = []
-                for status, count in sorted(status_counts.items()):
-                    display_status = {
-                        "main": "Verified/Main",
-                        "affiliate": "Affiliate",
-                        "non_member": "Non-Member",
-                        "unknown": "Unverified",
-                        "unverified": "Unverified",
-                        "not_in_db": "Not in DB"
-                    }.get(status, status.title())
-                    count_parts.append(f"{display_status}: {count}")
-
-                summary_text = f"Checked {len(status_rows)} members. {', '.join(count_parts)}"
-
-                # Post leadership log entry
-                changeset = ChangeSet(
-                    user_id=0,  # Bulk operation, no single user
-                    event=EventType.ADMIN_CHECK,
-                    initiator_kind="Admin",
-                    initiator_name=interaction.user.display_name,
-                    notes=summary_text,
-                    duration_ms=duration_ms
+                elif queue_size_before > 0:
+                    await interaction.followup.send(
+                        f"⏳ Your verification check has been queued at position {queue_size_before + 1}.\n"
+                        f"Checking {len(members)} users (batch size: {batch_size}). "
+                        f"Final results will be posted in leadership chat.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"⏳ Starting verification check for {len(members)} users (batch size: {batch_size})...\n"
+                        f"Final results will be posted in leadership chat.",
+                        ephemeral=True
+                    )
+                
+                logger.info(
+                    f"Enqueued bulk verification check (job {job_id}) by {interaction.user.id} "
+                    f"for {len(members)} members"
                 )
-
-                await post_if_changed(self.bot, changeset)
-
+                return
+            
             except Exception as e:
-                logger.exception(f"Error posting leadership log: {e}")
-                # Don't fail the command for logging errors
-
-            logger.info(
-                f"Bulk verification check completed by {interaction.user.id} "
-                f"for {len(status_rows)} members in {duration_ms}ms"
-            )
+                logger.exception(f"Error enqueueing bulk verification job: {e}")
+                await interaction.followup.send(
+                    f"❌ Error starting verification check: {e!s}",
+                    ephemeral=True
+                )
+                return
 
         except Exception as e:
             logger.error(f"Unexpected error in bulk verification check: {e}", exc_info=True)

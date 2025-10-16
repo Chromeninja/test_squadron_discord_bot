@@ -1,6 +1,7 @@
 # Helpers/announcement.py
 
 import datetime
+import io
 import time
 
 import discord
@@ -198,6 +199,76 @@ async def send_verification_announcements(
                 )
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")
+
+
+async def send_admin_bulk_check_summary(
+    bot: commands.Bot,
+    *,
+    guild: discord.Guild,
+    invoker: discord.Member,
+    scope_label: str,
+    scope_channel: str | None,
+    embed: discord.Embed,
+    csv_bytes: bytes,
+    csv_filename: str
+) -> str:
+    """
+    Send bulk verification check summary to leadership/admin announcement channel.
+    
+    Posts a single message containing:
+    - Detailed embed with requester, scope, channel, counts, and per-user info
+    - CSV attachment with complete results
+    
+    Args:
+        bot: Bot instance with config
+        guild: Discord guild
+        invoker: Admin who initiated the check
+        scope_label: "specific users" | "voice channel" | "all active voice"
+        scope_channel: Channel name if applicable (e.g., "#General-Voice")
+        embed: Pre-built summary embed
+        csv_bytes: CSV file content as bytes
+        csv_filename: Filename for the CSV attachment
+        
+    Returns:
+        Channel name (e.g., "leadership-announcements") for user acknowledgment
+        
+    Raises:
+        Exception if channel not configured or message fails to send
+    """
+    config = bot.config
+    
+    # Get leadership announcement channel
+    channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
+    
+    if not channel_id:
+        logger.error("No leadership_announcement_channel_id configured for bulk check summary")
+        raise ValueError("Leadership announcement channel not configured")
+    
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        logger.error(f"Leadership announcement channel {channel_id} not found")
+        raise ValueError(f"Leadership channel {channel_id} not found")
+    
+    try:
+        # Create CSV file attachment
+        csv_file = discord.File(
+            fp=io.BytesIO(csv_bytes),
+            filename=csv_filename
+        )
+        
+        # Send embed + CSV to leadership channel (NOT using leadership_log header)
+        await channel.send(embed=embed, file=csv_file)
+        
+        logger.info(
+            f"Bulk check summary posted to #{channel.name} by {invoker.display_name} "
+            f"(scope: {scope_label}, checked: {len(csv_bytes)} bytes CSV)"
+        )
+        
+        return channel.name
+    
+    except Exception as e:
+        logger.exception(f"Failed to send bulk check summary to leadership channel: {e}")
+        raise
 
             # ----------------------------
             # Queue helpers

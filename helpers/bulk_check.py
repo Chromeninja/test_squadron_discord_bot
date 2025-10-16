@@ -152,10 +152,15 @@ def build_summary_embed(
     invoker: discord.Member,
     members: list[discord.Member],
     rows: list[StatusRow],
-    show_details: bool,
-    truncated_count: int = 0
+    truncated_count: int = 0,
+    scope_label: str | None = None,
+    scope_channel: str | None = None
 ) -> discord.Embed:
-    """Create a Discord-appropriate embed with counts and dynamic truncation to fit Discord limits."""
+    """
+    Create a Discord embed for bulk verification check results posted to leadership channel.
+    
+    Always includes full details with dynamic truncation to fit Discord limits.
+    """
 
     # Count by membership status
     counts = {
@@ -178,25 +183,41 @@ def build_summary_embed(
         else:
             counts["Not in DB"] += 1
 
-    # Build embed
+    # Build embed with clear title for leadership
     embed = discord.Embed(
-        title="🔎 Verification Status Check",
+        title="Bulk Verification Check",
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow()
     )
 
-    # Description with summary
+    # Description with requester, scope, and summary
     total_processed = len(rows)
-    summary_lines = [f"**Total processed:** {total_processed}"]
-
+    desc_lines = []
+    
+    # Requester info
+    desc_lines.append(f"**Requested by:** {invoker.mention} (Admin)")
+    
+    # Scope info
+    if scope_label:
+        desc_lines.append(f"**Scope:** {scope_label}")
+    
+    # Channel info (if applicable)
+    if scope_channel:
+        desc_lines.append(f"**Channel:** {scope_channel}")
+    
+    # Users checked
+    desc_lines.append(f"**Checked:** {total_processed} users")
+    desc_lines.append("")  # Blank line
+    
+    # Status counts
     for category, count in counts.items():
         if count > 0:
-            summary_lines.append(f"**{category}:** {count}")
+            desc_lines.append(f"**{category}:** {count}")
 
-    embed.description = "\n".join(summary_lines)
+    embed.description = "\n".join(desc_lines)
 
-    # Add details if requested and not too many
-    if show_details and rows:
+    # Always add per-user details (with truncation if needed)
+    if rows:
         detail_lines = []
         field_value_length = 0
         max_field_length = 1000  # Leave some buffer below Discord's 1024 limit
@@ -252,11 +273,10 @@ def build_summary_embed(
                 inline=False
             )
 
-    # Footer with additional info
+    # Footer with truncation note (pointing to CSV)
     footer_parts = []
     if truncated_count > 0:
-        footer_parts.append(f"… and {truncated_count} more")
-        footer_parts.append("Use export_csv for full results")
+        footer_parts.append(f"… and {truncated_count} more (see CSV for full results)")
 
     if footer_parts:
         embed.set_footer(text=" | ".join(footer_parts))
@@ -264,14 +284,33 @@ def build_summary_embed(
     return embed
 
 
-async def write_csv(rows: list[StatusRow]) -> tuple[str, bytes]:
-    """Return (filename, content_bytes) ready for discord.File."""
+async def write_csv(
+    rows: list[StatusRow],
+    *,
+    guild_name: str = "guild",
+    invoker_name: str = "admin"
+) -> tuple[str, bytes]:
+    """
+    Generate CSV export of verification status rows.
+    
+    Returns:
+        Tuple of (filename, content_bytes) ready for discord.File.
+        Filename format: verify_bulk_{guild}_{YYYYMMDD_HHMM}_{invoker}.csv
+    """
     if not rows:
-        return "verification_status_empty.csv", b"user_id,username,rsi_handle,membership_status,voice_channel,last_updated\n"
+        # Empty results
+        timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
+        safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
+        safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+        filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
+        return filename, b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel\n"
 
-    # Generate filename with timestamp
-    timestamp = int(time.time())
-    filename = f"verification_status_{timestamp}.csv"
+    # Generate filename with timestamp and invoker
+    timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
+    # Sanitize guild and invoker names for filename
+    safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
+    safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+    filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
 
     # Create CSV content
     output = io.StringIO()
@@ -283,8 +322,8 @@ async def write_csv(rows: list[StatusRow]) -> tuple[str, bytes]:
         "username",
         "rsi_handle",
         "membership_status",
-        "voice_channel",
-        "last_updated"
+        "last_updated",
+        "voice_channel"
     ])
 
     # Write data rows
@@ -294,8 +333,8 @@ async def write_csv(rows: list[StatusRow]) -> tuple[str, bytes]:
             row.username,
             row.rsi_handle or "",
             row.membership_status or "",
-            row.voice_channel or "",
-            row.last_updated or ""
+            row.last_updated or "",
+            row.voice_channel or ""
         ])
 
     # Get bytes content

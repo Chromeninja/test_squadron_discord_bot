@@ -152,6 +152,8 @@ def test_status_row():
 def test_build_summary_embed():
     """Test building the summary embed."""
     invoker = Mock()
+    invoker.mention = "<@12345>"
+    invoker.display_name = "TestAdmin"
 
     members = [Mock() for _ in range(3)]
 
@@ -165,12 +167,16 @@ def test_build_summary_embed():
         invoker=invoker,
         members=members,
         rows=rows,
-        show_details=True,
-        truncated_count=0
+        truncated_count=0,
+        scope_label="specific users",
+        scope_channel="#test-channel"
     )
 
-    assert embed.title == "🔎 Verification Status Check"
-    assert "**Total processed:** 3" in embed.description
+    assert embed.title == "Bulk Verification Check"
+    assert "**Requested by:** <@12345> (Admin)" in embed.description
+    assert "**Scope:** specific users" in embed.description
+    assert "**Channel:** #test-channel" in embed.description
+    assert "**Checked:** 3 users" in embed.description
     assert "**Verified/Main:** 1" in embed.description
     assert "**Affiliate:** 1" in embed.description
     assert "**Unverified:** 1" in embed.description
@@ -185,28 +191,41 @@ async def test_write_csv():
         StatusRow(3, "User3", None, "unknown", None, None),
     ]
 
-    filename, content_bytes = await write_csv(rows)
+    filename, content_bytes = await write_csv(
+        rows,
+        guild_name="TestGuild",
+        invoker_name="TestAdmin"
+    )
 
-    assert filename.startswith("verification_status_")
-    assert filename.endswith(".csv")
+    # Check filename format: verify_bulk_{guild}_{YYYYMMDD_HHMM}_{invoker}.csv
+    assert filename.startswith("verify_bulk_TestGuild_")
+    assert filename.endswith("_TestAdmin.csv")
+    assert ".csv" in filename
 
     content = content_bytes.decode('utf-8')
     lines = content.strip().split('\n')
 
     # Check header (strip any carriage returns for cross-platform compatibility)
-    assert lines[0].strip() == "user_id,username,rsi_handle,membership_status,voice_channel,last_updated"
+    assert lines[0].strip() == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel"
 
     # Check data rows
-    assert "1,User1,handle1,main,General,1609459200" in lines[1]
-    assert "2,User2,handle2,affiliate,Gaming,1609459200" in lines[2]
+    assert "1,User1,handle1,main,1609459200,General" in lines[1]
+    assert "2,User2,handle2,affiliate,1609459200,Gaming" in lines[2]
     assert "3,User3,,unknown,," in lines[3]
 
 
 @pytest.mark.asyncio
 async def test_write_csv_empty():
     """Test CSV writing with empty rows."""
-    filename, content_bytes = await write_csv([])
+    filename, content_bytes = await write_csv(
+        [],
+        guild_name="TestGuild",
+        invoker_name="TestAdmin"
+    )
 
-    assert filename == "verification_status_empty.csv"
+    # Check filename format even for empty results
+    assert filename.startswith("verify_bulk_TestGuild_")
+    assert filename.endswith("_TestAdmin.csv")
+    
     content = content_bytes.decode('utf-8')
-    assert content == "user_id,username,rsi_handle,membership_status,voice_channel,last_updated\n"
+    assert content == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel\n"

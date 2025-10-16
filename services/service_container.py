@@ -11,6 +11,7 @@ from utils.logging import get_logger
 from .config_service import ConfigService
 from .guild_service import GuildService
 from .health_service import HealthService
+from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ class ServiceContainer:
         self._guild: GuildService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
+        self._verify_bulk: VerificationBulkService | None = None
         self._initialized = False
 
     @property
@@ -62,6 +64,13 @@ class ServiceContainer:
             raise RuntimeError("HealthService not initialized")
         return self._health
 
+    @property
+    def verify_bulk(self) -> VerificationBulkService:
+        """Get the verification bulk service."""
+        if self._verify_bulk is None:
+            raise RuntimeError("VerificationBulkService not initialized")
+        return self._verify_bulk
+
     def get_all_services(self) -> list:
         """Get all initialized services for health monitoring."""
         services = []
@@ -73,6 +82,8 @@ class ServiceContainer:
             services.append(self._voice)
         if self._health:
             services.append(self._health)
+        if self._verify_bulk:
+            services.append(self._verify_bulk)
         return services
 
     async def initialize(self) -> None:
@@ -104,6 +115,12 @@ class ServiceContainer:
             await self._health.initialize()
             self.logger.debug("HealthService initialized")
 
+            # Initialize verification bulk service (depends on bot and config)
+            if self.bot:
+                self._verify_bulk = VerificationBulkService(self.bot)
+                await self._verify_bulk.start()
+                self.logger.debug("VerificationBulkService initialized")
+
             self._initialized = True
             self.logger.info("All services initialized successfully")
 
@@ -119,6 +136,10 @@ class ServiceContainer:
         self.logger.info("Cleaning up services")
 
         # Cleanup in reverse order
+        if self._verify_bulk:
+            await self._verify_bulk.shutdown()
+            self._verify_bulk = None
+
         if self._health:
             await self._health.shutdown()
             self._health = None
