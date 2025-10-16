@@ -102,50 +102,39 @@ class TestUpdatedAdminRecheckFlow:
             assert "\n" in message  # Should be two lines
 
     @pytest.mark.asyncio
-    async def test_admin_recheck_uses_admin_channel_config(self):
-        """Test that admin recheck uses admin_announce_channel_id from config."""
-        # Mock config service to return specific admin channel
-        admin_channel_id = 999888777
-        with patch("services.config_service.ConfigService") as mock_config_service:
-            mock_config_instance = AsyncMock()
-            mock_config_service.return_value = mock_config_instance
-            mock_config_instance.get_global_setting.return_value = admin_channel_id
+    async def test_admin_recheck_uses_leadership_channel_config(self):
+        """Test that admin recheck uses leadership_announcement_channel_id from config."""
+        # Mock bot with leadership channel configured
+        leadership_channel_id = 999888777
+        mock_bot = MagicMock()
+        mock_bot.config = {
+            "channels": {"leadership_announcement_channel_id": leadership_channel_id}
+        }
 
-            # Mock bot - note leadership channel is different
-            mock_bot = MagicMock()
-            mock_bot.config = {
-                "channels": {"leadership_announcement_channel_id": 555444333}
-            }
+        mock_leadership_channel = AsyncMock()
+        mock_leadership_channel.name = "leadership-logs"
+        mock_bot.get_channel.return_value = mock_leadership_channel
 
-            mock_admin_channel = AsyncMock()
-            mock_admin_channel.name = "admin-notifications"
-            mock_bot.get_channel.return_value = mock_admin_channel
+        # Mock member
+        mock_member = MagicMock()
+        mock_member.id = 987654321
 
-            # Mock member
-            mock_member = MagicMock()
-            mock_member.id = 987654321
-
-            # Mock channel_send_message
-            with patch(
-                "helpers.announcement.channel_send_message", new_callable=AsyncMock
-            ) as mock_send:
-                await send_admin_recheck_notification(
-                    bot=mock_bot,
-                    admin_display_name="TestAdmin",
-                    member=mock_member,
-                    old_status="main",
-                    new_status="main",
-                )
-
-            # Verify the admin channel was requested from config service
-            mock_config_instance.get_global_setting.assert_called_once_with(
-                "admin_announce_channel_id", None
+        # Mock channel_send_message
+        with patch(
+            "helpers.announcement.channel_send_message", new_callable=AsyncMock
+        ) as mock_send:
+            await send_admin_recheck_notification(
+                bot=mock_bot,
+                admin_display_name="TestAdmin",
+                member=mock_member,
+                old_status="main",
+                new_status="main",
             )
 
-            # Verify bot.get_channel was called with admin channel ID, not leadership channel
-            mock_bot.get_channel.assert_called_once_with(admin_channel_id)
+        # Verify bot.get_channel was called with leadership channel ID
+        mock_bot.get_channel.assert_called_once_with(leadership_channel_id)
 
-            # Verify message was sent to admin channel
-            mock_send.assert_called_once()
-            call_args = mock_send.call_args
-            assert call_args[0][0] is mock_admin_channel
+        # Verify message was sent to leadership channel
+        mock_send.assert_called_once()
+        call_args = mock_send.call_args
+        assert call_args[0][0] is mock_leadership_channel

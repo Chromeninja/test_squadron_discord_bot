@@ -90,7 +90,7 @@ async def send_admin_recheck_notification(
     new_status: str,
 ) -> tuple[bool, bool]:
     """
-    Send admin recheck notification to admin announcements channel.
+    Send admin recheck notification to leadership announcements channel.
 
     Args:
         bot: Bot instance with config
@@ -102,39 +102,21 @@ async def send_admin_recheck_notification(
     Returns:
         tuple[bool, bool]: (success, changed) where success indicates if message was sent and changed indicates if roles changed
     """
-    from services.config_service import ConfigService
+    config = bot.config
+    leadership_channel_id = config.get("channels", {}).get(
+        "leadership_announcement_channel_id"
+    )
 
-    # Use admin announce channel, fallback to leadership channel if not configured
-    try:
-        config_service = ConfigService()
-        admin_announce_channel_id = await config_service.get_global_setting(
-            "admin_announce_channel_id", None
-        )
-
-        # Fallback to leadership channel if admin announce channel not configured
-        if not admin_announce_channel_id:
-            config = bot.config
-            admin_announce_channel_id = config.get("channels", {}).get(
-                "leadership_announcement_channel_id"
-            )
-    except Exception as e:
-        logger.warning(f"Error getting admin announce channel config: {e}")
-        # Final fallback to leadership channel
-        config = bot.config
-        admin_announce_channel_id = config.get("channels", {}).get(
-            "leadership_announcement_channel_id"
-        )
-
-    if not admin_announce_channel_id:
+    if not leadership_channel_id:
         logger.warning(
-            "No admin_announce_channel_id or leadership_announcement_channel_id configured for admin recheck notification"
+            "No leadership_announcement_channel_id configured for admin recheck notification"
         )
         return False, False
 
-    admin_channel = bot.get_channel(admin_announce_channel_id)
-    if not admin_channel:
+    leadership_channel = bot.get_channel(leadership_channel_id)
+    if not leadership_channel:
         logger.warning(
-            f"Admin announcement channel {admin_announce_channel_id} not found"
+            f"Leadership announcement channel {leadership_channel_id} not found"
         )
         return False, False
 
@@ -146,10 +128,10 @@ async def send_admin_recheck_notification(
             new_status=new_status,
         )
 
-        await channel_send_message(admin_channel, message)
+        await channel_send_message(leadership_channel, message)
 
         logger.info(
-            f"Admin recheck notification sent to {admin_channel.name}: {message.replace(chr(10), ' | ')}"
+            f"Admin recheck notification sent to {leadership_channel.name}: {message.replace(chr(10), ' | ')}"
         )
 
         return True, changed
