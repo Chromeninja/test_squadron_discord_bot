@@ -88,10 +88,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in list_permissions command", exc_info=e)
+            from helpers.discord_reply import send_user_error
+            from helpers.error_messages import format_user_error
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred while retrieving channel settings.",
-                    ephemeral=True,
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
     @app_commands.command(
@@ -100,6 +101,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     )
     async def claim_channel(self, interaction: discord.Interaction) -> None:
         """Claim ownership of voice channel if current owner is absent."""
+        from helpers.discord_reply import send_user_error, send_user_success
+        from helpers.error_messages import format_user_error
+
         try:
             await interaction.response.defer(ephemeral=True)
 
@@ -111,18 +115,21 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
 
             if result.success:
-                await interaction.followup.send(
-                    f"✅ Successfully claimed ownership of voice channel: {result.channel_mention}",
-                    ephemeral=True,
-                )
+                # Format success message
+                message = f"✅ **Channel claimed**\nYou now own {result.channel_mention}."
+                await send_user_success(interaction, message)
             else:
-                await interaction.followup.send(f"❌ {result.error}", ephemeral=True)
+                # Format error with metadata if available
+                kwargs = result.metadata if result.metadata else {}
+                error_msg = format_user_error(result.error, **kwargs)
+                await send_user_error(interaction, error_msg)
 
         except Exception as e:
             logger.exception("Error in claim_channel command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred while claiming the channel.", ephemeral=True
+                from helpers.error_messages import format_user_error
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
     @app_commands.command(
@@ -133,6 +140,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         self, interaction: discord.Interaction, new_owner: discord.Member
     ) -> None:
         """Transfer channel ownership to another user."""
+        from helpers.discord_reply import send_user_error, send_user_success
+        from helpers.error_messages import format_user_error, format_user_success
+
         try:
             await interaction.response.defer(ephemeral=True)
 
@@ -145,18 +155,24 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
 
             if result.success:
-                await interaction.followup.send(
-                    f"✅ Successfully transferred ownership of voice channel to {new_owner.mention}",
-                    ephemeral=True,
+                # Format success message
+                message = format_user_success(
+                    "TRANSFERRED",
+                    user_mention=new_owner.mention,
+                    channel_mention=result.channel_mention,
                 )
+                await send_user_success(interaction, message)
             else:
-                await interaction.followup.send(f"❌ {result.error}", ephemeral=True)
+                # Format error
+                kwargs = result.metadata if result.metadata else {}
+                error_msg = format_user_error(result.error, **kwargs)
+                await send_user_error(interaction, error_msg)
 
         except Exception as e:
             logger.exception("Error in transfer_ownership command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred while transferring ownership.", ephemeral=True
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
     @app_commands.command(name="help", description="Show help for voice commands")
@@ -263,10 +279,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in list_owners command", exc_info=e)
+            from helpers.discord_reply import send_user_error
+            from helpers.error_messages import format_user_error
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred while retrieving channel information.",
-                    ephemeral=True,
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
     @app_commands.command(name="setup", description="Set up the voice channel system")
@@ -281,11 +298,14 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         num_channels: int = 1,
     ) -> None:
         """Set up the voice channel system (Admin only)."""
+        from helpers.discord_reply import send_user_error, send_user_success
+        from helpers.error_messages import format_user_error
+
         # Check permissions
         admin_role_ids = await self.voice_service.get_admin_role_ids()
         if not any(role.id in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
-                "❌ You don't have permission to use this command.", ephemeral=True
+                format_user_error("PERMISSION"), ephemeral=True
             )
             return
 
@@ -300,22 +320,20 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
 
             if result.success:
-                # Build enhanced success message
-                base_msg = f"✅ Voice system setup complete! Created {num_channels} Join-to-Create channels in {category.name}"
-
-                # Check if there was any cleanup (look for cleanup keywords in service logs)
-                # For now, use the simple success message - the detailed logs are already in the service
-                await interaction.followup.send(base_msg, ephemeral=True)
+                # Build success message
+                message = f"✅ **Setup complete**\nCreated {num_channels} Join-to-Create channel{'s' if num_channels > 1 else ''} in {category.name}."
+                await send_user_success(interaction, message)
             else:
-                await interaction.followup.send(
-                    f"❌ Setup failed: {result.error}", ephemeral=True
-                )
+                # Format error
+                kwargs = result.metadata if result.metadata else {}
+                error_msg = format_user_error(result.error, **kwargs)
+                await send_user_error(interaction, error_msg)
 
         except Exception as e:
             logger.exception("Error in setup_voice_system command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred during voice system setup.", ephemeral=True
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
     @app_commands.command(
@@ -330,10 +348,12 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     ) -> None:
         """View saved permissions and settings for a user's voice channel (Admin only)."""
         # Check permissions
+        from helpers.error_messages import format_user_error
+        
         admin_role_ids = await self.voice_service.get_admin_role_ids()
         if not any(role.id in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
-                "❌ You don't have permission to use this command.", ephemeral=True
+                format_user_error("PERMISSION"), ephemeral=True
             )
             return
 
@@ -380,10 +400,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in admin_list command", exc_info=e)
+            from helpers.discord_reply import send_user_error
+            from helpers.error_messages import format_user_error
             with contextlib.suppress(builtins.BaseException):
-                await interaction.followup.send(
-                    "❌ An error occurred while retrieving user settings.",
-                    ephemeral=True,
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN")
                 )
 
 
@@ -432,10 +453,12 @@ class AdminCommands(app_commands.Group):
         confirm: str | None = None,
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
+        from helpers.error_messages import format_user_error
+        
         # Check permissions
         if not await self._check_admin_permissions(interaction):
             await interaction.response.send_message(
-                "❌ You don't have permission to use this command.", ephemeral=True
+                format_user_error("PERMISSION"), ephemeral=True
             )
             return
 
@@ -492,8 +515,9 @@ class AdminCommands(app_commands.Group):
 
         except Exception as e:
             logger.exception("Error in admin_reset command", exc_info=e)
+            from helpers.error_messages import format_user_error
             await interaction.followup.send(
-                "❌ An error occurred while processing the reset command.",
+                format_user_error("UNKNOWN"),
                 ephemeral=True,
             )
 

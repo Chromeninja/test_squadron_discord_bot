@@ -14,6 +14,7 @@ class VoiceChannelResult(NamedTuple):
     channel_id: int | None = None
     channel_mention: str | None = None
     error: str | None = None
+    metadata: dict[str, Any] | None = None  # For error-specific data like owner_display
 
 
 @dataclass
