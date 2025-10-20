@@ -93,9 +93,6 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     member_list = list(members)
     user_ids = [m.id for m in member_list]
 
-    # Build a mapping from user_id to member for quick lookup
-    {m.id: m for m in member_list}
-
     async with Database.get_connection() as db:
         # Fetch verification data for all users at once
         placeholders = ",".join("?" * len(user_ids))
@@ -193,22 +190,22 @@ def build_summary_embed(
     # Description with requester, scope, and summary
     total_processed = len(rows)
     desc_lines = []
-    
+
     # Requester info
     desc_lines.append(f"**Requested by:** {invoker.mention} (Admin)")
-    
+
     # Scope info
     if scope_label:
         desc_lines.append(f"**Scope:** {scope_label}")
-    
+
     # Channel info (if applicable)
     if scope_channel:
         desc_lines.append(f"**Channel:** {scope_channel}")
-    
+
     # Users checked
     desc_lines.append(f"**Checked:** {total_processed} users")
     desc_lines.append("")  # Blank line
-    
+
     # Status counts
     for category, count in counts.items():
         if count > 0:
@@ -236,12 +233,12 @@ def build_summary_embed(
                 status = "Not in DB"
 
             # Format RSI handle (truncate if too long)
-            rsi_display = row.rsi_handle if row.rsi_handle else "—"
+            rsi_display = row.rsi_handle or "—"
             if len(rsi_display) > 20:
                 rsi_display = rsi_display[:17] + "..."
 
             # Format voice channel (truncate if too long)
-            vc_display = row.voice_channel if row.voice_channel else "—"
+            vc_display = row.voice_channel or "—"
             if len(vc_display) > 20:
                 vc_display = vc_display[:17] + "..."
 

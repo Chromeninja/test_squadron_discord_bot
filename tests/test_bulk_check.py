@@ -226,6 +226,6 @@ async def test_write_csv_empty():
     # Check filename format even for empty results
     assert filename.startswith("verify_bulk_TestGuild_")
     assert filename.endswith("_TestAdmin.csv")
-    
+
     content = content_bytes.decode('utf-8')
     assert content == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel\n"

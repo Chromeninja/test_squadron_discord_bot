@@ -54,10 +54,9 @@ class AutoRecheck(commands.Cog):
         await self.bot.wait_until_ready()
 
         # Check if manual bulk check is running - defer if so
-        if hasattr(self.bot, 'services') and hasattr(self.bot.services, 'verify_bulk'):
-            if self.bot.services.verify_bulk.is_running():
-                logger.info("Auto-recheck deferred: manual bulk check is running")
-                return
+        if hasattr(self.bot, 'services') and hasattr(self.bot.services, 'verify_bulk') and self.bot.services.verify_bulk.is_running():
+            logger.info("Auto-recheck deferred: manual bulk check is running")
+            return
 
         now = int(time.time())
         # Batch size cap from config

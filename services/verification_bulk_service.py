@@ -7,7 +7,6 @@ Coordinates with auto-recheck loop to avoid conflicts.
 """
 
 import asyncio
-import io
 import random
 import time
 from dataclasses import dataclass, field
@@ -19,7 +18,7 @@ from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
-    from helpers.bulk_check import StatusRow
+
 
 logger = get_logger(__name__)
 
@@ -30,18 +29,18 @@ class BulkVerificationJob:
     job_id: int
     guild_id: int
     target_member_ids: list[int]
-    
+
     # Manual job fields
     invoker_id: int
     interaction: discord.Interaction
     scope_label: str  # "specific users" | "voice channel" | "all active voice"
     scope_channel: str | None = None  # Channel name if applicable
-    
+
     # Tracking
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
     completed_at: float | None = None
-    
+
     # Results
     status_rows: list = field(default_factory=list)  # list[StatusRow] - avoid circular import
     errors: list[tuple[int, str, str]] = field(default_factory=list)  # (user_id, display_name, error)
@@ -69,7 +68,7 @@ class VerificationBulkService:
         if self.worker_task is not None:
             logger.warning("VerificationBulkService worker already running")
             return
-        
+
         self._running = True
         self.worker_task = asyncio.create_task(self._worker_loop())
         logger.info("VerificationBulkService worker started")
@@ -77,7 +76,7 @@ class VerificationBulkService:
     async def shutdown(self) -> None:
         """Stop the worker task cleanly."""
         self._running = False
-        
+
         if self.worker_task:
             self.worker_task.cancel()
             try:
@@ -85,7 +84,7 @@ class VerificationBulkService:
             except asyncio.CancelledError:
                 pass
             self.worker_task = None
-        
+
         logger.info("VerificationBulkService worker stopped")
 
     async def enqueue_manual(
@@ -103,7 +102,7 @@ class VerificationBulkService:
         """
         self._job_counter += 1
         job_id = self._job_counter
-        
+
         job = BulkVerificationJob(
             job_id=job_id,
             guild_id=interaction.guild_id,
@@ -113,7 +112,7 @@ class VerificationBulkService:
             scope_label=scope_label,
             scope_channel=scope_channel
         )
-        
+
         await self.queue.put(job)
         logger.info(f"Enqueued manual status check job {job_id} with {len(members)} targets by user {interaction.user.id}")
         return job_id
@@ -133,9 +132,9 @@ class VerificationBulkService:
                 # Wait for next job with timeout to allow clean shutdown
                 try:
                     job = await asyncio.wait_for(self.queue.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
-                
+
                 async with self.lock:
                     self.current_job = job
                     try:
@@ -153,7 +152,7 @@ class VerificationBulkService:
                     finally:
                         self.current_job = None
                         self.queue.task_done()
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -163,9 +162,9 @@ class VerificationBulkService:
     async def _process_job(self, job: BulkVerificationJob) -> None:
         """Process a single bulk verification status check job."""
         job.started_at = time.time()
-        
+
         logger.info(f"Processing status check job {job.job_id} with {len(job.target_member_ids)} targets")
-        
+
         # Send initial notification
         queue_size = self.queue_size()
         if queue_size > 0:
@@ -173,23 +172,23 @@ class VerificationBulkService:
                 f"⏳ Processing started (queued behind {queue_size} other job(s)). Checking {len(job.target_member_ids)} users...",
                 ephemeral=True
             )
-        
+
         # Get guild
         guild = self.bot.get_guild(job.guild_id)
         if not guild:
             logger.error(f"Guild {job.guild_id} not found for job {job.job_id}")
             return
-        
+
         # Get batch size from config
         batch_size = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
-        
+
         # Process in batches
         total_targets = len(job.target_member_ids)
         processed = 0
-        
+
         for i in range(0, total_targets, batch_size):
             batch_ids = job.target_member_ids[i:i + batch_size]
-            
+
             # Fetch members for this batch
             batch_members = []
             for member_id in batch_ids:
@@ -203,7 +202,7 @@ class VerificationBulkService:
                     # Record error and skip
                     job.errors.append((member_id, f"User_{member_id}", f"Member fetch failed: {e!s}"[:200]))
                     logger.debug(f"Failed to fetch member {member_id}: {e}")
-            
+
             # Fetch status rows for this batch (READ-ONLY, no RSI calls)
             try:
                 from helpers.bulk_check import fetch_status_rows
@@ -214,9 +213,9 @@ class VerificationBulkService:
                 # Record batch error
                 for member in batch_members:
                     job.errors.append((member.id, member.display_name, f"Status fetch failed: {e!s}"[:200]))
-            
+
             processed += len(batch_ids)
-            
+
             # Progress update
             if processed % (batch_size * 2) == 0 or processed >= total_targets:
                 try:
@@ -226,22 +225,22 @@ class VerificationBulkService:
                     )
                 except Exception as e:
                     logger.debug(f"Failed to send progress update: {e}")
-            
+
             # Inter-batch delay with jitter
             if processed < total_targets:
                 delay = random.uniform(1.0, 3.0)
                 await asyncio.sleep(delay)
-        
+
         job.completed_at = time.time()
-        
+
         # Send results
         await self._deliver_results(job, guild)
-        
+
         logger.info(f"Completed status check job {job.job_id}: {len(job.status_rows)} successful, {len(job.errors)} errors")
 
     async def _deliver_results(self, job: BulkVerificationJob, guild: discord.Guild) -> None:
         """Deliver final results to leadership channel (single post with embed + CSV)."""
-        
+
         # Get initiator info
         try:
             invoker = await guild.fetch_member(job.invoker_id)
@@ -255,15 +254,14 @@ class VerificationBulkService:
             except Exception:
                 pass
             return
-        
+
         # Build the detailed embed (always show full details)
         # Create member list for embed generation
         members = []
         for row in job.status_rows:
-            member = guild.get_member(row.user_id)
-            if member:
+            if member := guild.get_member(row.user_id):
                 members.append(member)
-        
+
         try:
             from helpers.bulk_check import build_summary_embed
             embed = build_summary_embed(
@@ -284,7 +282,7 @@ class VerificationBulkService:
             except Exception:
                 pass
             return
-        
+
         # Generate CSV with guild name and invoker name
         try:
             from helpers.bulk_check import write_csv
@@ -298,7 +296,7 @@ class VerificationBulkService:
             # Create minimal error CSV
             content_bytes = b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel\n"
             filename = f"verify_bulk_error_{int(time.time())}.csv"
-        
+
         # Send to leadership channel (single post: embed + CSV)
         try:
             from helpers.announcement import send_admin_bulk_check_summary
@@ -312,9 +310,9 @@ class VerificationBulkService:
                 csv_bytes=content_bytes,
                 csv_filename=filename
             )
-            
+
             logger.info(f"Posted bulk check results to #{channel_name} for job {job.job_id}")
-            
+
             # Send success ack to invoker
             try:
                 await job.interaction.followup.send(
@@ -323,7 +321,7 @@ class VerificationBulkService:
                 )
             except Exception as e:
                 logger.debug(f"Could not send success ack: {e}")
-                
+
         except Exception as e:
             logger.exception(f"Error posting to leadership channel: {e}")
             try:
@@ -337,5 +335,4 @@ class VerificationBulkService:
 
 async def initialize(bot: "commands.Bot") -> None:
     """Initialize the verification bulk service."""
-    service = VerificationBulkService(bot)
-    return service
+    return VerificationBulkService(bot)

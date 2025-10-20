@@ -2,7 +2,6 @@
 Test user-facing error messages for voice commands.
 """
 
-import pytest
 
 from helpers.error_messages import format_user_error, format_user_success
 
@@ -60,7 +59,7 @@ class TestErrorMessages:
         result = format_user_error("OWNER_PRESENT")
         assert "❌" in result
         assert "claim" in result.lower()
-        
+
         # COOLDOWN still requires seconds but should handle missing gracefully
         result = format_user_error("COOLDOWN")
         assert "⚠️" in result or "❌" in result  # Should have an emoji

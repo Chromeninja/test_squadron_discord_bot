@@ -1044,9 +1044,9 @@ class VoiceService(BaseService):
                 if error_code and error_code.startswith("COOLDOWN:"):
                     try:
                         seconds = int(error_code.split(":")[1])
-                        from helpers.error_messages import format_user_error
                         from helpers.discord_reply import dm_user
-                        
+                        from helpers.error_messages import format_user_error
+
                         message = format_user_error("COOLDOWN", seconds=seconds)
                         await dm_user(member, message)
                     except (ValueError, IndexError):

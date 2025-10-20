@@ -120,7 +120,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_success(interaction, message)
             else:
                 # Format error with metadata if available
-                kwargs = result.metadata if result.metadata else {}
+                kwargs = result.metadata or {}
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
@@ -164,7 +164,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_success(interaction, message)
             else:
                 # Format error
-                kwargs = result.metadata if result.metadata else {}
+                kwargs = result.metadata or {}
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
@@ -303,7 +303,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         # Check permissions
         admin_role_ids = await self.voice_service.get_admin_role_ids()
-        if not any(role.id in admin_role_ids for role in interaction.user.roles):
+        if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
                 format_user_error("PERMISSION"), ephemeral=True
             )
@@ -325,7 +325,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_success(interaction, message)
             else:
                 # Format error
-                kwargs = result.metadata if result.metadata else {}
+                kwargs = result.metadata or {}
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
@@ -349,9 +349,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         """View saved permissions and settings for a user's voice channel (Admin only)."""
         # Check permissions
         from helpers.error_messages import format_user_error
-        
+
         admin_role_ids = await self.voice_service.get_admin_role_ids()
-        if not any(role.id in admin_role_ids for role in interaction.user.roles):
+        if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
                 format_user_error("PERMISSION"), ephemeral=True
             )
@@ -379,11 +379,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             # Send all embeds (one per JTC channel with settings)
             if result["embeds"]:
-                for i, embed in enumerate(result["embeds"]):
-                    if i == 0:
-                        await interaction.followup.send(embed=embed, ephemeral=True)
-                    else:
-                        await interaction.followup.send(embed=embed, ephemeral=True)
+                for embed in result["embeds"]:
+                    await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Fallback if no embeds but we have settings
                 embed = discord.Embed(
@@ -454,7 +451,7 @@ class AdminCommands(app_commands.Group):
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
         from helpers.error_messages import format_user_error
-        
+
         # Check permissions
         if not await self._check_admin_permissions(interaction):
             await interaction.response.send_message(

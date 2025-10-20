@@ -236,36 +236,36 @@ async def send_admin_bulk_check_summary(
         Exception if channel not configured or message fails to send
     """
     config = bot.config
-    
+
     # Get leadership announcement channel
     channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
-    
+
     if not channel_id:
         logger.error("No leadership_announcement_channel_id configured for bulk check summary")
         raise ValueError("Leadership announcement channel not configured")
-    
+
     channel = bot.get_channel(channel_id)
     if not channel:
         logger.error(f"Leadership announcement channel {channel_id} not found")
         raise ValueError(f"Leadership channel {channel_id} not found")
-    
+
     try:
         # Create CSV file attachment
         csv_file = discord.File(
             fp=io.BytesIO(csv_bytes),
             filename=csv_filename
         )
-        
+
         # Send embed + CSV to leadership channel (NOT using leadership_log header)
         await channel.send(embed=embed, file=csv_file)
-        
+
         logger.info(
             f"Bulk check summary posted to #{channel.name} by {invoker.display_name} "
             f"(scope: {scope_label}, checked: {len(csv_bytes)} bytes CSV)"
         )
-        
+
         return channel.name
-    
+
     except Exception as e:
         logger.exception(f"Failed to send bulk check summary to leadership channel: {e}")
         raise

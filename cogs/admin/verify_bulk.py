@@ -107,15 +107,15 @@ class VerifyCommands(app_commands.Group):
             # Enqueue job via verification bulk service
             try:
                 batch_size = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
-                
+
                 # Check if another job is running
                 is_running = self.bot.services.verify_bulk.is_running()
                 queue_size_before = self.bot.services.verify_bulk.queue_size()
-                
+
                 # Determine scope label and channel
                 scope_label = targets.name  # "specific users", "voice channel", or "all active voice"
                 scope_channel = f"#{channel.name}" if channel else None
-                
+
                 # Enqueue the manual job
                 job_id = await self.bot.services.verify_bulk.enqueue_manual(
                     interaction=interaction,
@@ -123,7 +123,7 @@ class VerifyCommands(app_commands.Group):
                     scope_label=scope_label,
                     scope_channel=scope_channel
                 )
-                
+
                 # Provide immediate feedback
                 if is_running:
                     await interaction.followup.send(
@@ -146,13 +146,13 @@ class VerifyCommands(app_commands.Group):
                         f"Final results will be posted in leadership chat.",
                         ephemeral=True
                     )
-                
+
                 logger.info(
                     f"Enqueued bulk verification check (job {job_id}) by {interaction.user.id} "
                     f"for {len(members)} members"
                 )
                 return
-            
+
             except Exception as e:
                 logger.exception(f"Error enqueueing bulk verification job: {e}")
                 await interaction.followup.send(
@@ -168,7 +168,7 @@ class VerifyCommands(app_commands.Group):
                     f"❌ An unexpected error occurred: {e!s}",
                     ephemeral=True
                 )
-            except:
+            except Exception:
                 pass  # Response might have already been sent
 
 

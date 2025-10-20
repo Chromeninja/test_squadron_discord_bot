@@ -8,6 +8,10 @@ technical details to users.
 Format: emoji + **Bold Title** + newline + actionable body (≤120 chars total)
 """
 
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def format_user_error(code: str, **kwargs) -> str:
     """
@@ -55,6 +59,10 @@ def format_user_error(code: str, **kwargs) -> str:
         "CREATION_FAILED": "❌ **Creation failed**\nFailed to create voice channel. Please try again.",
     }
 
+    # Log warning if unknown error code is used
+    if code not in error_messages:
+        logger.warning(f"Unknown error code used in format_user_error: {code}")
+
     message = error_messages.get(code, error_messages["UNKNOWN"])
 
     # Format message with provided kwargs
@@ -95,7 +103,7 @@ def format_user_success(code: str, **kwargs) -> str:
         "SETUP_COMPLETE": "✅ **Setup complete**\nVoice system is ready to use.",
     }
 
-    message = success_messages.get(code, f"✅ **Success**\nOperation completed.")
+    message = success_messages.get(code, "✅ **Success**\nOperation completed.")
 
     # Format message with provided kwargs
     try:

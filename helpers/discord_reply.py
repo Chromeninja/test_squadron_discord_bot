@@ -7,7 +7,6 @@ This module provides helpers to ensure:
 - Consistent formatting across all user-facing messages
 """
 
-from typing import Optional
 
 import discord
 
@@ -20,10 +19,13 @@ async def send_user_error(
     interaction: discord.Interaction, text: str, ephemeral: bool = True
 ) -> None:
     """
-    Send an error message to the user via interaction followup.
+    Send an error message to the user via interaction response or followup.
 
     This is for slash-command error responses. All errors are ephemeral by default
     to avoid cluttering channels with error messages.
+
+    Automatically handles interaction state - uses response.send_message if not yet
+    responded, otherwise uses followup.send.
 
     Args:
         interaction: Discord interaction from the slash command
@@ -38,7 +40,11 @@ async def send_user_error(
         if not text.startswith("❌"):
             text = f"❌ {text}"
 
-        await interaction.followup.send(text, ephemeral=ephemeral)
+        # Check if interaction has already been responded to
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
         logger.error(f"Failed to send error message to user: {e}")
     except Exception as e:
@@ -49,10 +55,13 @@ async def send_user_success(
     interaction: discord.Interaction, text: str, ephemeral: bool = True
 ) -> None:
     """
-    Send a success message to the user via interaction followup.
+    Send a success message to the user via interaction response or followup.
 
     This is for slash-command success responses. Most successes are ephemeral
     to keep channels clean, but some may be public (e.g., announcements).
+
+    Automatically handles interaction state - uses response.send_message if not yet
+    responded, otherwise uses followup.send.
 
     Args:
         interaction: Discord interaction from the slash command
@@ -67,7 +76,11 @@ async def send_user_success(
         if not text.startswith("✅"):
             text = f"✅ {text}"
 
-        await interaction.followup.send(text, ephemeral=ephemeral)
+        # Check if interaction has already been responded to
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
         logger.error(f"Failed to send success message to user: {e}")
     except Exception as e:
@@ -78,9 +91,12 @@ async def send_user_info(
     interaction: discord.Interaction, text: str, ephemeral: bool = True
 ) -> None:
     """
-    Send an informational message to the user via interaction followup.
+    Send an informational message to the user via interaction response or followup.
 
     This is for slash-command informational responses (e.g., help text, status).
+
+    Automatically handles interaction state - uses response.send_message if not yet
+    responded, otherwise uses followup.send.
 
     Args:
         interaction: Discord interaction from the slash command
@@ -91,7 +107,11 @@ async def send_user_info(
         await send_user_info(interaction, "📋 Here are your voice channel settings...")
     """
     try:
-        await interaction.followup.send(text, ephemeral=ephemeral)
+        # Check if interaction has already been responded to
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
         logger.error(f"Failed to send info message to user: {e}")
     except Exception as e:
