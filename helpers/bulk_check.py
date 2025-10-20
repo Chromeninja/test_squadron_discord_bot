@@ -144,6 +144,126 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     return status_rows
 
 
+def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
+    """Count rows by membership status category."""
+    counts = {
+        "Verified/Main": 0,
+        "Affiliate": 0,
+        "Non-Member": 0,
+        "Unverified": 0,
+        "Not in DB": 0
+    }
+    
+    for row in rows:
+        if row.membership_status == "main":
+            counts["Verified/Main"] += 1
+        elif row.membership_status == "affiliate":
+            counts["Affiliate"] += 1
+        elif row.membership_status == "non_member":
+            counts["Non-Member"] += 1
+        elif row.membership_status in ("unknown", "unverified"):
+            counts["Unverified"] += 1
+        else:
+            counts["Not in DB"] += 1
+    
+    return counts
+
+
+def _format_status_display(membership_status: str) -> str:
+    """Convert membership status code to display string."""
+    status_map = {
+        "main": "Verified/Main",
+        "affiliate": "Affiliate",
+        "non_member": "Non-Member",
+        "unknown": "Unverified",
+        "unverified": "Unverified",
+    }
+    return status_map.get(membership_status, "Not in DB")
+
+
+def _truncate_text(text: str, max_length: int = 20) -> str:
+    """Truncate text if longer than max_length, adding ellipsis."""
+    if len(text) > max_length:
+        return text[:max_length - 3] + "..."
+    return text
+
+
+def _format_timestamp(timestamp: int | None) -> str:
+    """Format Unix timestamp for Discord display."""
+    if timestamp and timestamp > 0:
+        return f"<t:{timestamp}:R>"
+    return "Never"
+
+
+def _build_description_lines(
+    invoker: discord.Member,
+    total_processed: int,
+    counts: dict[str, int],
+    scope_label: str | None = None,
+    scope_channel: str | None = None
+) -> list[str]:
+    """Build description lines with requester info, scope, and status counts."""
+    desc_lines = [
+        f"**Requested by:** {invoker.mention} (Admin)"
+    ]
+    
+    if scope_label:
+        desc_lines.append(f"**Scope:** {scope_label}")
+    
+    if scope_channel:
+        desc_lines.append(f"**Channel:** {scope_channel}")
+    
+    desc_lines.extend([
+        f"**Checked:** {total_processed} users",
+        ""  # Blank line before counts
+    ])
+    
+    # Add non-zero status counts
+    for category, count in counts.items():
+        if count > 0:
+            desc_lines.append(f"**{category}:** {count}")
+    
+    return desc_lines
+
+
+def _format_detail_line(row: StatusRow) -> str:
+    """Format a single row into a detail line for the embed."""
+    status = _format_status_display(row.membership_status)
+    rsi_display = _truncate_text(row.rsi_handle or "—")
+    vc_display = _truncate_text(row.voice_channel or "—")
+    updated_display = _format_timestamp(row.last_updated)
+    
+    return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+
+
+def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:
+    """
+    Build per-user detail lines, truncating if necessary.
+    
+    Returns:
+        Tuple of (detail_lines, truncated_count)
+    """
+    detail_lines = []
+    field_value_length = 0
+    truncated_count = 0
+    
+    for i, row in enumerate(rows):
+        detail_line = _format_detail_line(row)
+        
+        # Check if adding this line would exceed the limit
+        test_length = field_value_length + len(detail_line) + 1  # +1 for newline
+        if test_length > max_field_length:
+            remaining_count = len(rows) - i
+            if remaining_count > 0:
+                truncated_count = remaining_count
+            break
+        
+        detail_lines.append(detail_line)
+        field_value_length = test_length
+    
+    return detail_lines, truncated_count
+
+
 def build_summary_embed(
     *,
     invoker: discord.Member,
@@ -158,126 +278,37 @@ def build_summary_embed(
     
     Always includes full details with dynamic truncation to fit Discord limits.
     """
-
-    # Count by membership status
-    counts = {
-        "Verified/Main": 0,
-        "Affiliate": 0,
-        "Non-Member": 0,
-        "Unverified": 0,
-        "Not in DB": 0
-    }
-
-    for row in rows:
-        if row.membership_status == "main":
-            counts["Verified/Main"] += 1
-        elif row.membership_status == "affiliate":
-            counts["Affiliate"] += 1
-        elif row.membership_status == "non_member":
-            counts["Non-Member"] += 1
-        elif row.membership_status in ("unknown", "unverified"):
-            counts["Unverified"] += 1
-        else:
-            counts["Not in DB"] += 1
-
-    # Build embed with clear title for leadership
+    # Count statuses and build embed
+    counts = _count_membership_statuses(rows)
+    
     embed = discord.Embed(
         title="Bulk Verification Check",
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow()
     )
-
-    # Description with requester, scope, and summary
-    total_processed = len(rows)
-    desc_lines = []
-
-    # Requester info
-    desc_lines.append(f"**Requested by:** {invoker.mention} (Admin)")
-
-    # Scope info
-    if scope_label:
-        desc_lines.append(f"**Scope:** {scope_label}")
-
-    # Channel info (if applicable)
-    if scope_channel:
-        desc_lines.append(f"**Channel:** {scope_channel}")
-
-    # Users checked
-    desc_lines.append(f"**Checked:** {total_processed} users")
-    desc_lines.append("")  # Blank line
-
-    # Status counts
-    for category, count in counts.items():
-        if count > 0:
-            desc_lines.append(f"**{category}:** {count}")
-
+    
+    # Build description with metadata and counts
+    desc_lines = _build_description_lines(
+        invoker, len(rows), counts, scope_label, scope_channel
+    )
     embed.description = "\n".join(desc_lines)
-
-    # Always add per-user details (with truncation if needed)
+    
+    # Add per-user details with truncation
     if rows:
-        detail_lines = []
-        field_value_length = 0
-        max_field_length = 1000  # Leave some buffer below Discord's 1024 limit
-
-        for i, row in enumerate(rows):
-            # Format status for display
-            if row.membership_status == "main":
-                status = "Verified/Main"
-            elif row.membership_status == "affiliate":
-                status = "Affiliate"
-            elif row.membership_status == "non_member":
-                status = "Non-Member"
-            elif row.membership_status in ("unknown", "unverified"):
-                status = "Unverified"
-            else:
-                status = "Not in DB"
-
-            # Format RSI handle (truncate if too long)
-            rsi_display = row.rsi_handle or "—"
-            if len(rsi_display) > 20:
-                rsi_display = rsi_display[:17] + "..."
-
-            # Format voice channel (truncate if too long)
-            vc_display = row.voice_channel or "—"
-            if len(vc_display) > 20:
-                vc_display = vc_display[:17] + "..."
-
-            # Format last updated time
-            if row.last_updated and row.last_updated > 0:
-                updated_display = f"<t:{row.last_updated}:R>"
-            else:
-                updated_display = "Never"
-
-            # Build the line
-            detail_line = f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
-
-            # Check if adding this line would exceed the limit
-            test_length = field_value_length + len(detail_line) + 1  # +1 for newline
-            if test_length > max_field_length:
-                # Add a truncation message if we're stopping early
-                remaining_count = len(rows) - i
-                if remaining_count > 0:
-                    truncated_count = max(truncated_count, remaining_count)
-                break
-
-            detail_lines.append(detail_line)
-            field_value_length = test_length
-
+        detail_lines, additional_truncated = _build_detail_lines(rows)
+        truncated_count = max(truncated_count, additional_truncated)
+        
         if detail_lines:
             embed.add_field(
                 name="Details",
                 value="\n".join(detail_lines),
                 inline=False
             )
-
-    # Footer with truncation note (pointing to CSV)
-    footer_parts = []
+    
+    # Add footer if truncated
     if truncated_count > 0:
-        footer_parts.append(f"… and {truncated_count} more (see CSV for full results)")
-
-    if footer_parts:
-        embed.set_footer(text=" | ".join(footer_parts))
-
+        embed.set_footer(text=f"… and {truncated_count} more (see CSV for full results)")
+    
     return embed
 
 

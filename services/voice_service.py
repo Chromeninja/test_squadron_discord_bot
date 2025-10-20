@@ -1233,10 +1233,39 @@ class VoiceService(BaseService):
         """Store user channel in database."""
         try:
             async with Database.get_connection() as db:
-                # Always create a new channel for each join, even if user already has one
-                # (Do not redirect to existing channel or clean up old channels)
+                # Check if there's already an active channel for this user in this JTC
+                # to prevent orphaned channels from rapid joins
+                cursor = await db.execute(
+                    """
+                    SELECT voice_channel_id FROM voice_channels 
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                """,
+                    (guild_id, jtc_channel_id, user_id),
+                )
+                existing_row = await cursor.fetchone()
 
-                # Simply insert the new channel without checking for existing ones
+                if existing_row:
+                    old_channel_id = existing_row[0]
+                    if old_channel_id != channel_id:
+                        self.logger.info(
+                            f"User {user_id} already has active channel {old_channel_id}, "
+                            f"cleaning it up before creating new channel {channel_id}"
+                        )
+                        # Try to cleanup the old channel if it exists
+                        old_channel = self.bot.get_channel(old_channel_id) if self.bot else None
+                        if old_channel:
+                            try:
+                                await self._cleanup_empty_channel(old_channel)
+                            except Exception as e:
+                                self.logger.warning(f"Failed to cleanup old channel {old_channel_id}: {e}")
+                        else:
+                            # Channel doesn't exist, just mark as inactive in DB
+                            await db.execute(
+                                "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
+                                (old_channel_id,),
+                            )
+
+                # Store the new channel
                 await db.execute(
                     """
                     INSERT INTO voice_channels

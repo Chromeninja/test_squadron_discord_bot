@@ -2,6 +2,7 @@
 Test user-facing error messages for voice commands.
 """
 
+import pytest
 
 from helpers.error_messages import format_user_error, format_user_success
 
@@ -65,29 +66,28 @@ class TestErrorMessages:
         assert "⚠️" in result or "❌" in result  # Should have an emoji
         # May have placeholder or original template
 
-    def test_all_messages_have_emoji(self):
+    @pytest.mark.parametrize("code,kwargs", [
+        ("OWNER_PRESENT", {"owner_display": "TestUser"}),
+        ("NOT_IN_VOICE", {}),
+        ("NOT_OWNER", {}),
+        ("NOT_MANAGED", {}),
+        ("COOLDOWN", {"seconds": 5}),
+        ("DB_TEMP_ERROR", {}),
+        ("PERMISSION", {}),
+        ("UNKNOWN", {}),
+        ("NO_CHANNEL", {}),
+        ("NOT_IN_CHANNEL", {}),
+        ("NO_JTC_CONFIGURED", {}),
+        ("JTC_NOT_FOUND", {}),
+        ("CREATION_FAILED", {}),
+    ])
+    def test_all_messages_have_emoji(self, code, kwargs):
         """Test that all error messages start with an emoji."""
-        error_codes = [
-            ("OWNER_PRESENT", {"owner_display": "TestUser"}),
-            ("NOT_IN_VOICE", {}),
-            ("NOT_OWNER", {}),
-            ("NOT_MANAGED", {}),
-            ("COOLDOWN", {"seconds": 5}),
-            ("DB_TEMP_ERROR", {}),
-            ("PERMISSION", {}),
-            ("UNKNOWN", {}),
-            ("NO_CHANNEL", {}),
-            ("NOT_IN_CHANNEL", {}),
-            ("NO_JTC_CONFIGURED", {}),
-            ("JTC_NOT_FOUND", {}),
-            ("CREATION_FAILED", {}),
-        ]
-
-        for code, kwargs in error_codes:
-            result = format_user_error(code, **kwargs)
-            # Check for emoji at start (handle Unicode variations)
-            assert any(emoji in result[:3] for emoji in ["❌", "⚠️", "⚠", "✅"]), \
-                f"Error message for {code} doesn't start with emoji: {result[:10]}"
+        result = format_user_error(code, **kwargs)
+        # Check for emoji at start (handle Unicode variations)
+        emojis = ["❌", "⚠️", "⚠", "✅"]
+        has_emoji = any(emoji in result[:3] for emoji in emojis)
+        assert has_emoji, f"Error message for {code} doesn't start with emoji: {result[:10]}"
 
     def test_success_messages(self):
         """Test success message formatting."""

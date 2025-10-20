@@ -162,10 +162,24 @@ class VerificationBulkService:
     async def _process_job(self, job: BulkVerificationJob) -> None:
         """Process a single bulk verification status check job."""
         job.started_at = time.time()
-
         logger.info(f"Processing status check job {job.job_id} with {len(job.target_member_ids)} targets")
 
-        # Send initial notification
+        # Early notification and validation
+        guild = await self._notify_job_start(job)
+        if not guild:
+            return
+
+        # Process all batches
+        batch_size = self._get_batch_size()
+        await self._process_batches(job, guild, batch_size)
+
+        # Finalize and deliver
+        job.completed_at = time.time()
+        await self._deliver_results(job, guild)
+        logger.info(f"Completed status check job {job.job_id}: {len(job.status_rows)} successful, {len(job.errors)} errors")
+
+    async def _notify_job_start(self, job: BulkVerificationJob) -> discord.Guild | None:
+        """Send initial notification and validate guild. Returns guild or None if invalid."""
         queue_size = self.queue_size()
         if queue_size > 0:
             await job.interaction.followup.send(
@@ -173,70 +187,79 @@ class VerificationBulkService:
                 ephemeral=True
             )
 
-        # Get guild
         guild = self.bot.get_guild(job.guild_id)
         if not guild:
             logger.error(f"Guild {job.guild_id} not found for job {job.job_id}")
-            return
+            return None
+        
+        return guild
 
-        # Get batch size from config
-        batch_size = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
+    def _get_batch_size(self) -> int:
+        """Get configured batch size for processing."""
+        return self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
 
-        # Process in batches
+    async def _process_batches(self, job: BulkVerificationJob, guild: discord.Guild, batch_size: int) -> None:
+        """Process all target members in batches."""
         total_targets = len(job.target_member_ids)
         processed = 0
 
         for i in range(0, total_targets, batch_size):
             batch_ids = job.target_member_ids[i:i + batch_size]
-
-            # Fetch members for this batch
-            batch_members = []
-            for member_id in batch_ids:
-                try:
-                    member = guild.get_member(member_id)
-                    if member is None:
-                        member = await guild.fetch_member(member_id)
-                    if member:
-                        batch_members.append(member)
-                except (discord.NotFound, discord.HTTPException) as e:
-                    # Record error and skip
-                    job.errors.append((member_id, f"User_{member_id}", f"Member fetch failed: {e!s}"[:200]))
-                    logger.debug(f"Failed to fetch member {member_id}: {e}")
-
-            # Fetch status rows for this batch (READ-ONLY, no RSI calls)
-            try:
-                from helpers.bulk_check import fetch_status_rows
-                batch_rows = await fetch_status_rows(batch_members)
-                job.status_rows.extend(batch_rows)
-            except Exception as e:
-                logger.exception(f"Error fetching status rows for batch: {e}")
-                # Record batch error
-                for member in batch_members:
-                    job.errors.append((member.id, member.display_name, f"Status fetch failed: {e!s}"[:200]))
-
+            
+            # Fetch and process this batch
+            batch_members = await self._fetch_batch_members(job, guild, batch_ids)
+            await self._fetch_batch_status(job, batch_members)
+            
             processed += len(batch_ids)
-
-            # Progress update
-            if processed % (batch_size * 2) == 0 or processed >= total_targets:
-                try:
-                    await job.interaction.followup.send(
-                        f"⏳ Processed {processed}/{total_targets} users...",
-                        ephemeral=True
-                    )
-                except Exception as e:
-                    logger.debug(f"Failed to send progress update: {e}")
-
-            # Inter-batch delay with jitter
+            
+            # Progress reporting
+            await self._report_progress(job, processed, total_targets, batch_size)
+            
+            # Inter-batch delay
             if processed < total_targets:
-                delay = random.uniform(1.0, 3.0)
-                await asyncio.sleep(delay)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
 
-        job.completed_at = time.time()
+    async def _fetch_batch_members(
+        self, job: BulkVerificationJob, guild: discord.Guild, member_ids: list[int]
+    ) -> list[discord.Member]:
+        """Fetch Discord members for a batch of member IDs."""
+        members = []
+        for member_id in member_ids:
+            try:
+                member = guild.get_member(member_id)
+                if member is None:
+                    member = await guild.fetch_member(member_id)
+                if member:
+                    members.append(member)
+            except (discord.NotFound, discord.HTTPException) as e:
+                job.errors.append((member_id, f"User_{member_id}", f"Member fetch failed: {e!s}"[:200]))
+                logger.debug(f"Failed to fetch member {member_id}: {e}")
+        
+        return members
 
-        # Send results
-        await self._deliver_results(job, guild)
+    async def _fetch_batch_status(self, job: BulkVerificationJob, members: list[discord.Member]) -> None:
+        """Fetch verification status rows for a batch of members (READ-ONLY, no RSI calls)."""
+        try:
+            from helpers.bulk_check import fetch_status_rows
+            batch_rows = await fetch_status_rows(members)
+            job.status_rows.extend(batch_rows)
+        except Exception as e:
+            logger.exception(f"Error fetching status rows for batch: {e}")
+            for member in members:
+                job.errors.append((member.id, member.display_name, f"Status fetch failed: {e!s}"[:200]))
 
-        logger.info(f"Completed status check job {job.job_id}: {len(job.status_rows)} successful, {len(job.errors)} errors")
+    async def _report_progress(
+        self, job: BulkVerificationJob, processed: int, total: int, batch_size: int
+    ) -> None:
+        """Send progress update to user if at reporting threshold."""
+        if processed % (batch_size * 2) == 0 or processed >= total:
+            try:
+                await job.interaction.followup.send(
+                    f"⏳ Processed {processed}/{total} users...",
+                    ephemeral=True
+                )
+            except Exception as e:
+                logger.debug(f"Failed to send progress update: {e}")
 
     async def _deliver_results(self, job: BulkVerificationJob, guild: discord.Guild) -> None:
         """Deliver final results to leadership channel (single post with embed + CSV)."""

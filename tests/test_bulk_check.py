@@ -14,6 +14,13 @@ from helpers.bulk_check import (
 )
 
 
+def _extract_id_from_match(match) -> int:
+    """Helper to extract ID from a regex match object."""
+    if match.group("id"):
+        return int(match.group("id"))
+    return int(match.group("raw"))
+
+
 def test_mention_regex():
     """Test the mention regular expression."""
     text = "@user1 <@123456789012345678> <@!987654321098765432> 111222333444555666 not_a_mention 123"
@@ -21,13 +28,8 @@ def test_mention_regex():
     matches = list(MENTION_RE.finditer(text))
     assert len(matches) == 3
 
-    # Test that we extract the right IDs
-    ids = []
-    for match in matches:
-        if match.group("id"):
-            ids.append(int(match.group("id")))
-        elif match.group("raw"):
-            ids.append(int(match.group("raw")))
+    # Test that we extract the right IDs using helper function
+    ids = [_extract_id_from_match(match) for match in matches]
 
     expected_ids = [123456789012345678, 987654321098765432, 111222333444555666]
     assert ids == expected_ids
