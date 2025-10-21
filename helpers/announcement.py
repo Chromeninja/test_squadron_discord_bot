@@ -1,6 +1,7 @@
 # Helpers/announcement.py
 
 import datetime
+import io
 import time
 
 import discord
@@ -90,7 +91,7 @@ async def send_admin_recheck_notification(
     new_status: str,
 ) -> tuple[bool, bool]:
     """
-    Send admin recheck notification to admin announcements channel.
+    Send admin recheck notification to leadership announcements channel.
 
     Args:
         bot: Bot instance with config
@@ -102,39 +103,21 @@ async def send_admin_recheck_notification(
     Returns:
         tuple[bool, bool]: (success, changed) where success indicates if message was sent and changed indicates if roles changed
     """
-    from services.config_service import ConfigService
+    config = bot.config
+    leadership_channel_id = config.get("channels", {}).get(
+        "leadership_announcement_channel_id"
+    )
 
-    # Use admin announce channel, fallback to leadership channel if not configured
-    try:
-        config_service = ConfigService()
-        admin_announce_channel_id = await config_service.get_global_setting(
-            "admin_announce_channel_id", None
-        )
-
-        # Fallback to leadership channel if admin announce channel not configured
-        if not admin_announce_channel_id:
-            config = bot.config
-            admin_announce_channel_id = config.get("channels", {}).get(
-                "leadership_announcement_channel_id"
-            )
-    except Exception as e:
-        logger.warning(f"Error getting admin announce channel config: {e}")
-        # Final fallback to leadership channel
-        config = bot.config
-        admin_announce_channel_id = config.get("channels", {}).get(
-            "leadership_announcement_channel_id"
-        )
-
-    if not admin_announce_channel_id:
+    if not leadership_channel_id:
         logger.warning(
-            "No admin_announce_channel_id or leadership_announcement_channel_id configured for admin recheck notification"
+            "No leadership_announcement_channel_id configured for admin recheck notification"
         )
         return False, False
 
-    admin_channel = bot.get_channel(admin_announce_channel_id)
-    if not admin_channel:
+    leadership_channel = bot.get_channel(leadership_channel_id)
+    if not leadership_channel:
         logger.warning(
-            f"Admin announcement channel {admin_announce_channel_id} not found"
+            f"Leadership announcement channel {leadership_channel_id} not found"
         )
         return False, False
 
@@ -146,10 +129,10 @@ async def send_admin_recheck_notification(
             new_status=new_status,
         )
 
-        await channel_send_message(admin_channel, message)
+        await channel_send_message(leadership_channel, message)
 
         logger.info(
-            f"Admin recheck notification sent to {admin_channel.name}: {message.replace(chr(10), ' | ')}"
+            f"Admin recheck notification sent to {leadership_channel.name}: {message.replace(chr(10), ' | ')}"
         )
 
         return True, changed
@@ -216,6 +199,76 @@ async def send_verification_announcements(
                 )
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")
+
+
+async def send_admin_bulk_check_summary(
+    bot: commands.Bot,
+    *,
+    guild: discord.Guild,
+    invoker: discord.Member,
+    scope_label: str,
+    scope_channel: str | None,
+    embed: discord.Embed,
+    csv_bytes: bytes,
+    csv_filename: str
+) -> str:
+    """
+    Send bulk verification check summary to leadership/admin announcement channel.
+    
+    Posts a single message containing:
+    - Detailed embed with requester, scope, channel, counts, and per-user info
+    - CSV attachment with complete results
+    
+    Args:
+        bot: Bot instance with config
+        guild: Discord guild
+        invoker: Admin who initiated the check
+        scope_label: "specific users" | "voice channel" | "all active voice"
+        scope_channel: Channel name if applicable (e.g., "#General-Voice")
+        embed: Pre-built summary embed
+        csv_bytes: CSV file content as bytes
+        csv_filename: Filename for the CSV attachment
+        
+    Returns:
+        Channel name (e.g., "leadership-announcements") for user acknowledgment
+        
+    Raises:
+        Exception if channel not configured or message fails to send
+    """
+    config = bot.config
+
+    # Get leadership announcement channel
+    channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
+
+    if not channel_id:
+        logger.error("No leadership_announcement_channel_id configured for bulk check summary")
+        raise ValueError("Leadership announcement channel not configured")
+
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        logger.error(f"Leadership announcement channel {channel_id} not found")
+        raise ValueError(f"Leadership channel {channel_id} not found")
+
+    try:
+        # Create CSV file attachment
+        csv_file = discord.File(
+            fp=io.BytesIO(csv_bytes),
+            filename=csv_filename
+        )
+
+        # Send embed + CSV to leadership channel (NOT using leadership_log header)
+        await channel.send(embed=embed, file=csv_file)
+
+        logger.info(
+            f"Bulk check summary posted to #{channel.name} by {invoker.display_name} "
+            f"(scope: {scope_label}, checked: {len(csv_bytes)} bytes CSV)"
+        )
+
+        return channel.name
+
+    except Exception as e:
+        logger.exception(f"Failed to send bulk check summary to leadership channel: {e}")
+        raise
 
             # ----------------------------
             # Queue helpers

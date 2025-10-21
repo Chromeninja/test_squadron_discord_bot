@@ -463,24 +463,38 @@ class TestVoiceOwnerCommand:
             assert call_args[1]["ephemeral"] is True
 
     @pytest.mark.asyncio
-    async def test_voice_owner_permission_denied(
+    async def test_voice_owner_accessible_to_all(
         self, voice_commands, mock_interaction, temp_db
     ):
-        """Test voice owner command with insufficient permissions."""
+        """Test voice owner command is accessible to all members (not just admins)."""
 
-        # Mock no admin permissions (empty list)
+        # Mock no admin permissions (different role ID)
         with patch.object(
             voice_commands.voice_service, "get_admin_role_ids", return_value=[999]
-        ):  # Different role ID
+        ):  # User has role 111, admin role is 999
 
             await voice_commands.list_owners.callback(voice_commands, mock_interaction)
 
-            # Verify permission denied message
-            mock_interaction.response.send_message.assert_called_once()
-            call_args = mock_interaction.response.send_message.call_args
+            # Verify the command proceeded (defer was called, not permission denied)
+            mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
 
-            assert "You don't have permission" in call_args[0][0]
-            assert call_args[1]["ephemeral"] is True
+            # Verify followup was called
+            assert mock_interaction.followup.send.called
+
+            # Get call args - could be positional or kwargs
+            call_args = mock_interaction.followup.send.call_args
+            if call_args[0]:  # positional args
+                message = call_args[0][0]
+            else:  # kwargs
+                # For embed-based responses, check embed parameter
+                if 'embed' in call_args[1]:
+                    # The command now sends an embed, not a text message when there are no channels
+                    assert call_args[1]['ephemeral'] is True
+                    return
+                message = call_args[1].get("content", "")
+
+            # Should show "No managed voice channels" not permission denied
+            assert "No managed voice channels found" in message or call_args[1].get('ephemeral') is True
 
     @pytest.mark.asyncio
     async def test_voice_owner_handles_missing_discord_objects(

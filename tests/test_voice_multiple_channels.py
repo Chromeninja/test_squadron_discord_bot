@@ -122,7 +122,7 @@ class TestMultipleChannelsPerOwner:
 
     @pytest.mark.asyncio
     async def test_jtc_join_creates_new_channel_when_user_has_existing_active_channel(self, voice_service_with_bot):
-        """Test that joining JTC when user already has a channel creates a new channel."""
+        """Test that joining JTC when user already has a channel cleans up old channel and creates new one."""
         voice_service, mock_bot = voice_service_with_bot
 
         # Setup guild and JTC channel
@@ -138,7 +138,7 @@ class TestMultipleChannelsPerOwner:
         existing_channel = MockVoiceChannel(
             channel_id=55555,
             name="TestUser's Existing Channel",
-            members=[member]
+            members=[]  # Empty so it can be cleaned up
         )
         mock_bot.add_channel(existing_channel)
 
@@ -178,13 +178,11 @@ class TestMultipleChannelsPerOwner:
                         # Call the JTC handler
                         await voice_service._handle_join_to_create(guild, jtc_channel, member)
 
-                        # Verify a new channel was created (not redirected to existing)
+                        # Verify a new channel was created
                         mock_create.assert_called_once()
 
-                        # Verify the member was not moved to existing channel
-                        # (if redirect happened, move_to wouldn't be called on member)
-
-                        # Check database has both channels
+                        # Check database: old channel should be cleaned up (is_active=0)
+                        # and only the new channel should be active
                         async with Database.get_connection() as db:
                             cursor = await db.execute(
                                 """SELECT COUNT(*) FROM voice_channels
@@ -192,8 +190,17 @@ class TestMultipleChannelsPerOwner:
                                 (12345, 11111)
                             )
                             count = await cursor.fetchone()
-                            # Should have 2 active channels for the same user
-                            assert count[0] == 2
+                            # Should have only 1 active channel (old one cleaned up)
+                            assert count[0] == 1
+                            
+                            # Verify the old channel was marked inactive
+                            cursor = await db.execute(
+                                """SELECT is_active FROM voice_channels
+                                   WHERE voice_channel_id = ?""",
+                                (55555,)
+                            )
+                            old_channel_status = await cursor.fetchone()
+                            assert old_channel_status[0] == 0, "Old channel should be marked inactive"
 
     @pytest.mark.asyncio
     async def test_cleanup_by_channel_id_only_affects_specific_channel(self, voice_service_with_bot):

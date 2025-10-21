@@ -300,7 +300,7 @@ class VoiceService(BaseService):
             user_id: Discord user ID
 
         Returns:
-            Tuple of (can_create, reason_if_not)
+            Tuple of (can_create, error_code_if_not) - returns error code, not formatted message
         """
         self._ensure_initialized()
 
@@ -312,9 +312,10 @@ class VoiceService(BaseService):
         if await self._is_on_cooldown(
             guild_id, jtc_channel_id, user_id, cooldown_seconds
         ):
+            # Return error code with seconds embedded (will be extracted at command layer)
             return (
                 False,
-                f"Please wait {cooldown_seconds} seconds between channel creations",
+                f"COOLDOWN:{cooldown_seconds}",
             )
 
         return True, None
@@ -731,18 +732,18 @@ class VoiceService(BaseService):
             user: Discord member object
 
         Returns:
-            VoiceChannelResult with success status and details
+            VoiceChannelResult with success status and error code (not formatted message)
         """
         try:
             guild = user.guild
             if not guild:
-                return VoiceChannelResult(False, error="Guild not found")
+                return VoiceChannelResult(False, error="UNKNOWN")
 
             # Find a suitable JTC channel (simplified for now)
             jtc_channels = await self._get_guild_jtc_channels(guild_id)
             if not jtc_channels:
                 return VoiceChannelResult(
-                    False, error="No join-to-create channels configured"
+                    False, error="NO_JTC_CONFIGURED"
                 )
 
             # Use first available JTC channel
@@ -751,7 +752,7 @@ class VoiceService(BaseService):
 
             if not jtc_channel or not isinstance(jtc_channel, discord.VoiceChannel):
                 return VoiceChannelResult(
-                    False, error="Join-to-create channel not found"
+                    False, error="JTC_NOT_FOUND"
                 )
 
             # Check if user can create
@@ -760,6 +761,7 @@ class VoiceService(BaseService):
             )
 
             if not can_create:
+                # The reason is already an error code from can_create_voice_channel
                 return VoiceChannelResult(False, error=reason)
 
             # Create the channel
@@ -770,13 +772,13 @@ class VoiceService(BaseService):
                     True, channel_id=channel.id, channel_mention=channel.mention
                 )
             else:
-                return VoiceChannelResult(False, error="Failed to create voice channel")
+                return VoiceChannelResult(
+                    False, error="CREATION_FAILED"
+                )
 
         except Exception as e:
             self.logger.exception("Error creating user voice channel", exc_info=e)
-            return VoiceChannelResult(
-                False, error="An error occurred while creating the channel"
-            )
+            return VoiceChannelResult(False, error="UNKNOWN")
 
     async def get_user_voice_channel_info(
         self, guild_id: int, user_id: int
@@ -1031,18 +1033,24 @@ class VoiceService(BaseService):
             )
 
             # Check cooldown before creating new channel
-            can_create, reason = await self.can_create_voice_channel(
+            can_create, error_code = await self.can_create_voice_channel(
                 guild.id, jtc_channel.id, member.id
             )
             if not can_create:
                 self.logger.info(
-                    f"Cooldown prevented channel creation for {member.display_name}: {reason}"
+                    f"Cooldown prevented channel creation for {member.display_name}: {error_code}"
                 )
-                try:
-                    # Send DM about cooldown
-                    await member.send(f"You're creating channels too quickly. {reason}")
-                except:
-                    pass  # Ignore if we can't send DM
+                # Parse cooldown seconds from error code (format: "COOLDOWN:5")
+                if error_code and error_code.startswith("COOLDOWN:"):
+                    try:
+                        seconds = int(error_code.split(":")[1])
+                        from helpers.discord_reply import dm_user
+                        from helpers.error_messages import format_user_error
+
+                        message = format_user_error("COOLDOWN", seconds=seconds)
+                        await dm_user(member, message)
+                    except (ValueError, IndexError):
+                        pass  # Ignore parsing errors
                 return
 
             # Create a new channel for the user
@@ -1226,6 +1234,7 @@ class VoiceService(BaseService):
         try:
             async with Database.get_connection() as db:
                 # Check if there's already an active channel for this user in this JTC
+                # to prevent orphaned channels from rapid joins
                 cursor = await db.execute(
                     """
                     SELECT voice_channel_id FROM voice_channels 
@@ -1238,7 +1247,10 @@ class VoiceService(BaseService):
                 if existing_row:
                     old_channel_id = existing_row[0]
                     if old_channel_id != channel_id:
-                        self.logger.info(f"User {user_id} already has active channel {old_channel_id}, cleaning it up and creating new channel {channel_id}")
+                        self.logger.info(
+                            f"User {user_id} already has active channel {old_channel_id}, "
+                            f"cleaning it up before creating new channel {channel_id}"
+                        )
                         # Try to cleanup the old channel if it exists
                         old_channel = self.bot.get_channel(old_channel_id) if self.bot else None
                         if old_channel:
@@ -1247,16 +1259,16 @@ class VoiceService(BaseService):
                             except Exception as e:
                                 self.logger.warning(f"Failed to cleanup old channel {old_channel_id}: {e}")
                         else:
-                            # Channel doesn't exist, just mark as inactive
+                            # Channel doesn't exist, just mark as inactive in DB
                             await db.execute(
                                 "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
                                 (old_channel_id,),
                             )
 
-                # Use INSERT OR REPLACE to handle the primary key constraint
+                # Store the new channel
                 await db.execute(
                     """
-                    INSERT OR REPLACE INTO voice_channels
+                    INSERT INTO voice_channels
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -1849,14 +1861,14 @@ class VoiceService(BaseService):
             user: Discord member object
 
         Returns:
-            VoiceChannelResult with success status and details
+            VoiceChannelResult with success status and error code (not formatted message)
         """
         try:
             # Check if user is in a voice channel
             if not user.voice or not user.voice.channel:
                 return VoiceChannelResult(
                     success=False,
-                    error="You must be in a voice channel to claim ownership.",
+                    error="NOT_IN_VOICE",
                 )
 
             channel = user.voice.channel
@@ -1874,7 +1886,7 @@ class VoiceService(BaseService):
 
                 if not row:
                     return VoiceChannelResult(
-                        success=False, error="This is not a managed voice channel."
+                        success=False, error="NOT_MANAGED"
                     )
 
                 current_owner_id, jtc_channel_id = row
@@ -1884,7 +1896,7 @@ class VoiceService(BaseService):
                 if current_owner and current_owner in channel.members:
                     return VoiceChannelResult(
                         success=False,
-                        error="The current owner is still in the channel.",
+                        error="OWNER_PRESENT",
                     )
 
                 # Use the comprehensive transfer method from voice_repo
@@ -1900,7 +1912,7 @@ class VoiceService(BaseService):
                 if not success:
                     return VoiceChannelResult(
                         success=False,
-                        error="Failed to claim ownership - database error.",
+                        error="DB_TEMP_ERROR",
                     )
 
                 # Update permission overwrites using permissions helper
@@ -1921,7 +1933,7 @@ class VoiceService(BaseService):
         except Exception as e:
             self.logger.exception("Error claiming voice channel", exc_info=e)
             return VoiceChannelResult(
-                success=False, error="An error occurred while claiming the channel."
+                success=False, error="UNKNOWN"
             )
 
     async def transfer_voice_channel_ownership(
@@ -1941,7 +1953,7 @@ class VoiceService(BaseService):
             new_owner: New owner member object
 
         Returns:
-            VoiceChannelResult with success status and details
+            VoiceChannelResult with success status and error code (not formatted message)
         """
         try:
             async with Database.get_connection() as db:
@@ -1958,7 +1970,7 @@ class VoiceService(BaseService):
 
                 if not row:
                     return VoiceChannelResult(
-                        success=False, error="You don't have an active voice channel."
+                        success=False, error="NO_CHANNEL"
                     )
 
                 voice_channel_id, jtc_channel_id = row
@@ -1970,7 +1982,7 @@ class VoiceService(BaseService):
                 if not channel or new_owner not in channel.members:
                     return VoiceChannelResult(
                         success=False,
-                        error="The new owner must be in your voice channel.",
+                        error="NOT_IN_CHANNEL",
                     )
 
                 # Use the comprehensive transfer method from voice_repo
@@ -1986,7 +1998,7 @@ class VoiceService(BaseService):
                 if not success:
                     return VoiceChannelResult(
                         success=False,
-                        error="Failed to transfer ownership - database error.",
+                        error="DB_TEMP_ERROR",
                     )
 
                 # Update permission overwrites using permissions helper
@@ -2011,7 +2023,7 @@ class VoiceService(BaseService):
                 "Error transferring voice channel ownership", exc_info=e
             )
             return VoiceChannelResult(
-                success=False, error="An error occurred while transferring ownership."
+                success=False, error="UNKNOWN"
             )
 
     async def get_all_voice_channels(self, guild_id: int) -> list[dict[str, Any]]:
@@ -2185,7 +2197,7 @@ class VoiceService(BaseService):
         except Exception as e:
             self.logger.exception("Error setting up voice system", exc_info=e)
             return VoiceChannelResult(
-                success=False, error=f"Failed to set up voice system: {e!s}"
+                success=False, error="UNKNOWN"
             )
 
     async def delete_user_owned_channel(

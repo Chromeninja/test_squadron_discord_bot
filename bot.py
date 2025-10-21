@@ -63,6 +63,7 @@ initial_extensions = [
     "cogs.verification.commands",
     "cogs.admin.commands",
     "cogs.admin.recheck",
+    "cogs.admin.verify_bulk",
     "cogs.voice.commands",
     "cogs.voice.events",
     "cogs.voice.service_bridge",

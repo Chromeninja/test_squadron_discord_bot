@@ -109,19 +109,20 @@ The bot includes several administrative commands for configuration and managemen
 |---------|-------------|---------------|-------|
 | `/status` | Show detailed bot health and status information | Bot Admin / Lead Moderator | `/status detailed:true` |
 | `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Bot Admin / Lead Moderator | `/guild-config` |
-| `/set-config` | Set a guild configuration value | Bot Admin / Lead Moderator | `/set-config key:"voice.cooldown_seconds" value:"30"` |
+| `/set-config` | Set a guild configuration value | Bot Admin | `/set-config key:"voice.cooldown_seconds" value:"30"` |
 | `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |
 | `/reset-user` | Reset verification timer for a specific user | Bot Admin / Lead Moderator | `/reset-user member:@username` |
-| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
+| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin / Lead Moderator | `/view-logs` |
 | `/recheck-user` | Force a verification re-check for a user | Bot Admin / Lead Moderator | `/recheck-user member:@username` |
+| `/verify check` | Check verification status for multiple users (read-only) | Bot Admin / Lead Moderator | `/verify check targets:users members_text:"@user1 @user2"` |
 
 #### Voice Admin Commands (`/voice` group)
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
 | `/voice setup` | Set up voice channel system (create JTC channels and category) | Bot Admin | `/voice setup category:#Voice-Channels num_channels:2` |
-| `/voice admin reset` | Reset voice data with modern safety features | Bot Admin / Lead Moderator | `/voice admin reset scope:user member:@username` or `/voice admin reset scope:all confirm:YES` |
-| `/voice admin_list` | View saved voice channel settings for a user | Bot Admin / Lead Moderator | `/voice admin_list user:@username` |
+| `/voice admin reset` | Reset voice data with modern safety features | Bot Admin | `/voice admin reset scope:user member:@username` or `/voice admin reset scope:all confirm:YES` |
+| `/voice admin_list` | View saved voice channel settings for a user | Bot Admin | `/voice admin_list user:@username` |
 
 #### User Voice Commands (`/voice` group)
 
@@ -131,7 +132,7 @@ The bot includes several administrative commands for configuration and managemen
 | `/voice claim` | Claim ownership of a voice channel if the original owner left | All users | `/voice claim` |
 | `/voice transfer` | Transfer ownership of your voice channel to another user | Voice channel owners | `/voice transfer user:@username` |
 | `/voice help` | Show help information for voice commands | All users | `/voice help` |
-| `/voice owner` | List all voice channels managed by the bot and their owners | Admin only | `/voice owner` |
+| `/voice owner` | List all voice channels managed by the bot and their owners | Any member | `/voice owner` |
 
 > **Note**: Voice channel settings are automatically presented via an interactive interface when you create a channel. Use `/voice list` to view your current settings.
 
@@ -157,6 +158,31 @@ The bot includes several administrative commands for configuration and managemen
 ```
 /voice setup category:#Voice-Channels num_channels:3
 ```
+
+#### Verification Status Check Examples
+
+The `/verify check` command provides read-only verification status checking with multiple targeting modes:
+
+**Check specific users:**
+```
+/verify check targets:"specific users" members_text:"@user1 @user2 123456789012345678"
+```
+
+**Check all members in a voice channel:**
+```
+/verify check targets:"voice channel" channel:#General-Voice show_details:true
+```
+
+**Check all members in any active voice channel:**
+```
+/verify check targets:"all active voice" show_details:true export_csv:true
+```
+
+**Options:**
+- `show_details:true` - Include detailed status, RSI handles, voice channels, and last update times
+- `export_csv:true` - Send a detailed CSV file via DM with full results
+
+The command respects the `auto_recheck.batch.max_users_per_run` configuration limit (default: 50 users per check).
 
 ### Permission System
 

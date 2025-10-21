@@ -81,7 +81,9 @@ class TestAdminListCommand:
 
         mock_interaction.response.send_message.assert_called_once()
         args = mock_interaction.response.send_message.call_args
-        assert "❌ You don't have permission" in args.args[0]
+        # Check for new error format (from centralized error handler)
+        assert "❌" in args.args[0]
+        assert "Missing permissions" in args.args[0]
         assert args.kwargs["ephemeral"] is True
 
     @pytest.mark.asyncio
@@ -204,7 +206,9 @@ class TestAdminListCommand:
             # Verify error message was sent
             mock_interaction.followup.send.assert_called()
             args = mock_interaction.followup.send.call_args
-            assert "❌ An error occurred" in args.args[0]
+            # Check for new error format (from centralized error handler)
+            assert "❌" in args.args[0]
+            assert "Something went wrong" in args.args[0]
 
     @pytest.mark.asyncio
     async def test_admin_list_active_channel_with_settings(

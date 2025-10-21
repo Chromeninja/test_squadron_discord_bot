@@ -161,6 +161,8 @@ class TestAdminConfigCommand:
         bot.services.config.set = AsyncMock()
         bot.services.config.get = AsyncMock(return_value=120)  # Mock stored value
         bot.has_admin_permissions = AsyncMock(return_value=True)
+        # Set BOT_ADMIN_ROLE_IDS for inline permission checks
+        bot.BOT_ADMIN_ROLE_IDS = [999999]  # Test admin role ID
         return bot
 
     @pytest.fixture
@@ -174,6 +176,10 @@ class TestAdminConfigCommand:
         interaction = MagicMock(spec=discord.Interaction)
         interaction.guild.id = 123456789
         interaction.user.display_name = "TestUser"
+        # Mock user with admin role
+        mock_role = MagicMock()
+        mock_role.id = 999999  # Matches BOT_ADMIN_ROLE_IDS
+        interaction.user.roles = [mock_role]
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
         interaction.followup.send = AsyncMock()
@@ -268,7 +274,10 @@ class TestAdminConfigCommand:
     @pytest.mark.asyncio
     async def test_set_config_permission_denied(self, admin_cog, mock_interaction):
         """Test set_config when user lacks admin permissions."""
-        admin_cog.bot.has_admin_permissions = AsyncMock(return_value=False)
+        # Mock user without admin role
+        mock_role = MagicMock()
+        mock_role.id = 111111  # Different from BOT_ADMIN_ROLE_IDS (999999)
+        mock_interaction.user.roles = [mock_role]
 
         await admin_cog.set_config.callback(
             admin_cog, mock_interaction, key="voice.cooldown_seconds", value="120"

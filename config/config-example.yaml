@@ -16,8 +16,7 @@ organization:
 channels:
   verification_channel_id: 1313551608491282543         # Channel for running verification
   public_announcement_channel_id: 1395475641805176952  # Public channel for daily/threshold announcements
-  leadership_announcement_channel_id: 1395475681512652944 # Private channel for leadership logs
-  admin_announce_channel_id: 1395475681512652944       # Channel for admin recheck notifications (defaults to leadership channel)
+  leadership_announcement_channel_id: 1395475681512652944 # Private channel for leadership logs and admin recheck notifications
   bot_spam_channel_id: 1395475681512652999             # Bot spam channel for reverify notices
 
 roles:
