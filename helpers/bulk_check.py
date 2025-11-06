@@ -22,6 +22,10 @@ class StatusRow(NamedTuple):
     membership_status: str | None
     last_updated: int | None
     voice_channel: str | None
+    # RSI recheck fields (optional)
+    rsi_status: str | None = None  # "main" | "affiliate" | "non_member" | "unknown"
+    rsi_checked_at: int | None = None  # Unix timestamp
+    rsi_error: str | None = None  # Error message if RSI check failed
 
 
 MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
@@ -233,7 +237,17 @@ def _format_detail_line(row: StatusRow) -> str:
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
     
-    return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+    # If no RSI recheck data, return DB-only format
+    if row.rsi_status is None:
+        return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+    
+    # Include RSI recheck data
+    rsi_status_display = _format_status_display(row.rsi_status)
+    rsi_checked_display = _format_timestamp(row.rsi_checked_at)
+    return (
+        f"• <@{row.user_id}> — DB: {status} → RSI: {rsi_status_display} | "
+        f"Handle: {rsi_display} | VC: {vc_display} | RSI Checked: {rsi_checked_display}"
+    )
 
 
 def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:
@@ -331,7 +345,7 @@ async def write_csv(
         safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
         safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
         filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
-        return filename, b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel\n"
+        return filename, b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n"
 
     # Generate filename with timestamp and invoker
     timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
@@ -344,14 +358,17 @@ async def write_csv(
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Write header
+    # Write header (include RSI recheck fields)
     writer.writerow([
         "user_id",
         "username",
         "rsi_handle",
         "membership_status",
         "last_updated",
-        "voice_channel"
+        "voice_channel",
+        "rsi_status",
+        "rsi_checked_at",
+        "rsi_error"
     ])
 
     # Write data rows
@@ -362,7 +379,10 @@ async def write_csv(
             row.rsi_handle or "",
             row.membership_status or "",
             row.last_updated or "",
-            row.voice_channel or ""
+            row.voice_channel or "",
+            row.rsi_status or "",
+            row.rsi_checked_at or "",
+            row.rsi_error or ""
         ])
 
     # Get bytes content
