@@ -24,6 +24,14 @@ logger = get_logger(__name__)
 
 
 @dataclass
+class RsiStatusResult:
+    """Result from an RSI organization status check."""
+    status: str  # "main" | "affiliate" | "non_member" | "unknown"
+    checked_at: int  # Unix timestamp
+    error: str | None = None  # Error message if check failed
+
+
+@dataclass
 class BulkVerificationJob:
     """Represents a single bulk verification status check job."""
     job_id: int
@@ -35,6 +43,9 @@ class BulkVerificationJob:
     interaction: discord.Interaction
     scope_label: str  # "specific users" | "voice channel" | "all active voice"
     scope_channel: str | None = None  # Channel name if applicable
+
+    # RSI recheck option
+    recheck_rsi: bool = False  # If True, verify RSI org status for each user
 
     # Tracking
     queued_at: float = field(default_factory=time.time)
@@ -92,7 +103,8 @@ class VerificationBulkService:
         interaction: discord.Interaction,
         members: list[discord.Member],
         scope_label: str,
-        scope_channel: str | None = None
+        scope_channel: str | None = None,
+        recheck_rsi: bool = False
     ) -> int:
         """
         Enqueue a manual admin-initiated bulk check job.
@@ -110,11 +122,12 @@ class VerificationBulkService:
             invoker_id=interaction.user.id,
             interaction=interaction,
             scope_label=scope_label,
-            scope_channel=scope_channel
+            scope_channel=scope_channel,
+            recheck_rsi=recheck_rsi
         )
 
         await self.queue.put(job)
-        logger.info(f"Enqueued manual status check job {job_id} with {len(members)} targets by user {interaction.user.id}")
+        logger.info(f"Enqueued manual status check job {job_id} with {len(members)} targets by user {interaction.user.id} (recheck_rsi={recheck_rsi})")
         return job_id
 
     def is_running(self) -> bool:
@@ -238,15 +251,101 @@ class VerificationBulkService:
         return members
 
     async def _fetch_batch_status(self, job: BulkVerificationJob, members: list[discord.Member]) -> None:
-        """Fetch verification status rows for a batch of members (READ-ONLY, no RSI calls)."""
+        """Fetch verification status rows for a batch of members.
+        
+        If job.recheck_rsi is True, performs live RSI verification for each member.
+        """
         try:
             from helpers.bulk_check import fetch_status_rows
             batch_rows = await fetch_status_rows(members)
+            
+            # If RSI recheck is enabled, verify each member's RSI org status
+            if job.recheck_rsi:
+                batch_rows = await self._perform_rsi_recheck(batch_rows)
+            
             job.status_rows.extend(batch_rows)
         except Exception as e:
             logger.exception(f"Error fetching status rows for batch: {e}")
             for member in members:
                 job.errors.append((member.id, member.display_name, f"Status fetch failed: {e!s}"[:200]))
+
+    async def _perform_rsi_recheck(self, status_rows: list) -> list:
+        """Perform live RSI verification for each member in the batch using concurrent execution.
+        
+        Uses asyncio.gather to check all RSI handles in parallel, improving performance
+        while maintaining proper error handling and logging for each user.
+        
+        Args:
+            status_rows: List of StatusRow objects from DB
+            
+        Returns:
+            Updated list of StatusRow objects with RSI recheck data
+        """
+        from helpers.bulk_check import StatusRow
+        from verification.rsi_verification import is_valid_rsi_handle
+        from helpers.http_helper import NotFoundError
+        
+        current_time = int(time.time())
+        
+        # Create concurrent tasks for all handles
+        async def check_single_handle(row: StatusRow) -> RsiStatusResult:
+            """Check a single RSI handle and return structured result."""
+            if not row.rsi_handle:
+                return RsiStatusResult(status="unknown", checked_at=current_time, error="No RSI handle")
+            
+            try:
+                verify_value, _, _ = await is_valid_rsi_handle(
+                    row.rsi_handle, 
+                    self.bot.http_client
+                )
+                
+                # Map verify_value to status string
+                if verify_value == 1:
+                    status = "main"
+                elif verify_value == 2:
+                    status = "affiliate"
+                elif verify_value == 0:
+                    status = "non_member"
+                else:
+                    status = "unknown"
+                
+                logger.debug(f"RSI check for user {row.user_id} ({row.rsi_handle}): verify_value={verify_value}, status={status}")
+                return RsiStatusResult(status=status, checked_at=current_time)
+                
+            except NotFoundError:
+                logger.debug(f"RSI handle not found for user {row.user_id}: {row.rsi_handle}")
+                return RsiStatusResult(status="unknown", checked_at=current_time, error="Handle not found (404)")
+            except Exception as e:
+                logger.warning(f"RSI recheck failed for user {row.user_id} ({row.rsi_handle}): {e}")
+                return RsiStatusResult(status="unknown", checked_at=current_time, error=str(e)[:200])
+        
+        # Execute all RSI checks concurrently
+        tasks = [check_single_handle(row) for row in status_rows]
+        rsi_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Build updated rows with RSI data
+        updated_rows = []
+        for row, result in zip(status_rows, rsi_results):
+            # Handle unexpected exceptions from gather
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected exception in RSI check for user {row.user_id}: {result}")
+                result = RsiStatusResult(status="unknown", checked_at=current_time, error=f"Unexpected error: {result!s}"[:200])
+            
+            # Create new StatusRow with RSI data
+            updated_row = StatusRow(
+                user_id=row.user_id,
+                username=row.username,
+                rsi_handle=row.rsi_handle,
+                membership_status=row.membership_status,
+                last_updated=row.last_updated,
+                voice_channel=row.voice_channel,
+                rsi_status=result.status,
+                rsi_checked_at=result.checked_at,
+                rsi_error=result.error
+            )
+            updated_rows.append(updated_row)
+        
+        return updated_rows
 
     async def _report_progress(
         self, job: BulkVerificationJob, processed: int, total: int, batch_size: int

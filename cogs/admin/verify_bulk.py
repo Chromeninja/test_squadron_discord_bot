@@ -24,7 +24,8 @@ class VerifyCommands(app_commands.Group):
     @app_commands.describe(
         targets="Target selection mode",
         members_text="User mentions/IDs (required for 'users' mode)",
-        channel="Voice channel to check (required for 'voice_channel' mode)"
+        channel="Voice channel to check (required for 'voice_channel' mode)",
+        recheck="If True, verify RSI org status for each user (default: False)"
     )
     @app_commands.choices(targets=[
         app_commands.Choice(name="specific users", value="users"),
@@ -37,7 +38,8 @@ class VerifyCommands(app_commands.Group):
         interaction: discord.Interaction,
         targets: app_commands.Choice[str],
         members_text: str | None = None,
-        channel: discord.VoiceChannel | None = None
+        channel: discord.VoiceChannel | None = None,
+        recheck: bool = False
     ) -> None:
         """Check verification status for multiple users without making changes."""
 
@@ -121,7 +123,8 @@ class VerifyCommands(app_commands.Group):
                     interaction=interaction,
                     members=members,
                     scope_label=scope_label,
-                    scope_channel=scope_channel
+                    scope_channel=scope_channel,
+                    recheck_rsi=recheck
                 )
 
                 # Provide immediate feedback
