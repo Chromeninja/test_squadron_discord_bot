@@ -237,16 +237,17 @@ def _format_detail_line(row: StatusRow) -> str:
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
     
-    # If RSI recheck data is available, include it
-    if row.rsi_status is not None:
-        rsi_status_display = _format_status_display(row.rsi_status)
-        rsi_checked_display = _format_timestamp(row.rsi_checked_at)
-        return (
-            f"• <@{row.user_id}> — DB: {status} → RSI: {rsi_status_display} | "
-            f"Handle: {rsi_display} | VC: {vc_display} | RSI Checked: {rsi_checked_display}"
-        )
-    else:
+    # If no RSI recheck data, return DB-only format
+    if row.rsi_status is None:
         return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+    
+    # Include RSI recheck data
+    rsi_status_display = _format_status_display(row.rsi_status)
+    rsi_checked_display = _format_timestamp(row.rsi_checked_at)
+    return (
+        f"• <@{row.user_id}> — DB: {status} → RSI: {rsi_status_display} | "
+        f"Handle: {rsi_display} | VC: {vc_display} | RSI Checked: {rsi_checked_display}"
+    )
 
 
 def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:

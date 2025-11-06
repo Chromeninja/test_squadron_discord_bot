@@ -272,11 +272,21 @@ class VerificationBulkService:
     async def _perform_rsi_recheck(self, status_rows: list) -> list:
         """Perform live RSI verification for each member in the batch using concurrent execution.
         
-        Uses asyncio.gather to check all RSI handles in parallel, improving performance
-        while maintaining proper error handling and logging for each user.
+        Uses asyncio.gather to check all RSI handles concurrently while respecting
+        the HTTPClient's built-in rate limiting (concurrency=3, 0.5s delay per request).
+        
+        Concurrency model:
+        - All tasks in the batch are submitted concurrently via asyncio.gather
+        - HTTPClient's semaphore limits actual concurrent requests to 3
+        - HTTPClient enforces 0.5s delay between requests to avoid bot detection
+        - Batch size is capped at 50 users (configurable via max_users_per_run)
+        - Inter-batch sleep of 1-3s occurs in _process_batches
+        
+        This design allows efficient parallel processing while maintaining proper
+        rate limiting and prevents overwhelming the RSI API.
         
         Args:
-            status_rows: List of StatusRow objects from DB
+            status_rows: List of StatusRow objects from DB (max 50 per batch)
             
         Returns:
             Updated list of StatusRow objects with RSI recheck data
@@ -289,7 +299,11 @@ class VerificationBulkService:
         
         # Create concurrent tasks for all handles
         async def check_single_handle(row: StatusRow) -> RsiStatusResult:
-            """Check a single RSI handle and return structured result."""
+            """Check a single RSI handle and return structured result.
+            
+            Rate limiting is handled by HTTPClient's semaphore (concurrency=3)
+            and 0.5s delay between requests.
+            """
             if not row.rsi_handle:
                 return RsiStatusResult(status="unknown", checked_at=current_time, error="No RSI handle")
             
@@ -320,6 +334,8 @@ class VerificationBulkService:
                 return RsiStatusResult(status="unknown", checked_at=current_time, error=str(e)[:200])
         
         # Execute all RSI checks concurrently
+        # Note: HTTPClient's semaphore (concurrency=3) automatically limits actual
+        # concurrent requests, so submitting all tasks at once is safe and efficient
         tasks = [check_single_handle(row) for row in status_rows]
         rsi_results = await asyncio.gather(*tasks, return_exceptions=True)
         

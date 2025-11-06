@@ -7,6 +7,7 @@ import pytest
 from helpers.bulk_check import (
     MENTION_RE,
     StatusRow,
+    _format_detail_line,
     build_summary_embed,
     collect_targets,
     parse_members_text,
@@ -317,4 +318,75 @@ async def test_write_csv_with_rsi_recheck():
     assert "1,User1,handle1,main,1609459200,General,main,1609459300," in lines[1]
     assert "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300," in lines[2]
     assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle" in lines[3]
+
+
+def test_format_detail_line_without_rsi_recheck():
+    """Test formatting a detail line without RSI recheck data."""
+    row = StatusRow(
+        user_id=123456789,
+        username="TestUser",
+        rsi_handle="test_handle",
+        membership_status="main",
+        last_updated=1609459200,
+        voice_channel="General"
+    )
+    
+    detail_line = _format_detail_line(row)
+    
+    # Verify the basic format (DB-only)
+    assert "<@123456789>" in detail_line
+    assert "Verified/Main" in detail_line
+    assert "test_handle" in detail_line
+    assert "General" in detail_line
+    assert "DB:" not in detail_line  # No DB→RSI comparison when no recheck data
+    assert "RSI:" in detail_line  # RSI handle label still present
+
+
+def test_format_detail_line_with_rsi_recheck():
+    """Test formatting a detail line with RSI recheck data."""
+    row = StatusRow(
+        user_id=123456789,
+        username="TestUser",
+        rsi_handle="test_handle",
+        membership_status="main",
+        last_updated=1609459200,
+        voice_channel="General",
+        rsi_status="affiliate",  # Changed from main to affiliate
+        rsi_checked_at=1609459300,
+        rsi_error=None
+    )
+    
+    detail_line = _format_detail_line(row)
+    
+    # Verify the enhanced format with RSI recheck
+    assert "<@123456789>" in detail_line
+    assert "DB: Verified/Main" in detail_line  # DB status
+    assert "RSI: Affiliate" in detail_line  # RSI status
+    assert "Handle: test_handle" in detail_line
+    assert "VC: General" in detail_line
+    assert "RSI Checked:" in detail_line
+
+
+def test_format_detail_line_with_rsi_error():
+    """Test formatting a detail line when RSI recheck fails."""
+    row = StatusRow(
+        user_id=123456789,
+        username="TestUser",
+        rsi_handle=None,
+        membership_status="unknown",
+        last_updated=None,
+        voice_channel=None,
+        rsi_status="unknown",
+        rsi_checked_at=1609459300,
+        rsi_error="No RSI handle found"
+    )
+    
+    detail_line = _format_detail_line(row)
+    
+    # Verify error case formatting
+    assert "<@123456789>" in detail_line
+    assert "DB: Unverified" in detail_line
+    assert "RSI: Unverified" in detail_line
+    # Note: Error is in rsi_error field but not displayed in detail line
+    # It's available in CSV export
 
