@@ -36,6 +36,10 @@ class ConfigService(BaseService):
         try:
             with open("config/config.yaml", encoding="utf-8") as f:
                 self._global_config = yaml.safe_load(f) or {}
+            
+            # Normalize role IDs to integers at load time
+            self._coerce_role_types(self._global_config)
+            
             self.logger.info("Global configuration loaded successfully")
         except FileNotFoundError:
             self.logger.warning("Global config file not found, using empty config")
@@ -43,6 +47,37 @@ class ConfigService(BaseService):
         except yaml.YAMLError as e:
             self.logger.exception("Error parsing global config", exc_info=e)
             self._global_config = {}
+
+    def _coerce_role_types(self, config: dict[str, Any]) -> None:
+        """
+        Coerce role IDs to integers at config boundary.
+        
+        This ensures all role IDs are consistently typed throughout the codebase,
+        eliminating the need for scattered int() calls.
+        
+        Args:
+            config: Configuration dictionary to normalize (modified in place)
+        """
+        if not isinstance(config, dict):
+            return
+            
+        # Normalize roles section
+        if "roles" in config and isinstance(config["roles"], dict):
+            roles = config["roles"]
+            
+            # Convert list-based role configs
+            for key in ["bot_admins", "lead_moderators"]:
+                if key in roles and isinstance(roles[key], list):
+                    roles[key] = [int(role_id) for role_id in roles[key] if role_id]
+            
+            # Convert single role ID configs
+            for key in ["bot_verified_role_id", "main_role_id", "affiliate_role_id", "non_member_role_id"]:
+                if key in roles and roles[key] is not None:
+                    try:
+                        roles[key] = int(roles[key])
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Invalid role ID for {key}: {roles[key]}")
+                        roles[key] = None
 
     async def get(
         self,
@@ -209,7 +244,7 @@ class ConfigService(BaseService):
         """
         roles = {}
 
-        # Standard role mappings
+        # Standard role mappings - already normalized to int at load time
         role_keys = [
             "bot_verified_role_id",
             "main_role_id",
@@ -220,19 +255,19 @@ class ConfigService(BaseService):
         for role_key in role_keys:
             role_id = await self.get_guild_setting(guild_id, f"roles.{role_key}")
             if role_id:
-                roles[role_key] = int(role_id)
+                roles[role_key] = role_id
 
-        # Admin roles (list)
+        # Admin roles (list) - already normalized to list[int]
         admin_roles = await self.get_guild_setting(guild_id, "roles.bot_admins", [])
         if admin_roles:
-            roles["bot_admin_role_ids"] = [int(r) for r in admin_roles]
+            roles["bot_admin_role_ids"] = admin_roles
 
-        # Lead moderator roles (list)
+        # Lead moderator roles (list) - already normalized to list[int]
         lead_mod_roles = await self.get_guild_setting(
             guild_id, "roles.lead_moderators", []
         )
         if lead_mod_roles:
-            roles["lead_moderator_role_ids"] = [int(r) for r in lead_mod_roles]
+            roles["lead_moderator_role_ids"] = lead_mod_roles
 
         return roles
 

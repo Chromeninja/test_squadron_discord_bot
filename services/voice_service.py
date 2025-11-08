@@ -874,12 +874,13 @@ class VoiceService(BaseService):
         """Get admin role IDs from configuration."""
         try:
             # Use the global config from config service
+            # Role IDs are already normalized to int at config load time
             bot_admin_roles = await self.config_service.get_guild_setting(
                 guild_id=0,  # Use 0 for global config
                 key="roles.bot_admins",
                 default=[],
             )
-            return [int(r) for r in bot_admin_roles] if bot_admin_roles else []
+            return bot_admin_roles if bot_admin_roles else []
         except Exception as e:
             self.logger.exception("Error getting admin role IDs", exc_info=e)
             return []

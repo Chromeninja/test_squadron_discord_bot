@@ -46,10 +46,9 @@ BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
 MAIN_ROLE_ID = config["roles"]["main_role_id"]
 AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
 NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
-BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("bot_admins", [])]
-LEAD_MODERATOR_ROLE_IDS = [
-    int(role_id) for role_id in config["roles"].get("lead_moderators", [])
-]
+# Role IDs are now normalized to int at config load time
+BOT_ADMIN_ROLE_IDS = config["roles"].get("bot_admins", [])
+LEAD_MODERATOR_ROLE_IDS = config["roles"].get("lead_moderators", [])
 
 # Configure intents - start from none and enable only what's required
 intents = discord.Intents.none()
