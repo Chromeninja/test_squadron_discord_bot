@@ -114,6 +114,17 @@ class MyBot(commands.Bot):
         await self.services.initialize()
         logger.info("ServiceContainer initialized")
 
+        # Start internal API server for web dashboard
+        try:
+            from services.internal_api import InternalAPIServer
+            
+            self.internal_api = InternalAPIServer(self.services)
+            await self.internal_api.start()
+        except Exception as e:
+            logger.exception("Failed to start internal API server", exc_info=e)
+            # Don't fail bot startup if internal API fails
+            self.internal_api = None
+
         # Run application-driven voice data migration (safe, idempotent)
         try:
             from helpers.voice_migration import run_voice_data_migration

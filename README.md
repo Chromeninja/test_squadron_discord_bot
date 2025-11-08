@@ -219,3 +219,42 @@ Comprehensive documentation is available and includes:
 Developer documentation source is included in the `docs/` directory (markdown files). The generated Sphinx HTML (`docs/build/html/...`) is not committed to this repository.
 
 If you prefer to view HTML docs locally, build them from the Sphinx sources on your machine (see "Building docs locally" below) — otherwise read the markdown files in `docs/`.
+
+## 🌐 Web Admin Dashboard
+
+The bot includes a minimal web admin dashboard for managing and monitoring bot operations from a browser interface.
+
+### Features
+
+- **Discord OAuth2 Authentication**: Secure login with your Discord account
+- **Role-Based Access Control**: Only bot admins and lead moderators can access
+- **Dashboard Overview**: View verification statistics and active voice channels
+- **User Search**: Search verification records by user ID, RSI handle, or community moniker
+- **Voice Channel Search**: Look up voice channels by user ID
+
+### Quick Start
+
+1. **Set up Discord OAuth2** credentials in `.env` (see [Web Dashboard README](web/README.md))
+2. **Start the backend**:
+   ```bash
+   cd web/backend
+   pip install -r requirements.txt
+   uvicorn app:app --reload --port 8081
+   ```
+3. **Start the frontend** (in a new terminal):
+   ```bash
+   cd web/frontend
+   npm install
+   npm run dev
+   ```
+4. **Open your browser** to `http://localhost:5173` and login with Discord
+
+For detailed setup instructions, architecture details, and troubleshooting, see the [Web Dashboard README](web/README.md).
+
+### VS Code Debugging
+
+Pre-configured launch configurations are available:
+- **🌐 Web Admin Only**: Runs backend + frontend together
+- **🚀 Full Stack**: Runs bot + backend + frontend together
+
+Access via Run and Debug panel (Ctrl+Shift+D) in VS Code.

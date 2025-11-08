@@ -50,6 +50,10 @@ class VoiceService(BaseService):
 
         # Debug logging configuration - defaults to False for production
         self.debug_logging_enabled = False
+        
+        # In-memory cache of voice channel members (channel_id -> set of user_ids)
+        # This is populated from Gateway events and has no Discord API overhead
+        self._voice_channel_members: dict[int, set[int]] = {}
 
     async def _initialize_impl(self) -> None:
         """Initialize voice service."""
@@ -880,6 +884,21 @@ class VoiceService(BaseService):
             self.logger.exception("Error getting admin role IDs", exc_info=e)
             return []
 
+    def get_voice_channel_members(self, channel_id: int) -> list[int]:
+        """
+        Get list of user IDs currently in a voice channel.
+        
+        This data comes from the Gateway cache (no Discord API calls).
+        Returns empty list if channel has no members or is not cached.
+        
+        Args:
+            channel_id: Discord voice channel ID
+            
+        Returns:
+            List of user IDs currently in the channel
+        """
+        return list(self._voice_channel_members.get(channel_id, set()))
+
     async def handle_voice_state_change(
         self,
         member: discord.Member,
@@ -896,6 +915,21 @@ class VoiceService(BaseService):
         """
         guild = member.guild
         guild_id = guild.id
+
+        # Update voice channel members cache
+        if before_channel:
+            # Remove user from previous channel
+            if before_channel.id in self._voice_channel_members:
+                self._voice_channel_members[before_channel.id].discard(member.id)
+                # Clean up empty sets
+                if not self._voice_channel_members[before_channel.id]:
+                    del self._voice_channel_members[before_channel.id]
+        
+        if after_channel:
+            # Add user to new channel
+            if after_channel.id not in self._voice_channel_members:
+                self._voice_channel_members[after_channel.id] = set()
+            self._voice_channel_members[after_channel.id].add(member.id)
 
         # Handle leaving a managed channel - clean up if empty
         if before_channel and await self._is_managed_channel(before_channel.id):

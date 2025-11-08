@@ -13,9 +13,9 @@ from services import (
     ConfigService,
     GuildService,
     HealthService,
-    ServiceManager,
     VoiceService,
 )
+from services.service_container import ServiceContainer
 from services.db.database import Database
 
 
@@ -36,12 +36,12 @@ async def temp_db():
 
 
 @pytest.fixture
-async def service_manager(temp_db):
-    """Create a service manager with temporary database."""
-    manager = ServiceManager()
-    await manager.initialize()
-    yield manager
-    await manager.shutdown()
+async def service_container(temp_db):
+    """Create a service container with temporary database."""
+    container = ServiceContainer()
+    await container.initialize()
+    yield container
+    await container.cleanup()
 
 
 class TestConfigService:
@@ -246,63 +246,49 @@ class TestVoiceService:
         await config_service.shutdown()
 
 
-class TestServiceManager:
-    """Tests for ServiceManager."""
+class TestServiceContainer:
+    """Tests for ServiceContainer."""
 
     @pytest.mark.asyncio
-    async def test_service_manager_initialization(self, temp_db):
-        """Test service manager initializes all services."""
-        manager = ServiceManager()
-        await manager.initialize()
+    async def test_service_container_initialization(self, temp_db):
+        """Test service container initializes all services."""
+        container = ServiceContainer()
+        await container.initialize()
 
-        assert manager.is_initialized
+        assert container.is_initialized
 
         # Check all services are available
-        assert manager.config is not None
-        assert manager.guild is not None
-        assert manager.health is not None
-        assert manager.voice is not None
+        assert container.config is not None
+        assert container.guild is not None
+        assert container.health is not None
+        assert container.voice is not None
 
-        await manager.shutdown()
+        await container.cleanup()
 
     @pytest.mark.asyncio
     async def test_service_access(self, temp_db):
-        """Test accessing services through manager."""
-        manager = ServiceManager()
-        await manager.initialize()
+        """Test accessing services through container."""
+        container = ServiceContainer()
+        await container.initialize()
 
-        # Test getting services by name
-        config_service = manager.get_service("config")
-        assert isinstance(config_service, ConfigService)
+        # Test getting services
+        assert isinstance(container.config, ConfigService)
+        assert isinstance(container.guild, GuildService)
 
-        guild_service = manager.get_service("guild")
-        assert isinstance(guild_service, GuildService)
-
-        # Test getting all services
-        all_services = manager.get_all_services()
-        assert len(all_services) == 4
-
-        await manager.shutdown()
+        await container.cleanup()
 
     @pytest.mark.asyncio
-    async def test_health_check_all(self, temp_db):
-        """Test comprehensive health checking."""
-        manager = ServiceManager()
-        await manager.initialize()
+    async def test_health_check(self, temp_db):
+        """Test health checking through services."""
+        container = ServiceContainer()
+        await container.initialize()
 
-        health_report = await manager.health_check_all()
+        # Check health service is available
+        assert container.health is not None
+        health_status = await container.health.health_check()
+        assert health_status["status"] == "healthy"
 
-        assert "status" in health_report
-        assert "services" in health_report
-
-        # Check all services are reported
-        services = health_report["services"]
-        assert "config" in services
-        assert "guild" in services
-        assert "health" in services
-        assert "voice" in services
-
-        await manager.shutdown()
+        await container.cleanup()
 
 
 @pytest.mark.asyncio
@@ -313,29 +299,29 @@ async def test_integration_flow(temp_db):
     Database._db_path = temp_db
     await Database.initialize(temp_db)
 
-    manager = ServiceManager()
-    await manager.initialize()
+    container = ServiceContainer()
+    await container.initialize()
 
     guild_id = 12345
 
     # Test configuration
-    await manager.config.set_guild_setting(guild_id, "voice.cooldown_seconds", 10)
-    cooldown = await manager.config.get_guild_setting(
+    await container.config.set_guild_setting(guild_id, "voice.cooldown_seconds", 10)
+    cooldown = await container.config.get_guild_setting(
         guild_id, "voice.cooldown_seconds"
     )
     assert cooldown == 10
 
     # Test health checks (using base health_check method)
-    health_status = await manager.health.health_check()
+    health_status = await container.health.health_check()
     assert health_status["status"] == "healthy"
 
     # Test service access
-    assert manager.config is not None
-    assert manager.guild is not None
-    assert manager.health is not None
-    assert manager.voice is not None
+    assert container.config is not None
+    assert container.guild is not None
+    assert container.health is not None
+    assert container.voice is not None
 
-    await manager.shutdown()
+    await container.cleanup()
 
 
 if __name__ == "__main__":
