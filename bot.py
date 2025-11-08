@@ -466,11 +466,27 @@ class MyBot(commands.Bot):
 
     async def close(self) -> None:
         """
-        Closes the bot and the HTTP client session.
+        Closes the bot and cleans up all resources.
         """
         logger.info("Shutting down the bot and closing HTTP client session.")
 
-        # Enqueue shutdown signals for workers
+        # Stop internal API server if running
+        if hasattr(self, 'internal_api') and self.internal_api:
+            try:
+                await self.internal_api.stop()
+                logger.info("Internal API server stopped")
+            except Exception as e:
+                logger.exception("Error stopping internal API server", exc_info=e)
+
+        # Cleanup services
+        if hasattr(self, 'services') and self.services:
+            try:
+                await self.services.cleanup()
+                logger.info("Services cleaned up")
+            except Exception as e:
+                logger.exception("Error cleaning up services", exc_info=e)
+
+        # Enqueue shutdown signals for task workers
         for _ in range(2):  # Number of workers started
             await task_queue.put(None)
 
@@ -478,6 +494,8 @@ class MyBot(commands.Bot):
 
         # Close the HTTP client
         await self.http_client.close()
+        
+        # Call parent close
         await super().close()
 
         # Initialize the bot
