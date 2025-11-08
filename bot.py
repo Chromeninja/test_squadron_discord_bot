@@ -51,12 +51,14 @@ LEAD_MODERATOR_ROLE_IDS = [
     int(role_id) for role_id in config["roles"].get("lead_moderators", [])
 ]
 
-intents = discord.Intents.default()
-intents.guilds = True  # Needed for guild-related events
-intents.members = True  # Needed for member-related events
-intents.message_content = True  # Needed for reading message content
-intents.voice_states = True  # Needed for voice state updates
-intents.presences = True  # Needed for member presence updates
+# Configure intents - start from none and enable only what's required
+intents = discord.Intents.none()
+intents.guilds = True  # Required: Guild events, channels, roles
+intents.members = True  # Required: Member join/leave, role updates for verification
+intents.voice_states = True  # Required: Voice channel join/leave for voice system
+# Privileged intents disabled (not required for current features):
+# - message_content: Bot uses slash commands, not message commands
+# - presences: Not used for core functionality (optional activity display only)
 
 # List of initial extensions to load
 initial_extensions = [
