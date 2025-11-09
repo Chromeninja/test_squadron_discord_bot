@@ -5,8 +5,10 @@ Handles Discord OAuth2 flow, session tokens, and access control.
 """
 
 import os
+import secrets
 from datetime import datetime, timedelta
 
+from fastapi import Response
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from jose import JWTError, jwt
 
@@ -14,6 +16,8 @@ from jose import JWTError, jwt
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev_only_change_me_in_production")
 SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE = 86400 * 7  # 7 days
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # Set true in production
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")  # lax or strict
 
 # JWT configuration for session tokens
 JWT_ALGORITHM = "HS256"
@@ -29,6 +33,81 @@ DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID", "")
 DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_API_BASE = "https://discord.com/api/v10"
+
+# State management for OAuth (simple in-memory store for dev, use Redis in production)
+_oauth_states: dict[str, float] = {}
+
+
+def generate_oauth_state() -> str:
+    """
+    Generate a cryptographically random state for OAuth flow.
+    
+    Returns:
+        Random state string
+    """
+    state = secrets.token_urlsafe(32)
+    _oauth_states[state] = datetime.utcnow().timestamp()
+    return state
+
+
+def validate_oauth_state(state: str) -> bool:
+    """
+    Validate OAuth state and remove it (one-time use).
+    
+    Args:
+        state: State string to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if state not in _oauth_states:
+        return False
+    
+    # Check expiration (5 minutes)
+    timestamp = _oauth_states.pop(state)
+    age = datetime.utcnow().timestamp() - timestamp
+    return age < 300  # 5 minutes
+
+
+def cleanup_expired_states() -> None:
+    """Remove expired OAuth states (call periodically)."""
+    now = datetime.utcnow().timestamp()
+    expired = [s for s, t in _oauth_states.items() if now - t > 300]
+    for s in expired:
+        _oauth_states.pop(s, None)
+
+
+def set_session_cookie(response: Response, user_data: dict) -> None:
+    """
+    Set a secure session cookie on the response.
+    
+    Args:
+        response: FastAPI Response object
+        user_data: User data to encode in session
+    """
+    token = create_session_token(user_data)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,  # Not accessible via JavaScript
+        secure=COOKIE_SECURE,  # Only over HTTPS (disabled for local dev)
+        samesite=COOKIE_SAMESITE,  # CSRF protection
+        max_age=SESSION_MAX_AGE,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    """
+    Clear the session cookie.
+    
+    Args:
+        response: FastAPI Response object
+    """
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+    )
 
 
 def create_session_token(user_data: dict) -> str:
@@ -66,12 +145,12 @@ def decode_session_token(token: str) -> dict | None:
         return None
 
 
-def get_discord_authorize_url(state: str | None = None) -> str:
+def get_discord_authorize_url(state: str) -> str:
     """
-    Generate Discord OAuth2 authorization URL.
+    Generate Discord OAuth2 authorization URL with state.
 
     Args:
-        state: Optional state parameter for CSRF protection
+        state: State parameter for CSRF protection (required)
 
     Returns:
         Full authorization URL
@@ -81,9 +160,8 @@ def get_discord_authorize_url(state: str | None = None) -> str:
         "redirect_uri": DISCORD_REDIRECT_URI,
         "response_type": "code",
         "scope": "identify guilds guilds.members.read",  # Added guilds scopes for role checking
+        "state": state,
     }
-    if state:
-        params["state"] = state
 
     query_string = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{DISCORD_OAUTH_URL}?{query_string}"

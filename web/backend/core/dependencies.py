@@ -132,3 +132,43 @@ async def require_admin_or_moderator(
             detail="Access denied - admin or moderator role required",
         )
     return current_user
+
+
+def require_any(*roles: str):
+    """
+    Factory function for role-based access control dependency.
+    
+    Creates a dependency that checks if user has any of the specified roles.
+    Server-side role validation against config.
+    
+    Args:
+        *roles: Role names to check (e.g., "admin", "moderator")
+        
+    Returns:
+        FastAPI dependency function
+        
+    Example:
+        @app.get("/admin/stats", dependencies=[Depends(require_any("admin"))])
+        async def admin_stats(): ...
+    """
+    async def check_roles(current_user: UserProfile = Depends(get_current_user)) -> UserProfile:
+        """Check if user has any of the required roles."""
+        has_access = False
+        
+        for role in roles:
+            if role == "admin" and current_user.is_admin:
+                has_access = True
+                break
+            elif role == "moderator" and current_user.is_moderator:
+                has_access = True
+                break
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied - requires one of: {', '.join(roles)}",
+            )
+        
+        return current_user
+    
+    return check_roles
