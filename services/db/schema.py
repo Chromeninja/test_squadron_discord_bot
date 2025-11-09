@@ -48,6 +48,17 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    
+    # Indexes for verification search performance
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification(user_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verification_rsi_handle ON verification(rsi_handle)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verification_moniker ON verification(community_moniker)"
+    )
 
     # Guild settings
     await db.execute(
