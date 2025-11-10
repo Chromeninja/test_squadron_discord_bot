@@ -4,9 +4,11 @@ Dependency injection for FastAPI routes.
 Provides access to configuration, database, and session management.
 """
 
+import os
 import sys
 from pathlib import Path
 
+import httpx
 from fastapi import Cookie, Depends, HTTPException
 
 # Add project root to Python path for imports
@@ -53,6 +55,11 @@ async def shutdown_services():
     """Cleanup services on application shutdown."""
     if _config_service:
         await _config_service.shutdown()
+    
+    # Close internal API client
+    if _internal_api_client:
+        await _internal_api_client.close()
+    
     print("✓ Services shut down")
 
 
@@ -172,3 +179,70 @@ def require_any(*roles: str):
         return current_user
     
     return check_roles
+
+
+# Internal API client for proxying requests to bot's internal server
+class InternalAPIClient:
+    """
+    HTTP client for calling the bot's internal API.
+    
+    Handles authentication and provides typed methods for internal endpoints.
+    """
+    
+    def __init__(self):
+        self.base_url = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
+        self.api_key = os.getenv("INTERNAL_API_KEY", "")
+        self._client: httpx.AsyncClient | None = None
+    
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client."""
+        if self._client is None:
+            headers = {}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                headers=headers,
+                timeout=10.0
+            )
+        return self._client
+    
+    async def close(self):
+        """Close HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+    
+    async def get_health_report(self):
+        """Get comprehensive health report from internal API."""
+        client = await self._get_client()
+        response = await client.get("/health/report")
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_last_errors(self, limit: int = 1):
+        """Get most recent error log entries."""
+        client = await self._get_client()
+        response = await client.get("/errors/last", params={"limit": limit})
+        response.raise_for_status()
+        return response.json()
+    
+    async def export_logs(self, max_bytes: int = 1048576):
+        """Export bot logs as downloadable content."""
+        client = await self._get_client()
+        response = await client.get("/logs/export", params={"max_bytes": max_bytes})
+        response.raise_for_status()
+        return response.content
+
+
+# Global internal API client instance
+_internal_api_client: InternalAPIClient | None = None
+
+
+def get_internal_api_client() -> InternalAPIClient:
+    """Get the global InternalAPIClient instance."""
+    global _internal_api_client
+    if _internal_api_client is None:
+        _internal_api_client = InternalAPIClient()
+    return _internal_api_client

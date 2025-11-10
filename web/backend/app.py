@@ -24,7 +24,7 @@ project_root = Path(__file__).parent.parent.parent
 load_dotenv(project_root / ".env")
 
 from core.dependencies import get_db, initialize_services, shutdown_services
-from routes import auth, stats, users, voice
+from routes import auth, errors, health, logs, stats, users, voice
 
 
 @asynccontextmanager
@@ -57,6 +57,9 @@ app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
+app.include_router(health.router)
+app.include_router(errors.router)
+app.include_router(logs.router)
 
 
 @app.get("/")

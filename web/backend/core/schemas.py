@@ -49,6 +49,49 @@ class StatsResponse(BaseModel):
     data: StatsOverview
 
 
+# Health schemas
+class SystemMetrics(BaseModel):
+    """System resource metrics."""
+    
+    cpu_percent: float
+    memory_percent: float
+
+
+class HealthOverview(BaseModel):
+    """Bot health overview for dashboard."""
+    
+    status: str  # "healthy", "degraded", "unhealthy"
+    uptime_seconds: int
+    db_ok: bool
+    discord_latency_ms: float | None = None
+    system: SystemMetrics
+
+
+class HealthResponse(BaseModel):
+    """Response for /api/health/overview."""
+    
+    success: bool = True
+    data: HealthOverview
+
+
+# Error schemas
+class StructuredError(BaseModel):
+    """Structured error log entry."""
+    
+    time: str
+    error_type: str
+    component: str
+    message: str | None = None
+    traceback: str | None = None
+
+
+class ErrorsResponse(BaseModel):
+    """Response for /api/errors/last."""
+    
+    success: bool = True
+    errors: list[StructuredError]
+
+
 # User schemas
 class VerificationRecord(BaseModel):
     """User verification record."""

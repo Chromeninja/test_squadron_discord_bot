@@ -17,6 +17,10 @@ import sys
 
 sys.path.insert(0, str(project_root))
 
+# Add backend directory to path so we can import app
+backend_root = Path(__file__).parent.parent
+sys.path.insert(0, str(backend_root))
+
 from services.db.database import Database
 
 
@@ -35,7 +39,10 @@ async def temp_db():
     fd, db_path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 
-    # Initialize database
+    # Reset database initialization state for clean test
+    Database._initialized = False
+    
+    # Initialize database - this calls init_schema which creates tables
     await Database.initialize(db_path)
 
     # Seed some test data

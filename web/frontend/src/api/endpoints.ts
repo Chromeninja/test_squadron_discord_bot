@@ -68,6 +68,27 @@ export interface ActiveVoiceChannel {
   members: VoiceChannelMember[];
 }
 
+export interface SystemMetrics {
+  cpu_percent: number;
+  memory_percent: number;
+}
+
+export interface HealthOverview {
+  status: string;
+  uptime_seconds: number;
+  db_ok: boolean;
+  discord_latency_ms: number | null;
+  system: SystemMetrics;
+}
+
+export interface StructuredError {
+  time: string;
+  error_type: string;
+  component: string;
+  message?: string | null;
+  traceback?: string | null;
+}
+
 // API functions
 export const authApi = {
   getMe: async () => {
@@ -120,5 +141,41 @@ export const voiceApi = {
       params: { user_id: userId },
     });
     return response.data;
+  },
+};
+
+export const healthApi = {
+  getOverview: async () => {
+    const response = await apiClient.get<{ success: boolean; data: HealthOverview }>('/api/health/overview');
+    return response.data;
+  },
+};
+
+export const errorsApi = {
+  getLast: async (limit: number = 1) => {
+    const response = await apiClient.get<{ success: boolean; errors: StructuredError[] }>(
+      '/api/errors/last',
+      { params: { limit } }
+    );
+    return response.data;
+  },
+};
+
+export const logsApi = {
+  exportLogs: async (maxBytes: number = 1048576) => {
+    const response = await apiClient.get('/api/logs/export', {
+      params: { max_bytes: maxBytes },
+      responseType: 'blob',
+    });
+    
+    // Trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'bot.log.tail.txt');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 };

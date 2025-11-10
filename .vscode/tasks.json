@@ -15,5 +15,15 @@
       },
       "problemMatcher": []
     }
+    ,
+    {
+      "label": "pytest: backend",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/pytest",
+      "args": ["-q", "web/backend/tests"],
+      "group": { "kind": "test", "isDefault": false },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    }
   ]
 }

@@ -255,7 +255,7 @@ class TestServiceContainer:
         container = ServiceContainer()
         await container.initialize()
 
-        assert container.is_initialized
+        assert container._initialized
 
         # Check all services are available
         assert container.config is not None

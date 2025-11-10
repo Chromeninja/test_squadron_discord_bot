@@ -1,0 +1,108 @@
+"""
+Tests for health monitoring endpoints.
+"""
+
+import pytest
+from unittest.mock import AsyncMock, patch
+
+
+@pytest.mark.asyncio
+async def test_health_overview_success_admin(client, mock_admin_session):
+    """Test health overview endpoint returns data for admin."""
+    mock_health_data = {
+        "status": "healthy",
+        "uptime_seconds": 3600,
+        "db_ok": True,
+        "discord_latency_ms": 45.2,
+        "system": {
+            "cpu_percent": 15.5,
+            "memory_percent": 42.3
+        }
+    }
+    
+    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_health_data
+        
+        response = await client.get(
+            "/api/health/overview",
+            cookies={"session": mock_admin_session}
+        )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["status"] == "healthy"
+    assert data["data"]["uptime_seconds"] == 3600
+    assert data["data"]["db_ok"] is True
+    assert data["data"]["discord_latency_ms"] == 45.2
+    assert data["data"]["system"]["cpu_percent"] == 15.5
+    assert data["data"]["system"]["memory_percent"] == 42.3
+
+
+@pytest.mark.asyncio
+async def test_health_overview_unauthorized(client):
+    """Test health overview endpoint returns 401 without session."""
+    response = await client.get("/api/health/overview")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_health_overview_forbidden_moderator(client, mock_moderator_session):
+    """Test health overview endpoint returns 403 for moderator."""
+    response = await client.get(
+        "/api/health/overview",
+        cookies={"session": mock_moderator_session}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_health_overview_forbidden_unauthorized(client, mock_unauthorized_session):
+    """Test health overview endpoint returns 403 for unauthorized user."""
+    response = await client.get(
+        "/api/health/overview",
+        cookies={"session": mock_unauthorized_session}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_health_overview_internal_error(client, mock_admin_session):
+    """Test health overview endpoint handles internal API errors."""
+    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = Exception("Internal API unavailable")
+        
+        response = await client.get(
+            "/api/health/overview",
+            cookies={"session": mock_admin_session}
+        )
+    
+    assert response.status_code == 503
+    assert "Failed to fetch health report" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_health_overview_without_latency(client, mock_admin_session):
+    """Test health overview handles missing optional discord_latency_ms."""
+    mock_health_data = {
+        "status": "degraded",
+        "uptime_seconds": 120,
+        "db_ok": False,
+        "system": {
+            "cpu_percent": 5.0,
+            "memory_percent": 20.0
+        }
+    }
+    
+    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_health_data
+        
+        response = await client.get(
+            "/api/health/overview",
+            cookies={"session": mock_admin_session}
+        )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["discord_latency_ms"] is None
+    assert data["data"]["db_ok"] is False
