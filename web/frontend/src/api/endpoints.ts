@@ -12,6 +12,45 @@ export interface UserProfile {
   avatar: string | null;
   is_admin: boolean;
   is_moderator: boolean;
+  active_guild_id?: string | null;
+}
+
+export interface GuildSummary {
+  guild_id: string;
+  guild_name: string;
+  icon_url: string | null;
+}
+
+export interface GuildRole {
+  id: number;
+  name: string;
+  color: number | null;
+}
+
+export interface DiscordChannel {
+  id: number;
+  name: string;
+  category: string | null;
+  position: number;
+}
+
+export interface BotRoleSettingsPayload {
+  bot_admins: number[];
+  lead_moderators: number[];
+  main_role: number[];
+  affiliate_role: number[];
+  nonmember_role: number[];
+}
+
+export interface BotChannelSettingsPayload {
+  verification_channel_id: number | null;
+  bot_spam_channel_id: number | null;
+  public_announcement_channel_id: number | null;
+  leadership_announcement_channel_id: number | null;
+}
+
+export interface VoiceSelectableRolesPayload {
+  selectable_roles: number[];
 }
 
 export interface StatsOverview {
@@ -89,6 +128,39 @@ export interface StructuredError {
   traceback?: string | null;
 }
 
+export interface EnrichedUser {
+  discord_id: string;
+  username: string;
+  discriminator: string;
+  global_name: string | null;
+  avatar_url: string | null;
+  membership_status: string | null;
+  rsi_handle: string | null;
+  community_moniker: string | null;
+  joined_at: string | null;
+  created_at: string | null;
+  last_updated: number | null;
+  needs_reverify: boolean;
+  roles: Array<{ id: number; name: string; color: number | null }>;
+}
+
+export interface UsersListResponse {
+  success: boolean;
+  items: EnrichedUser[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ExportUsersRequest {
+  membership_status?: string | null;
+  membership_statuses?: string[] | null;
+  role_ids?: number[] | null;
+  selected_ids?: string[] | null;
+  exclude_ids?: string[] | null;
+}
+
 // API functions
 export const authApi = {
   getMe: async () => {
@@ -97,6 +169,19 @@ export const authApi = {
   },
   logout: async () => {
     const response = await apiClient.post('/auth/logout');
+    return response.data;
+  },
+  getGuilds: async () => {
+    const response = await apiClient.get<{ success: boolean; guilds: GuildSummary[] }>(
+      '/api/auth/guilds'
+    );
+    return response.data;
+  },
+  selectGuild: async (guildId: string) => {
+    const response = await apiClient.post<{ success: boolean }>(
+      '/api/auth/select-guild',
+      { guild_id: guildId }
+    );
     return response.data;
   },
 };
@@ -120,6 +205,56 @@ export const usersApi = {
       params: { query, page, page_size: pageSize },
     });
     return response.data;
+  },
+
+  getUsers: async (
+    page: number = 1,
+    pageSize: number = 25,
+    membershipStatuses?: string[] | null
+  ): Promise<UsersListResponse> => {
+    const params: Record<string, any> = {
+      page,
+      page_size: pageSize,
+    };
+    
+    if (membershipStatuses && membershipStatuses.length > 0) {
+      const filtered = membershipStatuses.filter(s => s && s !== 'all');
+      if (filtered.length > 0) {
+        if (filtered.length === 1) {
+          params.membership_status = filtered[0];
+        }
+        params.membership_statuses = filtered.join(',');
+      }
+    }
+    
+    const response = await apiClient.get<UsersListResponse>('/api/users', { params });
+    return response.data;
+  },
+
+  exportUsers: async (filters: ExportUsersRequest): Promise<void> => {
+    const response = await apiClient.post('/api/users/export', filters, {
+      responseType: 'blob',
+    });
+    
+    // Extract filename from Content-Disposition header
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'members_export.csv';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    // Trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 };
 
@@ -177,5 +312,62 @@ export const logsApi = {
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  },
+};
+
+export const guildApi = {
+  getDiscordRoles: async (guildId: string) => {
+    const response = await apiClient.get<{ success: boolean; roles: GuildRole[] }>(
+      `/api/guilds/${guildId}/roles/discord`
+    );
+    return response.data;
+  },
+  getDiscordChannels: async (guildId: string) => {
+    const response = await apiClient.get<{ success: boolean; channels: DiscordChannel[] }>(
+      `/api/guilds/${guildId}/channels/discord`
+    );
+    return response.data;
+  },
+  getBotRoleSettings: async (guildId: string) => {
+    const response = await apiClient.get<BotRoleSettingsPayload>(
+      `/api/guilds/${guildId}/settings/bot-roles`
+    );
+    return response.data;
+  },
+  updateBotRoleSettings: async (guildId: string, payload: BotRoleSettingsPayload) => {
+    const response = await apiClient.put<BotRoleSettingsPayload>(
+      `/api/guilds/${guildId}/settings/bot-roles`,
+      payload
+    );
+    return response.data;
+  },
+  getBotChannelSettings: async (guildId: string) => {
+    const response = await apiClient.get<BotChannelSettingsPayload>(
+      `/api/guilds/${guildId}/settings/bot-channels`
+    );
+    return response.data;
+  },
+  updateBotChannelSettings: async (guildId: string, payload: BotChannelSettingsPayload) => {
+    const response = await apiClient.put<BotChannelSettingsPayload>(
+      `/api/guilds/${guildId}/settings/bot-channels`,
+      payload
+    );
+    return response.data;
+  },
+  getVoiceSelectableRoles: async (guildId: string) => {
+    const response = await apiClient.get<VoiceSelectableRolesPayload>(
+      `/api/guilds/${guildId}/settings/voice/selectable-roles`
+    );
+    return response.data;
+  },
+  updateVoiceSelectableRoles: async (
+    guildId: string,
+    payload: VoiceSelectableRolesPayload
+  ) => {
+    const response = await apiClient.put<VoiceSelectableRolesPayload>(
+      `/api/guilds/${guildId}/settings/voice/selectable-roles`,
+      payload
+    );
+    return response.data;
   },
 };

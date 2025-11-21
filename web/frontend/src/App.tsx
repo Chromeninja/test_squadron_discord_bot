@@ -1,27 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { authApi, UserProfile } from './api/endpoints';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Voice from './pages/Voice';
+import SelectServer from './pages/SelectServer';
+import DashboardBotSettings from './pages/DashboardBotSettings';
 
-type Tab = 'dashboard' | 'users' | 'voice';
+type Tab = 'dashboard' | 'users' | 'voice' | 'bot-settings';
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
-  useEffect(() => {
-    authApi
+  const fetchUserProfile = useCallback(() => {
+    return authApi
       .getMe()
       .then((data) => {
         setUser(data.user);
-        setLoading(false);
       })
-      .catch(() => {
+      .finally(() => {
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    fetchUserProfile();
+  }, [fetchUserProfile]);
 
   if (loading) {
     return (
@@ -64,6 +69,10 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  if (!user.active_guild_id) {
+    return <SelectServer onSelected={fetchUserProfile} />;
   }
 
   return (
@@ -128,6 +137,18 @@ function App() {
             >
               Voice
             </button>
+            {user.is_admin && (
+              <button
+                onClick={() => setActiveTab('bot-settings')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
+                  activeTab === 'bot-settings'
+                    ? 'border-indigo-500 text-indigo-500'
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                Bot Settings
+              </button>
+            )}
           </nav>
         </div>
       </div>
@@ -137,6 +158,9 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'voice' && <Voice />}
+        {activeTab === 'bot-settings' && user.is_admin && user.active_guild_id && (
+          <DashboardBotSettings guildId={user.active_guild_id} />
+        )}
       </main>
     </div>
   );

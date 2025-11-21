@@ -1,53 +1,451 @@
-import { useState } from 'react';
-import { usersApi, VerificationRecord } from '../api/endpoints';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  usersApi,
+  guildApi,
+  authApi,
+  EnrichedUser,
+  ExportUsersRequest,
+  GuildRole,
+} from '../api/endpoints';
 
 function Users() {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<VerificationRecord[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // State
+  const [users, setUsers] = useState<EnrichedUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeGuildId, setActiveGuildId] = useState<number | null>(null);
+  
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  
+  // Filters
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  
+  // Selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
 
-  const handleSearch = async () => {
+  const resetSelection = () => {
+    setSelectAllFiltered(false);
+    setSelectedIds(new Set());
+    setExcludedIds(new Set());
+  };
+
+  const normalizedStatusFilters = useMemo(() => {
+    return selectedStatuses
+      .filter((status) => status && status !== 'all')
+      .map((status) => status.toLowerCase());
+  }, [selectedStatuses]);
+  
+  // Export state
+  const [exporting, setExporting] = useState(false);
+
+  // Load user profile to get active guild
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        const response = await authApi.getMe();
+        setActiveGuildId(response.user?.active_guild_id || null);
+      } catch (err) {
+        console.error('Failed to load user profile:', err);
+      }
+    };
+    
+    loadUserProfile();
+  }, []);
+
+
+
+  useEffect(() => {
+    if (!activeGuildId) {
+      return;
+    }
+    setPage(1);
+    resetSelection();
+  }, [activeGuildId]);
+
+  // Fetch users
+  const fetchUsers = async () => {
+    if (!activeGuildId) {
+      setUsers([]);
+      setTotal(0);
+      setTotalPages(0);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const data = await usersApi.search(query, page, 20);
-      setResults(data.items);
+      const data = await usersApi.getUsers(
+        page,
+        pageSize,
+        normalizedStatusFilters.length > 0 ? normalizedStatusFilters : null
+      );
+      setUsers(data.items);
       setTotal(data.total);
-    } catch (err) {
-      setError('Failed to search users');
+      setTotalPages(data.total_pages);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load users');
     } finally {
       setLoading(false);
     }
   };
 
+  // Load users on mount and when filters/pagination change
+  useEffect(() => {
+    fetchUsers();
+  }, [page, pageSize, normalizedStatusFilters, activeGuildId]);
+
+  // Filter handlers
+  const toggleStatus = (status: string) => {
+    setSelectedStatuses(prev => 
+      prev.includes(status) 
+        ? prev.filter(s => s !== status)
+        : [...prev, status]
+    );
+    setPage(1);
+    resetSelection();
+  };
+
+  const clearFilters = () => {
+    setSelectedStatuses([]);
+    setPage(1);
+    resetSelection();
+  };
+
+
+  // Selection handlers
+  const handleSelectUser = (userId: string) => {
+    if (selectAllFiltered) {
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(userId)) {
+          next.delete(userId);
+        } else {
+          next.add(userId);
+        }
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(userId)) {
+          next.delete(userId);
+        } else {
+          next.add(userId);
+        }
+        return next;
+      });
+    }
+  };
+
+  const handleSelectAllOnPage = () => {
+    if (users.length === 0) {
+      return;
+    }
+
+    if (selectAllFiltered) {
+      const allPageSelected = users.every((user) => !excludedIds.has(user.discord_id));
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        if (allPageSelected) {
+          users.forEach((user) => next.add(user.discord_id));
+        } else {
+          users.forEach((user) => next.delete(user.discord_id));
+        }
+        return next;
+      });
+    } else {
+      const allPageSelected = users.every((user) => selectedIds.has(user.discord_id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (allPageSelected) {
+          users.forEach((user) => next.delete(user.discord_id));
+        } else {
+          users.forEach((user) => next.add(user.discord_id));
+        }
+        return next;
+      });
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (total === 0) {
+      return;
+    }
+    setSelectAllFiltered(true);
+    setSelectedIds(new Set());
+    setExcludedIds(new Set());
+  };
+
+  const selectedCount = selectAllFiltered
+    ? Math.max(total - excludedIds.size, 0)
+    : selectedIds.size;
+
+  const hasSelection = selectAllFiltered
+    ? selectedCount > 0
+    : selectedIds.size > 0;
+
+  const selectionSummary = useMemo(() => {
+    if (selectAllFiltered) {
+      if (selectedCount === 0) {
+        return 'No users available for the current filters';
+      }
+      if (excludedIds.size > 0) {
+        return `All ${selectedCount} filtered user(s) selected (${excludedIds.size} excluded)`;
+      }
+      return `All ${selectedCount} filtered user(s) selected`;
+    }
+
+    if (selectedIds.size > 0) {
+      return `${selectedIds.size} user(s) selected`;
+    }
+
+    return `${total} total user(s)`;
+  }, [selectAllFiltered, selectedCount, excludedIds, selectedIds, total]);
+
+  const pageSelectionInfo = useMemo(() => {
+    if (users.length === 0) {
+      return { allSelected: false, partiallySelected: false };
+    }
+
+    let selectedOnPage = 0;
+    users.forEach((user) => {
+      const isSelected = selectAllFiltered
+        ? !excludedIds.has(user.discord_id)
+        : selectedIds.has(user.discord_id);
+      if (isSelected) {
+        selectedOnPage += 1;
+      }
+    });
+
+    return {
+      allSelected: selectedOnPage === users.length,
+      partiallySelected:
+        selectedOnPage > 0 && selectedOnPage < users.length,
+    };
+  }, [users, selectAllFiltered, excludedIds, selectedIds]);
+
+  useEffect(() => {
+    if (!headerCheckboxRef.current) {
+      return;
+    }
+    headerCheckboxRef.current.indeterminate = pageSelectionInfo.partiallySelected;
+  }, [pageSelectionInfo]);
+
+  // Export handlers
+  const handleExportSelected = async () => {
+    if (!hasSelection) {
+      setError('No users selected');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const request: ExportUsersRequest = buildExportFilters();
+
+      if (selectAllFiltered) {
+        if (excludedIds.size > 0) {
+          request.exclude_ids = Array.from(excludedIds);
+        }
+      } else {
+        request.selected_ids = Array.from(selectedIds);
+      }
+
+      await usersApi.exportUsers(request);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to export users');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportFiltered = async () => {
+    setExporting(true);
+    try {
+      const request = buildExportFilters();
+      await usersApi.exportUsers(request);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to export users');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Pagination handlers
+  const handlePrevPage = () => {
+    if (page > 1) setPage(page - 1);
+  };
+
+  const handleNextPage = () => {
+    if (page < totalPages) setPage(page + 1);
+  };
+
+  // Get status badge color
+  const getStatusColor = (status: string | null) => {
+    switch (status) {
+      case 'main':
+        return 'bg-green-900 text-green-200';
+      case 'affiliate':
+        return 'bg-blue-900 text-blue-200';
+      case 'non_member':
+        return 'bg-yellow-900 text-yellow-200';
+      default:
+        return 'bg-gray-900 text-gray-400';
+    }
+  };
+
+  const formatDateValue = (value: string | number | null | undefined) => {
+    if (!value) {
+      return '-';
+    }
+
+    try {
+      const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return '-';
+      }
+      return date.toLocaleDateString();
+    } catch (err) {
+      return '-';
+    }
+  };
+
+  const buildExportFilters = (): ExportUsersRequest => {
+    const payload: ExportUsersRequest = {};
+
+    if (normalizedStatusFilters.length === 1) {
+      payload.membership_status = normalizedStatusFilters[0];
+    }
+    if (normalizedStatusFilters.length > 0) {
+      payload.membership_statuses = normalizedStatusFilters;
+    }
+
+    return payload;
+  };
+
+  const startRecord = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endRecord = total === 0 ? 0 : Math.min(page * pageSize, total);
+  const totalPagesDisplay = totalPages > 0 ? totalPages : 1;
+
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">User Search</h2>
+      <h2 className="text-2xl font-bold mb-6">Members</h2>
 
-      {/* Search Bar */}
+      {/* Filter Bar */}
       <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700">
-        <div className="flex gap-4">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Search by user ID, RSI handle, or moniker..."
-            className="flex-1 bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-          />
-          <button
-            onClick={handleSearch}
-            disabled={loading}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 px-6 py-2 rounded font-medium transition"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+        <div className="flex flex-wrap gap-4 items-start">
+          {/* Membership Status Multi-Select */}
+          <div className="flex-1 min-w-[250px]">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Membership Status
+            </label>
+            <div className="bg-slate-900 border border-slate-600 rounded px-4 py-2">
+              {['main', 'affiliate', 'non_member', 'unknown'].map(status => (
+                <label key={status} className="flex items-center py-1 cursor-pointer hover:bg-slate-800 px-2 rounded">
+                  <input
+                    type="checkbox"
+                    checked={selectedStatuses.includes(status)}
+                    onChange={() => toggleStatus(status)}
+                    className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                  />
+                  <span className="text-white capitalize">{status.replace('_', ' ')}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Clear Filters Button */}
+          {selectedStatuses.length > 0 && (
+            <div className="self-end">
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded border border-slate-600"
+              >
+                Clear Filters
+              </button>
+            </div>
+          )}
+
+          {/* Page Size Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Per Page
+            </label>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+
+          {/* Apply Filters Button */}
+          <div className="flex items-end">
+            <button
+              onClick={fetchUsers}
+              disabled={loading}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 px-4 py-2 rounded font-medium transition"
+            >
+              {loading ? 'Loading...' : 'Apply Filters'}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Export Bar */}
+      {(total > 0 || hasSelection) && (
+        <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700 flex flex-wrap gap-4 justify-between items-center">
+          <div>
+            <div className="text-sm text-gray-300">{selectionSummary}</div>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={handleSelectAllFiltered}
+                disabled={selectAllFiltered || total === 0}
+                className="px-3 py-1 text-xs rounded border border-slate-600 text-gray-200 hover:bg-slate-700 disabled:opacity-50"
+              >
+                Select All Filtered
+              </button>
+              <button
+                onClick={resetSelection}
+                disabled={!hasSelection}
+                className="px-3 py-1 text-xs rounded border border-slate-600 text-gray-200 hover:bg-slate-700 disabled:opacity-50"
+              >
+                Clear Selection
+              </button>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleExportSelected}
+              disabled={exporting || !hasSelection}
+              className="bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
+            >
+              {exporting ? 'Exporting...' : 'Export Selected'}
+            </button>
+            <button
+              onClick={handleExportFiltered}
+              disabled={exporting}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 px-4 py-2 rounded text-sm font-medium transition"
+            >
+              {exporting ? 'Exporting...' : 'Export All Filtered'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -56,76 +454,193 @@ function Users() {
         </div>
       )}
 
-      {/* Results */}
-      {results.length > 0 && (
+      {/* Loading Skeleton */}
+      {loading && (
+        <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+          <div className="animate-pulse space-y-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-16 bg-slate-700 rounded"></div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Users Table */}
+      {!loading && users.length > 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-900">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    User ID
+                  <th className="px-4 py-3 text-left">
+                    <input
+                      ref={headerCheckboxRef}
+                      type="checkbox"
+                      checked={users.length > 0 && pageSelectionInfo.allSelected}
+                      onChange={handleSelectAllOnPage}
+                      className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                    />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    RSI Handle
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    User
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Discord ID
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Moniker
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    RSI Handle
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Last Updated
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Roles
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Joined Server
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Account Created
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Last Verified
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
-                {results.map((record) => (
-                  <tr key={record.user_id} className="hover:bg-slate-700/50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                      {record.user_id}
+                {users.map((user) => {
+                  const isRowSelected = selectAllFiltered
+                    ? !excludedIds.has(user.discord_id)
+                    : selectedIds.has(user.discord_id);
+
+                  return (
+                    <tr key={user.discord_id} className="hover:bg-slate-700/50">
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        checked={isRowSelected}
+                        onChange={() => handleSelectUser(user.discord_id)}
+                        className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                      />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {record.rsi_handle}
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        {user.avatar_url ? (
+                          <img
+                            src={user.avatar_url}
+                            alt={user.username}
+                            className="w-10 h-10 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 font-bold">
+                            {user.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-medium text-white">
+                            {user.global_name || user.username}
+                          </div>
+                          <div className="text-sm text-gray-400">
+                            {user.username}#{user.discriminator}
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-4 py-4 text-sm font-mono text-gray-300">
+                      {user.discord_id}
+                    </td>
+                    <td className="px-4 py-4">
                       <span
-                        className={`px-2 py-1 text-xs font-semibold rounded ${
-                          record.membership_status === 'main'
-                            ? 'bg-green-900 text-green-200'
-                            : record.membership_status === 'affiliate'
-                            ? 'bg-blue-900 text-blue-200'
-                            : record.membership_status === 'non_member'
-                            ? 'bg-yellow-900 text-yellow-200'
-                            : 'bg-gray-900 text-gray-400'
-                        }`}
+                        className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(
+                          user.membership_status
+                        )}`}
                       >
-                        {record.membership_status || 'unknown'}
+                        {user.membership_status || 'unknown'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-300">
-                      {record.community_moniker || '-'}
+                    <td className="px-4 py-4 text-sm text-gray-300">
+                      {user.rsi_handle || '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                      {new Date(record.last_updated * 1000).toLocaleDateString()}
+                    <td className="px-4 py-4 text-sm">
+                      <div className="flex flex-wrap gap-1 max-w-xs">
+                        {user.roles.length > 0 ? (
+                          user.roles.slice(0, 3).map((role) => (
+                            <span
+                              key={role.id}
+                              className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300"
+                              title={role.name}
+                            >
+                              {role.name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-gray-500">No roles</span>
+                        )}
+                        {user.roles.length > 3 && (
+                          <span className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400">
+                            +{user.roles.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-400">
+                      {formatDateValue(user.joined_at)}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-400">
+                      {formatDateValue(user.created_at)}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-400">
+                      {formatDateValue(user.last_updated)}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          {/* Pagination info */}
-          <div className="px-6 py-4 bg-slate-900 text-sm text-gray-400">
-            Showing {results.length} of {total} results
+          {/* Pagination */}
+          <div className="px-6 py-4 bg-slate-900 flex items-center justify-between border-t border-slate-700">
+            <div className="text-sm text-gray-400">
+              {total === 0 ? (
+                'No results to display'
+              ) : (
+                <>
+                  Showing {startRecord} to {endRecord} of {total} results
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handlePrevPage}
+                disabled={page === 1}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded transition"
+              >
+                Previous
+              </button>
+              <div className="px-4 py-2 bg-slate-700 rounded">
+                Page {page} of {totalPagesDisplay}
+              </div>
+              <button
+                onClick={handleNextPage}
+                disabled={page >= totalPages || total === 0}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded transition"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* No results */}
-      {!loading && results.length === 0 && total === 0 && query && (
-        <div className="text-center py-8 text-gray-400">No results found</div>
+      {/* Empty State */}
+      {!loading && users.length === 0 && (
+        <div className="bg-slate-800 rounded-lg border border-slate-700 p-12 text-center">
+          <div className="text-gray-400 text-lg">No members found</div>
+          <div className="text-gray-500 text-sm mt-2">
+            Try adjusting your filters or check back later
+          </div>
+        </div>
       )}
     </div>
   );

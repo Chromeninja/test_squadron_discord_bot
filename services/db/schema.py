@@ -48,7 +48,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-    
+
     # Indexes for verification search performance
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification(user_id)"
@@ -281,6 +281,27 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_jtc_preferences_updated ON user_jtc_preferences(updated_at)"
+    )
+
+    # Announcement events table
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS announcement_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            old_status TEXT,
+            new_status TEXT,
+            event_type TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            announced_at INTEGER DEFAULT NULL
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_announcement_events_user_id ON announcement_events(user_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at ON announcement_events(announced_at)"
     )
 
     logger.info("Schema initialization complete")

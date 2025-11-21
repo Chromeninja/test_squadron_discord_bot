@@ -923,12 +923,12 @@ class FeatureRoleSelectView(View):
         self.feature_name = feature_name
         self.enable = enable
 
-        # Retrieve allowed role IDs from config
+        # Default allowed roles from static config (overridden per guild via DB when available)
         config = ConfigLoader.load_config()
-        allowed_roles = config.get("selectable_roles", [])
+        self._default_allowed_roles = config.get("selectable_roles", [])
 
         self.role_select = FilteredRoleSelect(
-            allowed_roles=allowed_roles,
+            allowed_roles=self._default_allowed_roles or None,
             placeholder="Select role(s)",
             min_values=1,
             max_values=1,
@@ -940,8 +940,30 @@ class FeatureRoleSelectView(View):
             self.role_select.refresh_options(self.bot.guilds[0])
 
     async def interaction_check(self, interaction: Interaction) -> bool:
-        self.role_select.refresh_options(interaction.guild)
+        allowed_roles = await self._resolve_allowed_roles(interaction.guild)
+        self.role_select.allowed_roles = allowed_roles or None
+        if interaction.guild:
+            self.role_select.refresh_options(interaction.guild)
         return True
+
+    async def _resolve_allowed_roles(self, guild: discord.Guild | None) -> list[int] | None:
+        """Fetch selectable roles for this guild via ConfigService, falling back to static config."""
+        if guild and getattr(self.bot, "services", None):
+            config_service = getattr(self.bot.services, "config", None)
+            if config_service:
+                try:
+                    roles = await config_service.get_guild_setting(
+                        guild.id, "selectable_roles", []
+                    )
+                    if roles:
+                        return [int(role_id) for role_id in roles]
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "Failed to load selectable_roles from DB for guild %s: %s",
+                        guild.id,
+                        exc,
+                    )
+        return [int(role_id) for role_id in self._default_allowed_roles]
 
     async def role_select_callback(self, interaction: Interaction) -> None:
         """

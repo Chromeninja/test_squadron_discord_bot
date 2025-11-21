@@ -2,8 +2,9 @@
 Tests for health overview endpoint with RBAC enforcement.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -19,22 +20,22 @@ async def test_health_overview_admin_ok(client, mock_admin_session):
             "memory_percent": 10.0
         }
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_health_data
-        
+
         response = await client.get(
             "/api/health/overview",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     data = response.json()
-    
+
     # Verify response structure
     assert data["success"] is True
     assert "data" in data
-    
+
     # Verify health overview shape
     health = data["data"]
     assert health["status"] == "healthy"
@@ -59,15 +60,15 @@ async def test_health_overview_degraded_status(client, mock_admin_session):
             "memory_percent": 90.2
         }
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_health_data
-        
+
         response = await client.get(
             "/api/health/overview",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     health = response.json()["data"]
     assert health["status"] == "degraded"

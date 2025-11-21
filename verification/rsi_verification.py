@@ -6,12 +6,8 @@ import string
 
 from bs4 import BeautifulSoup
 
-from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient, NotFoundError
 
-config = ConfigLoader.load_config()
-
-TEST_ORG_NAME = config["organization"]["name"].strip().lower()
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
@@ -46,16 +42,17 @@ def normalize_text(s: str | None) -> str:
 
 
 async def is_valid_rsi_handle(
-    user_handle: str, http_client: HTTPClient
+    user_handle: str, http_client: HTTPClient, org_name: str
 ) -> tuple[int | None, str | None, str | None]:
     """
-    Validates the RSI handle by checking if the user is part of the TEST
+    Validates the RSI handle by checking if the user is part of the specified
     organization or its affiliates. Also retrieves the correctly cased handle
     from the RSI profile.
 
     Args:
         user_handle (str): The RSI handle of the user.
         http_client (HTTPClient): The HTTP client instance.
+        org_name (str): The organization name to check (e.g., "test").
 
     Returns:
         tuple[Optional[int], Optional[str], Optional[str]]: A tuple containing:
@@ -83,12 +80,12 @@ async def is_valid_rsi_handle(
 
         # Parse organization data
     try:
-        org_data = parse_rsi_organizations(org_html)
+        org_data = parse_rsi_organizations(org_html, org_name)
     except Exception:
         logger.exception(f"Exception while parsing organization data for {user_handle}")
         return None, None, None
 
-    verify_value = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
+    verify_value = search_organization_case_insensitive(org_data, org_name)
     logger.debug(f"Verification value for {user_handle}: {verify_value}")
 
     # Fetch profile data (single fetch reused for handle + moniker)
@@ -245,12 +242,13 @@ def _sanitize_moniker(moniker: str) -> str:
     return cleaned.replace("\u200b", "").strip()
 
 
-def parse_rsi_organizations(html_content: str) -> dict:
+def parse_rsi_organizations(html_content: str, target_org: str | None = None) -> dict:
     """
     Parses the RSI organizations from the provided HTML content using robust selectors.
 
     Args:
         html_content (str): The HTML content of the RSI organizations page.
+        target_org (str | None): Optional organization name for matched_status logging.
 
     Returns:
         dict: Dictionary containing the main organization and its affiliates.
@@ -321,6 +319,17 @@ def parse_rsi_organizations(html_content: str) -> dict:
 
     result = {"main_organization": main_org or "", "affiliates": affiliates}
 
+    # Only compute matched_status if target_org provided
+    matched_status = None
+    if target_org:
+        target_org_norm = normalize_text(target_org)
+        if main_org == target_org_norm:
+            matched_status = "main"
+        elif target_org_norm in affiliates:
+            matched_status = "affiliate"
+        else:
+            matched_status = "non_member"
+
     logger.debug(
         "Organization parsing complete",
         extra={
@@ -328,11 +337,7 @@ def parse_rsi_organizations(html_content: str) -> dict:
             "main": main_org,
             "affiliates_count": len(affiliates),
             "sample_affiliates": affiliates[:3] if affiliates else [],
-            "matched_status": (
-                "main"
-                if main_org == TEST_ORG_NAME
-                else ("affiliate" if TEST_ORG_NAME in affiliates else "non_member")
-            ),
+            "matched_status": matched_status,
         },
     )
 

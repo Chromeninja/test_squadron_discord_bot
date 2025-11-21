@@ -41,7 +41,7 @@ async def temp_db():
 
     # Reset database initialization state for clean test
     Database._initialized = False
-    
+
     # Initialize database - this calls init_schema which creates tables
     await Database.initialize(db_path)
 
@@ -106,6 +106,7 @@ def mock_admin_session():
             "avatar": None,
             "is_admin": True,
             "is_moderator": False,
+            "active_guild_id": "123",  # Default test guild
         }
     )
 
@@ -123,6 +124,7 @@ def mock_moderator_session():
             "avatar": None,
             "is_admin": False,
             "is_moderator": True,
+            "active_guild_id": "123",  # Default test guild
         }
     )
 
@@ -142,3 +144,77 @@ def mock_unauthorized_session():
             "is_moderator": False,
         }
     )
+
+
+class FakeInternalAPIClient:
+    """Simple fake internal API client for tests."""
+
+    def __init__(self):
+        self.guilds: list[dict] = []
+        self.roles_by_guild: dict[int, list[dict]] = {}
+        self.guild_stats: dict[int, dict] = {}
+        self.members_by_guild: dict[int, list[dict]] = {}
+        self.member_data: dict[tuple[int, int], dict] = {}  # (guild_id, user_id) -> member_data
+
+    async def get_guilds(self) -> list[dict]:
+        return self.guilds
+
+    async def get_guild_roles(self, guild_id: int) -> list[dict]:
+        return self.roles_by_guild.get(guild_id, [])
+
+    async def get_guild_stats(self, guild_id: int) -> dict:
+        """Return guild stats or default values."""
+        return self.guild_stats.get(guild_id, {
+            "guild_id": guild_id,
+            "member_count": 100,  # Default test value
+            "approximate_member_count": None
+        })
+
+    async def get_guild_members(self, guild_id: int, page: int = 1, page_size: int = 100) -> dict:
+        """Return paginated guild members."""
+        members = self.members_by_guild.get(guild_id, [])
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_members = members[start_idx:end_idx]
+
+        return {
+            "members": page_members,
+            "page": page,
+            "page_size": page_size,
+            "total": len(members)
+        }
+
+    async def get_guild_member(self, guild_id: int, user_id: int) -> dict:
+        """Return single guild member data."""
+        key = (guild_id, user_id)
+        if key in self.member_data:
+            return self.member_data[key]
+
+        # Default member data
+        return {
+            "user_id": user_id,
+            "username": f"User{user_id}",
+            "discriminator": "0001",
+            "global_name": f"User {user_id}",
+            "avatar_url": None,
+            "joined_at": "2024-01-01T00:00:00",
+            "created_at": "2023-01-01T00:00:00",
+            "roles": []
+        }
+
+
+@pytest.fixture
+def fake_internal_api(monkeypatch):
+    """Patch get_internal_api_client to return a fake client."""
+    fake = FakeInternalAPIClient()
+
+    # Override the FastAPI dependency injection
+    from app import app
+    from core.dependencies import get_internal_api_client
+
+    app.dependency_overrides[get_internal_api_client] = lambda: fake
+
+    yield fake
+
+    # Cleanup
+    app.dependency_overrides.clear()

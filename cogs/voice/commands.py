@@ -302,7 +302,10 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         from helpers.error_messages import format_user_error
 
         # Check permissions
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
+        if not interaction.guild:
+            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+            return
+        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
         if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
                 format_user_error("PERMISSION"), ephemeral=True
@@ -350,7 +353,10 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         # Check permissions
         from helpers.error_messages import format_user_error
 
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
+        if not interaction.guild:
+            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+            return
+        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
         if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
                 format_user_error("PERMISSION"), ephemeral=True
@@ -424,7 +430,9 @@ class AdminCommands(app_commands.Group):
 
     async def _check_admin_permissions(self, interaction: discord.Interaction) -> bool:
         """Check if user has admin permissions."""
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
+        if not interaction.guild:
+            return False
+        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
         return any(role.id in admin_role_ids for role in interaction.user.roles)
 
     @app_commands.command(

@@ -80,54 +80,13 @@ class ConfigLoader:
     @classmethod
     def _convert_role_ids_to_int(cls) -> None:
         """
-        Converts all role IDs in the configuration from strings to integers.
+        Convert role IDs in config to integers (DEPRECATED - roles now managed in database).
+        
+        Kept for backward compatibility but no longer processes roles section.
         """
-        roles = cls._config.get("roles", {})
-
-        # Define keys that should be single role IDs
-        single_role_keys = [
-            "bot_verified_role_id",
-            "main_role_id",
-            "affiliate_role_id",
-            "non_member_role_id",
-        ]
-
-        for key in single_role_keys:
-            if key in roles:
-                try:
-                    roles[key] = int(roles[key])
-                    logging.debug("Converted %s to integer: %s", key, roles[key])
-                except ValueError:
-                    logging.exception("Role ID for %s must be an integer.", key)
-                    raise
-
-        # Define keys that are lists of role IDs
-        list_role_keys = ["bot_admins", "lead_moderators"]
-
-        for key in list_role_keys:
-            if key in roles:
-                try:
-                    roles[key] = [int(role_id) for role_id in roles[key]]
-                    logging.debug(
-                        "Converted %s to list of integers: %s", key, roles[key]
-                    )
-                except ValueError:
-                    logging.exception("All role IDs in %s must be integers.", key)
-                    raise
-
-        # Convert selectable_roles from config to a list of integers if present
-        if "selectable_roles" in cls._config:
-            try:
-                cls._config["selectable_roles"] = [
-                    int(role_id) for role_id in cls._config["selectable_roles"]
-                ]
-                logging.debug(
-                    "Converted selectable_roles to list of integers: %s",
-                    cls._config["selectable_roles"],
-                )
-            except ValueError:
-                logging.exception("All selectable_roles must be integers.")
-                raise
+        # Roles are now managed per-guild in the database
+        # This method is kept as a no-op for backward compatibility
+        pass
 
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:

@@ -2,8 +2,9 @@
 Tests for errors last endpoint with RBAC enforcement.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -20,23 +21,23 @@ async def test_errors_last_admin_ok(client, mock_admin_session):
             }
         ]
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_errors
-        
+
         response = await client.get(
             "/api/errors/last?limit=1",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     data = response.json()
-    
+
     # Verify response structure
     assert data["success"] is True
     assert "errors" in data
     assert len(data["errors"]) == 1
-    
+
     # Verify error structure
     error = data["errors"][0]
     assert error["time"] == "2025-11-10T12:00:00Z"
@@ -65,15 +66,15 @@ async def test_errors_last_multiple_errors(client, mock_admin_session):
             }
         ]
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_errors
-        
+
         response = await client.get(
             "/api/errors/last?limit=5",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     errors = response.json()["errors"]
     assert len(errors) == 2
@@ -86,12 +87,12 @@ async def test_errors_last_empty_list(client, mock_admin_session):
     """Test errors last endpoint handles empty error list."""
     with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = {"errors": []}
-        
+
         response = await client.get(
             "/api/errors/last",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
@@ -105,5 +106,5 @@ async def test_errors_last_moderator_forbidden(client, mock_moderator_session):
         "/api/errors/last",
         cookies={"session": mock_moderator_session}
     )
-    
+
     assert response.status_code == 403

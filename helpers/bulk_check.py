@@ -157,7 +157,7 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
         "Unverified": 0,
         "Not in DB": 0
     }
-    
+
     for row in rows:
         if row.membership_status == "main":
             counts["Verified/Main"] += 1
@@ -169,7 +169,7 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
             counts["Unverified"] += 1
         else:
             counts["Not in DB"] += 1
-    
+
     return counts
 
 
@@ -210,23 +210,23 @@ def _build_description_lines(
     desc_lines = [
         f"**Requested by:** {invoker.mention} (Admin)"
     ]
-    
+
     if scope_label:
         desc_lines.append(f"**Scope:** {scope_label}")
-    
+
     if scope_channel:
         desc_lines.append(f"**Channel:** {scope_channel}")
-    
+
     desc_lines.extend([
         f"**Checked:** {total_processed} users",
         ""  # Blank line before counts
     ])
-    
+
     # Add non-zero status counts
     for category, count in counts.items():
         if count > 0:
             desc_lines.append(f"**{category}:** {count}")
-    
+
     return desc_lines
 
 
@@ -236,11 +236,11 @@ def _format_detail_line(row: StatusRow) -> str:
     rsi_display = _truncate_text(row.rsi_handle or "—")
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
-    
+
     # If no RSI recheck data, return DB-only format
     if row.rsi_status is None:
         return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
-    
+
     # Include RSI recheck data
     rsi_status_display = _format_status_display(row.rsi_status)
     rsi_checked_display = _format_timestamp(row.rsi_checked_at)
@@ -260,10 +260,10 @@ def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> 
     detail_lines = []
     field_value_length = 0
     truncated_count = 0
-    
+
     for i, row in enumerate(rows):
         detail_line = _format_detail_line(row)
-        
+
         # Check if adding this line would exceed the limit
         test_length = field_value_length + len(detail_line) + 1  # +1 for newline
         if test_length > max_field_length:
@@ -271,10 +271,10 @@ def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> 
             if remaining_count > 0:
                 truncated_count = remaining_count
             break
-        
+
         detail_lines.append(detail_line)
         field_value_length = test_length
-    
+
     return detail_lines, truncated_count
 
 
@@ -294,35 +294,35 @@ def build_summary_embed(
     """
     # Count statuses and build embed
     counts = _count_membership_statuses(rows)
-    
+
     embed = discord.Embed(
         title="Bulk Verification Check",
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow()
     )
-    
+
     # Build description with metadata and counts
     desc_lines = _build_description_lines(
         invoker, len(rows), counts, scope_label, scope_channel
     )
     embed.description = "\n".join(desc_lines)
-    
+
     # Add per-user details with truncation
     if rows:
         detail_lines, additional_truncated = _build_detail_lines(rows)
         truncated_count = max(truncated_count, additional_truncated)
-        
+
         if detail_lines:
             embed.add_field(
                 name="Details",
                 value="\n".join(detail_lines),
                 inline=False
             )
-    
+
     # Add footer if truncated
     if truncated_count > 0:
         embed.set_footer(text=f"… and {truncated_count} more (see CSV for full results)")
-    
+
     return embed
 
 

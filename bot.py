@@ -40,15 +40,9 @@ raw_prefix = config["bot"].get("prefix")
 PREFIX = (
     raw_prefix if raw_prefix else commands.when_mentioned
 )  # empty list, empty string, None -> default
-VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
-BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
-BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
-MAIN_ROLE_ID = config["roles"]["main_role_id"]
-AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
-NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
-# Role IDs are now normalized to int at config load time
-BOT_ADMIN_ROLE_IDS = config["roles"].get("bot_admins", [])
-LEAD_MODERATOR_ROLE_IDS = config["roles"].get("lead_moderators", [])
+
+# Roles and channels are now managed per-guild via the database.
+# These legacy constants have been removed; access via bot.services.config at runtime.
 
 # Configure intents - start from none and enable only what's required
 intents = discord.Intents.none()
@@ -80,15 +74,8 @@ class MyBot(commands.Bot):
         # Assign the entire config to the bot instance
         self.config = config
 
-        # Pass role and channel IDs to the bot for use in cogs
-        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
-        self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
-        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
-        self.MAIN_ROLE_ID = MAIN_ROLE_ID
-        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
-        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
-        self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
-        self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
+        # Role and channel configuration now accessed via services.config per guild
+        # No more bot-level attributes for roles/channels
 
         # Initialize uptime tracking
         self.start_time = time.monotonic()
@@ -118,7 +105,7 @@ class MyBot(commands.Bot):
         # Start internal API server for web dashboard
         try:
             from services.internal_api import InternalAPIServer
-            
+
             self.internal_api = InternalAPIServer(self.services)
             await self.internal_api.start()
         except Exception as e:
@@ -239,46 +226,58 @@ class MyBot(commands.Bot):
             )
 
     async def cache_roles(self) -> None:
-        """Cache commonly used Role objects from the first guild."""
+        """Cache commonly used Role objects from all guilds based on DB config."""
         await self.wait_until_ready()
         if not self.guilds:
             logger.warning("Bot is not in any guild. Skipping role cache.")
             return
 
-        guild = self.guilds[0]
-        role_ids = [
-            self.BOT_VERIFIED_ROLE_ID,
-            self.MAIN_ROLE_ID,
-            self.AFFILIATE_ROLE_ID,
-            self.NON_MEMBER_ROLE_ID,
-        ]
-        for role_id in role_ids:
-            if role := guild.get_role(role_id):
-                self.role_cache[role_id] = role
-            else:
-                # Persist suppression across restarts: only WARN the first time
-                # Across all runs unless DB entry is cleared.
-                try:
-                    reported = await Database.has_reported_missing_roles(guild.id)
-                except Exception:
-                    reported = False
-                if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(
-                        f"Role with ID {role_id} not found in guild '{guild.name}'."
-                    )
-                    self._missing_role_warned_guilds.add(guild.id)
-                    try:
-                        await Database.mark_reported_missing_roles(guild.id)
-                    except Exception:
-                        # Non-fatal: if DB write fails, continue but don't raise
-                        logger.debug(
-                            "Failed to persist missing-role warning for guild %s",
-                            guild.id,
-                        )
-                else:
-                    logger.info(
-                        f"Role with ID {role_id} not found in guild '{guild.name}' (already reported)."
-                    )
+        if not hasattr(self, "services") or not self.services or not self.services.config:
+            logger.warning("Services not initialized yet. Skipping role cache.")
+            return
+
+        for guild in self.guilds:
+            try:
+                roles_config = await self.services.config.get_guild_roles(guild.id)
+                role_ids = [
+                    roles_config.get("bot_verified_role_id"),
+                    roles_config.get("main_role_id"),
+                    roles_config.get("affiliate_role_id"),
+                    roles_config.get("non_member_role_id"),
+                ]
+                
+                for role_id in role_ids:
+                    if not role_id:
+                        continue
+                    if role := guild.get_role(int(role_id)):
+                        self.role_cache[role_id] = role
+                    else:
+                        # Only warn once per guild
+                        try:
+                            reported = await Database.has_reported_missing_roles(guild.id)
+                        except Exception:
+                            reported = False
+                        if not reported and guild.id not in self._missing_role_warned_guilds:
+                            logger.warning(
+                                f"Role with ID {role_id} not found in guild '{guild.name}'."
+                            )
+                            self._missing_role_warned_guilds.add(guild.id)
+                            try:
+                                await Database.mark_reported_missing_roles(guild.id)
+                            except Exception:
+                                logger.debug(
+                                    "Failed to persist missing-role warning for guild %s",
+                                    guild.id,
+                                )
+                        else:
+                            logger.info(
+                                f"Role {role_id} missing in '{guild.name}' "
+                                "(already reported)."
+                            )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cache roles for guild '{guild.name}': {e}"
+                )
 
     async def set_admin_command_permissions(self, guild: discord.Guild) -> None:
         """Attempt per-command role permissions; fall back to runtime checks."""
@@ -414,21 +413,20 @@ class MyBot(commands.Bot):
 
     async def has_admin_permissions(self, user: discord.Member) -> bool:
         """
-        Check if a user has admin permissions based on configured roles.
+        Check if a user has admin permissions based on configured roles or privileged status.
 
         Args:
             user: Discord member to check
 
         Returns:
-            bool: True if user has bot admin or lead moderator roles
+            bool: True if user has bot admin, lead moderator roles, is bot owner, or has Discord admin
         """
         if not isinstance(user, discord.Member):
             return False
 
-        user_role_ids = [role.id for role in user.roles]
-        admin_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
-
-        return any(role_id in admin_role_ids for role_id in user_role_ids)
+        # Use the privileged user check which includes all fallbacks
+        from helpers.permissions_helper import is_privileged_user
+        return await is_privileged_user(self, user)
 
     async def get_guild_config(self, guild_id: int) -> dict:
         """
@@ -495,7 +493,7 @@ class MyBot(commands.Bot):
 
         # Close the HTTP client
         await self.http_client.close()
-        
+
         # Call parent close
         await super().close()
 

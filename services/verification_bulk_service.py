@@ -10,7 +10,7 @@ import asyncio
 import random
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 
@@ -66,6 +66,7 @@ class VerificationBulkService:
     """
 
     def __init__(self, bot: "commands.Bot"):
+        self.name = "verification_bulk"
         self.bot = bot
         self.queue: asyncio.Queue[BulkVerificationJob] = asyncio.Queue()
         self.lock = asyncio.Lock()  # Mutex for processing
@@ -97,6 +98,16 @@ class VerificationBulkService:
             self.worker_task = None
 
         logger.info("VerificationBulkService worker stopped")
+
+    async def health_check(self) -> dict[str, Any]:
+        """Return health status of the bulk verification service."""
+        return {
+            "status": "healthy" if self._running else "stopped",
+            "running": self._running,
+            "queue_size": self.queue.qsize(),
+            "has_current_job": self.current_job is not None,
+            "current_job_id": self.current_job.job_id if self.current_job else None,
+        }
 
     async def enqueue_manual(
         self,
@@ -204,7 +215,7 @@ class VerificationBulkService:
         if not guild:
             logger.error(f"Guild {job.guild_id} not found for job {job.job_id}")
             return None
-        
+
         return guild
 
     def _get_batch_size(self) -> int:
@@ -218,16 +229,16 @@ class VerificationBulkService:
 
         for i in range(0, total_targets, batch_size):
             batch_ids = job.target_member_ids[i:i + batch_size]
-            
+
             # Fetch and process this batch
             batch_members = await self._fetch_batch_members(job, guild, batch_ids)
             await self._fetch_batch_status(job, batch_members)
-            
+
             processed += len(batch_ids)
-            
+
             # Progress reporting
             await self._report_progress(job, processed, total_targets, batch_size)
-            
+
             # Inter-batch delay
             if processed < total_targets:
                 await asyncio.sleep(random.uniform(1.0, 3.0))
@@ -247,7 +258,7 @@ class VerificationBulkService:
             except (discord.NotFound, discord.HTTPException) as e:
                 job.errors.append((member_id, f"User_{member_id}", f"Member fetch failed: {e!s}"[:200]))
                 logger.debug(f"Failed to fetch member {member_id}: {e}")
-        
+
         return members
 
     async def _fetch_batch_status(self, job: BulkVerificationJob, members: list[discord.Member]) -> None:
@@ -258,11 +269,11 @@ class VerificationBulkService:
         try:
             from helpers.bulk_check import fetch_status_rows
             batch_rows = await fetch_status_rows(members)
-            
+
             # If RSI recheck is enabled, verify each member's RSI org status
             if job.recheck_rsi:
                 batch_rows = await self._perform_rsi_recheck(batch_rows)
-            
+
             job.status_rows.extend(batch_rows)
         except Exception as e:
             logger.exception(f"Error fetching status rows for batch: {e}")
@@ -271,20 +282,20 @@ class VerificationBulkService:
 
     async def _perform_rsi_recheck(self, status_rows: list) -> list:
         """Perform live RSI verification for each member in the batch using concurrent execution.
-        
+
         Uses asyncio.gather to check all RSI handles concurrently while respecting
         the HTTPClient's built-in rate limiting (concurrency=3, 0.5s delay per request).
-        
+
         Concurrency model:
         - All tasks in the batch are submitted concurrently via asyncio.gather
         - HTTPClient's semaphore limits actual concurrent requests to 3
         - HTTPClient enforces 0.5s delay between requests to avoid bot detection
         - Batch size is capped at 50 users (configurable via max_users_per_run)
         - Inter-batch sleep of 1-3s occurs in _process_batches
-        
+
         This design allows efficient parallel processing while maintaining proper
         rate limiting and prevents overwhelming the RSI API.
-        
+
         Args:
             status_rows: List of StatusRow objects from DB (max 50 per batch)
             
@@ -292,11 +303,11 @@ class VerificationBulkService:
             Updated list of StatusRow objects with RSI recheck data
         """
         from helpers.bulk_check import StatusRow
-        from verification.rsi_verification import is_valid_rsi_handle
         from helpers.http_helper import NotFoundError
-        
+        from verification.rsi_verification import is_valid_rsi_handle
+
         current_time = int(time.time())
-        
+
         # Create concurrent tasks for all handles
         async def check_single_handle(row: StatusRow) -> RsiStatusResult:
             """Check a single RSI handle and return structured result.
@@ -306,13 +317,25 @@ class VerificationBulkService:
             """
             if not row.rsi_handle:
                 return RsiStatusResult(status="unknown", checked_at=current_time, error="No RSI handle")
-            
+
+            # Get organization name from guild config
+            org_name = "test"  # Default fallback
+            if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
+                try:
+                    org_name_config = await self.bot.services.guild_config.get_setting(
+                        ctx.guild.id, "organization.name", default="test"
+                    )
+                    org_name = org_name_config.strip().lower() if org_name_config else "test"
+                except Exception:
+                    pass  # Use default
+
             try:
                 verify_value, _, _ = await is_valid_rsi_handle(
-                    row.rsi_handle, 
-                    self.bot.http_client
+                    row.rsi_handle,
+                    self.bot.http_client,
+                    org_name
                 )
-                
+
                 # Map verify_value to status string
                 if verify_value == 1:
                     status = "main"
@@ -322,31 +345,31 @@ class VerificationBulkService:
                     status = "non_member"
                 else:
                     status = "unknown"
-                
+
                 logger.debug(f"RSI check for user {row.user_id} ({row.rsi_handle}): verify_value={verify_value}, status={status}")
                 return RsiStatusResult(status=status, checked_at=current_time)
-                
+
             except NotFoundError:
                 logger.debug(f"RSI handle not found for user {row.user_id}: {row.rsi_handle}")
                 return RsiStatusResult(status="unknown", checked_at=current_time, error="Handle not found (404)")
             except Exception as e:
                 logger.warning(f"RSI recheck failed for user {row.user_id} ({row.rsi_handle}): {e}")
                 return RsiStatusResult(status="unknown", checked_at=current_time, error=str(e)[:200])
-        
+
         # Execute all RSI checks concurrently
         # Note: HTTPClient's semaphore (concurrency=3) automatically limits actual
         # concurrent requests, so submitting all tasks at once is safe and efficient
         tasks = [check_single_handle(row) for row in status_rows]
         rsi_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Build updated rows with RSI data
         updated_rows = []
-        for row, result in zip(status_rows, rsi_results):
+        for row, result in zip(status_rows, rsi_results, strict=False):
             # Handle unexpected exceptions from gather
             if isinstance(result, Exception):
                 logger.error(f"Unexpected exception in RSI check for user {row.user_id}: {result}")
                 result = RsiStatusResult(status="unknown", checked_at=current_time, error=f"Unexpected error: {result!s}"[:200])
-            
+
             # Create new StatusRow with RSI data
             updated_row = StatusRow(
                 user_id=row.user_id,
@@ -360,7 +383,7 @@ class VerificationBulkService:
                 rsi_error=result.error
             )
             updated_rows.append(updated_row)
-        
+
         return updated_rows
 
     async def _report_progress(

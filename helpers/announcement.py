@@ -152,9 +152,12 @@ async def send_verification_announcements(
     """
     Posts verification/re-check logs to leadership channel.
     """
-    config = bot.config
-    lead_channel_id = config["channels"].get("leadership_announcement_channel_id")
+    guild_config = bot.services.guild_config
     guild = member.guild
+    
+    lead_channel = await guild_config.get_channel(
+        guild.id, "leadership_announcement_channel_id", guild
+    )
 
     if not isinstance(member, discord.Member) or (
         guild and guild.get_member(member.id) is None
@@ -165,9 +168,11 @@ async def send_verification_announcements(
             logger.warning(f"Failed to fetch full member object for {member.id}: {e}")
             return
 
-    lead_channel = (
-        guild.get_channel(lead_channel_id) if (guild and lead_channel_id) else None
-    )
+    if not lead_channel:
+        logger.warning(
+            f"No leadership channel configured for guild {guild.id}"
+        )
+        return
 
     old_status = (old_status or "").lower()
     new_status = (new_status or "").lower()
@@ -235,19 +240,18 @@ async def send_admin_bulk_check_summary(
     Raises:
         Exception if channel not configured or message fails to send
     """
-    config = bot.config
+    guild_config = bot.services.guild_config
 
     # Get leadership announcement channel
-    channel_id = config.get("channels", {}).get("leadership_announcement_channel_id")
+    channel = await guild_config.get_channel(
+        guild.id, "leadership_announcement_channel_id", guild
+    )
 
-    if not channel_id:
-        logger.error("No leadership_announcement_channel_id configured for bulk check summary")
-        raise ValueError("Leadership announcement channel not configured")
-
-    channel = bot.get_channel(channel_id)
     if not channel:
-        logger.error(f"Leadership announcement channel {channel_id} not found")
-        raise ValueError(f"Leadership channel {channel_id} not found")
+        logger.error(
+            f"No leadership_announcement_channel_id configured for guild {guild.id}"
+        )
+        raise ValueError("Leadership announcement channel not configured")
 
     try:
         # Create CSV file attachment

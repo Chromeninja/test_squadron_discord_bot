@@ -330,9 +330,9 @@ def test_format_detail_line_without_rsi_recheck():
         last_updated=1609459200,
         voice_channel="General"
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify the basic format (DB-only)
     assert "<@123456789>" in detail_line
     assert "Verified/Main" in detail_line
@@ -355,9 +355,9 @@ def test_format_detail_line_with_rsi_recheck():
         rsi_checked_at=1609459300,
         rsi_error=None
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify the enhanced format with RSI recheck
     assert "<@123456789>" in detail_line
     assert "DB: Verified/Main" in detail_line  # DB status
@@ -380,9 +380,9 @@ def test_format_detail_line_with_rsi_error():
         rsi_checked_at=1609459300,
         rsi_error="No RSI handle found"
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify error case formatting
     assert "<@123456789>" in detail_line
     assert "DB: Unverified" in detail_line

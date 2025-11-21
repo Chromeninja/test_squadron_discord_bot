@@ -308,6 +308,48 @@ def resolve_role_ids_for_guild(
     return resolved, missing
 
 
+async def is_privileged_user(bot, member: discord.Member) -> bool:
+    """Check if a user has privileged access (bot owner, Discord admin, or configured admin roles).
+    
+    Args:
+        bot: The bot instance
+        member: Discord member to check
+        
+    Returns:
+        True if user has privileged access via any method
+    """
+    if not isinstance(member, discord.Member):
+        return False
+    
+    # Check 1: Bot owner (from application info)
+    if bot.owner_id and member.id == bot.owner_id:
+        return True
+    
+    # Check 2: Discord Administrator permission
+    if member.guild_permissions.administrator:
+        return True
+    
+    # Check 3: Configured admin roles from database
+    if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'config'):
+        try:
+            admin_roles = await bot.services.config.get_guild_setting(
+                member.guild.id, "roles.bot_admins", []
+            )
+            lead_mod_roles = await bot.services.config.get_guild_setting(
+                member.guild.id, "roles.lead_moderators", []
+            )
+            
+            all_admin_roles = set(admin_roles + lead_mod_roles)
+            member_role_ids = {role.id for role in member.roles}
+            
+            if all_admin_roles & member_role_ids:
+                return True
+        except Exception as e:
+            logger.warning(f"Error checking configured admin roles: {e}")
+    
+    return False
+
+
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
     from discord import app_commands
 
@@ -331,6 +373,7 @@ __all__ = [
     "apply_permissions_changes",
     "apply_permit_reject_settings",
     "fetch_permit_reject_entries",
+    "is_privileged_user",
     "reset_channel_permissions",
     "resolve_role_ids_for_guild",
     "store_permit_reject_in_db",

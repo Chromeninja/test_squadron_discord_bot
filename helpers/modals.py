@@ -83,8 +83,22 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Proceed with verification to get verify_value and cased_handle
+        # Get organization name from guild config
+        org_name = "test"  # Default fallback
+        if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
+            try:
+                org_name_config = await self.bot.services.guild_config.get_setting(
+                    interaction.guild.id, "organization.name", default="test"
+                )
+                org_name = org_name_config.strip().lower() if org_name_config else "test"
+            except Exception:
+                logger.warning(
+                    "Failed to get org name from config, using default",
+                    extra={"guild_id": interaction.guild.id}
+                )
+
         verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-            rsi_handle_input, self.bot.http_client
+            rsi_handle, self.bot.http_client, org_name
         )
         if verify_value is None or cased_handle is None:  # moniker optional
             embed = create_error_embed(
@@ -118,8 +132,19 @@ class HandleModal(Modal, title="Verification"):
             return
 
             # Perform RSI verification with sanitized handle
+        # Get org_name for consistency
+        org_name = "test"
+        if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
+            try:
+                org_name_config = await self.bot.services.guild_config.get_setting(
+                    interaction.guild.id, "organization.name", default="test"
+                )
+                org_name = org_name_config.strip().lower() if org_name_config else "test"
+            except Exception:
+                pass
+
         verify_value_check, _cased_handle_2, community_moniker_2 = (
-            await is_valid_rsi_handle(cased_handle, self.bot.http_client)
+            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name)
         )
         if verify_value_check is None:
             embed = create_error_embed(

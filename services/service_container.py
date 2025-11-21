@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from utils.logging import get_logger
 
 from .config_service import ConfigService
+from .guild_config_helper import GuildConfigHelper
 from .guild_service import GuildService
 from .health_service import HealthService
 from .verification_bulk_service import VerificationBulkService
@@ -30,6 +31,7 @@ class ServiceContainer:
         self.logger = get_logger("services.container")
         self.bot = bot  # Store bot instance for services that need it
         self._config: ConfigService | None = None
+        self._guild_config: GuildConfigHelper | None = None
         self._guild: GuildService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
@@ -42,6 +44,13 @@ class ServiceContainer:
         if self._config is None:
             raise RuntimeError("ConfigService not initialized")
         return self._config
+
+    @property
+    def guild_config(self) -> GuildConfigHelper:
+        """Get the guild configuration helper."""
+        if self._guild_config is None:
+            raise RuntimeError("GuildConfigHelper not initialized")
+        return self._guild_config
 
     @property
     def guild(self) -> GuildService:
@@ -76,6 +85,7 @@ class ServiceContainer:
         services = []
         if self._config:
             services.append(self._config)
+        # guild_config is a helper, not a service with lifecycle
         if self._guild:
             services.append(self._guild)
         if self._voice:
@@ -99,6 +109,12 @@ class ServiceContainer:
             self._config = ConfigService()
             await self._config.initialize()
             self.logger.debug("ConfigService initialized")
+
+            # Initialize guild config helper (depends on config and bot)
+            if not self.bot:
+                raise RuntimeError("Bot instance required for GuildConfigHelper")
+            self._guild_config = GuildConfigHelper(self.bot, self._config)
+            self.logger.debug("GuildConfigHelper initialized")
 
             # Initialize guild service (depends on config)
             self._guild = GuildService(self._config)
@@ -155,6 +171,9 @@ class ServiceContainer:
         if self._config:
             await self._config.shutdown()
             self._config = None
+
+        # guild_config has no cleanup needed (it's just a helper)
+        self._guild_config = None
 
         self._initialized = False
         self.logger.info("Services cleaned up")

@@ -119,8 +119,22 @@ class AutoRecheck(commands.Cog):
     ) -> None:
         try:
             # Validate handle and fetch current status
+            # Get organization name from guild config
+            org_name = "test"  # Default fallback
+            if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
+                try:
+                    org_name_config = await self.bot.services.guild_config.get_setting(
+                        interaction.guild.id, "organization.name", default="test"
+                    )
+                    org_name = org_name_config.strip().lower() if org_name_config else "test"
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to get org name from config: {e}",
+                        extra={"guild_id": interaction.guild.id}
+                    )
+
             verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-                rsi_handle, self.bot.http_client
+                rsi_handle, self.bot.http_client, org_name
             )
             if verify_value is None or cased_handle is None:  # moniker optional
                 # Transient fetch/parse failure: schedule backoff

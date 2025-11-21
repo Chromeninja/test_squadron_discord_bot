@@ -10,7 +10,6 @@ A minimal admin dashboard providing:
 For local development/testing only.
 """
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,8 +22,8 @@ from fastapi.responses import JSONResponse
 project_root = Path(__file__).parent.parent.parent
 load_dotenv(project_root / ".env")
 
-from core.dependencies import get_db, initialize_services, shutdown_services
-from routes import auth, errors, health, logs, stats, users, voice
+from core.dependencies import initialize_services, shutdown_services
+from routes import auth, errors, guilds, health, logs, stats, users, voice
 
 
 @asynccontextmanager
@@ -54,6 +53,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
+app.include_router(guilds.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])

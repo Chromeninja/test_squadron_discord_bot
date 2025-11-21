@@ -4,11 +4,16 @@ Log export routes for admin dashboard.
 Provides endpoints for downloading bot logs.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 import io
 
-from core.dependencies import get_internal_api_client, require_any, InternalAPIClient
+from core.dependencies import (
+    InternalAPIClient,
+    get_internal_api_client,
+    require_any,
+    translate_internal_api_error,
+)
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -30,7 +35,7 @@ async def export_logs(
     """
     try:
         content = await internal_api.export_logs(max_bytes=max_bytes)
-        
+
         # Create a streaming response with proper headers for download
         return StreamingResponse(
             io.BytesIO(content),
@@ -39,9 +44,6 @@ async def export_logs(
                 "Content-Disposition": "attachment; filename=bot.log.tail.txt"
             }
         )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to export logs: {str(e)}"
-        )
+
+    except Exception as exc:
+        raise translate_internal_api_error(exc, "Failed to export logs")

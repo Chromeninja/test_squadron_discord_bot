@@ -48,9 +48,14 @@ class VoiceService(BaseService):
         # Track managed voice channels like the old code
         self.managed_voice_channels: set[int] = set()
 
+        # Track users currently in the process of creating a channel
+        # Key: (guild_id, jtc_channel_id, user_id)
+        # This prevents race conditions from duplicate voice state events during channel creation
+        self._users_creating_channels: set[tuple[int, int, int]] = set()
+
         # Debug logging configuration - defaults to False for production
         self.debug_logging_enabled = False
-        
+
         # In-memory cache of voice channel members (channel_id -> set of user_ids)
         # This is populated from Gateway events and has no Discord API overhead
         self._voice_channel_members: dict[int, set[int]] = {}
@@ -82,6 +87,15 @@ class VoiceService(BaseService):
 
         # Start reconciliation after bot ready
         asyncio.create_task(self._run_reconcile_after_ready())
+
+    async def _shutdown_impl(self) -> None:
+        """Cleanup resources during service shutdown."""
+        # Log any users still marked as creating
+        if self._users_creating_channels:
+            self.logger.warning(
+                f"Shutting down with {len(self._users_creating_channels)} users still marked as creating channels"
+            )
+            self._users_creating_channels.clear()
 
     async def _load_managed_channels(self) -> None:
         """Load existing managed channels from database. Do not delete DB rows if channel is not in cache; defer to reconciliation."""
@@ -278,11 +292,36 @@ class VoiceService(BaseService):
 
             await db.commit()
 
+    def _mark_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> None:
+        """Mark a user as currently creating a channel."""
+        key = (guild_id, jtc_channel_id, user_id)
+        self._users_creating_channels.add(key)
+        self.logger.debug(f"Marked user {user_id} as creating channel in JTC {jtc_channel_id}")
+
+    def _unmark_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> None:
+        """Unmark a user as creating a channel."""
+        key = (guild_id, jtc_channel_id, user_id)
+        self._users_creating_channels.discard(key)
+        self.logger.debug(f"Unmarked user {user_id} from creating in JTC {jtc_channel_id}")
+
+    def _is_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> bool:
+        """Check if a user is currently creating a channel."""
+        key = (guild_id, jtc_channel_id, user_id)
+        return key in self._users_creating_channels
+
     async def _get_creation_lock(
-        self, guild_id: int, jtc_channel_id: int
+        self, guild_id: int, jtc_channel_id: int, user_id: int | None = None
     ) -> asyncio.Lock:
-        """Get or create a lock for voice channel creation in a specific JTC channel."""
-        key = (guild_id, jtc_channel_id)
+        """Get or create a lock for voice channel creation.
+        
+        If user_id is provided, creates a per-user lock to prevent concurrent
+        channel creation for the same user while allowing different users to
+        create channels in parallel.
+        """
+        if user_id is not None:
+            key = (guild_id, jtc_channel_id, user_id)
+        else:
+            key = (guild_id, jtc_channel_id)
 
         async with self._locks_lock:
             if key not in self._creation_locks:
@@ -307,6 +346,13 @@ class VoiceService(BaseService):
             Tuple of (can_create, error_code_if_not) - returns error code, not formatted message
         """
         self._ensure_initialized()
+
+        # Check if user is already in the process of creating a channel
+        if self._is_user_creating(guild_id, jtc_channel_id, user_id):
+            self.logger.debug(
+                f"User {user_id} is already creating a channel in JTC {jtc_channel_id}"
+            )
+            return False, "CREATING"
 
         # Only check time-based cooldown (removed existing channel check for multi-channel support)
         cooldown_seconds = await self.config_service.get_guild_setting(
@@ -870,19 +916,29 @@ class VoiceService(BaseService):
         # For now, return a basic view
         return discord.ui.View()
 
-    async def get_admin_role_ids(self) -> list[int]:
-        """Get admin role IDs from configuration."""
+    async def get_admin_role_ids(self, guild_id: int) -> list[int]:
+        """Get admin role IDs from configuration for a specific guild.
+        
+        Args:
+            guild_id: The Discord guild ID to get admin roles for
+            
+        Returns:
+            List of role IDs that have admin permissions
+        """
         try:
-            # Use the global config from config service
-            # Role IDs are already normalized to int at config load time
             bot_admin_roles = await self.config_service.get_guild_setting(
-                guild_id=0,  # Use 0 for global config
+                guild_id=guild_id,
                 key="roles.bot_admins",
                 default=[],
             )
-            return bot_admin_roles if bot_admin_roles else []
+            lead_mod_roles = await self.config_service.get_guild_setting(
+                guild_id=guild_id,
+                key="roles.lead_moderators",
+                default=[],
+            )
+            return (bot_admin_roles or []) + (lead_mod_roles or [])
         except Exception as e:
-            self.logger.exception("Error getting admin role IDs", exc_info=e)
+            self.logger.exception(f"Error getting admin role IDs for guild {guild_id}", exc_info=e)
             return []
 
     def get_voice_channel_members(self, channel_id: int) -> list[int]:
@@ -925,7 +981,7 @@ class VoiceService(BaseService):
                 # Clean up empty sets
                 if not self._voice_channel_members[before_channel.id]:
                     del self._voice_channel_members[before_channel.id]
-        
+
         if after_channel:
             # Add user to new channel
             if after_channel.id not in self._voice_channel_members:
@@ -982,6 +1038,20 @@ class VoiceService(BaseService):
                 self.logger.info(f"Channel {channel.name} still has {len(channel.members)} members, no cleanup needed")
         except Exception as e:
             self.logger.exception("Error handling channel left", exc_info=e)
+
+    async def _notify_bot_spam_channel(self, guild: discord.Guild, message: str) -> None:
+        """Send a notification to the bot spam channel if configured."""
+        try:
+            bot_spam_channel_id = await self.config_service.get_guild_setting(
+                guild.id, "channels.bot_spam_channel_id"
+            )
+            if bot_spam_channel_id:
+                bot_spam_channel = guild.get_channel(bot_spam_channel_id)
+                if bot_spam_channel and isinstance(bot_spam_channel, discord.TextChannel):
+                    await bot_spam_channel.send(message)
+                    self.logger.debug(f"Sent notification to bot spam channel: {message}")
+        except Exception as e:
+            self.logger.warning(f"Failed to send bot spam channel notification: {e}")
 
     async def _cleanup_empty_channel(
         self, channel_or_id: discord.VoiceChannel | int
@@ -1067,29 +1137,69 @@ class VoiceService(BaseService):
                 f"{member.display_name} joined JTC channel {jtc_channel.name}"
             )
 
-            # Check cooldown before creating new channel
-            can_create, error_code = await self.can_create_voice_channel(
-                guild.id, jtc_channel.id, member.id
-            )
-            if not can_create:
-                self.logger.info(
-                    f"Cooldown prevented channel creation for {member.display_name}: {error_code}"
+            # Get per-user creation lock to prevent race conditions
+            lock = await self._get_creation_lock(guild.id, jtc_channel.id, member.id)
+
+            async with lock:
+                # Double-check cooldown after acquiring lock
+                can_create, error_code = await self.can_create_voice_channel(
+                    guild.id, jtc_channel.id, member.id
                 )
-                # Parse cooldown seconds from error code (format: "COOLDOWN:5")
-                if error_code and error_code.startswith("COOLDOWN:"):
+                if not can_create:
+                    # Check if it's because user is already creating
+                    if error_code == "CREATING":
+                        self.logger.debug(
+                            f"Ignoring duplicate creation event for {member.display_name} - already creating"
+                        )
+                        return
+                    
+                    self.logger.info(
+                        f"Cooldown prevented channel creation for {member.display_name}: {error_code}"
+                    )
+                    # Parse cooldown seconds from error code (format: "COOLDOWN:5")
+                    if error_code and error_code.startswith("COOLDOWN:"):
+                        try:
+                            seconds = int(error_code.split(":")[1])
+                            from helpers.discord_reply import dm_user
+                            from helpers.error_messages import format_user_error
+
+                            message = format_user_error("COOLDOWN", seconds=seconds)
+                            await dm_user(member, message)
+                        except (ValueError, IndexError):
+                            pass  # Ignore parsing errors
+                    return
+
+                # Mark user as creating to prevent duplicate events during channel creation
+                self._mark_user_creating(guild.id, jtc_channel.id, member.id)
+
+                try:
+                    # Create a new channel for the user with timeout
                     try:
-                        seconds = int(error_code.split(":")[1])
-                        from helpers.discord_reply import dm_user
-                        from helpers.error_messages import format_user_error
-
-                        message = format_user_error("COOLDOWN", seconds=seconds)
-                        await dm_user(member, message)
-                    except (ValueError, IndexError):
-                        pass  # Ignore parsing errors
-                return
-
-            # Create a new channel for the user
-            await self._create_user_channel(guild, jtc_channel, member)
+                        await asyncio.wait_for(
+                            self._create_user_channel(guild, jtc_channel, member),
+                            timeout=10.0
+                        )
+                    except asyncio.TimeoutError:
+                        self.logger.error(
+                            f"Channel creation timed out for {member.display_name} in JTC {jtc_channel.name}"
+                        )
+                        # Notify in bot spam channel
+                        await self._notify_bot_spam_channel(
+                            guild,
+                            f"⚠️ Voice channel creation timed out for {member.mention} - Discord API may be slow"
+                        )
+                        # Send DM to user
+                        try:
+                            from helpers.discord_reply import dm_user
+                            await dm_user(
+                                member,
+                                "⚠️ Voice channel creation took too long. Please try again."
+                            )
+                        except Exception:
+                            pass  # Ignore DM failures
+                finally:
+                    # Always unmark user as creating, even if creation fails
+                    self._unmark_user_creating(guild.id, jtc_channel.id, member.id)
 
         except Exception as e:
             self.logger.exception("Error handling join-to-create", exc_info=e)
@@ -1193,7 +1303,68 @@ class VoiceService(BaseService):
                 jtc_channel_id=jtc_channel.id,
             )
 
-            # Store in database
+            # Validate user is still connected to voice before moving
+            if member.voice is None or member.voice.channel is None:
+                self.logger.warning(
+                    f"User {member.display_name} disconnected before channel creation completed, cleaning up channel {channel.id}"
+                )
+                # Cleanup the created channel
+                try:
+                    await channel.delete(reason="User disconnected during channel creation")
+                except Exception as e:
+                    self.logger.warning(f"Failed to cleanup channel {channel.id}: {e}")
+                
+                # Send DM to user
+                try:
+                    from helpers.discord_reply import dm_user
+                    await dm_user(
+                        member,
+                        "⚠️ Your voice channel was created but you disconnected before it was ready. Please rejoin the Join to Create channel to try again."
+                    )
+                except Exception:
+                    pass  # Ignore DM failures
+                
+                # Notify in bot spam channel
+                await self._notify_bot_spam_channel(
+                    guild,
+                    f"⚠️ Voice channel creation aborted for {member.mention} - user disconnected during setup"
+                )
+                return
+
+            # Move the user to their new channel BEFORE storing in database
+            # This prevents race conditions where concurrent operations see the channel
+            # as active before the user is actually in it
+            try:
+                await member.move_to(channel)
+            except discord.HTTPException as e:
+                self.logger.error(
+                    f"Failed to move {member.display_name} to channel {channel.id}: {e}"
+                )
+                # Cleanup the created channel
+                try:
+                    await channel.delete(reason="Failed to move user")
+                    self.logger.info(f"Cleaned up channel {channel.id} after failed move")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Failed to cleanup channel {channel.id}: {cleanup_error}")
+                
+                # Send DM to user
+                try:
+                    from helpers.discord_reply import dm_user
+                    await dm_user(
+                        member,
+                        "⚠️ Failed to move you to your voice channel. You may have disconnected too quickly. Please try again."
+                    )
+                except Exception:
+                    pass  # Ignore DM failures
+                
+                # Notify in bot spam channel
+                await self._notify_bot_spam_channel(
+                    guild,
+                    f"⚠️ Voice channel creation failed for {member.mention} - could not move user (error: {e})"
+                )
+                return
+
+            # Only store in database after successful move
             await self._store_user_channel(
                 guild.id, jtc_channel.id, member.id, channel.id
             )
@@ -1206,9 +1377,6 @@ class VoiceService(BaseService):
 
             # Add to managed channels set
             self.managed_voice_channels.add(channel.id)
-
-            # Move the user to their new channel
-            await member.move_to(channel)
 
             self.logger.info(
                 f"Created channel '{channel.name}' for {member.display_name}"
@@ -1284,15 +1452,19 @@ class VoiceService(BaseService):
                     if old_channel_id != channel_id:
                         self.logger.info(
                             f"User {user_id} already has active channel {old_channel_id}, "
-                            f"cleaning it up before creating new channel {channel_id}"
+                            f"scheduling cleanup before storing new channel {channel_id}"
                         )
-                        # Try to cleanup the old channel if it exists
+                        # Schedule cleanup as background task to avoid blocking
                         old_channel = self.bot.get_channel(old_channel_id) if self.bot else None
                         if old_channel:
-                            try:
-                                await self._cleanup_empty_channel(old_channel)
-                            except Exception as e:
-                                self.logger.warning(f"Failed to cleanup old channel {old_channel_id}: {e}")
+                            # Only cleanup if channel is empty to avoid disrupting active users
+                            if len(old_channel.members) == 0:
+                                asyncio.create_task(self._cleanup_empty_channel(old_channel))
+                                self.logger.debug(f"Scheduled background cleanup for empty channel {old_channel_id}")
+                            else:
+                                self.logger.info(
+                                    f"Skipping cleanup of channel {old_channel_id} - has {len(old_channel.members)} member(s)"
+                                )
                         else:
                             # Channel doesn't exist, just mark as inactive in DB
                             await db.execute(

@@ -15,8 +15,8 @@ from services import (
     HealthService,
     VoiceService,
 )
-from services.service_container import ServiceContainer
 from services.db.database import Database
+from services.service_container import ServiceContainer
 
 
 @pytest_asyncio.fixture
@@ -252,13 +252,20 @@ class TestServiceContainer:
     @pytest.mark.asyncio
     async def test_service_container_initialization(self, temp_db):
         """Test service container initializes all services."""
-        container = ServiceContainer()
+        # Create a mock bot instance
+        from unittest.mock import Mock
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
+        
+        container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
         assert container._initialized
 
         # Check all services are available
         assert container.config is not None
+        assert container.guild_config is not None
         assert container.guild is not None
         assert container.health is not None
         assert container.voice is not None
@@ -268,7 +275,13 @@ class TestServiceContainer:
     @pytest.mark.asyncio
     async def test_service_access(self, temp_db):
         """Test accessing services through container."""
-        container = ServiceContainer()
+        # Create a mock bot instance
+        from unittest.mock import Mock
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
+        
+        container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
         # Test getting services
@@ -280,7 +293,13 @@ class TestServiceContainer:
     @pytest.mark.asyncio
     async def test_health_check(self, temp_db):
         """Test health checking through services."""
-        container = ServiceContainer()
+        # Create a mock bot instance
+        from unittest.mock import Mock
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
+        
+        container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
         # Check health service is available
@@ -299,7 +318,13 @@ async def test_integration_flow(temp_db):
     Database._db_path = temp_db
     await Database.initialize(temp_db)
 
-    container = ServiceContainer()
+    # Create a mock bot instance
+    from unittest.mock import Mock
+    mock_bot = Mock()
+    mock_bot.get_channel = Mock(return_value=None)
+    mock_bot.get_guild = Mock(return_value=None)
+    
+    container = ServiceContainer(bot=mock_bot)
     await container.initialize()
 
     guild_id = 12345

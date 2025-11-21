@@ -4,10 +4,14 @@ Error monitoring routes for admin dashboard.
 Provides endpoints for viewing recent error logs.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
-from core.dependencies import get_internal_api_client, require_any, InternalAPIClient
+from core.dependencies import (
+    InternalAPIClient,
+    get_internal_api_client,
+    require_any,
+    translate_internal_api_error,
+)
 from core.schemas import ErrorsResponse, StructuredError
+from fastapi import APIRouter, Depends, Query
 
 router = APIRouter(prefix="/api/errors", tags=["errors"])
 
@@ -29,14 +33,11 @@ async def get_last_errors(
     """
     try:
         result = await internal_api.get_last_errors(limit=limit)
-        
+
         # Transform to structured error objects
         errors = [StructuredError(**error) for error in result.get("errors", [])]
-        
+
         return ErrorsResponse(errors=errors)
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to fetch error logs: {str(e)}"
-        )
+
+    except Exception as exc:
+        raise translate_internal_api_error(exc, "Failed to fetch error logs")

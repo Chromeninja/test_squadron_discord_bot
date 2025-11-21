@@ -5,6 +5,7 @@ Verifies that joining a JTC channel always creates a new channel,
 even when the user already has an active channel from the same JTC.
 """
 
+import asyncio
 import time
 from unittest.mock import MagicMock, patch
 
@@ -133,6 +134,9 @@ class TestMultipleChannelsPerOwner:
             category=MagicMock()
         )
         member = MockMember(user_id=11111, display_name="TestUser")
+        # Set member as connected to the JTC channel
+        member.voice.channel = jtc_channel
+        member.mention = f"<@{member.id}>"  # Add mention attribute
 
         # Create an existing active channel for the user
         existing_channel = MockVoiceChannel(
@@ -181,6 +185,9 @@ class TestMultipleChannelsPerOwner:
                         # Verify a new channel was created
                         mock_create.assert_called_once()
 
+                        # Wait for background cleanup task to complete
+                        await asyncio.sleep(0.1)
+
                         # Check database: old channel should be cleaned up (is_active=0)
                         # and only the new channel should be active
                         async with Database.get_connection() as db:
@@ -192,7 +199,7 @@ class TestMultipleChannelsPerOwner:
                             count = await cursor.fetchone()
                             # Should have only 1 active channel (old one cleaned up)
                             assert count[0] == 1
-                            
+
                             # Verify the old channel was marked inactive
                             cursor = await db.execute(
                                 """SELECT is_active FROM voice_channels

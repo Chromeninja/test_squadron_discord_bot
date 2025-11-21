@@ -36,10 +36,10 @@ class ConfigService(BaseService):
         try:
             with open("config/config.yaml", encoding="utf-8") as f:
                 self._global_config = yaml.safe_load(f) or {}
-            
+
             # Normalize role IDs to integers at load time
             self._coerce_role_types(self._global_config)
-            
+
             self.logger.info("Global configuration loaded successfully")
         except FileNotFoundError:
             self.logger.warning("Global config file not found, using empty config")
@@ -60,16 +60,16 @@ class ConfigService(BaseService):
         """
         if not isinstance(config, dict):
             return
-            
+
         # Normalize roles section
         if "roles" in config and isinstance(config["roles"], dict):
             roles = config["roles"]
-            
+
             # Convert list-based role configs
             for key in ["bot_admins", "lead_moderators"]:
                 if key in roles and isinstance(roles[key], list):
                     roles[key] = [int(role_id) for role_id in roles[key] if role_id]
-            
+
             # Convert single role ID configs
             for key in ["bot_verified_role_id", "main_role_id", "affiliate_role_id", "non_member_role_id"]:
                 if key in roles and roles[key] is not None:
@@ -268,6 +268,14 @@ class ConfigService(BaseService):
         )
         if lead_mod_roles:
             roles["lead_moderator_role_ids"] = lead_mod_roles
+
+        selectable_roles = await self.get_guild_setting(
+            guild_id, "selectable_roles", []
+        )
+        if not selectable_roles:
+            selectable_roles = self._global_config.get("selectable_roles", [])
+        if selectable_roles:
+            roles["selectable_roles"] = selectable_roles
 
         return roles
 

@@ -2,8 +2,10 @@
 Tests for health monitoring endpoints.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
 
 
 @pytest.mark.asyncio
@@ -19,15 +21,15 @@ async def test_health_overview_success_admin(client, mock_admin_session):
             "memory_percent": 42.3
         }
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_health_data
-        
+
         response = await client.get(
             "/api/health/overview",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
@@ -70,13 +72,16 @@ async def test_health_overview_forbidden_unauthorized(client, mock_unauthorized_
 async def test_health_overview_internal_error(client, mock_admin_session):
     """Test health overview endpoint handles internal API errors."""
     with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = Exception("Internal API unavailable")
-        
+        mock_get.side_effect = httpx.RequestError(
+            "Internal API unavailable",
+            request=httpx.Request("GET", "http://internal"),
+        )
+
         response = await client.get(
             "/api/health/overview",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 503
     assert "Failed to fetch health report" in response.json()["detail"]
 
@@ -93,16 +98,41 @@ async def test_health_overview_without_latency(client, mock_admin_session):
             "memory_percent": 20.0
         }
     }
-    
+
     with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_health_data
-        
+
         response = await client.get(
             "/api/health/overview",
             cookies={"session": mock_admin_session}
         )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["discord_latency_ms"] is None
     assert data["data"]["db_ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_health_overview_http_status_error(client, mock_admin_session):
+    """HTTP errors from internal API propagate status and message."""
+    response_obj = httpx.Response(
+        502,
+        request=httpx.Request("GET", "http://internal"),
+        content=b"{\"detail\": \"bot unavailable\"}",
+    )
+
+    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = httpx.HTTPStatusError(
+            "bot unavailable",
+            request=response_obj.request,
+            response=response_obj,
+        )
+
+        response = await client.get(
+            "/api/health/overview",
+            cookies={"session": mock_admin_session},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "bot unavailable"

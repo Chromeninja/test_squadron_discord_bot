@@ -15,6 +15,8 @@ class UserProfile(BaseModel):
     avatar: str | None = None
     is_admin: bool
     is_moderator: bool
+    authorized_guild_ids: list[int] = Field(default_factory=list)
+    active_guild_id: str | None = None
 
 
 class AuthMeResponse(BaseModel):
@@ -22,6 +24,33 @@ class AuthMeResponse(BaseModel):
 
     success: bool = True
     user: UserProfile | None = None
+
+
+class GuildSummary(BaseModel):
+    """Minimal guild information for selection UI."""
+
+    guild_id: str
+    guild_name: str
+    icon_url: str | None = None
+
+
+class GuildListResponse(BaseModel):
+    """Response for /api/auth/guilds endpoint."""
+
+    success: bool = True
+    guilds: list[GuildSummary]
+
+
+class SelectGuildRequest(BaseModel):
+    """Request payload for selecting an active guild."""
+
+    guild_id: str
+
+
+class SelectGuildResponse(BaseModel):
+    """Response payload when a guild selection succeeds."""
+
+    success: bool = True
 
 
 # Stats schemas
@@ -52,14 +81,14 @@ class StatsResponse(BaseModel):
 # Health schemas
 class SystemMetrics(BaseModel):
     """System resource metrics."""
-    
+
     cpu_percent: float
     memory_percent: float
 
 
 class HealthOverview(BaseModel):
     """Bot health overview for dashboard."""
-    
+
     status: str  # "healthy", "degraded", "unhealthy"
     uptime_seconds: int
     db_ok: bool
@@ -69,7 +98,7 @@ class HealthOverview(BaseModel):
 
 class HealthResponse(BaseModel):
     """Response for /api/health/overview."""
-    
+
     success: bool = True
     data: HealthOverview
 
@@ -77,7 +106,7 @@ class HealthResponse(BaseModel):
 # Error schemas
 class StructuredError(BaseModel):
     """Structured error log entry."""
-    
+
     time: str
     error_type: str
     component: str
@@ -87,7 +116,7 @@ class StructuredError(BaseModel):
 
 class ErrorsResponse(BaseModel):
     """Response for /api/errors/last."""
-    
+
     success: bool = True
     errors: list[StructuredError]
 
@@ -184,3 +213,89 @@ class ErrorResponse(BaseModel):
 
     success: bool = False
     error: ErrorDetail
+
+
+class DiscordRole(BaseModel):
+    """Discord role metadata."""
+
+    id: int
+    name: str
+    color: int | None = None
+
+
+class GuildRolesResponse(BaseModel):
+    """Response for /api/guilds/{guild_id}/roles/discord."""
+
+    success: bool = True
+    roles: list[DiscordRole]
+
+
+class GuildMember(BaseModel):
+    """Discord guild member with basic profile and role info."""
+
+    user_id: int
+    username: str | None = None
+    discriminator: str | None = None
+    global_name: str | None = None
+    avatar_url: str | None = None
+    joined_at: str | None = None
+    created_at: str | None = None
+    roles: list[DiscordRole] = Field(default_factory=list)
+
+
+class GuildMembersResponse(BaseModel):
+    """Paginated response for guild member listings."""
+
+    success: bool = True
+    members: list[GuildMember]
+    page: int
+    page_size: int
+    total: int
+
+
+class GuildMemberResponse(BaseModel):
+    """Response wrapper for a single guild member lookup."""
+
+    success: bool = True
+    member: GuildMember
+
+
+class BotRoleSettings(BaseModel):
+    """Bot admin/lead moderator role assignments and member role categories."""
+
+    bot_admins: list[int] = Field(default_factory=list)
+    lead_moderators: list[int] = Field(default_factory=list)
+    main_role: list[int] = Field(default_factory=list)
+    affiliate_role: list[int] = Field(default_factory=list)
+    nonmember_role: list[int] = Field(default_factory=list)
+
+
+class VoiceSelectableRoles(BaseModel):
+    """Selectable voice role configuration for channel automation."""
+
+    selectable_roles: list[int] = Field(default_factory=list)
+
+
+class DiscordChannel(BaseModel):
+    """Discord text channel metadata."""
+
+    id: int
+    name: str
+    category: str | None = None
+    position: int
+
+
+class GuildChannelsResponse(BaseModel):
+    """Response for /api/guilds/{guild_id}/channels/discord."""
+
+    success: bool = True
+    channels: list[DiscordChannel]
+
+
+class BotChannelSettings(BaseModel):
+    """Bot channel configuration for verification and announcements."""
+
+    verification_channel_id: int | None = None
+    bot_spam_channel_id: int | None = None
+    public_announcement_channel_id: int | None = None
+    leadership_announcement_channel_id: int | None = None

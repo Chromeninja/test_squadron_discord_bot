@@ -4,10 +4,14 @@ Health monitoring routes for admin dashboard.
 Provides endpoints for checking bot health, system metrics, and status.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-
-from core.dependencies import get_internal_api_client, require_any, InternalAPIClient
-from core.schemas import HealthResponse, HealthOverview, SystemMetrics
+from core.dependencies import (
+    InternalAPIClient,
+    get_internal_api_client,
+    require_any,
+    translate_internal_api_error,
+)
+from core.schemas import HealthOverview, HealthResponse, SystemMetrics
+from fastapi import APIRouter, Depends
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -30,7 +34,7 @@ async def get_health_overview(
     """
     try:
         report = await internal_api.get_health_report()
-        
+
         health_overview = HealthOverview(
             status=report["status"],
             uptime_seconds=report["uptime_seconds"],
@@ -38,11 +42,8 @@ async def get_health_overview(
             discord_latency_ms=report.get("discord_latency_ms"),
             system=SystemMetrics(**report["system"])
         )
-        
+
         return HealthResponse(data=health_overview)
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to fetch health report: {str(e)}"
-        )
+
+    except Exception as exc:
+        raise translate_internal_api_error(exc, "Failed to fetch health report")

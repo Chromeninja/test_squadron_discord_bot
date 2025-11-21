@@ -74,18 +74,40 @@ async def assign_roles(
         if row:
             prev_status = row[0]
 
-    bot_verified_role = bot.role_cache.get(bot.BOT_VERIFIED_ROLE_ID)
-    main_role = bot.role_cache.get(bot.MAIN_ROLE_ID)
-    affiliate_role = bot.role_cache.get(bot.AFFILIATE_ROLE_ID)
-    non_member_role = bot.role_cache.get(bot.NON_MEMBER_ROLE_ID)
+    # Get role configuration from database for this guild
+    if hasattr(bot, 'services') and bot.services:
+        try:
+            # Fetch role IDs from database (stored as lists, use first item)
+            main_role_ids = await bot.services.config.get_guild_setting(
+                member.guild.id, "roles.main_role", []
+            )
+            affiliate_role_ids = await bot.services.config.get_guild_setting(
+                member.guild.id, "roles.affiliate_role", []
+            )
+            nonmember_role_ids = await bot.services.config.get_guild_setting(
+                member.guild.id, "roles.nonmember_role", []
+            )
+            
+            # Get first role ID from each list
+            main_role_id = main_role_ids[0] if main_role_ids else None
+            affiliate_role_id = affiliate_role_ids[0] if affiliate_role_ids else None
+            non_member_role_id = nonmember_role_ids[0] if nonmember_role_ids else None
+            
+            # Get role objects from cache or guild
+            main_role = bot.role_cache.get(main_role_id) if main_role_id else None
+            affiliate_role = bot.role_cache.get(affiliate_role_id) if affiliate_role_id else None
+            non_member_role = bot.role_cache.get(non_member_role_id) if non_member_role_id else None
+        except Exception as e:
+            logger.error(f"Error fetching role configuration from database: {e}")
+            main_role = affiliate_role = non_member_role = None
+    else:
+        logger.warning("Bot services not available, cannot fetch role configuration")
+        main_role = affiliate_role = non_member_role = None
 
+    # Note: bot_verified_role handling removed - no longer used
     roles_to_add = []
     roles_to_remove = []
     assigned_role_type = "unknown"
-
-    if bot_verified_role and bot_verified_role not in member.roles:
-        roles_to_add.append(bot_verified_role)
-        logger.debug(f"Appending role to add: {bot_verified_role.name}")
 
     if verify_value == 1 and main_role:
         roles_to_add.append(main_role)
@@ -353,9 +375,23 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         logger.error("No HTTP client found in bot services or bot object")
         return False, "error", "HTTP client unavailable for RSI verification."
 
+    # Get organization name from guild config
+    org_name = "test"  # Default fallback
+    if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
+        try:
+            org_name_config = await bot.services.guild_config.get_setting(
+                member.guild.id, "organization.name", default="test"
+            )
+            org_name = org_name_config.strip().lower() if org_name_config else "test"
+        except Exception as e:
+            logger.warning(
+                f"Failed to get org name from config, using default: {e}",
+                extra={"guild_id": member.guild.id}
+            )
+
     try:
         verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-            rsi_handle, http_client
+            rsi_handle, http_client, org_name
         )  # May raise NotFoundError
     except Exception as e:
         logger.exception(

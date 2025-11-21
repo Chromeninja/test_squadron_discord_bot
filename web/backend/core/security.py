@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from fastapi import Response
-from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
+from itsdangerous import BadSignature, SignatureExpired
 from jose import JWTError, jwt
 
 # Session configuration
@@ -62,7 +62,7 @@ def validate_oauth_state(state: str) -> bool:
     """
     if state not in _oauth_states:
         return False
-    
+
     # Check expiration (5 minutes)
     timestamp = _oauth_states.pop(state)
     age = datetime.utcnow().timestamp() - timestamp

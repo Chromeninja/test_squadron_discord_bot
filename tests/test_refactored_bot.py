@@ -83,8 +83,8 @@ async def test_comprehensive_bot():
 
         # Test overall health check
         print("\n🔍 Testing service health checks...")
-        print(f"  🌐 Overall status: healthy")
-        print(f"  ✅ All services operational")
+        print("  🌐 Overall status: healthy")
+        print("  ✅ All services operational")
 
         # Shutdown services
         print("\n🛑 Shutting down services...")

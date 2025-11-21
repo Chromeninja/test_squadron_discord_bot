@@ -3,9 +3,8 @@ Voice channel search endpoints.
 """
 
 import os
-from fastapi import APIRouter, Depends, Query
-import httpx
 
+import httpx
 from core.dependencies import get_db, require_admin_or_moderator
 from core.schemas import (
     ActiveVoiceChannel,
@@ -14,6 +13,7 @@ from core.schemas import (
     VoiceChannelRecord,
     VoiceSearchResponse,
 )
+from fastapi import APIRouter, Depends, Query
 
 router = APIRouter()
 
@@ -69,12 +69,12 @@ async def list_active_voice_channels(
     # Fetch channel details and members from Discord API and internal bot API
     async with httpx.AsyncClient() as client:
         items = []
-        
+
         for row in rows:
             voice_channel_id = row[0]
             guild_id = row[1]
             owner_id = row[3]
-            
+
             try:
                 # Get channel info from Discord API (for channel name)
                 channel_response = await client.get(
@@ -82,25 +82,25 @@ async def list_active_voice_channels(
                     headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}"},
                     timeout=5.0,
                 )
-                
+
                 channel_name = f"Channel {voice_channel_id}"
                 if channel_response.status_code == 200:
                     channel_data = channel_response.json()
                     channel_name = channel_data.get("name", channel_name)
-                
+
                 # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
                 member_ids = []
                 try:
                     headers = {}
                     if INTERNAL_API_KEY:
                         headers["Authorization"] = f"Bearer {INTERNAL_API_KEY}"
-                    
+
                     internal_response = await client.get(
                         f"{INTERNAL_API_URL}/voice/members/{voice_channel_id}",
                         headers=headers,
                         timeout=3.0,
                     )
-                    
+
                     if internal_response.status_code == 200:
                         internal_data = internal_response.json()
                         member_ids = internal_data.get("member_ids", [])
@@ -112,11 +112,11 @@ async def list_active_voice_channels(
                     print(f"Error querying internal API for channel {voice_channel_id}: {e}")
                     # Fall back to just showing owner
                     member_ids = [owner_id]
-                
+
                 # Ensure owner is always in the list
                 if owner_id not in member_ids:
                     member_ids.append(owner_id)
-                
+
                 # Get verification info for members
                 members_in_channel = []
                 if member_ids:
@@ -129,13 +129,13 @@ async def list_active_voice_channels(
                         """,
                         tuple(member_ids)
                     )
-                    verification_data = {row[0]: {'rsi_handle': row[1], 'membership_status': row[2]} 
+                    verification_data = {row[0]: {'rsi_handle': row[1], 'membership_status': row[2]}
                                        for row in await members_cursor.fetchall()}
-                    
+
                     # Build members list
                     for user_id in member_ids:
                         verification = verification_data.get(user_id, {})
-                        
+
                         # Fetch Discord user info for username
                         username = None
                         try:
@@ -149,7 +149,7 @@ async def list_active_voice_channels(
                                 username = user_data.get('username')
                         except:
                             pass
-                        
+
                         members_in_channel.append({
                             "user_id": user_id,
                             "username": username,
@@ -158,7 +158,7 @@ async def list_active_voice_channels(
                             "membership_status": verification.get('membership_status'),
                             "is_owner": user_id == owner_id,
                         })
-                
+
                 items.append(
                     ActiveVoiceChannel(
                         voice_channel_id=row[0],
@@ -173,7 +173,7 @@ async def list_active_voice_channels(
                         members=members_in_channel,
                     )
                 )
-                
+
             except Exception as e:
                 print(f"Error fetching Discord data for channel {voice_channel_id}: {e}")
                 import traceback
