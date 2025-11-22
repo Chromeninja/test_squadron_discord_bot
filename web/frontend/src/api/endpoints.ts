@@ -28,7 +28,7 @@ export interface GuildRole {
 }
 
 export interface DiscordChannel {
-  id: number;
+  id: string;  // Changed from number to string to preserve Discord snowflake precision
   name: string;
   category: string | null;
   position: number;
@@ -43,10 +43,10 @@ export interface BotRoleSettingsPayload {
 }
 
 export interface BotChannelSettingsPayload {
-  verification_channel_id: number | null;
-  bot_spam_channel_id: number | null;
-  public_announcement_channel_id: number | null;
-  leadership_announcement_channel_id: number | null;
+  verification_channel_id: string | null;  // Changed to string to preserve precision
+  bot_spam_channel_id: string | null;
+  public_announcement_channel_id: string | null;
+  leadership_announcement_channel_id: string | null;
 }
 
 export interface VoiceSelectableRolesPayload {

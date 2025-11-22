@@ -10,6 +10,7 @@ interface SearchableMultiSelectProps {
   selected: number[];
   onChange: (ids: number[]) => void;
   placeholder?: string;
+  componentId?: string;  // Optional unique ID to prevent key collisions
 }
 
 const SearchableMultiSelect = ({
@@ -17,6 +18,7 @@ const SearchableMultiSelect = ({
   selected,
   onChange,
   placeholder = 'Type to search roles...',
+  componentId = 'default',
 }: SearchableMultiSelectProps) => {
   const [query, setQuery] = useState('');
 
@@ -54,11 +56,11 @@ const SearchableMultiSelect = ({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-600 bg-slate-800 p-2 focus-within:border-indigo-400">
         {selected.map((id) => {
-          const option = options.find((opt) => opt.id === id);
-          const label = option ? option.name : id;
+          const selectedOption = options.find((opt) => opt.id === id);
+          const label = selectedOption ? selectedOption.name : `ID ${id}`;
           return (
             <span
-              key={id}
+              key={`${componentId}-selected-${id}`}
               className="inline-flex items-center gap-1 rounded-full bg-indigo-600/20 px-3 py-1 text-sm text-indigo-200"
             >
               {label}
@@ -89,7 +91,7 @@ const SearchableMultiSelect = ({
           <ul>
             {filteredOptions.map((option) => (
               <li
-                key={option.id}
+                key={`${componentId}-${option.id}`}
                 className={`cursor-pointer px-3 py-2 text-sm transition hover:bg-slate-800 ${
                   selectedSet.has(option.id) ? 'bg-slate-800 text-indigo-300' : 'text-gray-200'
                 }`}

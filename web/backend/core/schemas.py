@@ -279,7 +279,7 @@ class VoiceSelectableRoles(BaseModel):
 class DiscordChannel(BaseModel):
     """Discord text channel metadata."""
 
-    id: int
+    id: str  # Changed from int to str to preserve 64-bit Discord snowflake precision
     name: str
     category: str | None = None
     position: int
@@ -295,7 +295,7 @@ class GuildChannelsResponse(BaseModel):
 class BotChannelSettings(BaseModel):
     """Bot channel configuration for verification and announcements."""
 
-    verification_channel_id: int | None = None
-    bot_spam_channel_id: int | None = None
-    public_announcement_channel_id: int | None = None
-    leadership_announcement_channel_id: int | None = None
+    verification_channel_id: str | None = None  # Changed to str to preserve precision
+    bot_spam_channel_id: str | None = None
+    public_announcement_channel_id: str | None = None
+    leadership_announcement_channel_id: str | None = None

@@ -60,12 +60,11 @@ async def login():
 
     Redirects user to Discord authorization page.
     """
-    # Generate CSRF state token (optional but recommended)
+    # Generate CSRF state token for OAuth security
+    # TODO: Store state in session/redis and validate in callback for production security
+    # See: https://datatracker.ietf.org/doc/html/rfc6749#section-10.12
     state = secrets.token_urlsafe(16)
     auth_url = get_discord_authorize_url(state)
-
-    # In production, store state in session/redis for validation
-    # For MVP, we'll skip state validation
 
     return RedirectResponse(url=auth_url)
 

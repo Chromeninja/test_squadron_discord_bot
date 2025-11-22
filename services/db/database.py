@@ -1,5 +1,3 @@
-# Helpers/database.py
-
 """
 Database Helper Module
 

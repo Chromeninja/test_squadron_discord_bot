@@ -1,5 +1,3 @@
-# helpers/schema.py
-
 """
 Schema definitions for the Discord bot's database.
 
@@ -304,4 +302,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at ON announcement_events(announced_at)"
     )
 
+    # Commit all schema changes
+    await db.commit()
+    
     logger.info("Schema initialization complete")

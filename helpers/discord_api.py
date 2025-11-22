@@ -1,5 +1,3 @@
-# Helpers/discord_api.py
-
 from functools import partial
 
 import discord
@@ -13,10 +11,6 @@ logger = get_logger(__name__)
 Centralized module for all Discord API calls.
 Enqueues each call so they're rate-limited via task_queue.py.
 """
-
-# -------------------------------------------------------------------------
-# Channel creation, deletion, editing, and moving members
-# -------------------------------------------------------------------------
 
 
 async def create_voice_channel(
@@ -110,10 +104,6 @@ async def move_member(member: discord.Member, channel: discord.VoiceChannel) -> 
         logger.exception(f"Failed to enqueue move for '{member.display_name}'")
         raise
 
-        # -------------------------------------------------------------------------
-        # Roles / Member editing
-        # -------------------------------------------------------------------------
-
 
 async def add_roles(member: discord.Member, *roles, reason: str | None = None) -> None:
     async def _task() -> None:
@@ -171,10 +161,6 @@ async def edit_member(member: discord.Member, **kwargs) -> None:
     except Exception:
         logger.exception(f"Failed to enqueue edit for user '{member.display_name}'")
         raise
-
-        # -------------------------------------------------------------------------
-        # Slash Command interaction responses
-        # -------------------------------------------------------------------------
 
 
 async def send_message(
@@ -278,10 +264,6 @@ async def followup_send_message_task(
     except Exception:
         logger.exception("Failed to send follow-up message")
 
-        # -------------------------------------------------------------------------
-        # Channel text sends (e.g., channel.send)
-        # -------------------------------------------------------------------------
-
 
 async def channel_send_message(
     channel: discord.TextChannel,
@@ -319,10 +301,6 @@ async def channel_send_message_task(
     except Exception:
         logger.exception(f"Failed to send message to channel '{channel.name}'")
 
-        # -------------------------------------------------------------------------
-        # Direct Messages (DM) to Members
-        # -------------------------------------------------------------------------
-
 
 async def send_direct_message(
     member: discord.Member, content: str, embed: discord.Embed | None = None
@@ -347,10 +325,6 @@ async def send_direct_message_task(
         logger.warning(f"Cannot send DM to '{member.display_name}' (forbidden).")
     except Exception as e:
         logger.exception("Failed to send DM to '%s'", member.display_name, exc_info=e)
-
-        # -------------------------------------------------------------------------
-        # Editing Messages
-        # -------------------------------------------------------------------------
 
 
 async def edit_message(

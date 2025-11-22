@@ -32,6 +32,7 @@ class FakeRole:
 class FakeGuild:
     def __init__(self, member) -> None:
         self._member = member
+        self.id = 123  # Add guild ID for config service
 
     def get_member(self, uid) -> None:
         return self._member if self._member.id == uid else None
@@ -199,7 +200,6 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     bot = SimpleNamespace()
     bot.BOT_SPAM_CHANNEL_ID = 777
     bot.VERIFICATION_CHANNEL_ID = 555
-    bot.config = {"channels": {"leadership_announcement_channel_id": 999}}
     bot.role_cache = {}
     # Channel mocks
     spam_chan = SimpleNamespace(id=777, send=AsyncMock())
@@ -209,10 +209,22 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
         return leader_chan if cid == 999 else (spam_chan if cid == 777 else None)
 
     bot.get_channel = get_channel
+    
+    # Mock services
+    bot.services = SimpleNamespace()
+    mock_config = AsyncMock()
+    mock_config.get_global_setting = AsyncMock(return_value="compact")
+    bot.services.config = mock_config
+    
+    mock_guild_config = AsyncMock()
+    mock_guild_config.get_channel = AsyncMock(return_value=leader_chan)
+    bot.services.guild_config = mock_guild_config
+    
     member = FakeMember(uid=222, display_name="UserGone")
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
+    bot.get_guild = lambda gid: guild if gid == guild.id else None
 
     # Force flag pass through real function; patch enqueue_task immediate
     async def immediate(task_func) -> None:
@@ -317,9 +329,19 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     bot = SimpleNamespace(
         BOT_SPAM_CHANNEL_ID=777,
         VERIFICATION_CHANNEL_ID=42,
-        config={"channels": {"leadership_announcement_channel_id": 888}},
         role_cache={},
     )
+    
+    # Mock services
+    bot.services = SimpleNamespace()
+    mock_config = AsyncMock()
+    mock_config.get_global_setting = AsyncMock(return_value="compact")
+    bot.services.config = mock_config
+    
+    mock_guild_config = AsyncMock()
+    mock_guild_config.get_channel = AsyncMock(return_value=leader_chan)
+    bot.services.guild_config = mock_guild_config
+    
     member = FakeMember(uid=555, display_name="LostUser")
     guild = FakeGuild(member)
     member.guild = guild
@@ -329,6 +351,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
         return leader_chan if cid == 888 else (spam_chan if cid == 777 else None)
 
     bot.get_channel = get_channel
+    bot.get_guild = lambda gid: guild if gid == guild.id else None
 
     # Patch enqueue_task to run immediately
     async def immediate(task_func) -> None:

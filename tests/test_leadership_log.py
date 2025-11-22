@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from helpers.leadership_log import (
     ChangeSet,
@@ -16,12 +17,13 @@ class DummyRole:
         self.name = name
 
 
+class DummyGuild:
+    def __init__(self) -> None:
+        self.id = 123
+
+
 class DummyBot:
     def __init__(self) -> None:
-        self.config = {
-            "channels": {"leadership_announcement_channel_id": 123},
-            "leadership_log": {"verbosity": "compact"},
-        }
         self._channel = object()
         # Simulate managed roles (names used for filtering)
         self.BOT_VERIFIED_ROLE_ID = 1001
@@ -34,10 +36,24 @@ class DummyBot:
             1003: DummyRole(1003, "Affiliate"),
             1004: DummyRole(1004, "Not a Member"),
         }
-        self.guilds = []  # minimal for role lookup fallback
+        self._guild = DummyGuild()
+        self.guilds = [self._guild]  # minimal for role lookup fallback
+
+        # Mock services
+        self.services = MagicMock()
+        mock_config = AsyncMock()
+        mock_config.get_global_setting = AsyncMock(return_value="compact")
+        self.services.config = mock_config
+
+        mock_guild_config = AsyncMock()
+        mock_guild_config.get_channel = AsyncMock(return_value=self._channel)
+        self.services.guild_config = mock_guild_config
 
     def get_channel(self, cid) -> None:
         return self._channel if cid == 123 else None
+    
+    def get_guild(self, guild_id) -> None:
+        return self._guild if guild_id == 123 else None
 
 
 @pytest.mark.asyncio

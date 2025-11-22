@@ -1,5 +1,3 @@
-# Cogs/verification.py
-
 import contextlib
 import json
 import os
@@ -120,14 +118,31 @@ class VerificationCog(commands.Cog):
         If a message already exists, it will not send a new one.
         """
         logger.info("Starting to send verification message...")
-        channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
+        
+        # Get verification channel from config service
+        if not self.bot.guilds:
+            logger.error("Bot has no guilds, cannot send verification message")
+            return
+            
+        guild = self.bot.guilds[0]
+        guild_config = self.bot.services.guild_config
+        
+        try:
+            channel = await guild_config.get_channel(
+                guild.id, "verification_channel_id", guild
+            )
+        except Exception as e:
+            logger.error(f"Failed to get verification channel from config: {e}")
+            return
+            
         if channel is None:
             logger.error(
-                f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}."
+                f"Could not find verification channel for guild {guild.id}. "
+                "Please configure 'channels.verification_channel_id' in guild settings."
             )
             return
         logger.info(
-            f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
+            f"Found verification channel: {channel.name} (ID: {channel.id})"
         )
 
         # Load the message ID from persistent storage

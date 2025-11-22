@@ -1,5 +1,3 @@
-# helpers/voice_permissions.py
-
 """
 Utilities for managing voice channel permissions.
 

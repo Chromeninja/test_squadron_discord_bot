@@ -17,10 +17,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [affiliateRole, setAffiliateRole] = useState<number[]>([]);
   const [nonmemberRole, setNonmemberRole] = useState<number[]>([]);
   const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<number[]>([]);
-  const [verificationChannelId, setVerificationChannelId] = useState<number | null>(null);
-  const [botSpamChannelId, setBotSpamChannelId] = useState<number | null>(null);
-  const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<number | null>(null);
-  const [leadershipAnnouncementChannelId, setLeadershipAnnouncementChannelId] = useState<number | null>(null);
+  const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
+  const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
+  const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
+  const [leadershipAnnouncementChannelId, setLeadershipAnnouncementChannelId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -223,6 +223,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={botAdmins}
                   onChange={setBotAdmins}
                   placeholder="Search and select admin roles"
+                  componentId="bot-admins"
                 />
               </div>
 
@@ -236,6 +237,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={leadModerators}
                   onChange={setLeadModerators}
                   placeholder="Search and select moderator roles"
+                  componentId="lead-mods"
                 />
               </div>
             </div>
@@ -254,6 +256,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={mainRole}
                   onChange={setMainRole}
                   placeholder="Search and select main member role"
+                  componentId="main-role"
                 />
               </div>
 
@@ -267,6 +270,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={affiliateRole}
                   onChange={setAffiliateRole}
                   placeholder="Search and select affiliate role"
+                  componentId="affiliate-role"
                 />
               </div>
 
@@ -280,6 +284,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={nonmemberRole}
                   onChange={setNonmemberRole}
                   placeholder="Search and select non-member role"
+                  componentId="nonmember-role"
                 />
               </div>
             </div>

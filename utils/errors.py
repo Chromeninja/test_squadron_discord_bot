@@ -1,5 +1,3 @@
-# helpers/structured_errors.py
-
 """
 Structured error reporting for AI agent comprehension.
 

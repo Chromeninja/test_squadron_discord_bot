@@ -1,5 +1,3 @@
-# Verification/rsi_verification.py
-
 import logging
 import re
 import string

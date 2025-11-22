@@ -1,5 +1,3 @@
-# Helpers/voice_utils.py
-
 import contextlib
 
 import discord

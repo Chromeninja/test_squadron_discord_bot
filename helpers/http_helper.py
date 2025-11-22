@@ -1,5 +1,3 @@
-# Helpers/http_helper.py
-
 import asyncio
 
 import aiohttp

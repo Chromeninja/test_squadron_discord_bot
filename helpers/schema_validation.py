@@ -1,5 +1,3 @@
-# helpers/schema_validation.py
-
 """
 JSON Schema validation utilities for AI agent data consistency.
 
@@ -203,7 +201,9 @@ def validate_input(schema_name: str, definition_path: str | None = None):
                     logger.warning(
                         f"Input validation failed for {func.__name__}: {errors}"
                     )
-                    # Don't raise exception - just log for now
+                    # Validation failures are logged but don't block execution to maintain
+                    # backward compatibility during gradual schema enforcement rollout.
+                    # TODO: Consider raising ValidationError once all callers handle it properly
 
             return func(*args, **kwargs)
 

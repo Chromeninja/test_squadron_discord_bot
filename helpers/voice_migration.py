@@ -1,5 +1,3 @@
-# helpers/voice_migration.py
-
 """Safe, application-driven migration helpers for voice/guild settings.
 
 This module contains an idempotent migration routine that can be run at

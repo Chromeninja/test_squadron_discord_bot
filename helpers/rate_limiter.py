@@ -1,5 +1,3 @@
-# Helpers/rate_limiter.py
-
 import time
 
 from services.db.database import Database

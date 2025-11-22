@@ -123,11 +123,11 @@ async def get_discord_channels(
 
     channels: list[DiscordChannel] = []
     for channel in channels_payload:
-        channel_id = _safe_int(channel.get("id"))
+        channel_id = channel.get("id")  # Already a string from bot API
         if channel_id:
             channels.append(
                 DiscordChannel(
-                    id=channel_id,
+                    id=str(channel_id),  # Ensure it's a string
                     name=channel.get("name", "Unknown"),
                     category=channel.get("category"),
                     position=channel.get("position", 0),

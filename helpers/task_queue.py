@@ -1,5 +1,3 @@
-# Helpers/task_queue.py
-
 import asyncio
 import random
 import time

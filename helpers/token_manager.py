@@ -1,5 +1,3 @@
-# Helpers/token_manager.py
-
 import secrets
 import time
 

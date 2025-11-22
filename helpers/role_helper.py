@@ -1,5 +1,3 @@
-# Helpers/role_helper.py
-
 import contextlib
 import random
 import time

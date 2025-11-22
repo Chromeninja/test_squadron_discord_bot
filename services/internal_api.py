@@ -426,7 +426,7 @@ class InternalAPIServer:
             
             channels_payload.append(
                 {
-                    "id": channel.id,
+                    "id": str(channel.id),  # Send as string to preserve precision
                     "name": channel.name,
                     "category": category_name,
                     "position": channel.position,

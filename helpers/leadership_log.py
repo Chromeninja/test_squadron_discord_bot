@@ -1,5 +1,3 @@
-# helpers/leadership_log.py
-
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -205,14 +203,16 @@ def _event_emoji(cs: ChangeSet) -> str:
     }.get(cs.event, "🗂️")
 
 
-def _verbosity(bot) -> str:
+async def _verbosity(bot) -> str:
+    """Get leadership log verbosity from config service."""
     try:
-        return (
-            ((bot.config or {}).get("leadership_log", {}) or {})
-            .get("verbosity", "normal")
-            .lower()
-        )
-    except Exception:
+        if hasattr(bot, 'services') and bot.services:
+            return await bot.services.config.get_global_setting(
+                "leadership_log.verbosity", "normal"
+            )
+        return "normal"
+    except Exception as e:
+        logger.debug(f"Failed to get leadership log verbosity: {e}")
         return "normal"
 
 
@@ -468,24 +468,36 @@ async def post_if_changed(bot, cs: ChangeSet):
         return
     _DEDUP_CACHE[key] = now
 
-    # Channel resolution
-    channel_id = None
+    # Channel resolution via config service
+    channel = None
     try:
-        channel_id = (
-            (bot.config or {})
-            .get("channels", {})
-            .get("leadership_announcement_channel_id")
-        )
-        if not channel_id and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
+        if hasattr(bot, 'services') and bot.services and bot.guilds:
+            # Get guild from first available guild (or member's guild if in changeset context)
+            guild_id = bot.guilds[0].id if bot.guilds else None
+            if guild_id:
+                guild_config = bot.services.guild_config
+                # Try to get the guild object
+                guild = bot.get_guild(guild_id)
+                if guild:
+                    channel = await guild_config.get_channel(
+                        guild_id, "leadership_announcement_channel_id", guild
+                    )
+        
+        # Fallback to legacy attribute if config service unavailable
+        if not channel and hasattr(bot, 'LEADERSHIP_LOG_CHANNEL_ID'):
             channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
-    except Exception:
+            if channel_id:
+                channel = bot.get_channel(int(channel_id))
+                
+    except Exception as e:
+        logger.debug(f"Failed to resolve leadership log channel: {e}")
+        # Try legacy fallback
         channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
-    if not channel_id:
-        logger.debug("Leadership log channel not configured; skipping post.")
-        return
-    channel = bot.get_channel(int(channel_id)) if channel_id else None
+        if channel_id:
+            channel = bot.get_channel(int(channel_id))
+    
     if not channel:
-        logger.debug("Leadership log channel object not found; skipping.")
+        logger.debug("Leadership log channel not configured or not found; skipping post.")
         return
     try:
         content = _render_plaintext(cs)

@@ -1,5 +1,3 @@
-# helpers/bulk_check.py
-
 import csv
 import io
 import re

@@ -1,5 +1,3 @@
-# Helpers/embeds.py
-
 """
 Embed Helper Module
 

@@ -1,15 +1,15 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 
 export interface SelectOption {
-  id: number;
+  id: string;  // Changed from number to string to preserve Discord ID precision
   name: string;
   category?: string;
 }
 
 interface SearchableSelectProps {
   options: SelectOption[];
-  selected: number | null;
-  onChange: (id: number | null) => void;
+  selected: string | null;  // Changed from number to string
+  onChange: (id: string | null) => void;  // Changed from number to string
   placeholder?: string;
   formatLabel?: (option: SelectOption) => string;
 }
@@ -41,7 +41,7 @@ const SearchableSelect = ({
     );
   }, [options, query]);
 
-  const handleSelect = (optionId: number) => {
+  const handleSelect = (optionId: string) => {
     onChange(optionId);
     setQuery('');
     setIsOpen(false);

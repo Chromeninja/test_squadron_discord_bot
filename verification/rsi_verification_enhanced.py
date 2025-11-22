@@ -1,4 +1,3 @@
-# verification/rsi_verification_enhanced.py
 """Enhanced RSI verification with robust parsing and better error handling."""
 
 import logging

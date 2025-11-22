@@ -1384,7 +1384,8 @@ class VoiceService(BaseService):
 
             # Send channel settings view message
             try:
-                # Import here to avoid circular import
+                # Late import to break circular dependency between voice_service and views
+                # (views imports voice utilities which depend on voice_service)
                 from helpers.views import ChannelSettingsView
 
                 view = ChannelSettingsView(self.bot)
@@ -1845,7 +1846,8 @@ class VoiceService(BaseService):
             guild_id: Guild ID
         """
         try:
-            # Import here to avoid circular imports
+            # Late import to break circular dependency between voice_service and voice_permissions
+            # (voice_permissions imports discord_api which may depend on voice_service)
             from helpers.voice_permissions import enforce_permission_changes
 
             # Re-apply channel overwrites/settings using existing helpers

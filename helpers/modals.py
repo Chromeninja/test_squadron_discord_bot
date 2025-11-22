@@ -1,12 +1,9 @@
-# Helpers/modals.py
-
 import contextlib
 import re
 
 import discord
 from discord.ui import Modal, TextInput
 
-from config.config_loader import ConfigLoader
 from helpers.discord_api import (
     edit_channel,
     followup_send_message,
@@ -33,12 +30,34 @@ from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
 
 logger = get_logger(__name__)
 
-# Load configuration
-config = ConfigLoader.load_config()
-ORG_NAME = config["organization"]["name"]
-
 # Regular expression to validate RSI handle format
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
+
+
+async def get_org_name(bot, guild_id: int) -> str:
+    """
+    Get organization name from config service.
+    
+    Args:
+        bot: Bot instance with config service
+        guild_id: Guild ID for config lookup
+        
+    Returns:
+        Organization name (defaults to 'TEST' if not configured)
+    """
+    org_name = "TEST"  # Default fallback
+    if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
+        try:
+            org_name_config = await bot.services.guild_config.get_setting(
+                guild_id, "organization.name", default="TEST"
+            )
+            org_name = org_name_config.strip() if org_name_config else "TEST"
+        except Exception as e:
+            logger.warning(
+                f"Failed to get org name from config, using default: {e}",
+                extra={"guild_id": guild_id}
+            )
+    return org_name
 
 
 class HandleModal(Modal, title="Verification"):
@@ -63,12 +82,20 @@ class HandleModal(Modal, title="Verification"):
         Args:
             interaction (discord.Interaction): The interaction triggered by the modal submission.
         """
-        # 1) Immediately defer the interaction to avoid multiple .response calls:
+        # Defer the interaction immediately to avoid multiple response calls
         await interaction.response.defer(ephemeral=True)
         logger.debug(
             "Deferred response for HandleModal verification.",
             extra={"user_id": interaction.user.id},
         )
+
+        # Ensure we have a guild and member context
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            embed = create_error_embed(
+                "This command can only be used in a server."
+            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
 
         member = interaction.user
         rsi_handle_input = self.rsi_handle.value.strip()
@@ -82,23 +109,12 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("Invalid RSI handle format.", extra={"user_id": member.id})
             return
 
-            # Proceed with verification to get verify_value and cased_handle
+        # Proceed with verification to get verify_value and cased_handle
         # Get organization name from guild config
-        org_name = "test"  # Default fallback
-        if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
-            try:
-                org_name_config = await self.bot.services.guild_config.get_setting(
-                    interaction.guild.id, "organization.name", default="test"
-                )
-                org_name = org_name_config.strip().lower() if org_name_config else "test"
-            except Exception:
-                logger.warning(
-                    "Failed to get org name from config, using default",
-                    extra={"guild_id": interaction.guild.id}
-                )
+        org_name = await get_org_name(self.bot, interaction.guild.id)
 
         verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-            rsi_handle, self.bot.http_client, org_name
+            rsi_handle_input, self.bot.http_client, org_name.lower()
         )
         if verify_value is None or cased_handle is None:  # moniker optional
             embed = create_error_embed(
@@ -110,7 +126,7 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-            # Validate token
+        # Validate token
         user_token_info = token_store.get(member.id)
         if not user_token_info:
             embed = create_error_embed(
@@ -131,20 +147,12 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-            # Perform RSI verification with sanitized handle
+        # Perform RSI verification with sanitized handle
         # Get org_name for consistency
-        org_name = "test"
-        if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
-            try:
-                org_name_config = await self.bot.services.guild_config.get_setting(
-                    interaction.guild.id, "organization.name", default="test"
-                )
-                org_name = org_name_config.strip().lower() if org_name_config else "test"
-            except Exception:
-                pass
+        org_name = await get_org_name(self.bot, interaction.guild.id)
 
         verify_value_check, _cased_handle_2, community_moniker_2 = (
-            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name)
+            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name.lower())
         )
         if verify_value_check is None:
             embed = create_error_embed(
@@ -173,7 +181,7 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-            # 6) Log attempt & check if user exceeded max attempts
+        # Log verification attempt and check rate limiting
         await log_attempt(member.id, "verification")
 
         # Check if verification failed
@@ -210,10 +218,10 @@ class HandleModal(Modal, title="Verification"):
                 elif verify_value_check == 0:
                     # Check if this might be due to hidden affiliations
                     error_msg.append(
-                        f"- You are not a member of {ORG_NAME} or its affiliates."
+                        f"- You are not a member of {org_name} or its affiliates."
                     )
                     error_msg.append(
-                        f"- If your {ORG_NAME} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status."
+                        f"- If your {org_name} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status."
                     )
                 if not token_verify:
                     error_msg.append("- Token not found or mismatch in bio.")
@@ -275,33 +283,33 @@ class HandleModal(Modal, title="Verification"):
         # Send customized success message based on role
         if assigned_role_type == "main":
             description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                f"We're thrilled to have you as a MAIN member of **{ORG_NAME}!**\n\n"
+                f"We're thrilled to have you as a MAIN member of **{org_name}!**\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to "
                 "make the most of your experience!\n\n"
                 "Fly safe! <:o7:1332572027877593148>"
             )
         elif assigned_role_type == "affiliate":
             description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "Your support helps us grow and excel. We encourage you to set **TEST** as "
                 "your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                f"1️⃣ Click **Set as Main** next to **{ORG_NAME}**.\n\n"
+                f"1️⃣ Click **Set as Main** next to **{org_name}**.\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
                 "involved!\n\n"
                 "<:o7:1332572027877593148>"
             )
         elif assigned_role_type == "non_member":
             description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {ORG_NAME} - "
+                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                f"🔗 [Join {ORG_NAME}](https://robertsspaceindustries.com/orgs/TEST)\n"
+                f"🔗 [Join {org_name}](https://robertsspaceindustries.com/orgs/TEST)\n"
                 "*Click **Enlist Now!**. Test membership requests are usually approved within "
                 "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
@@ -316,7 +324,7 @@ class HandleModal(Modal, title="Verification"):
             description += "\n\nWe set your Discord nickname to your RSI handle."
         embed = create_success_embed(description)
 
-        # 9) Send follow-up success
+        # Send follow-up success message
         try:
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.info(
@@ -357,6 +365,9 @@ class ResetSettingsConfirmationModal(Modal):
         # Defer the response to acknowledge the interaction
         await interaction.response.defer(ephemeral=True)
 
+        if not interaction.guild:
+            return
+
         member = interaction.user
         guild_id = self.guild_id or interaction.guild.id
         confirmation_text = self.confirm.value.strip().upper()
@@ -369,7 +380,7 @@ class ResetSettingsConfirmationModal(Modal):
             logger.info(f"{member.display_name} failed to confirm channel reset.")
             return
 
-            # Try resetting channel settings using the modern voice service
+        # Try resetting channel settings using the modern voice service
         try:
             # Access the Voice cog to reset channel settings
             voice_cog = self.bot.get_cog("voice")
@@ -445,6 +456,9 @@ class NameModal(Modal):
         # Defer immediately
         await interaction.response.defer(ephemeral=True)
 
+        if not interaction.guild:
+            return
+
         member = interaction.user
         new_name = self.channel_name.value.strip()
         guild_id = self.guild_id or interaction.guild.id
@@ -518,6 +532,9 @@ class LimitModal(Modal):
         # Defer immediately
         await interaction.response.defer(ephemeral=True)
 
+        if not interaction.guild:
+            return
+
         member = interaction.user
         guild_id = self.guild_id or interaction.guild.id
 
@@ -530,7 +547,7 @@ class LimitModal(Modal):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-            # Update user limit
+        # Update user limit
         channel = await get_user_channel(
             self.bot, member, guild_id, self.jtc_channel_id
         )

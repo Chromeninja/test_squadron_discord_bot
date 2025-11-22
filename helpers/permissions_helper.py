@@ -1,5 +1,3 @@
-# helpers/permissions_helper.py
-
 """Permission utilities for voice-channel management and role validation.
 
 Single canonical implementation providing (previous duplicates removed):

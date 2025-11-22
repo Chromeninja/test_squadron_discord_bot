@@ -1,5 +1,3 @@
-# Cogs/recheck.py
-
 import asyncio
 import contextlib
 import random

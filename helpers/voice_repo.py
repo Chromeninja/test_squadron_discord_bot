@@ -1,5 +1,3 @@
-# helpers/voice_repo.py
-
 """
 Voice Repository
 

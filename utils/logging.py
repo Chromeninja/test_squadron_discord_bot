@@ -1,5 +1,3 @@
-# Helpers/logger.py
-
 import json
 import logging
 import logging.handlers

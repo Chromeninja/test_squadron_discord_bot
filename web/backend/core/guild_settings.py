@@ -119,7 +119,7 @@ async def set_bot_role_settings(
     await db.commit()
 
 
-async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, int | None]:
+async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, str | None]:
     """Fetch bot channel settings for a guild."""
     query = """
         SELECT key, value
@@ -138,7 +138,7 @@ async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, i
     )
     rows = await cursor.fetchall()
 
-    result: dict[str, int | None] = {
+    result: dict[str, str | None] = {
         "verification_channel_id": None,
         "bot_spam_channel_id": None,
         "public_announcement_channel_id": None,
@@ -148,7 +148,8 @@ async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, i
     for key, value in rows:
         try:
             parsed = json.loads(value) if isinstance(value, str) else value
-            channel_id = int(parsed) if parsed is not None else None
+            # Keep as string to preserve precision (Discord snowflakes are 64-bit)
+            channel_id = str(parsed) if parsed is not None else None
         except (TypeError, ValueError, json.JSONDecodeError):
             channel_id = None
 
@@ -167,10 +168,10 @@ async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, i
 async def set_bot_channel_settings(
     db: Connection,
     guild_id: int,
-    verification_channel_id: int | None,
-    bot_spam_channel_id: int | None,
-    public_announcement_channel_id: int | None,
-    leadership_announcement_channel_id: int | None,
+    verification_channel_id: str | None,
+    bot_spam_channel_id: str | None,
+    public_announcement_channel_id: str | None,
+    leadership_announcement_channel_id: str | None,
 ) -> None:
     """Persist bot channel settings for a guild."""
     payloads = [

@@ -1,4 +1,3 @@
-# Helpers/views.py
 """
 Interactive Views Module
 
@@ -14,7 +13,6 @@ import discord
 from discord import Interaction, SelectOption
 from discord.ui import Button, Select, UserSelect, View
 
-from config.config_loader import ConfigLoader
 from helpers.discord_api import edit_channel, send_message
 from helpers.embeds import create_cooldown_embed, create_token_embed
 from helpers.modals import (
@@ -65,11 +63,9 @@ async def _get_guild_and_jtc_for_user_channel(
     return guild_id, jtc_channel_id
 
 
-# --------------------------------------------------------------------------
 # Custom select for roles with optional filtering based on allowed role IDs.
 # If allowed_roles is provided (a list of role IDs), only roles in that list will be displayed.
 # Otherwise, all roles in the guild will be shown.
-# --------------------------------------------------------------------------
 class FilteredRoleSelect(Select):
     def __init__(
         self,
@@ -124,10 +120,6 @@ class FilteredRoleSelect(Select):
         logger.debug(
             f"FilteredRoleSelect options refreshed: {[opt.label for opt in self.options]}"
         )
-
-        # -------------------------
-        # Verification Buttons
-        # -------------------------
 
 
 class VerificationView(View):
@@ -250,10 +242,6 @@ class VerificationView(View):
                 "Verification system is currently unavailable. Please try again later.",
                 ephemeral=True,
             )
-
-            # -------------------------
-            # Channel Settings + Permissions
-            # -------------------------
 
 
 class ChannelSettingsView(View):
@@ -588,10 +576,6 @@ class ChannelSettingsView(View):
         with contextlib.suppress(discord.errors.NotFound):
             await interaction.message.edit(view=self)
 
-            # ----------------------------
-            # Kick User Selection View
-            # ----------------------------
-
 
 class KickUserSelectView(View):
     """
@@ -701,10 +685,8 @@ class KickUserSelectView(View):
                 ephemeral=True,
             )
 
-            # ----------------------------
-            # Unified Feature Toggle Views
-            # (Handles PTT, Priority Speaker, and Soundboard toggles)
-            # ----------------------------
+# Unified Feature Toggle Views
+# (Handles PTT, Priority Speaker, and Soundboard toggles)
 
 
 class FeatureToggleView(View):
@@ -923,12 +905,11 @@ class FeatureRoleSelectView(View):
         self.feature_name = feature_name
         self.enable = enable
 
-        # Default allowed roles from static config (overridden per guild via DB when available)
-        config = ConfigLoader.load_config()
-        self._default_allowed_roles = config.get("selectable_roles", [])
+        # Default allowed roles will be loaded from config service on first interaction
+        self._default_allowed_roles = []
 
         self.role_select = FilteredRoleSelect(
-            allowed_roles=self._default_allowed_roles or None,
+            allowed_roles=None,
             placeholder="Select role(s)",
             min_values=1,
             max_values=1,
@@ -1169,10 +1150,10 @@ class SelectRoleView(View):
         super().__init__(timeout=180)
         self.bot = bot
         self.action = action
-        config = ConfigLoader.load_config()
-        allowed_roles = config.get("selectable_roles", [])
+        
+        # Default allowed roles will be loaded from config service on first interaction
         self.role_select = FilteredRoleSelect(
-            allowed_roles=allowed_roles,
+            allowed_roles=None,
             placeholder="Select role(s)",
             min_values=1,
             max_values=1,
@@ -1184,6 +1165,19 @@ class SelectRoleView(View):
             self.role_select.refresh_options(self.bot.guilds[0])
 
     async def interaction_check(self, interaction: Interaction) -> bool:
+        # Load allowed roles from config service on first interaction
+        if interaction.guild and hasattr(self.bot, 'services'):
+            config_service = getattr(self.bot.services, 'config', None)
+            if config_service:
+                try:
+                    allowed_roles = await config_service.get_guild_setting(
+                        interaction.guild.id, "selectable_roles", []
+                    )
+                    if allowed_roles:
+                        self.role_select.allowed_roles = [int(r) for r in allowed_roles]
+                except Exception as e:
+                    logger.warning(f"Failed to load selectable_roles: {e}")
+        
         self.role_select.refresh_options(interaction.guild)
         return True
 

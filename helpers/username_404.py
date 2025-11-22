@@ -1,5 +1,3 @@
-# helpers/username_404.py
-
 import contextlib
 import time
 

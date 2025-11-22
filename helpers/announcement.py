@@ -1,5 +1,3 @@
-# Helpers/announcement.py
-
 import datetime
 import io
 import time
@@ -94,7 +92,7 @@ async def send_admin_recheck_notification(
     Send admin recheck notification to leadership announcements channel.
 
     Args:
-        bot: Bot instance with config
+        bot: Bot instance with config service
         admin_display_name: Display name of admin who initiated recheck
         member: Discord member being rechecked
         old_status: Previous status (internal format)
@@ -103,21 +101,17 @@ async def send_admin_recheck_notification(
     Returns:
         tuple[bool, bool]: (success, changed) where success indicates if message was sent and changed indicates if roles changed
     """
-    config = bot.config
-    leadership_channel_id = config.get("channels", {}).get(
-        "leadership_announcement_channel_id"
+    guild = member.guild
+    guild_config = bot.services.guild_config
+    
+    # Get leadership announcement channel via config service
+    leadership_channel = await guild_config.get_channel(
+        guild.id, "leadership_announcement_channel_id", guild
     )
 
-    if not leadership_channel_id:
-        logger.warning(
-            "No leadership_announcement_channel_id configured for admin recheck notification"
-        )
-        return False, False
-
-    leadership_channel = bot.get_channel(leadership_channel_id)
     if not leadership_channel:
         logger.warning(
-            f"Leadership announcement channel {leadership_channel_id} not found"
+            f"No leadership_announcement_channel_id configured for guild {guild.id} (admin recheck notification)"
         )
         return False, False
 
@@ -355,51 +349,82 @@ class BulkAnnouncer(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-
-        cfg = bot.config or {}
-        chan_cfg = cfg.get("channels", {}) or {}
-        self.public_channel_id: int | None = chan_cfg.get(
-            "public_announcement_channel_id"
-        )
-
-        bulk_cfg = cfg.get("bulk_announcement", {}) or {}
-        self.hour_utc: int = int(bulk_cfg.get("hour_utc", 18))
-        self.minute_utc: int = int(bulk_cfg.get("minute_utc", 0))
-        self.threshold: int = int(bulk_cfg.get("threshold", 50))
-        self.max_mentions_per_message: int = int(
-            bulk_cfg.get("max_mentions_per_message", 50)
-        )
-        self.max_chars_per_message: int = int(
-            bulk_cfg.get("max_chars_per_message", 1800)
-        )
-
-        # Validate & clamp
-        if not (0 <= self.hour_utc < 24):
-            logger.warning("Invalid hour_utc in config; using 18")
-            self.hour_utc = 18
-        if not (0 <= self.minute_utc < 60):
-            logger.warning("Invalid minute_utc in config; using 0")
-            self.minute_utc = 0
-        self.max_mentions_per_message = max(self.max_mentions_per_message, 5)
-        self.max_chars_per_message = min(self.max_chars_per_message, 1950)
-
-        # Daily timer
-        self.daily_flush.change_interval(
-            time=datetime.time(
-                hour=self.hour_utc,
-                minute=self.minute_utc,
-                tzinfo=datetime.UTC,
+        
+        # Initialize with defaults; actual config loaded in before_daily/before_watch
+        self.public_channel_id: int | None = None
+        self.hour_utc: int = 18
+        self.minute_utc: int = 0
+        self.threshold: int = 50
+        self.max_mentions_per_message: int = 50
+        self.max_chars_per_message: int = 1800
+        self._config_loaded = False
+        
+        # Start tasks (config will be loaded before first execution)
+        self.daily_flush.start()
+        self.threshold_watch.start()
+    
+    async def _load_config(self):
+        """Load configuration from config service on first run."""
+        if self._config_loaded:
+            return
+            
+        try:
+            config_service = self.bot.services.config
+            
+            # Get public announcement channel from first guild (global setting)
+            # Note: This could be improved to support per-guild channels
+            if self.bot.guilds:
+                guild_id = self.bot.guilds[0].id
+                self.public_channel_id = await config_service.get_guild_setting(
+                    guild_id, "channels.public_announcement_channel_id", None
+                )
+            
+            # Get bulk announcement settings (global)
+            self.hour_utc = await config_service.get_global_setting(
+                "bulk_announcement.hour_utc", 18
             )
-        )
-        self.daily_flush.reconnect = False
-
-        if self.public_channel_id:
-            self.daily_flush.start()
-            self.threshold_watch.start()
-        else:
-            logger.warning(
-                "BulkAnnouncer disabled: public_announcement_channel_id not configured."
+            self.minute_utc = await config_service.get_global_setting(
+                "bulk_announcement.minute_utc", 0
             )
+            self.threshold = await config_service.get_global_setting(
+                "bulk_announcement.threshold", 50
+            )
+            self.max_mentions_per_message = await config_service.get_global_setting(
+                "bulk_announcement.max_mentions_per_message", 50
+            )
+            self.max_chars_per_message = await config_service.get_global_setting(
+                "bulk_announcement.max_chars_per_message", 1800
+            )
+
+            # Validate & clamp
+            if not (0 <= self.hour_utc < 24):
+                logger.warning("Invalid hour_utc in config; using 18")
+                self.hour_utc = 18
+            if not (0 <= self.minute_utc < 60):
+                logger.warning("Invalid minute_utc in config; using 0")
+                self.minute_utc = 0
+            self.max_mentions_per_message = max(self.max_mentions_per_message, 5)
+            self.max_chars_per_message = min(self.max_chars_per_message, 1950)
+
+            # Update daily timer with loaded config
+            self.daily_flush.change_interval(
+                time=datetime.time(
+                    hour=self.hour_utc,
+                    minute=self.minute_utc,
+                    tzinfo=datetime.UTC,
+                )
+            )
+
+            self._config_loaded = True
+            
+            if not self.public_channel_id:
+                logger.warning(
+                    "BulkAnnouncer: public_announcement_channel_id not configured."
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to load BulkAnnouncer config: {e}")
+            self._config_loaded = True  # Prevent infinite retries
 
     def cog_unload(self):
         self.daily_flush.cancel()
@@ -608,6 +633,7 @@ class BulkAnnouncer(commands.Cog):
     @daily_flush.before_loop
     async def before_daily(self):
         await self.bot.wait_until_ready()
+        await self._load_config()
 
     @tasks.loop(minutes=1.0)
     async def threshold_watch(self):
@@ -628,3 +654,4 @@ class BulkAnnouncer(commands.Cog):
     @threshold_watch.before_loop
     async def before_watch(self):
         await self.bot.wait_until_ready()
+        await self._load_config()

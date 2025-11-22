@@ -13,19 +13,8 @@ backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
 
 from app import app
-from core.dependencies import (
-    InternalAPIClient,
-    get_internal_api_client,
-    initialize_services,
-)
+from core.dependencies import InternalAPIClient, get_internal_api_client
 from core.security import create_session_token
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def setup_teardown():
-    """Initialize services before each test."""
-    await initialize_services()
-    yield
 
 
 @pytest.fixture
@@ -44,7 +33,7 @@ def admin_user_token():
 
 
 @pytest.mark.asyncio
-async def test_get_bot_channel_settings_defaults(admin_user_token):
+async def test_get_bot_channel_settings_defaults(admin_user_token, temp_db):
     """Test GET /api/guilds/{guild_id}/settings/bot-channels returns defaults."""
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -63,13 +52,13 @@ async def test_get_bot_channel_settings_defaults(admin_user_token):
 
 
 @pytest.mark.asyncio
-async def test_put_bot_channel_settings_persists_values(admin_user_token):
+async def test_put_bot_channel_settings_persists_values(admin_user_token, temp_db):
     """Test PUT /api/guilds/{guild_id}/settings/bot-channels persists values."""
     payload = {
-        "verification_channel_id": 1111,
-        "bot_spam_channel_id": 2222,
-        "public_announcement_channel_id": 3333,
-        "leadership_announcement_channel_id": 4444,
+        "verification_channel_id": "1111111111111111111",
+        "bot_spam_channel_id": "2222222222222222222",
+        "public_announcement_channel_id": "3333333333333333333",
+        "leadership_announcement_channel_id": "4444444444444444444",
     }
 
     async with AsyncClient(
@@ -83,10 +72,10 @@ async def test_put_bot_channel_settings_persists_values(admin_user_token):
         )
         assert put_response.status_code == 200
         put_data = put_response.json()
-        assert put_data["verification_channel_id"] == 1111
-        assert put_data["bot_spam_channel_id"] == 2222
-        assert put_data["public_announcement_channel_id"] == 3333
-        assert put_data["leadership_announcement_channel_id"] == 4444
+        assert put_data["verification_channel_id"] == "1111111111111111111"
+        assert put_data["bot_spam_channel_id"] == "2222222222222222222"
+        assert put_data["public_announcement_channel_id"] == "3333333333333333333"
+        assert put_data["leadership_announcement_channel_id"] == "4444444444444444444"
 
         # GET to verify persistence
         get_response = await client.get(
@@ -104,8 +93,8 @@ async def test_get_discord_channels_proxies_internal_api(admin_user_token):
     # Create a mock InternalAPIClient
     mock_client = AsyncMock(spec=InternalAPIClient)
     mock_client.get_guild_channels.return_value = [
-        {"id": 111, "name": "general", "category": "Text Channels", "position": 0},
-        {"id": 222, "name": "announcements", "category": "Info", "position": 1},
+        {"id": "111111111111111111", "name": "general", "category": "Text Channels", "position": 0},
+        {"id": "222222222222222222", "name": "announcements", "category": "Info", "position": 1},
     ]
 
     # Override the dependency
@@ -127,9 +116,9 @@ async def test_get_discord_channels_proxies_internal_api(admin_user_token):
         data = response.json()
         assert data["success"] is True
         assert len(data["channels"]) == 2
-        assert data["channels"][0]["id"] == 111
+        assert data["channels"][0]["id"] == "111111111111111111"
         assert data["channels"][0]["name"] == "general"
-        assert data["channels"][1]["id"] == 222
+        assert data["channels"][1]["id"] == "222222222222222222"
         assert data["channels"][1]["name"] == "announcements"
     finally:
         # Clean up override
@@ -137,7 +126,7 @@ async def test_get_discord_channels_proxies_internal_api(admin_user_token):
 
 
 @pytest.mark.asyncio
-async def test_put_bot_channel_settings_allows_nulls(admin_user_token):
+async def test_put_bot_channel_settings_allows_nulls(admin_user_token, temp_db):
     """Test PUT allows setting channels to null."""
     payload = {
         "verification_channel_id": None,
