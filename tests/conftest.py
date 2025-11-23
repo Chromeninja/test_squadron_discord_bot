@@ -33,8 +33,6 @@ def mock_bot() -> None:
     ns = SimpleNamespace()
     ns.guilds = []
     ns.uptime = "1h"
-    ns.BOT_ADMIN_ROLE_IDS = []
-    ns.LEAD_MODERATOR_ROLE_IDS = []
 
     def get_cog(name) -> None:
         return getattr(ns, f"_cog_{name}", None)

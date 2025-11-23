@@ -156,10 +156,6 @@ class MyBot(commands.Bot):
         except Exception as e:
             logger.exception("Failed to sync commands", exc_info=e)
 
-        # Set command permissions for each guild (always attempt regardless of sync result)
-        for guild in self.guilds:
-            await self.set_admin_command_permissions(guild)
-
         # Log all loaded commands after the setup (deterministic ordering)
         logger.info("Registered commands: ")
         for command in self.tree.walk_commands():
@@ -277,106 +273,6 @@ class MyBot(commands.Bot):
                     f"Failed to cache roles for guild '{guild.name}': {e}"
                 )
 
-    async def set_admin_command_permissions(self, guild: discord.Guild) -> None:
-        """Attempt per-command role permissions; fall back to runtime checks."""
-
-        # Define the restricted commands and combine role IDs
-        restricted_commands = [
-            "reset-all",
-            "reset-user",
-            "status",
-            "view-logs",
-            "recheck-user",
-        ]
-        combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
-
-        # Build list of configured role IDs that exist in this guild; log missing.
-        valid_roles = []
-        for role_id in combined_role_ids:
-            if guild.get_role(role_id):
-                valid_roles.append(role_id)
-            else:
-                # Missing configured role is not fatal; log for operator visibility.
-                try:
-                    reported = await Database.has_reported_missing_roles(guild.id)
-                except Exception:
-                    reported = False
-                if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(
-                        f"Configured role ID {role_id} not found in guild '{guild.name}'."
-                    )
-                    self._missing_role_warned_guilds.add(guild.id)
-                    try:
-                        await Database.mark_reported_missing_roles(guild.id)
-                    except Exception:
-                        logger.debug(
-                            "Failed to persist missing-role warning for guild %s",
-                            guild.id,
-                        )
-                else:
-                    logger.info(
-                        f"Configured role ID {role_id} not found in guild '{guild.name}' (already reported)."
-                    )
-
-                    # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
-        if not valid_roles:
-            logger.info(
-                f"No valid configured admin/lead-moderator roles present in guild '{guild.name}'. "
-                "Skipping App Command permission setup and relying on runtime checks."
-            )
-            return
-
-            # Only attempt App Command permission flow if the discord module and tree
-            # Expose the required API. In many runtime environments this API is not
-            # Present; in that case we skip attempting to set per-command permissions
-            # And rely on runtime decorator checks instead. This avoids noisy warnings
-            # During normal operation.
-        if not (
-            hasattr(discord, "AppCommandPermission")
-            and hasattr(discord, "AppCommandPermissionType")
-            and hasattr(self.tree, "set_permissions")
-        ):
-            logger.info(
-                "Per-command App Command permission API not available in this environment; "
-                "skipping and relying on runtime decorator checks."
-            )
-            return
-
-        try:
-            permissions = [
-                discord.AppCommandPermission(
-                    type=discord.AppCommandPermissionType.ROLE,
-                    id=role_id,
-                    permission=True,
-                )
-                for role_id in valid_roles
-            ]
-
-            for cmd_name in restricted_commands:
-                if command := self.tree.get_command(cmd_name, guild=guild):
-                    try:
-                        # Older discord.py: tree.set_permissions(guild, command, permissions)
-                        await self.tree.set_permissions(guild, command, permissions)
-                        logger.info(
-                            f"App Command permissions set for '{cmd_name}' in guild '{guild.name}'."
-                        )
-                    except discord.HTTPException as e:
-                        # Discord may reject the operation; log at INFO and continue
-                        logger.info(
-                            f"Discord rejected App Command permission update for '{cmd_name}' "
-                            f"in guild '{guild.name}': {e}. Continuing with runtime checks."
-                        )
-                else:
-                    logger.debug(
-                        f"Command '{cmd_name}' not found in guild '{guild.name}'."
-                    )
-        except Exception as e:
-            # Catch-all: don't let permission setup break bot startup.
-            logger.info(
-                f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
-                + "Using runtime decorator checks instead."
-            )
-
     async def token_cleanup_task(self) -> None:
         """
         Periodically cleans up expired tokens.
@@ -409,12 +305,17 @@ class MyBot(commands.Bot):
         minutes, seconds = divmod(remainder, 60)
         return f"{hours}h {minutes}m {seconds}s"
 
-    async def has_admin_permissions(self, user: discord.Member) -> bool:
+    async def has_admin_permissions(
+        self,
+        user: discord.Member,
+        guild: discord.Guild | None = None,
+    ) -> bool:
         """
         Check if a user has admin permissions based on configured roles or privileged status.
 
         Args:
             user: Discord member to check
+            guild: Optional guild context (provided by slash-command decorators)
 
         Returns:
             bool: True if user has bot admin, lead moderator roles, is bot owner, or has Discord admin

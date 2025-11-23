@@ -1,7 +1,7 @@
 """Tests for the modern admin recheck-user command in AdminCog."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -19,7 +19,7 @@ class TestModernAdminRecheckUserCommand:
         bot.config = {"channels": {"leadership_announcement_channel_id": 999999999}}
 
         # Mock permission check
-        async def mock_has_admin_permissions(user):
+        async def mock_has_admin_permissions(user, guild=None):
             return True
 
         bot.has_admin_permissions = mock_has_admin_permissions
@@ -48,7 +48,12 @@ class TestModernAdminRecheckUserCommand:
     def mock_interaction(self):
         """Create a mock Discord interaction."""
         interaction = AsyncMock(spec=discord.Interaction)
+        interaction.guild = MagicMock(id=123456789)
+        interaction.response = MagicMock()
         interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+        interaction.response.is_done = MagicMock(return_value=False)
+        interaction.followup = MagicMock()
         interaction.followup.send = AsyncMock()
         interaction.user = AsyncMock(spec=discord.Member)
         interaction.user.id = 123456789
@@ -280,7 +285,7 @@ class TestModernAdminRecheckUserCommand:
         """Test recheck when user doesn't have admin permissions."""
 
         # Mock permission check to return False asynchronously
-        async def mock_has_admin_permissions(user):
+        async def mock_has_admin_permissions(user, guild=None):
             return False
 
         admin_cog.bot.has_admin_permissions = mock_has_admin_permissions

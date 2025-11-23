@@ -50,7 +50,7 @@ def format_user_error(code: str, **kwargs) -> str:
         "NOT_MANAGED": "❌ **Not a managed channel**\nThis channel isn't managed by TEST Clanker.",
         "COOLDOWN": "⚠️ **Slow down**\nPlease wait {seconds}s between channel creations.",
         "DB_TEMP_ERROR": "❌ **Temporary issue**\nDatabase hiccup. Please try again in a moment.",
-        "PERMISSION": "❌ **Missing permissions**\nI don't have the required permission for that action.",
+        "PERMISSION": "❌ You don't have permission to use this command.",
         "UNKNOWN": "❌ **Something went wrong**\nAn unexpected error occurred. The issue was logged.",
         "NO_CHANNEL": "❌ **No active channel**\nYou don't have an active voice channel right now.",
         "NOT_IN_CHANNEL": "❌ **User not present**\nThe new owner must be in your voice channel.",

@@ -13,6 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from helpers.decorators import require_admin
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -291,6 +292,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         category="Category to place voice channels in",
         num_channels="Number of 'Join to Create' channels",
     )
+    @require_admin()
     async def setup_voice_system(
         self,
         interaction: discord.Interaction,
@@ -301,14 +303,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         from helpers.discord_reply import send_user_error, send_user_success
         from helpers.error_messages import format_user_error
 
-        # Check permissions
         if not interaction.guild:
-            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
-            return
-        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
-        if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
+                "This command must be used in a server.", ephemeral=True
             )
             return
 
@@ -346,20 +343,16 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @app_commands.describe(
         user="The user whose voice channel settings you want to view"
     )
+    @require_admin()
     async def admin_list(
         self, interaction: discord.Interaction, user: discord.Member
     ) -> None:
         """View saved permissions and settings for a user's voice channel (Admin only)."""
-        # Check permissions
         from helpers.error_messages import format_user_error
 
         if not interaction.guild:
-            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
-            return
-        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
-        if all(role.id not in admin_role_ids for role in interaction.user.roles):
             await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
+                "This command must be used in a server.", ephemeral=True
             )
             return
 
@@ -428,13 +421,6 @@ class AdminCommands(app_commands.Group):
         """Get the bot from the parent cog."""
         return self.voice_cog.bot
 
-    async def _check_admin_permissions(self, interaction: discord.Interaction) -> bool:
-        """Check if user has admin permissions."""
-        if not interaction.guild:
-            return False
-        admin_role_ids = await self.voice_service.get_admin_role_ids(interaction.guild.id)
-        return any(role.id in admin_role_ids for role in interaction.user.roles)
-
     @app_commands.command(
         name="reset",
         description="Reset voice data for a user or entire guild (Admin only)",
@@ -450,6 +436,7 @@ class AdminCommands(app_commands.Group):
             app_commands.Choice(name="all", value="all"),
         ]
     )
+    @require_admin()
     async def admin_reset(
         self,
         interaction: discord.Interaction,
@@ -459,13 +446,6 @@ class AdminCommands(app_commands.Group):
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
         from helpers.error_messages import format_user_error
-
-        # Check permissions
-        if not await self._check_admin_permissions(interaction):
-            await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
-            )
-            return
 
         # Validate parameters
         if scope.value == "user" and member is None:

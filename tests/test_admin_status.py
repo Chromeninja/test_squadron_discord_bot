@@ -26,7 +26,7 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
     mock_bot.services = mock_services
 
     # Mock admin permission check
-    async def mock_has_admin_permissions(user):
+    async def mock_has_admin_permissions(user, guild=None):
         return True
 
     mock_bot.has_admin_permissions = mock_has_admin_permissions

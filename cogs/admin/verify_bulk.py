@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from helpers.bulk_check import collect_targets
+from helpers.decorators import require_admin
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,6 +32,7 @@ class VerifyCommands(app_commands.Group):
         app_commands.Choice(name="all active voice", value="active_voice")
     ])
     @app_commands.guild_only()
+    @require_admin()
     async def check_verification_status(
         self,
         interaction: discord.Interaction,
@@ -40,13 +42,6 @@ class VerifyCommands(app_commands.Group):
         recheck: bool = False
     ) -> None:
         """Check verification status for multiple users without making changes."""
-
-        # Permission check
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
 
         # Defer response immediately as this might take some time
         await interaction.response.defer(ephemeral=True)

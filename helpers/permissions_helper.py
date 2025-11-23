@@ -306,46 +306,101 @@ def resolve_role_ids_for_guild(
     return resolved, missing
 
 
-async def is_privileged_user(bot, member: discord.Member) -> bool:
-    """Check if a user has privileged access (bot owner, Discord admin, or configured admin roles).
-    
-    Args:
-        bot: The bot instance
-        member: Discord member to check
-        
-    Returns:
-        True if user has privileged access via any method
-    """
+PERMISSION_DENIED_MESSAGE = "You don't have permission to use this command."
+
+
+def _resolve_guild(member: discord.Member, guild: discord.Guild | None) -> discord.Guild | None:
+    if guild is not None:
+        return guild
+    if isinstance(member, discord.Member):
+        return member.guild
+    return None
+
+
+def _has_owner_or_discord_admin(bot, member: discord.Member, guild: discord.Guild) -> bool:
     if not isinstance(member, discord.Member):
         return False
-    
-    # Check 1: Bot owner (from application info)
     if bot.owner_id and member.id == bot.owner_id:
         return True
-    
-    # Check 2: Discord Administrator permission
     if member.guild_permissions.administrator:
         return True
-    
-    # Check 3: Configured admin roles from database
-    if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'config'):
-        try:
-            admin_roles = await bot.services.config.get_guild_setting(
-                member.guild.id, "roles.bot_admins", []
-            )
-            lead_mod_roles = await bot.services.config.get_guild_setting(
-                member.guild.id, "roles.lead_moderators", []
-            )
-            
-            all_admin_roles = set(admin_roles + lead_mod_roles)
-            member_role_ids = {role.id for role in member.roles}
-            
-            if all_admin_roles & member_role_ids:
-                return True
-        except Exception as e:
-            logger.warning(f"Error checking configured admin roles: {e}")
-    
+    if guild.owner_id and member.id == guild.owner_id:
+        return True
     return False
+
+
+async def _get_configured_role_ids(bot, guild_id: int, key: str) -> list[int]:
+    config_service = getattr(getattr(bot, "services", None), "config", None)
+    if not config_service:
+        return []
+    try:
+        roles = await config_service.get_guild_setting(guild_id, key, [])
+        return roles or []
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Error fetching %s for guild %s: %s", key, guild_id, exc)
+        return []
+
+
+def _member_role_ids(member: discord.Member) -> set[int]:
+    if not isinstance(member, discord.Member):
+        return set()
+    return {role.id for role in getattr(member, "roles", [])}
+
+
+async def is_bot_admin_only(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if a user has bot-admin privileges without lead-mod inheritance."""
+
+    if not isinstance(member, discord.Member):
+        return False
+
+    guild = _resolve_guild(member, guild)
+    if guild is None:
+        return False
+
+    if _has_owner_or_discord_admin(bot, member, guild):
+        return True
+
+    admin_role_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
+    return bool(_member_role_ids(member) & set(admin_role_ids))
+
+
+async def is_lead_moderator_or_higher(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if a user has lead moderator or bot admin permissions."""
+
+    if not isinstance(member, discord.Member):
+        return False
+
+    guild = _resolve_guild(member, guild)
+    if guild is None:
+        return False
+
+    if _has_owner_or_discord_admin(bot, member, guild):
+        return True
+
+    admin_role_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
+    lead_mod_role_ids = await _get_configured_role_ids(
+        bot, guild.id, "roles.lead_moderators"
+    )
+    combined_roles = set(admin_role_ids or []) | set(lead_mod_role_ids or [])
+    return bool(_member_role_ids(member) & combined_roles)
+
+
+async def is_privileged_user(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Backward compatible alias for lead moderator or higher checks."""
+
+    return await is_lead_moderator_or_higher(bot, member, guild)
 
 
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
@@ -371,7 +426,10 @@ __all__ = [
     "apply_permissions_changes",
     "apply_permit_reject_settings",
     "fetch_permit_reject_entries",
+    "is_bot_admin_only",
+    "is_lead_moderator_or_higher",
     "is_privileged_user",
+    "PERMISSION_DENIED_MESSAGE",
     "reset_channel_permissions",
     "resolve_role_ids_for_guild",
     "store_permit_reject_in_db",

@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from helpers.decorators import require_admin, require_bot_admin
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -280,18 +281,11 @@ class AdminCog(commands.Cog):
         name="reset-all", description="Reset verification timers for all members."
     )
     @app_commands.guild_only()
+    @require_bot_admin()
     async def reset_all(self, interaction: discord.Interaction) -> None:
         """
         Reset verification timers for all members. Bot Admins only.
         """
-        # Check Bot Admin permissions only (exclude Lead Moderators)
-        user_role_ids = {role.id for role in interaction.user.roles}
-        if all(role_id not in self.bot.BOT_ADMIN_ROLE_IDS for role_id in user_role_ids):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
         from helpers.discord_api import send_message
         from helpers.rate_limiter import reset_all_attempts
         from helpers.token_manager import clear_all_tokens
@@ -317,18 +311,13 @@ class AdminCog(commands.Cog):
     )
     @app_commands.describe(member="The member whose timer you want to reset.")
     @app_commands.guild_only()
+    @require_admin()
     async def reset_user(
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         """
         Reset a specific user's verification timer. Bot Admins and Lead Moderators.
         """
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
         from helpers.discord_api import send_message
         from helpers.rate_limiter import reset_attempts
         from helpers.token_manager import clear_token
@@ -353,14 +342,9 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
     @app_commands.guild_only()
+    @require_admin()
     async def view_logs(self, interaction: discord.Interaction) -> None:
         """View recent bot logs with dual delivery - channel preview and full content via DM."""
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
         self.logger.info(
             f"'view-logs' command triggered by user {interaction.user.id}."
         )
@@ -479,16 +463,11 @@ class AdminCog(commands.Cog):
     )
     @app_commands.describe(member="The member to recheck.")
     @app_commands.guild_only()
+    @require_admin()
     async def recheck_user(
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         """Force a verification re-check for a user."""
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
         # Check if recheck is already in progress for this user
         if member.id in self._recheck_in_flight:
             await interaction.response.send_message(
@@ -696,6 +675,7 @@ class AdminCog(commands.Cog):
         name="status", description="Show detailed bot health and status information"
     )
     @app_commands.describe(detailed="Show detailed service information")
+    @require_admin()
     async def status(
         self, interaction: discord.Interaction, detailed: bool = False
     ) -> None:
@@ -706,13 +686,6 @@ class AdminCog(commands.Cog):
             )
             return
 
-        # Check permissions
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
-            )
-            return
-
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -720,14 +693,12 @@ class AdminCog(commands.Cog):
             health_report = await self.bot.services.health.run_health_checks(
                 self.bot, self.bot.services.get_all_services()
             )
-
             # Create status embed
             embed = discord.Embed(
                 title="🤖 Bot Status",
                 color=self._get_status_color(health_report["overall_status"]),
                 timestamp=discord.utils.utcnow(),
             )
-
             # Basic status info
             embed.add_field(
                 name="Overall Status",
@@ -834,18 +805,12 @@ class AdminCog(commands.Cog):
     @app_commands.command(
         name="guild-config", description="Show configuration for this guild"
     )
+    @require_admin()
     async def guild_config(self, interaction: discord.Interaction) -> None:
         """Show guild-specific configuration."""
         if not interaction.guild:
             await interaction.response.send_message(
                 "This command can only be used in a server.", ephemeral=True
-            )
-            return
-
-        # Check permissions
-        if not await self.bot.has_admin_permissions(interaction.user):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
             )
             return
 
@@ -1116,6 +1081,7 @@ class AdminCog(commands.Cog):
     )
     @app_commands.autocomplete(key=key_autocomplete)
     @app_commands.autocomplete(value=value_autocomplete)
+    @require_bot_admin()
     async def set_config(
         self, interaction: discord.Interaction, key: str, value: str
     ) -> None:
@@ -1123,14 +1089,6 @@ class AdminCog(commands.Cog):
         if not interaction.guild:
             await interaction.response.send_message(
                 "This command can only be used in a server.", ephemeral=True
-            )
-            return
-
-        # Check Bot Admin permissions only (exclude Lead Moderators)
-        user_role_ids = {role.id for role in interaction.user.roles}
-        if all(role_id not in self.bot.BOT_ADMIN_ROLE_IDS for role_id in user_role_ids):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.", ephemeral=True
             )
             return
 
