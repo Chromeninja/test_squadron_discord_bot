@@ -77,8 +77,6 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     bot.MAIN_ROLE_ID = 2
     bot.AFFILIATE_ROLE_ID = 3
     bot.NON_MEMBER_ROLE_ID = 4
-    bot.BOT_SPAM_CHANNEL_ID = 999
-    bot.VERIFICATION_CHANNEL_ID = 1234
     bot.config = {"channels": {"leadership_announcement_channel_id": 555}}
 
     role_cache = {
@@ -95,6 +93,17 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     member.guild = guild
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
+
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(999)
+    verification_chan = guild.get_channel(1234)
+    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
+        "bot_spam_channel_id": spam_chan,
+        "verification_channel_id": verification_chan
+    }.get(key))
+    bot.services.guild_config = mock_guild_config
 
     # Patch channel_send_message to avoid network and run queued tasks immediately
     send_mock = AsyncMock()
@@ -144,8 +153,6 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     bot.MAIN_ROLE_ID = 2
     bot.AFFILIATE_ROLE_ID = 3
     bot.NON_MEMBER_ROLE_ID = 4
-    bot.BOT_SPAM_CHANNEL_ID = 999
-    bot.VERIFICATION_CHANNEL_ID = 1234
     bot.config = {"channels": {"leadership_announcement_channel_id": 555}}
     role_cache = {
         1: FakeRole(1, "BotVerified"),
@@ -160,6 +167,17 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     member.guild = guild
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
+
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(999)
+    verification_chan = guild.get_channel(1234)
+    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
+        "bot_spam_channel_id": spam_chan,
+        "verification_channel_id": verification_chan
+    }.get(key))
+    bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
@@ -198,15 +216,20 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
         )
         await db.commit()
     bot = SimpleNamespace()
-    bot.BOT_SPAM_CHANNEL_ID = 777
-    bot.VERIFICATION_CHANNEL_ID = 555
     bot.role_cache = {}
     # Channel mocks
     spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    verification_chan = SimpleNamespace(id=555, send=AsyncMock())
     leader_chan = SimpleNamespace(id=999, send=AsyncMock())
 
     def get_channel(cid) -> None:
-        return leader_chan if cid == 999 else (spam_chan if cid == 777 else None)
+        if cid == 999:
+            return leader_chan
+        elif cid == 777:
+            return spam_chan
+        elif cid == 555:
+            return verification_chan
+        return None
 
     bot.get_channel = get_channel
     
@@ -217,7 +240,11 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
     
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(return_value=leader_chan)
+    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
+        "bot_spam_channel_id": spam_chan,
+        "verification_channel_id": verification_chan,
+        "leadership_announcement_channel_id": leader_chan
+    }.get(key))
     bot.services.guild_config = mock_guild_config
     
     member = FakeMember(uid=222, display_name="UserGone")
@@ -256,7 +283,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     assert spam_chan.send.await_count == 1
     spam_msg = spam_chan.send.await_args_list[0][0][0]
     assert member.mention in spam_msg
-    assert f"<#{bot.VERIFICATION_CHANNEL_ID}>" in spam_msg
+    assert f"<#{verification_chan.id}>" in spam_msg
     assert "reverify your account" in spam_msg.lower()
 
 
@@ -326,9 +353,8 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     # Bot with leadership channel
     leader_chan = SimpleNamespace(id=888, send=AsyncMock())
     spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    verification_chan = SimpleNamespace(id=42, send=AsyncMock())
     bot = SimpleNamespace(
-        BOT_SPAM_CHANNEL_ID=777,
-        VERIFICATION_CHANNEL_ID=42,
         role_cache={},
     )
     
@@ -339,7 +365,11 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
     
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(return_value=leader_chan)
+    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
+        "bot_spam_channel_id": spam_chan,
+        "verification_channel_id": verification_chan,
+        "leadership_announcement_channel_id": leader_chan
+    }.get(key))
     bot.services.guild_config = mock_guild_config
     
     member = FakeMember(uid=555, display_name="LostUser")
@@ -466,8 +496,6 @@ async def test_handle_username_404_new_handle_triggers_again(
         await db.commit()
 
     bot = SimpleNamespace()
-    bot.BOT_SPAM_CHANNEL_ID = 321
-    bot.VERIFICATION_CHANNEL_ID = 654
     bot.config = {"channels": {"leadership_announcement_channel_id": 777}}
     bot.role_cache = {}
 
@@ -476,6 +504,17 @@ async def test_handle_username_404_new_handle_triggers_again(
     member.guild = guild
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
+
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(321)
+    verification_chan = guild.get_channel(654)
+    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
+        "bot_spam_channel_id": spam_chan,
+        "verification_channel_id": verification_chan
+    }.get(key))
+    bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)

@@ -188,9 +188,9 @@ class TestAdminRecheckHelpers:
             new_status="main",
         )
 
-            success, changed = result
-            assert success is False
-            assert changed is False
+        success, changed = result
+        assert success is False
+        assert changed is False
 
     @pytest.mark.asyncio
     async def test_send_admin_recheck_notification_channel_not_found(self):
@@ -216,6 +216,6 @@ class TestAdminRecheckHelpers:
             new_status="main",
         )
 
-            success, changed = result
-            assert success is False
-            assert changed is False
+        success, changed = result
+        assert success is False
+        assert changed is False

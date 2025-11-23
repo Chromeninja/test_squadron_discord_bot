@@ -119,12 +119,14 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
     roles_removed = await remove_bot_roles(member, bot)
 
     # Announcements
-    spam_channel = (
-        bot.get_channel(getattr(bot, "BOT_SPAM_CHANNEL_ID", None))
-        if getattr(bot, "BOT_SPAM_CHANNEL_ID", None)
-        else None
+    guild = member.guild
+    spam_channel = await bot.services.guild_config.get_channel(
+        guild.id, "bot_spam_channel_id", guild
     )
-    verification_channel_id = getattr(bot, "VERIFICATION_CHANNEL_ID", 0)
+    verification_channel = await bot.services.guild_config.get_channel(
+        guild.id, "verification_channel_id", guild
+    )
+    verification_channel_id = verification_channel.id if verification_channel else 0
     spam_msg = (
         f"{member.mention} it seems your RSI Handle has changed or is no longer accessible. "
         f"Please navigate to <#{verification_channel_id}> and reverify your account. Your roles have been revoked."
@@ -168,7 +170,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
                 "leadership_alert" if False else "leadership_missing",
             ],
             "channels": {
-                "spam": getattr(bot, "BOT_SPAM_CHANNEL_ID", None),
+                "spam": spam_channel.id if spam_channel else None,
                 "leadership": None,
                 "verification": verification_channel_id,
             },

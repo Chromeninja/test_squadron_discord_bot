@@ -13,15 +13,6 @@ rate_limits:
 organization:
   name: "TEST Squadron - Best Squardon!" 
 
-channels:
-  # Verification channel is now managed per-guild in the database.
-  # Configure it via the bot settings page in the web dashboard.
-  public_announcement_channel_id: 1395475641805176952  # Public channel for daily/threshold announcements
-  leadership_announcement_channel_id: 1395475681512652944 # Private channel for leadership logs and admin recheck notifications
-  bot_spam_channel_id: 1395475681512652999             # Bot spam channel for reverify notices
-
-# Role assignments are managed per guild via the database; no static entries required here.
-
 logging:
   level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
