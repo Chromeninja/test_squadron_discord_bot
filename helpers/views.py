@@ -1150,7 +1150,7 @@ class SelectRoleView(View):
         super().__init__(timeout=180)
         self.bot = bot
         self.action = action
-        
+
         # Default allowed roles will be loaded from config service on first interaction
         self.role_select = FilteredRoleSelect(
             allowed_roles=None,
@@ -1177,7 +1177,7 @@ class SelectRoleView(View):
                         self.role_select.allowed_roles = [int(r) for r in allowed_roles]
                 except Exception as e:
                     logger.warning(f"Failed to load selectable_roles: {e}")
-        
+
         self.role_select.refresh_options(interaction.guild)
         return True
 

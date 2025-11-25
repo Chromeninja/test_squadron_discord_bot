@@ -184,6 +184,18 @@ export const authApi = {
     );
     return response.data;
   },
+  getBotInviteUrl: async () => {
+    const response = await apiClient.get<{ invite_url: string }>(
+      '/api/auth/bot-invite-url'
+    );
+    return response.data;
+  },
+  clearActiveGuild: async () => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      '/api/auth/active-guild'
+    );
+    return response.data;
+  },
 };
 
 export const statsApi = {

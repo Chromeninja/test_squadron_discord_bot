@@ -239,7 +239,7 @@ class MyBot(commands.Bot):
                     roles_config.get("affiliate_role_id"),
                     roles_config.get("non_member_role_id"),
                 ]
-                
+
                 for role_id in role_ids:
                     if not role_id:
                         continue

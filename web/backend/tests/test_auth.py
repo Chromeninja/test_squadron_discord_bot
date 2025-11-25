@@ -148,3 +148,211 @@ async def test_select_guild_allows_when_internal_api_empty(
     )
 
     assert response.status_code == 200
+
+@pytest.mark.asyncio
+async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkeypatch):
+    """Test that guild owners are granted admin access even without configured roles."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Mock OAuth token exchange
+    async def mock_post(*args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    # Mock Discord API calls
+    async def mock_get(url, *args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            # Return guilds where user is owner
+            mock_response.json = lambda: [
+                {
+                    "id": "246486575137947648",
+                    "name": "Test Guild",
+                    "owner": True,  # User is guild owner
+                    "permissions": "2147483647",  # All permissions
+                }
+            ]
+        elif "/users/@me" in url:
+            # Return user info
+            mock_response.json = lambda: {
+                "id": "123456789",
+                "username": "TestOwner",
+                "discriminator": "0001",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    # Mock httpx client
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code"},
+        follow_redirects=False,
+    )
+
+    # Should redirect successfully
+    assert response.status_code == 307
+
+    # Check session cookie
+    session_cookie = response.cookies.get("session")
+    assert session_cookie is not None
+
+    from core.security import decode_session_token
+    session_data = decode_session_token(session_cookie)
+    assert session_data is not None
+    assert session_data["is_admin"] is True
+    assert 246486575137947648 in session_data["authorized_guild_ids"]
+    assert session_data["permission_sources"]["246486575137947648"] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_callback_grants_access_to_administrator(client: AsyncClient, monkeypatch):
+    """Test that users with Discord administrator permission are granted admin access."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Mock OAuth token exchange
+    async def mock_post(*args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    # Mock Discord API calls
+    async def mock_get(url, *args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            # Return guilds where user has administrator permission
+            mock_response.json = lambda: [
+                {
+                    "id": "246486575137947648",
+                    "name": "Test Guild",
+                    "owner": False,
+                    "permissions": "8",  # Administrator permission (0x8)
+                }
+            ]
+        elif "/users/@me" in url:
+            # Return user info
+            mock_response.json = lambda: {
+                "id": "987654321",
+                "username": "TestAdmin",
+                "discriminator": "0002",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    # Mock httpx client
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code"},
+        follow_redirects=False,
+    )
+
+    # Should redirect successfully
+    assert response.status_code == 307
+
+    # Check session cookie
+    session_cookie = response.cookies.get("session")
+    assert session_cookie is not None
+
+    from core.security import decode_session_token
+    session_data = decode_session_token(session_cookie)
+    assert session_data is not None
+    assert session_data["is_admin"] is True
+    assert 246486575137947648 in session_data["authorized_guild_ids"]
+    assert session_data["permission_sources"]["246486575137947648"] == "administrator"
+
+
+@pytest.mark.asyncio
+async def test_callback_denies_access_without_permissions(client: AsyncClient, monkeypatch):
+    """Test that users without owner/admin/configured roles are denied access."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Mock OAuth token exchange
+    async def mock_post(*args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    # Mock Discord API calls
+    async def mock_get(url, *args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            # Return guilds where user has no special permissions
+            mock_response.json = lambda: [
+                {
+                    "id": "246486575137947648",
+                    "name": "Test Guild",
+                    "owner": False,
+                    "permissions": "0",  # No permissions
+                }
+            ]
+        elif "/users/@me/guilds/" in url and "/member" in url:
+            # Return member with no configured roles
+            mock_response.json = lambda: {
+                "roles": [],  # No roles
+            }
+        elif "/users/@me" in url:
+            # Return user info
+            mock_response.json = lambda: {
+                "id": "111222333",
+                "username": "TestUser",
+                "discriminator": "0003",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    # Mock httpx client
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code"},
+        follow_redirects=False,
+    )
+
+    # Should return 403 Access Denied
+    assert response.status_code == 403
+    assert "Access Denied" in response.text
+

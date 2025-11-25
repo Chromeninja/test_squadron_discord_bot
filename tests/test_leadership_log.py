@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from helpers.leadership_log import (
     ChangeSet,
@@ -51,7 +52,7 @@ class DummyBot:
 
     def get_channel(self, cid) -> None:
         return self._channel if cid == 123 else None
-    
+
     def get_guild(self, guild_id) -> None:
         return self._guild if guild_id == 123 else None
 

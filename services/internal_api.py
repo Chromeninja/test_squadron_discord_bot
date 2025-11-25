@@ -423,7 +423,7 @@ class InternalAPIServer:
         for channel in guild.text_channels:
             # Get category name if channel is in a category
             category_name = channel.category.name if channel.category else "Uncategorized"
-            
+
             channels_payload.append(
                 {
                     "id": str(channel.id),  # Send as string to preserve precision
@@ -471,7 +471,7 @@ class InternalAPIServer:
         # Get member count from cached guild object
         # Note: This is accurate if bot has members intent enabled
         member_count = guild.member_count or 0
-        
+
         # Also include approximate_member_count if available (from guild object)
         approximate_member_count = getattr(guild, 'approximate_member_count', None)
 
@@ -535,7 +535,7 @@ class InternalAPIServer:
         # Get all members (from cache)
         all_members = list(guild.members)
         total = len(all_members)
-        
+
         # Calculate pagination
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size

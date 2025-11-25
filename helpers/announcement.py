@@ -103,7 +103,7 @@ async def send_admin_recheck_notification(
     """
     guild = member.guild
     guild_config = bot.services.guild_config
-    
+
     # Get leadership announcement channel via config service
     leadership_channel = await guild_config.get_channel(
         guild.id, "leadership_announcement_channel_id", guild
@@ -148,7 +148,7 @@ async def send_verification_announcements(
     """
     guild_config = bot.services.guild_config
     guild = member.guild
-    
+
     lead_channel = await guild_config.get_channel(
         guild.id, "leadership_announcement_channel_id", guild
     )
@@ -349,7 +349,7 @@ class BulkAnnouncer(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        
+
         # Initialize with defaults; actual config loaded in before_daily/before_watch
         self.public_channel_id: int | None = None
         self.hour_utc: int = 18
@@ -358,19 +358,19 @@ class BulkAnnouncer(commands.Cog):
         self.max_mentions_per_message: int = 50
         self.max_chars_per_message: int = 1800
         self._config_loaded = False
-        
+
         # Start tasks (config will be loaded before first execution)
         self.daily_flush.start()
         self.threshold_watch.start()
-    
+
     async def _load_config(self):
         """Load configuration from config service on first run."""
         if self._config_loaded:
             return
-            
+
         try:
             config_service = self.bot.services.config
-            
+
             # Get public announcement channel from first guild (global setting)
             # Note: This could be improved to support per-guild channels
             if self.bot.guilds:
@@ -378,7 +378,7 @@ class BulkAnnouncer(commands.Cog):
                 self.public_channel_id = await config_service.get_guild_setting(
                     guild_id, "channels.public_announcement_channel_id", None
                 )
-            
+
             # Get bulk announcement settings (global)
             self.hour_utc = await config_service.get_global_setting(
                 "bulk_announcement.hour_utc", 18
@@ -416,12 +416,12 @@ class BulkAnnouncer(commands.Cog):
             )
 
             self._config_loaded = True
-            
+
             if not self.public_channel_id:
                 logger.warning(
                     "BulkAnnouncer: public_announcement_channel_id not configured."
                 )
-                
+
         except Exception as e:
             logger.error(f"Failed to load BulkAnnouncer config: {e}")
             self._config_loaded = True  # Prevent infinite retries

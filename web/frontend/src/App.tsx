@@ -75,6 +75,16 @@ function App() {
     return <SelectServer onSelected={fetchUserProfile} />;
   }
 
+  const handleSwitchServer = async () => {
+    try {
+      await authApi.clearActiveGuild();
+      // Refresh user profile to trigger SelectServer screen
+      await fetchUserProfile();
+    } catch (err) {
+      console.error('Failed to switch server:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900">
       {/* Header */}
@@ -85,6 +95,12 @@ function App() {
               <h1 className="text-xl font-bold">Test Squadron Admin</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={handleSwitchServer}
+                className="px-3 py-1 text-sm font-medium bg-slate-700 text-gray-300 rounded hover:bg-slate-600 transition"
+              >
+                🔄 Switch Server
+              </button>
               <span className="text-sm text-gray-400">
                 {user.username}#{user.discriminator}
               </span>

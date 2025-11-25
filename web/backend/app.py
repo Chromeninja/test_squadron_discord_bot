@@ -10,6 +10,8 @@ A minimal admin dashboard providing:
 For local development/testing only.
 """
 
+import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,9 +20,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Load environment variables from project root .env file
 project_root = Path(__file__).parent.parent.parent
-load_dotenv(project_root / ".env")
+env_path = project_root / ".env"
+logger.info(f"Loading .env from: {env_path}")
+load_dotenv(env_path)
+
+# Debug: Check if INTERNAL_API_KEY was loaded
+api_key = os.getenv("INTERNAL_API_KEY")
+if api_key:
+    logger.info(f"✓ INTERNAL_API_KEY loaded (length: {len(api_key)})")
+else:
+    logger.warning("✗ INTERNAL_API_KEY not found in environment!")
 
 from core.dependencies import initialize_services, shutdown_services
 from routes import auth, errors, guilds, health, logs, stats, users, voice
@@ -66,6 +81,17 @@ app.include_router(logs.router)
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "test-squadron-admin-api"}
+
+
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment configuration."""
+    import os
+    return {
+        "internal_api_url": os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082"),
+        "internal_api_key_set": bool(os.getenv("INTERNAL_API_KEY")),
+        "internal_api_key_length": len(os.getenv("INTERNAL_API_KEY", "")),
+    }
 
 
 @app.exception_handler(401)

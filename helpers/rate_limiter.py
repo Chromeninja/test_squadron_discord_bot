@@ -32,7 +32,7 @@ async def _get_limits(guild_config, guild_id: int, action: str) -> tuple[int, in
             guild_id, "rate_limits.recheck_window_seconds", default=300, parser=int
         )
         return max_attempts, window
-    
+
     max_attempts = await guild_config.get_setting(
         guild_id, "rate_limits.max_attempts", default=5, parser=int
     )
@@ -73,7 +73,7 @@ async def check_rate_limit(
         user_id_val = user_id  # type: ignore
         action_val = action or "verification"
         max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
-    
+
     row = await Database.fetch_rate_limit(user_id_val, action_val)
     now = int(time.time())
     if row:
@@ -117,7 +117,7 @@ async def get_remaining_attempts(
         user_id_val = user_id  # type: ignore
         action_val = action or "verification"
         max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
-    
+
     row = await Database.fetch_rate_limit(user_id_val, action_val)
     now = int(time.time())
     if not row:
@@ -143,7 +143,7 @@ async def cleanup_attempts() -> None:
     # Use default windows for cleanup
     _, recheck_window = _get_default_limits("recheck")
     _, verify_window = _get_default_limits("verification")
-    
+
     now = int(time.time())
     try:
         async with Database.get_connection() as db:

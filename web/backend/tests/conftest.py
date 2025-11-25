@@ -107,6 +107,7 @@ def mock_admin_session():
             "is_admin": True,
             "is_moderator": False,
             "active_guild_id": "123",  # Default test guild
+            "authorized_guild_ids": [1, 2],  # Include authorized guilds for filtering
         }
     )
 

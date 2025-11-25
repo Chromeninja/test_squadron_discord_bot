@@ -98,7 +98,9 @@ class ConfigService(BaseService):
         Returns:
             Setting value (parsed if parser provided) or default
         """
+        self.logger.debug(f"ConfigService.get: guild_id={guild_id}, key='{key}', parser={parser.__name__ if parser else None}")
         value = await self.get_guild_setting(guild_id, key, default)
+        self.logger.debug(f"  ConfigService.get result: {value} (type: {type(value).__name__ if value is not None else 'None'})")
 
         # Apply parser if provided and value is not None/default
         if parser and value is not None and value != default:
@@ -196,7 +198,10 @@ class ConfigService(BaseService):
         """Get all settings for a guild, using cache when possible."""
         async with self._cache_lock:
             if guild_id in self._guild_cache:
+                self.logger.debug(f"Cache HIT for guild {guild_id}: {len(self._guild_cache[guild_id])} settings")
                 return self._guild_cache[guild_id]
+
+        self.logger.debug(f"Cache MISS for guild {guild_id} - loading from database")
 
         # Load from database
         settings = {}
@@ -212,6 +217,7 @@ class ConfigService(BaseService):
                     import json
 
                     settings[key] = json.loads(value_json)
+                    self.logger.debug(f"  Loaded setting: {key} = {settings[key]}")
                 except (json.JSONDecodeError, TypeError):
                     self.logger.warning(
                         f"Failed to parse setting {key} for guild {guild_id}"
@@ -220,6 +226,10 @@ class ConfigService(BaseService):
         # Cache the settings
         async with self._cache_lock:
             self._guild_cache[guild_id] = settings
+
+        self.logger.info(f"Loaded {len(settings)} settings from database for guild {guild_id}")
+        if settings:
+            self.logger.info(f"  Settings keys: {list(settings.keys())}")
 
         return settings
 

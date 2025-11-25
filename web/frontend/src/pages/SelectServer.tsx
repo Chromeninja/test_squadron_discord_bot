@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { authApi, GuildSummary } from '../api/endpoints';
 
 interface SelectServerProps {
@@ -10,23 +10,25 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchGuilds = useCallback(async () => {
+    try {
+      const response = await authApi.getGuilds();
+      setGuilds(response.guilds);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError('Unable to load your servers.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchGuilds = async () => {
-      try {
-        const response = await authApi.getGuilds();
-        setGuilds(response.guilds);
-        setError(null);
-      } catch (err) {
-        console.error(err);
-        setError('Unable to load your servers.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchGuilds();
-  }, []);
+  }, [fetchGuilds]);
 
   const handleSelect = async (guildId: string) => {
     setSelectingId(guildId);
@@ -38,6 +40,23 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
       setError('Failed to select server. Please try again.');
     } finally {
       setSelectingId(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchGuilds();
+  };
+
+  const handleAddBot = async () => {
+    try {
+      const response = await authApi.getBotInviteUrl();
+      // Navigate to Discord authorization in the same window
+      // Discord will redirect back to our bot-callback endpoint
+      window.location.href = response.invite_url;
+    } catch (err) {
+      console.error(err);
+      setError('Failed to get bot invite URL. Please try again.');
     }
   };
 
@@ -57,6 +76,23 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
           Choose the Discord server you want to manage. Only servers where the bot is installed are shown.
         </p>
 
+        {/* Action buttons */}
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="rounded-md bg-slate-700 px-4 py-2 font-semibold transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800"
+          >
+            {refreshing ? 'Refreshing...' : '🔄 Refresh Guild List'}
+          </button>
+          <button
+            onClick={handleAddBot}
+            className="rounded-md bg-green-700 px-4 py-2 font-semibold transition hover:bg-green-600"
+          >
+            ➕ Add Bot to Server
+          </button>
+        </div>
+
         {error && (
           <div className="mb-6 rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-300">
             {error}
@@ -65,7 +101,8 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
 
         {guilds.length === 0 ? (
           <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-8 text-center text-gray-400">
-            No servers available. Make sure the bot is installed in your Discord server.
+            <p className="mb-4">No servers available. Make sure the bot is installed in your Discord server.</p>
+            <p className="text-sm">Click "Add Bot to Server" above to invite the bot to your server.</p>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">

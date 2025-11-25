@@ -3,10 +3,13 @@ Authentication routes for Discord OAuth2 flow.
 """
 
 import logging
+import os
 import secrets
+from pathlib import Path
 
 import httpx
 from core.dependencies import (
+    ConfigLoader,
     InternalAPIClient,
     get_config_loader,
     get_internal_api_client,
@@ -25,12 +28,11 @@ from core.security import (
     DISCORD_API_BASE,
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
-    DISCORD_GUILD_ID,
+    DISCORD_OAUTH_URL,
     DISCORD_REDIRECT_URI,
     DISCORD_TOKEN_URL,
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE,
-    check_user_has_roles,
     create_session_token,
     get_discord_authorize_url,
     set_session_cookie,
@@ -42,6 +44,9 @@ router = APIRouter()
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Discord permission bitfield for Administrator
+ADMINISTRATOR_PERMISSION = 0x0000000000000008
+
 
 def _normalize_guild_id(raw_value) -> str | None:
     """Convert guild IDs from the internal API into canonical string form."""
@@ -51,6 +56,24 @@ def _normalize_guild_id(raw_value) -> str | None:
         return str(int(raw_value))
     except (TypeError, ValueError):
         return None
+
+
+def _has_administrator_permission(permissions_str: str | None) -> bool:
+    """Check if user has Discord administrator permission from bitfield.
+    
+    Args:
+        permissions_str: Permission bitfield as string from Discord API
+        
+    Returns:
+        True if user has administrator permission (0x8 bit set)
+    """
+    if not permissions_str:
+        return False
+    try:
+        permissions = int(permissions_str)
+        return (permissions & ADMINISTRATOR_PERMISSION) != 0
+    except (ValueError, TypeError):
+        return False
 
 
 @router.get("/login")
@@ -142,6 +165,8 @@ async def callback(code: str, state: str | None = None):
             user_guilds = guilds_response.json()
             user_guild_ids = [g["id"] for g in user_guilds]
 
+            print(f"User is member of guilds: {user_guild_ids}")
+
             # Get list of guilds where the bot is installed (from database)
             from services.db.database import Database
             from web.backend.core.guild_settings import get_bot_role_settings
@@ -153,17 +178,46 @@ async def callback(code: str, state: str | None = None):
                 rows = await cursor.fetchall()
                 bot_guild_ids = {row[0] for row in rows}
 
-            # Only check guilds where both user and bot are members
-            guilds_to_check = [gid for gid in user_guild_ids if int(gid) in bot_guild_ids]
+            logger.debug(f"Bot is installed in guilds (from DB): {bot_guild_ids}")
 
-            # For each guild the user is in WHERE the bot is also installed, fetch their roles
+            # Track authorization details for each guild
             authorized_guild_ids = []
             is_admin = False
             is_moderator = False
+            permission_sources = {}  # guild_id -> permission source
 
-            for guild_id in guilds_to_check:
+            # Build a map of guild data for efficient lookup
+            guild_data_map = {g["id"]: g for g in user_guilds}
+
+            # Check ALL user guilds for Discord-native permissions (owner/administrator)
+            # Then check database-registered guilds for role-based permissions
+            for guild_id in user_guild_ids:
                 try:
-                    # Fetch user's roles in this guild
+                    guild_data = guild_data_map.get(guild_id)
+                    if not guild_data:
+                        continue
+
+                    # Check Discord-native permissions first (owner or administrator)
+                    is_owner = guild_data.get("owner", False)
+                    permissions_str = guild_data.get("permissions")
+                    has_admin_permission = _has_administrator_permission(permissions_str)
+
+                    logger.debug(f"Guild {guild_id}: owner={is_owner}, admin={has_admin_permission}")
+
+                    # If user is guild owner or has administrator permission, grant admin access
+                    if is_owner or has_admin_permission:
+                        authorized_guild_ids.append(int(guild_id))
+                        is_admin = True
+                        permission_sources[int(guild_id)] = "owner" if is_owner else "administrator"
+                        logger.info(f"User granted admin access to guild {guild_id} via {permission_sources[int(guild_id)]}")
+                        continue  # Skip role-based check for performance
+
+                    # Only check role-based permissions if guild is in the database
+                    if int(guild_id) not in bot_guild_ids:
+                        logger.debug(f"Guild {guild_id} not in bot database, skipping role-based check")
+                        continue
+
+                    # Fall back to role-based checking from database
                     guild_member_response = await client.get(
                         f"{DISCORD_API_BASE}/users/@me/guilds/{guild_id}/member",
                         headers={"Authorization": f"Bearer {access_token}"},
@@ -171,7 +225,7 @@ async def callback(code: str, state: str | None = None):
 
                     if guild_member_response.status_code == 429:
                         # Rate limited - skip remaining guilds
-                        print(f"Rate limited while checking guild {guild_id}, skipping remaining guilds")
+                        logger.warning(f"Rate limited while checking guild {guild_id}, skipping remaining guilds")
                         break
 
                     if guild_member_response.status_code != 200:
@@ -197,8 +251,11 @@ async def callback(code: str, state: str | None = None):
                         authorized_guild_ids.append(int(guild_id))
                         if has_admin_role:
                             is_admin = True
+                            permission_sources[int(guild_id)] = "bot_admin_role"
                         if has_mod_role:
                             is_moderator = True
+                            permission_sources[int(guild_id)] = "moderator_role"
+                        logger.info(f"User granted access to guild {guild_id} via {permission_sources[int(guild_id)]}")
 
                 except Exception as e:
                     print(f"Error checking roles for guild {guild_id}: {e}")
@@ -214,9 +271,10 @@ async def callback(code: str, state: str | None = None):
             raise HTTPException(status_code=400, detail="Invalid user data")
 
         # Debug logging
-        print(f"User ID from Discord: {user_id}")
-        print(f"Authorized guild IDs: {authorized_guild_ids}")
-        print(f"is_admin: {is_admin}, is_moderator: {is_moderator}")
+        logger.info(f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s)")
+        logger.debug(f"Authorized guild IDs: {authorized_guild_ids}")
+        logger.debug(f"is_admin: {is_admin}, is_moderator: {is_moderator}")
+        logger.debug(f"Permission sources: {permission_sources}")
 
         # Require at least one authorized guild
         if not authorized_guild_ids:
@@ -237,7 +295,14 @@ async def callback(code: str, state: str | None = None):
                 status_code=403,
             )
 
-        # Create session token with authorized guild IDs
+        # Create session token with authorized guild IDs and permission sources
+        # Convert permission_sources keys to strings for JSON/JWT serialization
+        permission_sources_str = {str(k): v for k, v in permission_sources.items()}
+
+        # Do NOT auto-select guild - force user to choose from SelectServer screen
+        # This ensures users explicitly select which server to manage
+        logger.info(f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s), redirecting to guild selection")
+
         session_data = {
             "user_id": user_id,
             "username": username,
@@ -246,7 +311,8 @@ async def callback(code: str, state: str | None = None):
             "is_admin": is_admin,
             "is_moderator": is_moderator,
             "authorized_guild_ids": authorized_guild_ids,
-            "active_guild_id": authorized_guild_ids[0] if authorized_guild_ids else None,
+            "active_guild_id": None,  # Null to trigger SelectServer screen
+            "permission_sources": permission_sources_str,  # Store for debugging/audit
         }
 
         session_token = create_session_token(session_data)
@@ -301,11 +367,23 @@ async def get_available_guilds(
     current_user: UserProfile = Depends(require_admin_or_moderator),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
-    """Return guilds where the bot is currently installed."""
+    """
+    Return guilds where:
+    1. The bot is currently installed (from internal API)
+    2. The user has admin/moderator permissions (from authorized_guild_ids)
+    
+    This ensures users only see guilds they can manage and where the bot is active.
+    """
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
         raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
+
+    # Get user's authorized guild IDs from session - convert to strings for comparison
+    authorized_guild_ids = set(str(gid) for gid in (current_user.authorized_guild_ids or []))
+
+    logger.debug(f"Bot guilds from internal API: {[g.get('guild_id') for g in guilds]}")
+    logger.debug(f"User authorized guild IDs: {authorized_guild_ids}")
 
     summaries = []
     for guild in guilds:
@@ -313,6 +391,12 @@ async def get_available_guilds(
         if normalized_id is None:
             continue
 
+        # Only include guilds where user has admin/moderator permissions
+        if normalized_id not in authorized_guild_ids:
+            logger.debug(f"Skipping guild {normalized_id} - not in authorized list")
+            continue
+
+        logger.debug(f"Including guild {normalized_id} - {guild.get('guild_name')}")
         summaries.append(
             GuildSummary(
                 guild_id=normalized_id,
@@ -321,6 +405,7 @@ async def get_available_guilds(
             )
         )
 
+    logger.info(f"Returning {len(summaries)} guild(s) to user")
     return GuildListResponse(guilds=summaries)
 
 
@@ -369,3 +454,101 @@ async def logout(response: Response):
     """
     response.delete_cookie(key=SESSION_COOKIE_NAME)
     return {"success": True, "message": "Logged out successfully"}
+
+
+@api_router.get("/bot-invite-url")
+async def get_bot_invite_url(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+):
+    """
+    Get Discord bot authorization URL for inviting bot to a server.
+    
+    Uses bot permissions from config and sets redirect URI to bot callback endpoint.
+    
+    Returns:
+        JSON with invite_url field
+    """
+    # Load config path relative to project root
+    project_root = Path(__file__).parent.parent.parent.parent
+    config_path = project_root / "config" / "config.yaml"
+
+    # Load config using ConfigLoader class method
+    config_dict = ConfigLoader.load_config(str(config_path))
+    bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
+
+    # Build bot invite URL with redirect back to our callback
+    bot_redirect_uri = os.getenv(
+        "DISCORD_BOT_REDIRECT_URI",
+        "http://localhost:8081/auth/bot-callback"
+    )
+
+    from urllib.parse import urlencode
+
+    params = {
+        "client_id": DISCORD_CLIENT_ID,
+        "permissions": str(bot_permissions),
+        "scope": "bot applications.commands",
+        "redirect_uri": bot_redirect_uri,
+    }
+
+    invite_url = f"{DISCORD_OAUTH_URL}?{urlencode(params)}"
+
+    return {"invite_url": invite_url}
+
+
+@router.get("/bot-callback")
+async def bot_authorization_callback(
+    guild_id: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """
+    Handle Discord redirect after bot authorization.
+    
+    Discord redirects here after user adds bot to a server.
+    We redirect user back to the frontend SelectServer page.
+    
+    Query params:
+        guild_id: Guild where bot was added (if successful)
+        error: Error code if authorization failed
+        error_description: Human-readable error description
+        
+    Returns:
+        Redirect to frontend SelectServer page
+    """
+    # Check for errors
+    if error:
+        logger.warning(f"Bot authorization failed: {error} - {error_description}")
+        # Redirect to frontend with error
+        return RedirectResponse(
+            url=f"http://localhost:5173/select-server?error={error}",
+            status_code=302,
+        )
+
+    # Success - redirect to SelectServer page
+    # Frontend will automatically refresh the guild list
+    logger.info(f"Bot successfully added to guild {guild_id}")
+    return RedirectResponse(
+        url="http://localhost:5173/select-server?bot_added=true",
+        status_code=302,
+    )
+
+
+@api_router.delete("/active-guild")
+async def clear_active_guild(
+    response: Response,
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+):
+    """
+    Clear the active guild from session, forcing user to SelectServer screen.
+    
+    Used by 'Switch Server' button in dashboard.
+    
+    Returns:
+        Success response
+    """
+    session_payload = current_user.dict()
+    session_payload["active_guild_id"] = None
+    set_session_cookie(response, session_payload)
+
+    return {"success": True}

@@ -85,12 +85,12 @@ async def assign_roles(
             nonmember_role_ids = await bot.services.config.get_guild_setting(
                 member.guild.id, "roles.nonmember_role", []
             )
-            
+
             # Get first role ID from each list
             main_role_id = main_role_ids[0] if main_role_ids else None
             affiliate_role_id = affiliate_role_ids[0] if affiliate_role_ids else None
             non_member_role_id = nonmember_role_ids[0] if nonmember_role_ids else None
-            
+
             # Get role objects from cache or guild
             main_role = bot.role_cache.get(main_role_id) if main_role_id else None
             affiliate_role = bot.role_cache.get(affiliate_role_id) if affiliate_role_id else None

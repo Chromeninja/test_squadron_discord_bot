@@ -304,5 +304,5 @@ async def init_schema(db: aiosqlite.Connection) -> None:
 
     # Commit all schema changes
     await db.commit()
-    
+
     logger.info("Schema initialization complete")

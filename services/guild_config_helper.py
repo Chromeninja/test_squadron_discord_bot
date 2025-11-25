@@ -63,36 +63,52 @@ class GuildConfigHelper:
         Returns:
             TextChannel object if found and valid, None otherwise
         """
+        full_key = f"channels.{channel_key}"
+        logger.info(f"GuildConfigHelper.get_channel: guild_id={guild_id}, key='{full_key}'")
+
         channel_id = await self.config.get(
-            guild_id, f"channels.{channel_key}", parser=int
+            guild_id, full_key, parser=int
         )
+
+        logger.info(f"  ConfigService returned channel_id: {channel_id} (type: {type(channel_id).__name__ if channel_id else 'None'})")
+
         if not channel_id:
+            logger.info("  ✗ No channel ID found - returning None")
             logger.debug(f"No channel configured for {channel_key} in guild {guild_id}")
             return None
 
         if guild is None:
+            logger.info(f"  Guild object not provided, fetching guild {guild_id}...")
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 logger.warning(
-                    f"Guild {guild_id} not found when fetching "
-                    f"channel {channel_key}"
+                    f"  ✗ Guild {guild_id} not found when fetching "
+                    f"channel {channel_key} - bot may not be in this guild"
                 )
                 return None
+            logger.info(f"  ✓ Guild found: {guild.name} (ID: {guild.id})")
+        else:
+            logger.info(f"  ✓ Guild object provided: {guild.name} (ID: {guild.id})")
 
+        logger.info(f"  Fetching channel {channel_id} from guild...")
         channel = guild.get_channel(channel_id)
         if not channel:
             logger.warning(
-                f"Channel {channel_id} ({channel_key}) not found in guild {guild_id}"
+                f"  ✗ Channel {channel_id} ({channel_key}) not found in guild {guild_id}"
             )
+            logger.warning("  Channel may have been deleted or bot lacks access")
             return None
+
+        logger.info(f"  ✓ Channel object fetched: #{channel.name} (ID: {channel.id}, Type: {type(channel).__name__})")
 
         if not isinstance(channel, discord.TextChannel):
             logger.warning(
-                f"Channel {channel_id} ({channel_key}) is not a text "
-                f"channel in guild {guild_id}"
+                f"  ✗ Channel {channel_id} ({channel_key}) is not a text "
+                f"channel in guild {guild_id} (Type: {type(channel).__name__})"
             )
             return None
 
+        logger.info(f"  ✓ Returning valid TextChannel: #{channel.name}")
         return channel
 
     async def get_leadership_log_channel(

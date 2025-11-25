@@ -149,3 +149,4 @@ yarn-error.log*
 # Modern Python tools
 .ruff_cache/
 config/config.yaml
+Delete-Referance Files/*

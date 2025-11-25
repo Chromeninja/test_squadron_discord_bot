@@ -17,6 +17,7 @@ class UserProfile(BaseModel):
     is_moderator: bool
     authorized_guild_ids: list[int] = Field(default_factory=list)
     active_guild_id: str | None = None
+    permission_sources: dict[str, str] = Field(default_factory=dict)  # guild_id (str) -> source (owner/administrator/bot_admin_role/moderator_role)
 
 
 class AuthMeResponse(BaseModel):

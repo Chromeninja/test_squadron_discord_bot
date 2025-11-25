@@ -257,7 +257,7 @@ class TestServiceContainer:
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
-        
+
         container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
@@ -280,7 +280,7 @@ class TestServiceContainer:
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
-        
+
         container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
@@ -298,7 +298,7 @@ class TestServiceContainer:
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
-        
+
         container = ServiceContainer(bot=mock_bot)
         await container.initialize()
 
@@ -323,7 +323,7 @@ async def test_integration_flow(temp_db):
     mock_bot = Mock()
     mock_bot.get_channel = Mock(return_value=None)
     mock_bot.get_guild = Mock(return_value=None)
-    
+
     container = ServiceContainer(bot=mock_bot)
     await container.initialize()
 

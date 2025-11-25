@@ -172,7 +172,7 @@ def require_guild_admin(guild_id: int, user: UserProfile = Depends(get_current_u
     """
     if guild_id not in user.authorized_guild_ids:
         raise HTTPException(
-            status_code=403, 
+            status_code=403,
             detail=f"You do not have admin access to guild {guild_id}"
         )
 
@@ -292,6 +292,14 @@ class InternalAPIClient:
         self.base_url = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
         self.api_key = os.getenv("INTERNAL_API_KEY", "")
         self._client: httpx.AsyncClient | None = None
+
+        # Debug logging for API key
+        import logging
+        logger = logging.getLogger(__name__)
+        if self.api_key:
+            logger.info(f"InternalAPIClient initialized with API key (length: {len(self.api_key)})")
+        else:
+            logger.warning("InternalAPIClient initialized WITHOUT API key - requests will fail with 401")
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""

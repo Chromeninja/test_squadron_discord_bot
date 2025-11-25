@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 # Ensure we can import from backend

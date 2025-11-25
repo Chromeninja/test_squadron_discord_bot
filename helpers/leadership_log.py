@@ -482,20 +482,20 @@ async def post_if_changed(bot, cs: ChangeSet):
                     channel = await guild_config.get_channel(
                         guild_id, "leadership_announcement_channel_id", guild
                     )
-        
+
         # Fallback to legacy attribute if config service unavailable
         if not channel and hasattr(bot, 'LEADERSHIP_LOG_CHANNEL_ID'):
             channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
             if channel_id:
                 channel = bot.get_channel(int(channel_id))
-                
+
     except Exception as e:
         logger.debug(f"Failed to resolve leadership log channel: {e}")
         # Try legacy fallback
         channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
         if channel_id:
             channel = bot.get_channel(int(channel_id))
-    
+
     if not channel:
         logger.debug("Leadership log channel not configured or not found; skipping post.")
         return

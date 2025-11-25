@@ -1152,7 +1152,7 @@ class VoiceService(BaseService):
                             f"Ignoring duplicate creation event for {member.display_name} - already creating"
                         )
                         return
-                    
+
                     self.logger.info(
                         f"Cooldown prevented channel creation for {member.display_name}: {error_code}"
                     )
@@ -1179,7 +1179,7 @@ class VoiceService(BaseService):
                             self._create_user_channel(guild, jtc_channel, member),
                             timeout=10.0
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         self.logger.error(
                             f"Channel creation timed out for {member.display_name} in JTC {jtc_channel.name}"
                         )
@@ -1313,7 +1313,7 @@ class VoiceService(BaseService):
                     await channel.delete(reason="User disconnected during channel creation")
                 except Exception as e:
                     self.logger.warning(f"Failed to cleanup channel {channel.id}: {e}")
-                
+
                 # Send DM to user
                 try:
                     from helpers.discord_reply import dm_user
@@ -1323,7 +1323,7 @@ class VoiceService(BaseService):
                     )
                 except Exception:
                     pass  # Ignore DM failures
-                
+
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
                     guild,
@@ -1346,7 +1346,7 @@ class VoiceService(BaseService):
                     self.logger.info(f"Cleaned up channel {channel.id} after failed move")
                 except Exception as cleanup_error:
                     self.logger.warning(f"Failed to cleanup channel {channel.id}: {cleanup_error}")
-                
+
                 # Send DM to user
                 try:
                     from helpers.discord_reply import dm_user
@@ -1356,7 +1356,7 @@ class VoiceService(BaseService):
                     )
                 except Exception:
                     pass  # Ignore DM failures
-                
+
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
                     guild,

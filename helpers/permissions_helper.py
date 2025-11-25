@@ -422,6 +422,7 @@ def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
 
 __all__ = [
     "FEATURE_CONFIG",
+    "PERMISSION_DENIED_MESSAGE",
     "app_command_check_configured_roles",
     "apply_permissions_changes",
     "apply_permit_reject_settings",
@@ -429,7 +430,6 @@ __all__ = [
     "is_bot_admin_only",
     "is_lead_moderator_or_higher",
     "is_privileged_user",
-    "PERMISSION_DENIED_MESSAGE",
     "reset_channel_permissions",
     "resolve_role_ids_for_guild",
     "store_permit_reject_in_db",

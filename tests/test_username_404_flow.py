@@ -232,13 +232,13 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
         return None
 
     bot.get_channel = get_channel
-    
+
     # Mock services
     bot.services = SimpleNamespace()
     mock_config = AsyncMock()
     mock_config.get_global_setting = AsyncMock(return_value="compact")
     bot.services.config = mock_config
-    
+
     mock_guild_config = AsyncMock()
     mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
         "bot_spam_channel_id": spam_chan,
@@ -246,7 +246,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
         "leadership_announcement_channel_id": leader_chan
     }.get(key))
     bot.services.guild_config = mock_guild_config
-    
+
     member = FakeMember(uid=222, display_name="UserGone")
     guild = FakeGuild(member)
     member.guild = guild
@@ -357,13 +357,13 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     bot = SimpleNamespace(
         role_cache={},
     )
-    
+
     # Mock services
     bot.services = SimpleNamespace()
     mock_config = AsyncMock()
     mock_config.get_global_setting = AsyncMock(return_value="compact")
     bot.services.config = mock_config
-    
+
     mock_guild_config = AsyncMock()
     mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
         "bot_spam_channel_id": spam_chan,
@@ -371,7 +371,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
         "leadership_announcement_channel_id": leader_chan
     }.get(key))
     bot.services.guild_config = mock_guild_config
-    
+
     member = FakeMember(uid=555, display_name="LostUser")
     guild = FakeGuild(member)
     member.guild = guild
