@@ -5,7 +5,6 @@ import time
 
 import discord
 
-from helpers.announcement import enqueue_verification_event
 from helpers.discord_api import add_roles, edit_member, remove_roles
 from helpers.task_queue import enqueue_task
 from services.db.database import Database, get_cross_guild_membership_status
@@ -17,27 +16,27 @@ logger = get_logger(__name__)
 async def _compute_next_recheck(bot, user_id: int, now: int) -> int:
     """
     Compute next auto-recheck timestamp based on user's cross-guild membership status.
-    
+
     Uses the highest membership status across ALL guilds tracking user's organizations:
     - Main member of ANY tracked org: 14 days
     - Affiliate only across all tracked orgs: 7 days
     - Non-member: 3 days
-    
+
     Args:
         bot: Bot instance with config
         user_id: Discord user ID
         now: Current timestamp
-        
+
     Returns:
         Unix timestamp for next recheck, or 0 if auto-recheck disabled
     """
     cfg = (bot.config or {}).get("auto_recheck", {}) or {}
     cadence_map = cfg.get("cadence_days") or {}
     jitter_h = int(cfg.get("jitter_hours") or 0)
-    
+
     # Get cross-guild membership status
     status = await get_cross_guild_membership_status(user_id)
-    
+
     days = int(cadence_map.get(status or "", 0))  # Default 0 -> skip if unknown
     if days <= 0:
         return 0
@@ -87,15 +86,20 @@ async def assign_roles(
         )
         raise TypeError(error_msg)
 
-    # Fetch previous status before DB update
-    prev_status = None
+    # Fetch previous org lists before DB update for announcement comparison
+    prev_main_orgs = None
+    prev_affiliate_orgs = None
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT membership_status FROM verification WHERE user_id = ?", (member.id,)
+            "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?", (member.id,)
         )
         row = await cursor.fetchone()
         if row:
-            prev_status = row[0]
+            prev_main_orgs_json, prev_affiliate_orgs_json = row
+            if prev_main_orgs_json:
+                prev_main_orgs = json.loads(prev_main_orgs_json)
+            if prev_affiliate_orgs_json:
+                prev_affiliate_orgs = json.loads(prev_affiliate_orgs_json)
 
     # Get role configuration from database for this guild
     if hasattr(bot, 'services') and bot.services:
@@ -145,23 +149,14 @@ async def assign_roles(
         assigned_role_type = "non_member"
         logger.debug(f"Appending role to add: {non_member_role.name}")
 
-        # Map verify_value to membership status
-    membership_status_map = {
-        1: "main",
-        2: "affiliate",
-        0: "non_member",
-    }
-    membership_status = membership_status_map.get(verify_value, "unknown")
-
-    # Update DB
+    # Update DB - remove membership_status column, rely on org lists
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, community_moniker, main_orgs, affiliate_orgs)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, last_updated, community_moniker, main_orgs, affiliate_orgs)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
-                membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
                 community_moniker = excluded.community_moniker,
                 main_orgs = excluded.main_orgs,
@@ -173,7 +168,6 @@ async def assign_roles(
             (
                 member.id,
                 cased_handle,
-                membership_status,
                 int(time.time()),
                 community_moniker,
                 json.dumps(main_orgs) if main_orgs else None,
@@ -185,20 +179,15 @@ async def assign_roles(
             f"Stored verification data for user {member.display_name} ({member.id})"
         )
 
-        # Only enqueue announcement if status actually changed
-        if prev_status != membership_status:
-            try:
-                await enqueue_verification_event(
-                    member, prev_status or "non_member", membership_status
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to enqueue announcement event: {e}",
-                    extra={"user_id": member.id},
-                )
-        else:
-            logger.debug(
-                f"Status unchanged ({membership_status}), skipping announcement queue",
+        # Always enqueue announcement check - guild-aware function handles status derivation
+        from helpers.announcement import enqueue_announcement_for_guild
+        try:
+            await enqueue_announcement_for_guild(
+                bot, member, main_orgs, affiliate_orgs, prev_main_orgs, prev_affiliate_orgs
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to enqueue guild-aware announcement: {e}",
                 extra={"user_id": member.id},
             )
 
@@ -279,10 +268,8 @@ async def assign_roles(
         logger.error("No valid roles to add.", extra={"user_id": member.id})
 
         # Enqueue nickname change
-    # Nickname policy (Discord nickname, not global username):
-    # Updated Aug 2025: Always use the RSI handle (cased) for nickname, never the community moniker.
-    # We still store the community_moniker in the DB above for future features, but it is not
-    # considered for nickname selection anymore.
+    # Nickname policy: Always use RSI handle (properly cased) as Discord nickname.
+    # Community moniker is stored in DB but not used for nickname display.
     preferred_nick = cased_handle
 
     def _truncate_nickname(nick: str, limit: int = 32) -> str:
@@ -340,8 +327,25 @@ async def assign_roles(
             extra={"user_id": member.id},
         )
 
-        # Return old and new status
-    return prev_status or "unknown", assigned_role_type
+        # Return old and new status in database format (derived from org lists)
+    from services.db.database import derive_membership_status
+
+    # Get guild org SID for status derivation
+    guild_org_sid = "TEST"
+    if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+        try:
+            guild_org_sid = await bot.services.guild_config.get_setting(
+                member.guild.id, "organization.sid", default="TEST"
+            )
+            if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
+                guild_org_sid = guild_org_sid.strip('"')
+        except Exception:
+            pass
+
+    prev_status_derived = derive_membership_status(prev_main_orgs, prev_affiliate_orgs, guild_org_sid)
+    new_status_derived = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+
+    return prev_status_derived, new_status_derived
 
 
 def can_modify_nickname(member: discord.Member) -> bool:
@@ -418,7 +422,7 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
                 member.guild.id, "organization.name", default="test"
             )
             org_name = org_name_config.strip().lower() if org_name_config else "test"
-            
+
             org_sid_config = await bot.services.guild_config.get_setting(
                 member.guild.id, "organization.sid", default=None
             )

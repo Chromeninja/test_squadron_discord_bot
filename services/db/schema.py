@@ -31,13 +31,12 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
-    # Verification table (keep shape expected by existing code/tests)
+    # Verification table (membership_status removed; status derived from org lists)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS verification (
             user_id INTEGER PRIMARY KEY,
             rsi_handle TEXT NOT NULL,
-            membership_status TEXT,
             last_updated INTEGER DEFAULT 0,
             verification_payload TEXT,
             needs_reverify INTEGER DEFAULT 0,
@@ -59,6 +58,39 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_verification_moniker ON verification(community_moniker)"
     )
+
+    # In-place migration: drop legacy membership_status column if it exists
+    try:
+        cur = await db.execute("PRAGMA table_info(verification)")
+        rows = await cur.fetchall()
+        cols = [r[1] for r in rows]
+        if "membership_status" in cols:
+            # Recreate table without membership_status while preserving data
+            await db.execute("PRAGMA foreign_keys=OFF")
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS _verification_new (
+                    user_id INTEGER PRIMARY KEY,
+                    rsi_handle TEXT NOT NULL,
+                    last_updated INTEGER DEFAULT 0,
+                    verification_payload TEXT,
+                    needs_reverify INTEGER DEFAULT 0,
+                    needs_reverify_at INTEGER DEFAULT 0,
+                    community_moniker TEXT,
+                    main_orgs TEXT DEFAULT NULL,
+                    affiliate_orgs TEXT DEFAULT NULL
+                )
+                """
+            )
+            await db.execute(
+                "INSERT INTO _verification_new(user_id, rsi_handle, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker, main_orgs, affiliate_orgs) "
+                "SELECT user_id, rsi_handle, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker, main_orgs, affiliate_orgs FROM verification"
+            )
+            await db.execute("DROP TABLE verification")
+            await db.execute("ALTER TABLE _verification_new RENAME TO verification")
+            await db.execute("PRAGMA foreign_keys=ON")
+    except Exception as e:
+        logger.warning(f"Schema migration to drop verification.membership_status failed: {e}")
 
     # Guild settings
     await db.execute(
@@ -254,7 +286,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-    
+
     # Index for faster cleanup queries on rate_limits
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_rate_limits_first_attempt ON rate_limits(action, first_attempt)"
@@ -294,6 +326,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS announcement_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
             user_id INTEGER NOT NULL,
             old_status TEXT,
             new_status TEXT,
@@ -307,8 +340,23 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_announcement_events_user_id ON announcement_events(user_id)"
     )
     await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_announcement_events_guild_id ON announcement_events(guild_id)"
+    )
+    await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at ON announcement_events(announced_at)"
     )
+
+    # Lightweight in-place migration: add guild_id to announcement_events if missing
+    try:
+        cur = await db.execute("PRAGMA table_info(announcement_events)")
+        cols = [row[1] for row in await cur.fetchall()]
+        if "guild_id" not in cols:
+            await db.execute("ALTER TABLE announcement_events ADD COLUMN guild_id INTEGER")
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_announcement_events_guild_id ON announcement_events(guild_id)"
+            )
+    except Exception as e:
+        logger.warning(f"Schema check/migration for announcement_events.guild_id failed: {e}")
 
     # Commit all schema changes
     await db.commit()

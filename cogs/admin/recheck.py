@@ -66,12 +66,12 @@ class AutoRecheck(commands.Cog):
         for user_id, rsi_handle, _prev_status in rows:
             # Find all guilds where this user is a member
             user_guilds = [g for g in self.bot.guilds if g.get_member(int(user_id))]
-            
+
             if not user_guilds:
                 # User not in any guild - prune
                 await self._prune_user_from_db(user_id)
                 continue
-            
+
             # Recheck in each guild separately
             for guild in user_guilds:
                 member = guild.get_member(int(user_id))
@@ -149,7 +149,7 @@ class AutoRecheck(commands.Cog):
                         member.guild.id, "organization.name", default="test"
                     )
                     org_name = org_name_config.strip().lower() if org_name_config else "test"
-                    
+
                     org_sid_config = await self.bot.services.guild_config.get_setting(
                         member.guild.id, "organization.sid", default=None
                     )

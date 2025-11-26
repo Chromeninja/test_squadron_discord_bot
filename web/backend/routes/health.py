@@ -22,14 +22,14 @@ async def get_health_overview(
 ):
     """
     Get comprehensive bot health overview (admin only).
-    
+
     Returns:
     - Bot status (healthy/degraded/unhealthy)
     - Uptime in seconds
     - Database connectivity
     - Discord gateway latency
     - System resource usage (CPU%, RAM%)
-    
+
     Requires: Admin role
     """
     try:

@@ -41,7 +41,7 @@ _oauth_states: dict[str, float] = {}
 def generate_oauth_state() -> str:
     """
     Generate a cryptographically random state for OAuth flow.
-    
+
     Returns:
         Random state string
     """
@@ -53,10 +53,10 @@ def generate_oauth_state() -> str:
 def validate_oauth_state(state: str) -> bool:
     """
     Validate OAuth state and remove it (one-time use).
-    
+
     Args:
         state: State string to validate
-        
+
     Returns:
         True if valid, False otherwise
     """
@@ -80,7 +80,7 @@ def cleanup_expired_states() -> None:
 def set_session_cookie(response: Response, user_data: dict) -> None:
     """
     Set a secure session cookie on the response.
-    
+
     Args:
         response: FastAPI Response object
         user_data: User data to encode in session
@@ -100,7 +100,7 @@ def set_session_cookie(response: Response, user_data: dict) -> None:
 def clear_session_cookie(response: Response) -> None:
     """
     Clear the session cookie.
-    
+
     Args:
         response: FastAPI Response object
     """

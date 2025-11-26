@@ -381,29 +381,29 @@ def parse_rsi_organizations(html_content: str, target_org: str | None = None) ->
 def parse_rsi_org_sids(html_content: str) -> dict:
     """
     Parses RSI organization SIDs from the HTML content.
-    
+
     Returns organization SIDs (Spectrum Identification) for both main and affiliate
     organizations. Hidden/redacted organizations will have "REDACTED" as their SID.
-    
+
     Args:
         html_content (str): The HTML content of the RSI organizations page.
-        
+
     Returns:
         dict: Dictionary with 'main_orgs' list (0 or 1 items) and 'affiliate_orgs' list.
               Example: {"main_orgs": ["TEST"], "affiliate_orgs": ["XVII", "REDACTED", "AVOCADO"]}
     """
     logger.debug("Parsing RSI organization SIDs from HTML content.", extra={"event": "rsi-parser.org-sids"})
     soup = BeautifulSoup(html_content, "lxml")
-    
+
     main_orgs = []
     affiliate_orgs = []
-    
+
     # Parse main organization SID
     main_org_div = soup.select_one('.box-content.org.main')
     if main_org_div:
         # Check if it's a redacted/hidden org (visibility-R or visibility-H class)
         is_redacted = 'visibility-R' in main_org_div.get('class', []) or 'visibility-H' in main_org_div.get('class', [])
-        
+
         if is_redacted:
             main_orgs.append("REDACTED")
             logger.debug("Main organization is redacted/hidden")
@@ -422,13 +422,13 @@ def parse_rsi_org_sids(html_content: str) -> dict:
                         else:
                             main_orgs.append("REDACTED")
                             logger.debug("Main organization SID is empty, treating as REDACTED")
-    
+
     # Parse affiliate organization SIDs
     affiliate_divs = soup.select('.box-content.org.affiliation')
     for affiliate_div in affiliate_divs:
         # Check if it's a redacted/hidden org
         is_redacted = 'visibility-R' in affiliate_div.get('class', []) or 'visibility-H' in affiliate_div.get('class', [])
-        
+
         if is_redacted:
             affiliate_orgs.append("REDACTED")
             logger.debug("Affiliate organization is redacted/hidden")
@@ -452,12 +452,12 @@ def parse_rsi_org_sids(html_content: str) -> dict:
                                 logger.debug(f"Affiliate organization SID: {sid}")
                                 sid_found = True
                                 break
-            
+
             if not sid_found:
                 # Fallback: if no SID field found but org exists, treat as REDACTED
                 affiliate_orgs.append("REDACTED")
                 logger.debug("Affiliate organization SID not found, treating as REDACTED")
-    
+
     logger.debug(
         "Organization SID parsing complete",
         extra={
@@ -467,7 +467,7 @@ def parse_rsi_org_sids(html_content: str) -> dict:
             "affiliate_count": len(affiliate_orgs),
         },
     )
-    
+
     return {"main_orgs": main_orgs, "affiliate_orgs": affiliate_orgs}
 
 

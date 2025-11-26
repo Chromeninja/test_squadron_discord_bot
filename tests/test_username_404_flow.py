@@ -61,9 +61,8 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     # Seed verification + auto state
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (101, "OldHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (101, "OldHandle", 1),
         )
         await db.execute(
             "INSERT INTO auto_recheck_state(user_id, last_auto_recheck, "
@@ -142,9 +141,8 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     (distinct 404 cause)."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (111, "FirstHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (111, "FirstHandle", 1),
         )
         await db.commit()
 
@@ -210,9 +208,8 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     ChangeSet with 404 note."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (222, "GoneHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (222, "GoneHandle", 1),
         )
         await db.commit()
     bot = SimpleNamespace()
@@ -292,9 +289,8 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     # Seed verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (202, "HandleX", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (202, "HandleX", 1),
         )
         await db.commit()
 
@@ -344,9 +340,8 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     leadership channel configured."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (555, "LostOne", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (555, "LostOne", 1),
         )
         await db.commit()
 
@@ -419,10 +414,8 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     # Seed flagged verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated, needs_reverify, "
-            "needs_reverify_at) VALUES (?,?,?,?,1,1)",
-            (303, "OldOne", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated, needs_reverify, needs_reverify_at) VALUES (?,?,?,1,1)",
+            (303, "OldOne", 1),
         )
         await db.commit()
 
@@ -489,9 +482,8 @@ async def test_handle_username_404_new_handle_triggers_again(
     # Seed initial verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (909, "FirstHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (909, "FirstHandle", 1),
         )
         await db.commit()
 

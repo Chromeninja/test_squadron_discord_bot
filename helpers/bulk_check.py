@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 import discord
 
-from services.db.database import Database
+from services.db.database import Database, derive_membership_status
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -96,10 +96,28 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     user_ids = [m.id for m in member_list]
 
     async with Database.get_connection() as db:
+        # Determine target organization SID for this guild
+        target_sid = "TEST"
+        try:
+            # All members belong to the same guild for bulk checks
+            guild_id = member_list[0].guild.id if member_list and getattr(member_list[0], "guild", None) else None
+            if guild_id is not None:
+                cur = await db.execute(
+                    "SELECT json_extract(value, '$') FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
+                    (guild_id,),
+                )
+                sid_row = await cur.fetchone()
+                if sid_row and sid_row[0]:
+                    # Handle cases where json_extract returns quoted string
+                    target_sid = str(sid_row[0]).strip('"')
+        except Exception:
+            # Fallback to default SID
+            target_sid = "TEST"
+
         # Fetch verification data for all users at once
         placeholders = ",".join("?" * len(user_ids))
         query = f"""
-            SELECT user_id, rsi_handle, membership_status, last_updated
+            SELECT user_id, rsi_handle, last_updated, main_orgs, affiliate_orgs
             FROM verification
             WHERE user_id IN ({placeholders})
         """
@@ -108,13 +126,23 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         rows = await cursor.fetchall()
 
     # Build a map of verification data keyed by user_id
+    import json
     verification_map = {}
     for row in rows:
-        user_id, rsi_handle, membership_status, last_updated = row
+        user_id, rsi_handle, last_updated, main_orgs_json, affiliate_orgs_json = row
+        try:
+            main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
+        except Exception:
+            main_orgs = []
+        try:
+            affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
+        except Exception:
+            affiliate_orgs = []
+        derived_status = derive_membership_status(main_orgs, affiliate_orgs, target_sid)
         verification_map[user_id] = {
             "rsi_handle": rsi_handle,
-            "membership_status": membership_status,
-            "last_updated": last_updated
+            "membership_status": derived_status,
+            "last_updated": last_updated,
         }
 
     # Build the final result rows
@@ -251,7 +279,7 @@ def _format_detail_line(row: StatusRow) -> str:
 def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:
     """
     Build per-user detail lines, truncating if necessary.
-    
+
     Returns:
         Tuple of (detail_lines, truncated_count)
     """
@@ -287,7 +315,7 @@ def build_summary_embed(
 ) -> discord.Embed:
     """
     Create a Discord embed for bulk verification check results posted to leadership channel.
-    
+
     Always includes full details with dynamic truncation to fit Discord limits.
     """
     # Count statuses and build embed
@@ -332,7 +360,7 @@ async def write_csv(
 ) -> tuple[str, bytes]:
     """
     Generate CSV export of verification status rows.
-    
+
     Returns:
         Tuple of (filename, content_bytes) ready for discord.File.
         Filename format: verify_bulk_{guild}_{YYYYMMDD_HHMM}_{invoker}.csv

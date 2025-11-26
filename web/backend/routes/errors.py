@@ -23,12 +23,12 @@ async def get_last_errors(
 ):
     """
     Get most recent error log entries (admin only).
-    
+
     Reads from structured error logs and returns the most recent errors.
-    
+
     Query params:
     - limit: Number of errors to return (1-100, default 1)
-    
+
     Requires: Admin role
     """
     try:

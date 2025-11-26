@@ -118,7 +118,7 @@ class InternalAPIServer:
         - Database connectivity
         - Discord gateway latency
         - System metrics (CPU, RAM)
-        
+
         Path: GET /health/report
         Headers: Authorization: Bearer <api_key>
         """
@@ -166,12 +166,12 @@ class InternalAPIServer:
     async def errors_last(self, request: web.Request) -> web.Response:
         """
         Get the most recent error log entries (admin only).
-        
+
         Reads from structured error logs in logs/errors/ directory.
-        
+
         Query params:
         - limit: Number of errors to return (default 1, max 100)
-        
+
         Path: GET /errors/last?limit=1
         Headers: Authorization: Bearer <api_key>
         """
@@ -240,12 +240,12 @@ class InternalAPIServer:
     async def logs_export(self, request: web.Request) -> web.Response:
         """
         Export bot logs (admin only).
-        
+
         Returns the tail of the main bot log file as a downloadable attachment.
-        
+
         Query params:
         - max_bytes: Maximum bytes to read from end of file (default 1MB)
-        
+
         Path: GET /logs/export?max_bytes=1048576
         Headers: Authorization: Bearer <api_key>
         """
@@ -308,12 +308,12 @@ class InternalAPIServer:
     async def get_voice_members(self, request: web.Request) -> web.Response:
         """
         Get list of user IDs currently in a voice channel.
-        
+
         This data comes from the Gateway cache (no Discord API overhead).
-        
+
         Path: GET /voice/members/{channel_id}
         Headers: Authorization: Bearer <api_key>
-        
+
         Returns: {"channel_id": int, "member_ids": [int, ...]}
         """
         # Check authentication
@@ -441,12 +441,12 @@ class InternalAPIServer:
     async def get_guild_stats(self, request: web.Request) -> web.Response:
         """
         Return basic statistics for a guild (member count, etc).
-        
+
         This provides data needed to calculate true unverified counts.
-        
+
         Path: GET /guilds/{guild_id}/stats
         Headers: Authorization: Bearer <api_key>
-        
+
         Returns: {
             "guild_id": int,
             "member_count": int,  # Total guild members (from Gateway cache)
@@ -484,14 +484,14 @@ class InternalAPIServer:
     async def get_guild_members(self, request: web.Request) -> web.Response:
         """
         Get paginated list of guild members with enriched Discord data.
-        
+
         Query params:
         - page: Page number (default 1)
         - page_size: Items per page (default 100, max 1000)
-        
+
         Path: GET /guilds/{guild_id}/members?page=1&page_size=100
         Headers: Authorization: Bearer <api_key>
-        
+
         Returns: {
             "members": [{
                 "user_id": int,
@@ -581,10 +581,10 @@ class InternalAPIServer:
     async def get_guild_member(self, request: web.Request) -> web.Response:
         """
         Get single guild member with enriched Discord data.
-        
+
         Path: GET /guilds/{guild_id}/members/{user_id}
         Headers: Authorization: Bearer <api_key>
-        
+
         Returns: {
             "user_id": int,
             "username": str,

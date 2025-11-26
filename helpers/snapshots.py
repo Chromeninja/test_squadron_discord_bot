@@ -22,33 +22,45 @@ class MemberSnapshot:
 
 async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     # Fetch DB state
-    status = "Not a Member"
+    status = "non_member"
     moniker = None
     handle = None
     main_orgs = None
     affiliate_orgs = None
     try:
         import json
+        from services.db.database import derive_membership_status
+
         async with Database.get_connection() as db:
             cur = await db.execute(
-                "SELECT membership_status, community_moniker, rsi_handle, main_orgs, affiliate_orgs FROM verification WHERE user_id=?",
+                "SELECT community_moniker, rsi_handle, main_orgs, affiliate_orgs FROM verification WHERE user_id=?",
                 (member.id,),
             )
             row = await cur.fetchone()
             if row:
-                status_db, moniker_db, handle_db, main_orgs_json, affiliate_orgs_json = row
-                # Map internal statuses to human terms for logs
-                mapping = {
-                    "main": "Main",
-                    "affiliate": "Affiliate",
-                    "non_member": "Not a Member",
-                }
-                status = mapping.get(status_db, status_db or "Not a Member")
+                moniker_db, handle_db, main_orgs_json, affiliate_orgs_json = row
                 moniker = moniker_db
                 handle = handle_db
                 # Parse JSON org lists
                 main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
                 affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+
+                # Derive status from org lists for this guild
+                if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+                    try:
+                        guild_org_sid = await bot.services.guild_config.get_setting(
+                            member.guild.id, "organization.sid", default="TEST"
+                        )
+                        # Remove JSON quotes if present
+                        if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
+                            guild_org_sid = guild_org_sid.strip('"')
+                        status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+                    except Exception as e:
+                        logger.debug(f"Failed to get guild org SID for status derivation: {e}")
+                        status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
+                else:
+                    # Fallback to TEST if services not available
+                    status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 

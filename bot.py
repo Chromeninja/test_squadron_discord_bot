@@ -242,7 +242,7 @@ class MyBot(commands.Bot):
                 nonmember_role_ids = await self.services.config.get_guild_setting(
                     guild.id, "roles.nonmember_role", []
                 )
-                
+
                 # Extract first role ID from each list
                 role_ids = []
                 if main_role_ids and len(main_role_ids) > 0:

@@ -37,11 +37,11 @@ RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 async def get_org_name(bot, guild_id: int) -> str:
     """
     Get organization name from config service.
-    
+
     Args:
         bot: Bot instance with config service
         guild_id: Guild ID for config lookup
-        
+
     Returns:
         Organization name (defaults to 'TEST' if not configured)
     """
@@ -63,11 +63,11 @@ async def get_org_name(bot, guild_id: int) -> str:
 async def get_org_sid(bot, guild_id: int) -> str | None:
     """
     Get organization SID from config service.
-    
+
     Args:
         bot: Bot instance with config service
         guild_id: Guild ID for config lookup
-        
+
     Returns:
         Organization SID (uppercase) or None if not configured
     """
@@ -124,7 +124,7 @@ class HandleModal(Modal, title="Verification"):
             return
 
         member = interaction.user
-        
+
         # Check rate limit FIRST before processing anything
         rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
@@ -135,9 +135,9 @@ class HandleModal(Modal, title="Verification"):
                 extra={"user_id": member.id}
             )
             return
-        
+
         rsi_handle_input = self.rsi_handle.value.strip()
-        
+
         # DEBUG: Log guild context
         logger.info(
             f"HandleModal.on_submit: interaction.guild={interaction.guild.name} ({interaction.guild.id}), "

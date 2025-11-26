@@ -94,7 +94,7 @@ class RSIClient:
             html_content is None if request failed
         """
         await self.rate_limiter.acquire()
-        
+
         session = await self._get_session()
         try:
             async with session.get(

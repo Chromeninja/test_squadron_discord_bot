@@ -22,21 +22,21 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
     ix = FakeInteraction(FakeUser(7, "TestUser"))
     defer_called = False
     followup_called = False
-    
+
     async def fake_defer(ephemeral=False):
         nonlocal defer_called
         defer_called = True
         assert ephemeral is True
-    
+
     async def fake_followup_send(content, ephemeral=False, embed=None, **kwargs):
         nonlocal followup_called
         followup_called = True
         assert ephemeral is True
         assert embed is not None
-    
+
     ix.response.defer = fake_defer
     ix.followup.send = fake_followup_send
-    
+
     await view.get_token_button_callback(ix)
     assert defer_called is True
     assert followup_called is True
@@ -48,7 +48,7 @@ async def test_verify_button_opens_modal_when_not_rate_limited(
 ) -> None:
     view = VerificationView(mock_bot)
     # No longer need to patch check_rate_limit - it's been removed from button callback
-    
+
     ix = FakeInteraction(FakeUser(8, "VerifUser"))
     await view.verify_button_callback(ix)
     # The FakeResponse stores the modal

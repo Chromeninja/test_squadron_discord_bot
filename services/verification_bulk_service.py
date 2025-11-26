@@ -60,7 +60,7 @@ class BulkVerificationJob:
 class VerificationBulkService:
     """
     Service for managing bulk verification status check jobs.
-    
+
     Processes jobs sequentially with batching and rate limiting.
     Signals auto-recheck to pause when manual checks are running.
     """
@@ -119,7 +119,7 @@ class VerificationBulkService:
     ) -> int:
         """
         Enqueue a manual admin-initiated bulk check job.
-        
+
         Returns:
             job_id for tracking
         """
@@ -263,7 +263,7 @@ class VerificationBulkService:
 
     async def _fetch_batch_status(self, job: BulkVerificationJob, members: list[discord.Member]) -> None:
         """Fetch verification status rows for a batch of members.
-        
+
         If job.recheck_rsi is True, performs live RSI verification for each member.
         """
         try:
@@ -298,7 +298,7 @@ class VerificationBulkService:
 
         Args:
             status_rows: List of StatusRow objects from DB (max 50 per batch)
-            
+
         Returns:
             Updated list of StatusRow objects with RSI recheck data
         """
@@ -311,7 +311,7 @@ class VerificationBulkService:
         # Create concurrent tasks for all handles
         async def check_single_handle(row: StatusRow) -> RsiStatusResult:
             """Check a single RSI handle and return structured result.
-            
+
             Rate limiting is handled by HTTPClient's semaphore (concurrency=3)
             and 0.5s delay between requests.
             """
@@ -327,7 +327,7 @@ class VerificationBulkService:
                         ctx.guild.id, "organization.name", default="test"
                     )
                     org_name = org_name_config.strip().lower() if org_name_config else "test"
-                    
+
                     org_sid_config = await self.bot.services.guild_config.get_setting(
                         ctx.guild.id, "organization.sid", default=None
                     )

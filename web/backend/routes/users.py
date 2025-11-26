@@ -16,6 +16,7 @@ from core.dependencies import (
     require_admin_or_moderator,
 )
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
+from core.guild_settings import get_organization_settings
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -117,6 +118,36 @@ def _placeholder_member(user_id: int) -> dict:
 router = APIRouter()
 
 
+def _derive_status_from_orgs(
+    main_orgs: list[str] | None,
+    affiliate_orgs: list[str] | None,
+    organization_sid: str | None,
+) -> str:
+    """Derive membership status from org lists and optional org SID.
+
+    - If SID provided, match exactly; else fallback to non-empty list heuristic.
+    - Both lists empty => non_member; both None => unknown.
+    """
+    if main_orgs is None and affiliate_orgs is None:
+        return "unknown"
+
+    mo = [s.upper() for s in (main_orgs or [])]
+    ao = [s.upper() for s in (affiliate_orgs or [])]
+
+    if organization_sid:
+        sid = organization_sid.upper()
+        if sid in mo:
+            return "main"
+        if sid in ao:
+            return "affiliate"
+
+    if mo:
+        return "main"
+    if ao:
+        return "affiliate"
+    return "non_member"
+
+
 @router.get("/search", response_model=UserSearchResponse)
 async def search_users(
     query: str = Query("", description="Search by user_id, rsi_handle, or community_moniker"),
@@ -154,7 +185,7 @@ async def search_users(
         cursor = await db.execute(
             """
             SELECT 
-                user_id, rsi_handle, membership_status, 
+                user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
             FROM verification
@@ -178,7 +209,7 @@ async def search_users(
             cursor = await db.execute(
                 """
                 SELECT 
-                    user_id, rsi_handle, membership_status,
+                    user_id, rsi_handle,
                     community_moniker, last_updated, needs_reverify,
                     main_orgs, affiliate_orgs
                 FROM verification
@@ -205,7 +236,7 @@ async def search_users(
             cursor = await db.execute(
                 """
                 SELECT 
-                    user_id, rsi_handle, membership_status,
+                    user_id, rsi_handle,
                     community_moniker, last_updated, needs_reverify,
                     main_orgs, affiliate_orgs
                 FROM verification
@@ -219,17 +250,22 @@ async def search_users(
 
     # Convert rows to VerificationRecord objects
     items = []
+    # Derive membership status for the current guild if possible
+    org_settings = await get_organization_settings(db, int(current_user.active_guild_id) if current_user.active_guild_id else 0)
+    organization_sid = org_settings.get("organization_sid") if org_settings else None
+
     for row in rows:
-        main_orgs = json.loads(row[6]) if row[6] else None
-        affiliate_orgs = json.loads(row[7]) if row[7] else None
+        main_orgs = json.loads(row[5]) if row[5] else None
+        affiliate_orgs = json.loads(row[6]) if row[6] else None
+        derived_status = _derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
         items.append(
             VerificationRecord(
                 user_id=row[0],
                 rsi_handle=row[1],
-                membership_status=row[2],
-                community_moniker=row[3],
-                last_updated=row[4],
-                needs_reverify=bool(row[5]),
+                membership_status=derived_status,
+                community_moniker=row[2],
+                last_updated=row[3],
+                needs_reverify=bool(row[4]),
                 main_orgs=main_orgs,
                 affiliate_orgs=affiliate_orgs,
             )
@@ -307,7 +343,7 @@ async def list_users(
 
     Combines verification table data with Discord member information.
     When 'unknown' status is selected, fetches all Discord members and filters out verified ones.
-    
+
     Query params:
     - page: Page number (1-indexed)
     - page_size: Items per page (10, 25, 50, or 100)
@@ -338,49 +374,58 @@ async def list_users(
         single_value=membership_status,
     )
 
-    placeholders_clause = ""
-    query_params: list[str] = []
-    if status_filters:
-        placeholders_clause = ",".join("?" * len(status_filters))
-
-    where_clauses: list[str] = []
-    if status_filters:
-        where_clauses.append(
-            f"LOWER(COALESCE(membership_status, 'unknown')) IN ({placeholders_clause})"
-        )
-        query_params.extend(status_filters)
-
-    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-
-    count_query = f"SELECT COUNT(*) FROM verification {where_sql}"
-    count_cursor = await db.execute(count_query, list(query_params))
+    # Fetch all and filter in Python using derived status
+    count_cursor = await db.execute("SELECT COUNT(*) FROM verification")
     count_row = await count_cursor.fetchone()
     base_total = count_row[0] if count_row else 0
 
     cursor = await db.execute(
-        f"""
+        """
         SELECT 
-            user_id, rsi_handle, membership_status,
+            user_id, rsi_handle,
             community_moniker, last_updated, needs_reverify,
             main_orgs, affiliate_orgs
         FROM verification
-        {where_sql}
         ORDER BY last_updated DESC
-        LIMIT ? OFFSET ?
         """,
-        list(query_params) + [page_size, offset],
     )
 
-    rows = await cursor.fetchall()
+    rows_all = await cursor.fetchall()
+
+    # Get org SID
+    org_settings = await get_organization_settings(db, guild_id)
+    organization_sid = org_settings.get("organization_sid") if org_settings else None
+
+    # Build derived rows with status and apply filters
+    derived_rows: list[tuple] = []
+    for row in rows_all:
+        main_orgs = json.loads(row[5]) if row[5] else None
+        affiliate_orgs = json.loads(row[6]) if row[6] else None
+        status = _derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
+        if status_filters and status not in status_filters:
+            continue
+        derived_rows.append((
+            row[0],  # user_id
+            row[1],  # rsi_handle
+            status,  # derived status
+            row[2],  # community_moniker
+            row[3],  # last_updated
+            row[4],  # needs_reverify
+            main_orgs,
+            affiliate_orgs,
+        ))
+
+    total_filtered = len(derived_rows)
+    start = offset
+    end = offset + page_size
+    rows = derived_rows[start:end]
 
     # Enrich with Discord data
     items: list[EnrichedUser] = []
     for row in rows:
         user_id = row[0]
-        
-        # Parse org JSON arrays
-        main_orgs = json.loads(row[6]) if row[6] else None
-        affiliate_orgs = json.loads(row[7]) if row[7] else None
+        main_orgs = row[6]
+        affiliate_orgs = row[7]
 
         # Fetch Discord member info with caching
         try:
@@ -408,8 +453,8 @@ async def list_users(
             )
         )
 
-    total_pages = (base_total + page_size - 1) // page_size if base_total > 0 else 0
-    total_value = base_total
+    total_pages = (total_filtered + page_size - 1) // page_size if total_filtered > 0 else 0
+    total_value = total_filtered
 
     return UsersListResponse(
         success=True,
@@ -475,7 +520,7 @@ async def export_users(
         cursor = await db.execute(
             f"""
             SELECT 
-                user_id, rsi_handle, membership_status,
+                user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
             FROM verification
@@ -485,31 +530,19 @@ async def export_users(
             user_ids,
         )
     else:
-        where_clauses = []
-        query_params: list[str] = []
-        if status_filters:
-            placeholders = ",".join("?" * len(status_filters))
-            where_clauses.append(
-                f"LOWER(COALESCE(membership_status, 'unknown')) IN ({placeholders})"
-            )
-            query_params.extend(status_filters)
-
-        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-
+        # Fetch all; we'll filter by derived status in Python
         cursor = await db.execute(
-            f"""
+            """
             SELECT 
-                user_id, rsi_handle, membership_status,
+                user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
             FROM verification
-            {where_sql}
             ORDER BY last_updated DESC
             """,
-            query_params,
         )
 
-    rows = await cursor.fetchall()
+    rows_all = await cursor.fetchall()
     exclude_ids = {str(uid) for uid in (request.exclude_ids or [])}
 
     # Build CSV
@@ -523,8 +556,12 @@ async def export_users(
         "needs_reverify", "role_ids", "role_names", "main_orgs", "affiliate_orgs"
     ])
 
+    # Org settings for derivation
+    org_settings = await get_organization_settings(db, guild_id)
+    organization_sid = org_settings.get("organization_sid") if org_settings else None
+
     # Data rows with Discord enrichment and role filtering
-    for row in rows:
+    for row in rows_all:
         user_id = row[0]
 
         # Skip excluded IDs (only when not using selected_ids)
@@ -544,21 +581,26 @@ async def export_users(
         role_names = ",".join(r["name"] for r in roles)
 
         # Parse org JSON arrays
-        main_orgs_list = json.loads(row[6]) if row[6] else []
-        affiliate_orgs_list = json.loads(row[7]) if row[7] else []
+        main_orgs_list = json.loads(row[5]) if row[5] else []
+        affiliate_orgs_list = json.loads(row[6]) if row[6] else []
+        derived_status = _derive_status_from_orgs(main_orgs_list, affiliate_orgs_list, organization_sid)
+
+        # Apply status filters if present (only when not using selected_ids)
+        if not request.selected_ids and status_filters and derived_status not in status_filters:
+            continue
         main_orgs_str = ";".join(main_orgs_list) if main_orgs_list else ""
         affiliate_orgs_str = ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
-        
+
         writer.writerow([
             str(user_id),
             username,
-            row[2] or "",  # membership_status
-            row[1] or "",  # rsi_handle
-            row[3] or "",  # community_moniker
+            derived_status or "",
+            row[1] or "",
+            row[2] or "",
             joined_at,
             created_at,
-            row[4] or "",  # last_updated
-            "Yes" if row[5] else "No",  # needs_reverify
+            row[3] or "",
+            "Yes" if row[4] else "No",
             role_ids,
             role_names,
             main_orgs_str,

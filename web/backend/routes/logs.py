@@ -25,12 +25,12 @@ async def export_logs(
 ):
     """
     Export bot logs as downloadable file (admin only).
-    
+
     Returns the tail of the main bot log file.
-    
+
     Query params:
     - max_bytes: Maximum bytes to read (1KB-5MB, default 1MB)
-    
+
     Requires: Admin role
     """
     try:

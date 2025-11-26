@@ -60,10 +60,10 @@ def _normalize_guild_id(raw_value) -> str | None:
 
 def _has_administrator_permission(permissions_str: str | None) -> bool:
     """Check if user has Discord administrator permission from bitfield.
-    
+
     Args:
         permissions_str: Permission bitfield as string from Discord API
-        
+
     Returns:
         True if user has administrator permission (0x8 bit set)
     """
@@ -371,7 +371,7 @@ async def get_available_guilds(
     Return guilds where:
     1. The bot is currently installed (from internal API)
     2. The user has admin/moderator permissions (from authorized_guild_ids)
-    
+
     This ensures users only see guilds they can manage and where the bot is active.
     """
     try:
@@ -462,9 +462,9 @@ async def get_bot_invite_url(
 ):
     """
     Get Discord bot authorization URL for inviting bot to a server.
-    
+
     Uses bot permissions from config and sets redirect URI to bot callback endpoint.
-    
+
     Returns:
         JSON with invite_url field
     """
@@ -504,15 +504,15 @@ async def bot_authorization_callback(
 ):
     """
     Handle Discord redirect after bot authorization.
-    
+
     Discord redirects here after user adds bot to a server.
     We redirect user back to the frontend SelectServer page.
-    
+
     Query params:
         guild_id: Guild where bot was added (if successful)
         error: Error code if authorization failed
         error_description: Human-readable error description
-        
+
     Returns:
         Redirect to frontend SelectServer page
     """
@@ -541,9 +541,9 @@ async def clear_active_guild(
 ):
     """
     Clear the active guild from session, forcing user to SelectServer screen.
-    
+
     Used by 'Switch Server' button in dashboard.
-    
+
     Returns:
         Success response
     """

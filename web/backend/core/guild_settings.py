@@ -281,7 +281,7 @@ async def set_organization_settings(
     """Persist organization settings for a guild."""
     # Normalize SID to uppercase if provided
     normalized_sid = organization_sid.upper() if organization_sid else None
-    
+
     payloads = [
         (ORGANIZATION_SID_KEY, json.dumps(normalized_sid)),
         (ORGANIZATION_NAME_KEY, json.dumps(organization_name)),

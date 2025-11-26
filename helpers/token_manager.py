@@ -29,7 +29,7 @@ def generate_token(user_id: int) -> str:
             f"Token store size ({len(token_store)}) exceeds maximum ({MAX_TOKEN_STORE_SIZE}), forcing cleanup"
         )
         cleanup_tokens()
-    
+
     token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
     expires_at = time.time() + TOKEN_EXPIRATION_TIME
     token_store[user_id] = {"token": token, "expires_at": expires_at}

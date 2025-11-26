@@ -363,19 +363,19 @@ class VoiceService(BaseService):
         self, guild_id: int, user_id: int
     ) -> asyncio.Lock:
         """Get or create a per-user lock for voice channel creation.
-        
+
         All channel creation must use per-user locks to prevent race conditions.
         This prevents the same user from creating multiple channels concurrently,
         even across different JTC entry points.
-        
+
         TODO: Consider adding asyncio.wait_for(lock.acquire(), timeout=5.0) if
         deadlocks are observed in production. Current implementation trusts the
         lock will be released promptly by scheduled unmark tasks.
-        
+
         Args:
             guild_id: Discord guild ID
             user_id: Discord user ID
-            
+
         Returns:
             asyncio.Lock for this specific user in this guild
         """
@@ -948,10 +948,10 @@ class VoiceService(BaseService):
 
     async def get_admin_role_ids(self, guild_id: int) -> list[int]:
         """Get admin role IDs from configuration for a specific guild.
-        
+
         Args:
             guild_id: The Discord guild ID to get admin roles for
-            
+
         Returns:
             List of role IDs that have admin permissions
         """
@@ -974,13 +974,13 @@ class VoiceService(BaseService):
     def get_voice_channel_members(self, channel_id: int) -> list[int]:
         """
         Get list of user IDs currently in a voice channel.
-        
+
         This data comes from the Gateway cache (no Discord API calls).
         Returns empty list if channel has no members or is not cached.
-        
+
         Args:
             channel_id: Discord voice channel ID
-            
+
         Returns:
             List of user IDs currently in the channel
         """
@@ -1229,7 +1229,7 @@ class VoiceService(BaseService):
 
             # Get per-user creation lock to prevent race conditions
             lock = await self._get_creation_lock(guild.id, member.id)
-            
+
             if self.debug_logging_enabled:
                 self.logger.debug(
                     f"Acquired per-user lock for {member.display_name} (ID: {member.id}) in guild {guild.id}"
@@ -1277,7 +1277,7 @@ class VoiceService(BaseService):
                 # Mark user as creating to prevent duplicate events during channel creation
                 self._mark_user_creating(guild.id, member.id)
                 creation_marked = True
-                
+
                 if self.debug_logging_enabled:
                     self.logger.debug(
                         f"Marked user {member.id} as creating channel in guild {guild.id}"
@@ -1581,7 +1581,7 @@ class VoiceService(BaseService):
         self, guild_id: int, jtc_channel_id: int, user_id: int, channel_id: int
     ) -> None:
         """Store user channel in database with atomic transaction to prevent duplicates.
-        
+
         Uses explicit transaction with SELECT + INSERT to ensure only one active channel
         per user per JTC exists in the database, preventing TOCTOU race conditions.
         """
@@ -1589,7 +1589,7 @@ class VoiceService(BaseService):
             async with Database.get_connection() as db:
                 # Begin explicit transaction for atomicity
                 await db.execute("BEGIN EXCLUSIVE TRANSACTION")
-                
+
                 try:
                     # Check if there's already an active channel for this user in this JTC
                     # This SELECT happens inside the transaction, preventing TOCTOU
@@ -1708,10 +1708,10 @@ class VoiceService(BaseService):
                     """,
                         (guild_id, jtc_channel_id, user_id, channel_id, int(time.time()), int(time.time()), 1),
                     )
-                    
+
                     # Commit transaction
                     await db.commit()
-                    
+
                     if self.debug_logging_enabled:
                         self.logger.info(
                             "DB: insert_complete guild=%s jtc=%s user=%s old_channel=%s new_channel=%s",
@@ -1721,7 +1721,7 @@ class VoiceService(BaseService):
                             existing_channel_id,
                             channel_id,
                         )
-                    
+
                 except Exception as e:
                     # Rollback on any error
                     await db.rollback()
@@ -1841,7 +1841,7 @@ class VoiceService(BaseService):
     async def _reconcile_jtc_members_on_startup(self) -> None:
         """
         Reconcile members in JTC channels after bot restart.
-        
+
         DOES NOT create new channels. Only moves users back to existing channels
         if they have one. Users without existing channels must rejoin the JTC
         channel to trigger creation (prevents startup spam and race conditions).
@@ -1924,11 +1924,11 @@ class VoiceService(BaseService):
                                             (guild.id, jtc_id, member.id),
                                         )
                                         row = await cursor.fetchone()
-                                    
+
                                     if row:
                                         existing_channel_id = row[0]
                                         existing_channel = guild.get_channel(existing_channel_id)
-                                        
+
                                         if existing_channel and isinstance(existing_channel, discord.VoiceChannel):
                                             # Move user back to their existing channel
                                             try:

@@ -286,14 +286,13 @@ class AdminCog(commands.Cog):
         """
         Reset verification timers for all members. Bot Admins only.
         """
-        from helpers.discord_api import send_message
         from helpers.rate_limiter import reset_all_attempts
         from helpers.token_manager import clear_all_tokens
 
         self.logger.info(
             f"'reset-all' command triggered by user {interaction.user.id}."
         )
-        
+
         # Defer immediately before async operations
         await interaction.response.defer(ephemeral=True)
 
@@ -321,14 +320,13 @@ class AdminCog(commands.Cog):
         """
         Reset a specific user's verification timer. Bot Admins and Lead Moderators.
         """
-        from helpers.discord_api import send_message
         from helpers.rate_limiter import reset_attempts
         from helpers.token_manager import clear_token
 
         self.logger.info(
             f"'reset-user' command triggered by user {interaction.user.id} for member {member.id}."
         )
-        
+
         # Defer immediately before async operations
         await interaction.response.defer(ephemeral=True)
 
@@ -354,15 +352,14 @@ class AdminCog(commands.Cog):
     async def flush_announcements(self, interaction: discord.Interaction) -> None:
         """
         Force flush the pending announcement queue immediately.
-        
+
         This will post all pending member join/promotion announcements to the
         public announcement channel instead of waiting for the daily scheduled time
         or threshold trigger. Bot Admins only.
         """
-        from helpers.discord_api import send_message
-        
         self.logger.info(
-            f"'flush-announcements' command triggered by user {interaction.user.id} ({interaction.user.display_name})."
+            f"'flush-announcements' command triggered by user {interaction.user.id} "
+            f"({interaction.user.display_name})."
         )
 
         await interaction.response.defer(ephemeral=True)
@@ -380,7 +377,7 @@ class AdminCog(commands.Cog):
 
             # Get pending count before flushing
             pending_count = await announcer._count_pending()
-            
+
             if pending_count == 0:
                 await interaction.followup.send(
                     "ℹ️ No pending announcements in queue.",
@@ -397,9 +394,9 @@ class AdminCog(commands.Cog):
                 f"flush-announcements: flushing {pending_count} pending events",
                 extra={"user_id": interaction.user.id}
             )
-            
+
             sent = await announcer.flush_pending()
-            
+
             if sent:
                 await interaction.followup.send(
                     f"✅ Successfully flushed announcement queue! Posted {pending_count} pending event(s) to public announcement channels.",
@@ -411,7 +408,8 @@ class AdminCog(commands.Cog):
                 )
             else:
                 await interaction.followup.send(
-                    f"⚠️ Flush completed but no announcements were sent. Check that public announcement channels are configured.",
+                    "⚠️ Flush completed but no announcements were sent. "
+                    "Check that public announcement channels are configured.",
                     ephemeral=True
                 )
                 self.logger.warning(
@@ -571,7 +569,6 @@ class AdminCog(commands.Cog):
         try:
             from helpers.announcement import (
                 canonicalize_status_for_display,
-                enqueue_verification_event,
                 send_admin_recheck_notification,
             )
             from helpers.leadership_log import ChangeSet, EventType
@@ -672,12 +669,13 @@ class AdminCog(commands.Cog):
             # Handle admin announcements and bulk announcer for recheck results
             admin_response_message = ""
             try:
-                # Extract old and new status from result
+                # Extract old and new status from result (both are already in database format)
                 old_status_raw = None
                 new_status_raw = None
 
                 if success and role_assignment_result:
                     # role_assignment_result is the tuple (old_status, new_status) from assign_roles
+                    # Both values are in database format ("main", "affiliate", "non_member")
                     if (
                         isinstance(role_assignment_result, tuple | list)
                         and len(role_assignment_result) >= 2
@@ -686,32 +684,35 @@ class AdminCog(commands.Cog):
                             role_assignment_result[0],
                             role_assignment_result[1],
                         )
-                    else:
-                        # Fallback: try to get from diff
-                        old_status_raw = getattr(diff, "status_before", None)
-                        new_status_raw = getattr(diff, "status_after", None)
-                else:
-                    # Fallback: get from diff snapshots
+
+                # Fallback to diff snapshots if needed (also in database format now)
+                if not old_status_raw:
                     old_status_raw = getattr(diff, "status_before", None)
+                if not new_status_raw:
                     new_status_raw = getattr(diff, "status_after", None)
 
-                # Use helper functions for canonical display
-                old_status_pretty = canonicalize_status_for_display(old_status_raw)
-                new_status_pretty = canonicalize_status_for_display(new_status_raw)
+                # Final fallback to "unknown" if still None
+                if not old_status_raw:
+                    old_status_raw = "unknown"
+                if not new_status_raw:
+                    new_status_raw = "unknown"
 
-                # Send admin notification to admin announcements channel using updated helper
+                # Send admin notification to admin announcements channel
+                # The notification function will handle display formatting internally
                 notification_sent, status_changed = (
                     await send_admin_recheck_notification(
                         bot=self.bot,
                         admin_display_name=interaction.user.display_name,
                         member=member,
-                        old_status=old_status_raw or "unknown",
-                        new_status=new_status_raw or "unknown",
+                        old_status=old_status_raw,
+                        new_status=new_status_raw,
                     )
                 )
 
-                # Note: enqueue_verification_event() is called by assign_roles() -> reverify_member()
-                # so we don't need to call it again here (avoids redundant DB operations)
+                # Format status for user-facing response message
+                old_status_pretty = canonicalize_status_for_display(old_status_raw)
+                new_status_pretty = canonicalize_status_for_display(new_status_raw)
+
                 if status_changed:
                     admin_response_message = f"✅ Recheck complete: {member.mention} status changed from {old_status_pretty} to {new_status_pretty}"
                 else:

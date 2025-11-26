@@ -15,12 +15,12 @@ DEFAULT_RATE_LIMITS = {
 async def _get_limits(guild_config, guild_id: int, action: str) -> tuple[int, int]:
     """
     Get rate limit configuration for a specific guild and action.
-    
+
     Args:
         guild_config: GuildConfigHelper instance
         guild_id: Discord guild ID
         action: Rate limit action type ("verification" or "recheck")
-    
+
     Returns:
         Tuple of (max_attempts, window_seconds)
     """
@@ -56,7 +56,7 @@ async def check_rate_limit(
 ) -> tuple[bool, int]:
     """
     Check if user has hit rate limit. Supports both old and new call patterns.
-    
+
     Old pattern: check_rate_limit(user_id, "verification")
     New pattern: check_rate_limit(guild_config, guild_id, user_id, "verification")
     """
@@ -100,7 +100,7 @@ async def get_remaining_attempts(
 ) -> int:
     """
     Get remaining attempts for user. Supports both old and new call patterns.
-    
+
     Old pattern: get_remaining_attempts(user_id, "verification")
     New pattern: get_remaining_attempts(guild_config, guild_id, user_id, "verification")
     """
@@ -136,7 +136,7 @@ async def reset_attempts(user_id: int) -> None:
 async def cleanup_attempts() -> None:
     """
     Clean up expired rate limit entries (all guilds).
-    
+
     Note: Uses default windows for cleanup. This is a background task that
     runs periodically to clean up old data across all guilds.
     """

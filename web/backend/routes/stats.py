@@ -24,7 +24,7 @@ async def get_stats_overview(
     Get dashboard statistics overview.
 
     Returns verification totals, status breakdown, and active voice channel count.
-    
+
     The "unknown" count represents all guild members who have not completed verification,
     calculated as: total_guild_members - (main + affiliate + non_member).
 
@@ -56,32 +56,49 @@ async def get_stats_overview(
     row = await cursor.fetchone()
     total_verified = row[0] if row else 0
 
-    # Count by membership status (only users in verification table)
+    # Count by membership status derived from org lists for this guild
+    import json
+    from services.db.database import derive_membership_status
+
+    # Get guild's tracked organization SID
+    guild_org_sid = "TEST"  # Default
+    if guild_id:
+        cursor = await db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
+            (guild_id,)
+        )
+        row = await cursor.fetchone()
+        if row and row[0]:
+            guild_org_sid = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
+                try:
+                    guild_org_sid = json.loads(guild_org_sid)
+                except Exception:
+                    pass
+
+    # Derive status for each verified user based on their org lists
     cursor = await db.execute(
-        """
-        SELECT 
-            membership_status,
-            COUNT(*) as count
-        FROM verification
-        GROUP BY membership_status
-        """
+        "SELECT main_orgs, affiliate_orgs FROM verification"
     )
     rows = await cursor.fetchall()
 
     status_counts = StatusCounts()
     for row in rows:
-        status = (row[0] or "unknown").lower()
-        count = row[1]
+        main_orgs_json, affiliate_orgs_json = row
+        # Treat NULL org lists as "unknown" (not counted in main/affiliate/non_member)
+        if main_orgs_json is None and affiliate_orgs_json is None:
+            continue
+        main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
+        affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+
+        status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
 
         if status == "main":
-            status_counts.main = count
+            status_counts.main += 1
         elif status == "affiliate":
-            status_counts.affiliate = count
+            status_counts.affiliate += 1
         elif status == "non_member":
-            status_counts.non_member = count
-        else:
-            # Users with status="unknown" or "unverified" in DB
-            status_counts.unknown += count
+            status_counts.non_member += 1
 
     # Calculate true unverified count: all guild members who aren't verified
     # This includes both users with status="unknown" in DB AND users not in DB at all

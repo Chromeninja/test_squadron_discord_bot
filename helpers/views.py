@@ -168,7 +168,7 @@ class VerificationView(View):
         """
         # Defer immediately to prevent timeout during async operations
         await interaction.response.defer(ephemeral=True)
-        
+
         member = interaction.user
         rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:

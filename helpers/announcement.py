@@ -103,7 +103,7 @@ async def send_admin_recheck_notification(
     """
     guild = member.guild
     guild_config = bot.services.guild_config
-    
+
     # DEBUG: Log member guild context
     logger.info(
         f"send_admin_recheck_notification called: member.id={member.id}, "
@@ -189,7 +189,7 @@ async def send_verification_announcements(
     admin_phrase = ""
     if is_recheck and by_admin and by_admin != getattr(member, "display_name", None):
         admin_phrase = f" (**{by_admin}** Initiated)"
-    
+
     # Fetch organization SID for dynamic status strings
     org_sid = "ORG"
     if hasattr(bot, 'services') and bot.services.guild_config:
@@ -230,11 +230,11 @@ async def send_admin_bulk_check_summary(
 ) -> str:
     """
     Send bulk verification check summary to leadership/admin announcement channel.
-    
+
     Posts a single message containing:
     - Detailed embed with requester, scope, channel, counts, and per-user info
     - CSV attachment with complete results
-    
+
     Args:
         bot: Bot instance with config
         guild: Discord guild
@@ -244,10 +244,10 @@ async def send_admin_bulk_check_summary(
         embed: Pre-built summary embed
         csv_bytes: CSV file content as bytes
         csv_filename: Filename for the CSV attachment
-        
+
     Returns:
         Channel name (e.g., "leadership-announcements") for user acknowledgment
-        
+
     Raises:
         Exception if channel not configured or message fails to send
     """
@@ -293,12 +293,25 @@ async def send_admin_bulk_check_summary(
 def _classify_event(old_status: str, new_status: str) -> str | None:
     """
     Map a status transition to an announceable event type.
-    
-    Treats 'unknown' as equivalent to 'non_member' for classification.
+
+    Only promotions are announced:
+    - non_member → main: "joined_main"
+    - non_member → affiliate: "joined_affiliate"
+    - affiliate → main: "promoted_to_main"
+
+    Demotions return None (not announced).
+    Treats "unknown" as equivalent to "non_member" for classification.
+
+    Args:
+        old_status: Previous membership status
+        new_status: New membership status
+
+    Returns:
+        Event type string for promotions, None for demotions/no-change
     """
     o = (old_status or "").lower().strip()
     n = (new_status or "").lower().strip()
-    
+
     # Normalize 'unknown' to 'non_member' (defensive edge case handling)
     if o == "unknown":
         o = "non_member"
@@ -308,13 +321,74 @@ def _classify_event(old_status: str, new_status: str) -> str | None:
     if not o or not n or o == n:
         return None
 
+    # Promotions only
     if n == "main" and o == "non_member":
         return "joined_main"
     if n == "affiliate" and o == "non_member":
         return "joined_affiliate"
     if o == "affiliate" and n == "main":
         return "promoted_to_main"
+
+    # Demotions (main→affiliate, main→non_member, affiliate→non_member) are not announced
     return None
+
+
+async def enqueue_announcement_for_guild(
+    bot,
+    member: discord.Member,
+    main_orgs: list[str] | None,
+    affiliate_orgs: list[str] | None,
+    prev_main_orgs: list[str] | None,
+    prev_affiliate_orgs: list[str] | None,
+) -> None:
+    """
+    Guild-aware announcement enqueuing that derives status from org lists.
+
+    Compares previous and current org lists to determine status change for THIS guild's
+    tracked organization, then enqueues if it's a promotion (not a demotion).
+
+    Args:
+        bot: Bot instance with services
+        member: Discord member being verified/rechecked
+        main_orgs: Current main organization SIDs
+        affiliate_orgs: Current affiliate organization SIDs
+        prev_main_orgs: Previous main organization SIDs (None if initial verification)
+        prev_affiliate_orgs: Previous affiliate organization SIDs (None if initial verification)
+    """
+    from services.db.database import derive_membership_status
+
+    try:
+        # Get this guild's tracked organization SID
+        guild_org_sid = "TEST"  # Default fallback
+        if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+            try:
+                guild_org_sid = await bot.services.guild_config.get_setting(
+                    member.guild.id, "organization.sid", default="TEST"
+                )
+                # Remove JSON quotes if present
+                if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
+                    guild_org_sid = guild_org_sid.strip('"')
+            except Exception as e:
+                logger.debug(f"Failed to get guild org SID, using TEST: {e}")
+
+        # Derive status for this guild before and after
+        old_status = derive_membership_status(prev_main_orgs, prev_affiliate_orgs, guild_org_sid)
+        new_status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+
+        # Log for debugging
+        logger.debug(
+            f"Guild {member.guild.id} announcement check: {old_status} → {new_status} "
+            f"(org: {guild_org_sid})",
+            extra={"user_id": member.id}
+        )
+
+        # Enqueue if it's a promotion
+        await enqueue_verification_event(member, old_status, new_status)
+
+    except Exception as e:
+        logger.warning(
+            f"Failed to enqueue guild-aware announcement for user {member.id}: {e}"
+        )
 
 
 async def enqueue_verification_event(
@@ -341,11 +415,11 @@ async def enqueue_verification_event(
 
     now = int(time.time())
     guild_id = member.guild.id if member.guild else None
-    
+
     if guild_id is None:
         logger.warning(f"Cannot enqueue announcement event for user {member.id}: no guild context")
         return
-    
+
     try:
         async with Database.get_connection() as db:
             # Coalesce: drop older pending events for this user in this guild
@@ -519,25 +593,18 @@ class BulkAnnouncer(commands.Cog):
                     org_name = "Organization"
 
                 # Get public announcement channel for this guild
-                channel_id = None
+                channel = None
                 if hasattr(self.bot, 'services') and self.bot.services.guild_config:
                     try:
-                        channel_id = await self.bot.services.guild_config.get_channel(
+                        channel = await self.bot.services.guild_config.get_channel(
                             guild_id, "public_announcement_channel_id", guild
                         )
                     except Exception as e:
                         logger.warning(f"Failed to fetch announcement channel for guild {guild_id}: {e}")
 
-                if not channel_id:
-                    logger.warning(
-                        f"BulkAnnouncer: public_announcement_channel_id not configured for guild {guild_id}, skipping"
-                    )
-                    continue
-
-                channel = guild.get_channel(channel_id)
                 if not channel:
                     logger.warning(
-                        f"BulkAnnouncer: channel {channel_id} not found in guild {guild_id}, skipping"
+                        f"BulkAnnouncer: public_announcement_channel_id not configured for guild {guild_id}, skipping"
                     )
                     continue
 

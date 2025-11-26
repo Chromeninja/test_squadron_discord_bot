@@ -51,10 +51,10 @@ class ConfigService(BaseService):
     def _coerce_role_types(self, config: dict[str, Any]) -> None:
         """
         Coerce role IDs to integers at config boundary.
-        
+
         This ensures all role IDs are consistently typed throughout the codebase,
         eliminating the need for scattered int() calls.
-        
+
         Args:
             config: Configuration dictionary to normalize (modified in place)
         """

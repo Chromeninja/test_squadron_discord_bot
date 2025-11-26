@@ -49,9 +49,8 @@ async def test_no_prune_on_transient_cache_miss(temp_db) -> None:
     # Insert verification and auto_recheck_state rows
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification (user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?, ?, ?, ?)",
-            (123, "handle", "member", 1),
+            "INSERT INTO verification (user_id, rsi_handle, last_updated) VALUES (?, ?, ?)",
+            (123, "handle", 1),
         )
         await db.execute(
             "INSERT INTO auto_recheck_state (user_id, "
@@ -86,10 +85,8 @@ async def test_prune_when_member_absent_after_retry(temp_db) -> None:
     """If member is still missing after retry, rows should be deleted."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT OR REPLACE INTO verification (user_id, "
-            "rsi_handle, membership_status, last_updated) "
-            "VALUES (?, ?, ?, ?)",
-            (456, "handle2", "member", 1),
+            "INSERT OR REPLACE INTO verification (user_id, rsi_handle, last_updated) VALUES (?, ?, ?)",
+            (456, "handle2", 1),
         )
         await db.execute(
             "INSERT OR REPLACE INTO auto_recheck_state (user_id, "

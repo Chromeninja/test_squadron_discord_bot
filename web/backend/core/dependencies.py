@@ -29,11 +29,11 @@ _config_loader: ConfigLoader | None = None
 
 def translate_internal_api_error(exc: Exception, default_msg: str) -> HTTPException:
     """Translate Internal API client errors to HTTP exceptions.
-    
+
     Args:
         exc: Exception from Internal API call
         default_msg: Default error message if exception doesn't have specific details
-        
+
     Returns:
         HTTPException with appropriate status code and message
     """
@@ -150,10 +150,10 @@ async def get_current_user(
 
 def get_user_authorized_guilds(user: UserProfile) -> list[int]:
     """Get list of guild IDs the user is authorized to access.
-    
+
     Args:
         user: Authenticated user profile
-        
+
     Returns:
         List of guild IDs user has admin/mod access to
     """
@@ -162,11 +162,11 @@ def get_user_authorized_guilds(user: UserProfile) -> list[int]:
 
 def require_guild_admin(guild_id: int, user: UserProfile = Depends(get_current_user)) -> None:
     """Dependency to require user has admin access to a specific guild.
-    
+
     Args:
         guild_id: Guild ID to check access for
         user: Authenticated user profile
-        
+
     Raises:
         HTTPException: 403 if user doesn't have access to this guild
     """

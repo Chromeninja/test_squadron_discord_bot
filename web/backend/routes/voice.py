@@ -3,9 +3,11 @@ Voice channel search endpoints.
 """
 
 import os
+import json
 
 import httpx
 from core.dependencies import get_db, require_admin_or_moderator
+from core.guild_settings import get_organization_settings
 from core.schemas import (
     ActiveVoiceChannel,
     ActiveVoiceChannelsResponse,
@@ -54,7 +56,8 @@ async def list_active_voice_channels(
             vc.created_at,
             vc.last_activity,
             v.rsi_handle,
-            v.membership_status
+            v.main_orgs,
+            v.affiliate_orgs
         FROM voice_channels vc
         LEFT JOIN verification v ON vc.owner_id = v.user_id
         WHERE vc.is_active = 1
@@ -74,6 +77,29 @@ async def list_active_voice_channels(
             voice_channel_id = row[0]
             guild_id = row[1]
             owner_id = row[3]
+            # Derive owner membership status from org lists
+            owner_main_orgs = json.loads(row[7]) if row[7] else None
+            owner_aff_orgs = json.loads(row[8]) if row[8] else None
+            # Fetch org SID for guild if available
+            org_settings = await get_organization_settings(db, guild_id)
+            organization_sid = org_settings.get("organization_sid") if org_settings else None
+            def _derive(owner_main, owner_aff, sid):
+                if owner_main is None and owner_aff is None:
+                    return "unknown"
+                mo = [s.upper() for s in (owner_main or [])]
+                ao = [s.upper() for s in (owner_aff or [])]
+                if sid:
+                    s2 = sid.upper()
+                    if s2 in mo:
+                        return "main"
+                    if s2 in ao:
+                        return "affiliate"
+                if mo:
+                    return "main"
+                if ao:
+                    return "affiliate"
+                return "non_member"
+            owner_status = _derive(owner_main_orgs, owner_aff_orgs, organization_sid)
 
             try:
                 # Get channel info from Discord API (for channel name)
@@ -117,20 +143,24 @@ async def list_active_voice_channels(
                 if owner_id not in member_ids:
                     member_ids.append(owner_id)
 
-                # Get verification info for members
+                # Get verification info for members (status derived from org lists)
                 members_in_channel = []
                 if member_ids:
                     placeholders = ','.join('?' * len(member_ids))
                     members_cursor = await db.execute(
                         f"""
-                        SELECT user_id, rsi_handle, membership_status
+                        SELECT user_id, rsi_handle, main_orgs, affiliate_orgs
                         FROM verification
                         WHERE user_id IN ({placeholders})
                         """,
                         tuple(member_ids)
                     )
-                    verification_data = {row[0]: {'rsi_handle': row[1], 'membership_status': row[2]}
-                                       for row in await members_cursor.fetchall()}
+                    fetched = await members_cursor.fetchall()
+                    verification_data = {r[0]: {
+                        'rsi_handle': r[1], 
+                        'main_orgs': json.loads(r[2]) if r[2] else None,
+                        'affiliate_orgs': json.loads(r[3]) if r[3] else None
+                    } for r in fetched}
 
                     # Build members list
                     for user_id in member_ids:
@@ -155,7 +185,7 @@ async def list_active_voice_channels(
                             "username": username,
                             "display_name": verification.get('rsi_handle') or username or f"User {user_id}",
                             "rsi_handle": verification.get('rsi_handle'),
-                            "membership_status": verification.get('membership_status'),
+                            "membership_status": _derive(verification.get('main_orgs'), verification.get('affiliate_orgs'), organization_sid),
                             "is_owner": user_id == owner_id,
                         })
 
@@ -168,7 +198,7 @@ async def list_active_voice_channels(
                         created_at=row[4],
                         last_activity=row[5],
                         owner_rsi_handle=row[6],
-                        owner_membership_status=row[7],
+                        owner_membership_status=owner_status,
                         channel_name=channel_name,
                         members=members_in_channel,
                     )
@@ -188,7 +218,7 @@ async def list_active_voice_channels(
                         created_at=row[4],
                         last_activity=row[5],
                         owner_rsi_handle=row[6],
-                        owner_membership_status=row[7],
+                        owner_membership_status=owner_status,
                         channel_name=f"Channel {row[0]}",
                         members=[],
                     )

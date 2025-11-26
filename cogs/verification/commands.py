@@ -63,7 +63,7 @@ def _load_verification_message_id() -> int | None:
 def _load_verification_message_ids() -> dict[int, int]:
     """
     Load verification message IDs for all guilds from persistent storage.
-    
+
     Returns:
         Dict mapping guild_id to message_id
     """
@@ -115,7 +115,7 @@ def _save_verification_message_id(message_id: int) -> None:
 def _save_verification_message_ids(message_ids: dict[int, int]) -> None:
     """
     Save verification message IDs for all guilds to persistent storage atomically.
-    
+
     Args:
         message_ids: Dict mapping guild_id to message_id
     """

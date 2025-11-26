@@ -22,15 +22,15 @@ logger = get_logger(__name__)
 def derive_membership_status(main_orgs: list[str] | None, affiliate_orgs: list[str] | None, target_sid: str = "TEST") -> str:
     """
     Derive membership status from organization SID lists.
-    
+
     Checks if the target organization SID appears in the user's main or affiliate
     organization lists and returns the appropriate status.
-    
+
     Args:
         main_orgs: List of main organization SIDs (typically 0 or 1 item)
         affiliate_orgs: List of affiliate organization SIDs
         target_sid: Organization SID to check for (defaults to "TEST")
-        
+
     Returns:
         str: One of "main", "affiliate", or "non_member"
     """
@@ -39,19 +39,19 @@ def derive_membership_status(main_orgs: list[str] | None, affiliate_orgs: list[s
         main_orgs = []
     if not affiliate_orgs:
         affiliate_orgs = []
-    
+
     # Filter out REDACTED entries and check for target SID
     non_redacted_main = [sid for sid in main_orgs if sid != "REDACTED"]
     non_redacted_affiliate = [sid for sid in affiliate_orgs if sid != "REDACTED"]
-    
+
     # Check main organizations first
     if target_sid in non_redacted_main:
         return "main"
-    
+
     # Check affiliate organizations
     if target_sid in non_redacted_affiliate:
         return "affiliate"
-    
+
     # Not a member of the target organization
     return "non_member"
 
@@ -59,19 +59,19 @@ def derive_membership_status(main_orgs: list[str] | None, affiliate_orgs: list[s
 async def get_cross_guild_membership_status(user_id: int) -> str:
     """
     Determine a user's highest membership status across ALL guilds tracking their orgs.
-    
+
     Returns the highest status ("main", "affiliate", or "non_member") by:
     1. Fetching user's main_orgs and affiliate_orgs from verification table
     2. Finding all guilds that track ANY of those organizations
     3. Returning "main" if user is main member of ANY tracked org
     4. Returning "affiliate" if only affiliate across all tracked orgs
     5. Returning "non_member" if not a member of any tracked org
-    
+
     This is used for auto-recheck cadence: 14 days for main, 7 for affiliate, 3 for non-member.
-    
+
     Args:
         user_id: Discord user ID
-        
+
     Returns:
         str: "main", "affiliate", or "non_member"
     """
@@ -82,25 +82,25 @@ async def get_cross_guild_membership_status(user_id: int) -> str:
             (user_id,)
         )
         row = await cur.fetchone()
-        
+
         if not row:
             return "non_member"
-        
+
         main_orgs_json, affiliate_orgs_json = row
         main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
         affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
-        
+
         # Filter out REDACTED
         main_orgs = [sid for sid in main_orgs if sid != "REDACTED"]
         affiliate_orgs = [sid for sid in affiliate_orgs if sid != "REDACTED"]
-        
+
         if not main_orgs and not affiliate_orgs:
             return "non_member"
-        
+
         # Get all tracked organization SIDs from guild_settings
         # We need to find guilds where organization.sid matches any of user's orgs
         all_user_orgs = set(main_orgs + affiliate_orgs)
-        
+
         # Query guild_settings for any guild tracking these orgs
         tracked_orgs_query = """
             SELECT json_extract(value, '$') as org_sid
@@ -111,18 +111,18 @@ async def get_cross_guild_membership_status(user_id: int) -> str:
         cur = await db.execute(tracked_orgs_query)
         tracked_sids_rows = await cur.fetchall()
         tracked_sids = {row[0].strip('"').upper() for row in tracked_sids_rows if row[0]}
-        
+
         # Check intersection
         tracked_user_orgs = all_user_orgs.intersection(tracked_sids)
-        
+
         if not tracked_user_orgs:
             return "non_member"
-        
+
         # Determine highest status
         for org_sid in tracked_user_orgs:
             if org_sid in main_orgs:
                 return "main"  # Highest status
-        
+
         # If we get here, user is only affiliate in tracked orgs
         return "affiliate"
 
@@ -183,8 +183,8 @@ class Database:
             # INSERT OR IGNORE ensures idempotent behavior - no clobbering of existing rows
             await db.execute(
                 """
-                INSERT OR IGNORE INTO verification(user_id, rsi_handle, membership_status, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker)
-                VALUES (?, '', 'unknown', 0, NULL, 0, 0, NULL)
+                INSERT OR IGNORE INTO verification(user_id, rsi_handle, last_updated, verification_payload, needs_reverify, needs_reverify_at, community_moniker)
+                VALUES (?, '', 0, NULL, 0, 0, NULL)
             """,
                 (user_id,),
             )
@@ -326,15 +326,15 @@ class Database:
     ) -> tuple[bool, int]:
         """
         Atomically check and increment rate limit in a single transaction.
-        
+
         This prevents race conditions where concurrent requests could bypass limits.
-        
+
         Args:
             user_id: Discord user ID
             action: Rate limit action type ("verification" or "recheck")
             max_attempts: Maximum allowed attempts in window
             window: Time window in seconds
-            
+
         Returns:
             Tuple of (is_rate_limited, wait_until_timestamp)
             - is_rate_limited: True if user has exceeded rate limit
@@ -342,9 +342,9 @@ class Database:
         """
         # Ensure verification row exists before touching rate_limits (prevent FK errors)
         await cls.ensure_verification_row(user_id)
-        
+
         now = int(time.time())
-        
+
         async with cls.get_connection() as db:
             # Use BEGIN IMMEDIATE to acquire write lock immediately
             await db.execute("BEGIN IMMEDIATE")
@@ -354,7 +354,7 @@ class Database:
                     (user_id, action),
                 )
                 row = await cursor.fetchone()
-                
+
                 if row:
                     attempts, first = row
                     if now - first >= window:

@@ -159,13 +159,13 @@ def color_for(cs: ChangeSet) -> int:
         return RED
 
     if _changed(cs.status_before, cs.status_after):
-        # Promotion/demotion (treat Main/Affiliate/Verified variants equivalently)
+        # Promotion/demotion (database format: main, affiliate, non_member)
         after = (cs.status_after or "").lower()
         before = (cs.status_before or "").lower()
-        verified_set = {"verified", "main", "affiliate"}
+        verified_set = {"main", "affiliate"}
         if after in verified_set and before not in verified_set:
             return GREEN
-        if after == "not a member" and before in verified_set:
+        if after == "non_member" and before in verified_set:
             return RED
         return YELLOW
 
@@ -275,7 +275,7 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     add_section("Handle", cs.handle_before, cs.handle_after)
     add_section("Moniker", cs.moniker_before, cs.moniker_after)
     add_section("Username", cs.username_before, cs.username_after)
-    
+
     # Organization changes with suppression logic
     main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
     if main_orgs_changed and not _suppress_org_change(cs.main_orgs_before, cs.main_orgs_after, cs.event):
@@ -284,7 +284,7 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
             value=f"{_format_org_list(cs.main_orgs_before)} → {_format_org_list(cs.main_orgs_after)}",
             inline=False
         )
-    
+
     affiliate_orgs_changed = _orgs_changed(cs.affiliate_orgs_before, cs.affiliate_orgs_after)
     if affiliate_orgs_changed and not _suppress_org_change(cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event):
         embed.add_field(
@@ -424,7 +424,7 @@ def _format_org_list(orgs: list[str] | None) -> str:
         return "(none)"
     visible = [sid for sid in orgs if sid != "REDACTED"]
     redacted_count = len([sid for sid in orgs if sid == "REDACTED"])
-    
+
     if not visible and redacted_count > 0:
         return f"[{redacted_count} hidden]"
     elif visible and redacted_count > 0:
@@ -456,17 +456,17 @@ def _render_plaintext(cs: ChangeSet) -> str:
             moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
     handle_changed = _changed_material(cs.handle_before, cs.handle_after)
-    
+
     # Check org changes
     main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
     affiliate_orgs_changed = _orgs_changed(cs.affiliate_orgs_before, cs.affiliate_orgs_after)
-    
+
     # Suppress org changes if transitioning from null to populated during auto-check
     if main_orgs_changed and _suppress_org_change(cs.main_orgs_before, cs.main_orgs_after, cs.event):
         main_orgs_changed = False
     if affiliate_orgs_changed and _suppress_org_change(cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event):
         affiliate_orgs_changed = False
-    
+
     has_changes = (
         status_changed or moniker_changed or username_changed or handle_changed
         or main_orgs_changed or affiliate_orgs_changed
@@ -527,16 +527,16 @@ async def post_if_changed(bot, cs: ChangeSet):
             moniker_changed = False
     username_changed = _changed_material(cs.username_before, cs.username_after)
     handle_changed = _changed_material(cs.handle_before, cs.handle_after)
-    
+
     # Check org changes with suppression
     main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
     if main_orgs_changed and _suppress_org_change(cs.main_orgs_before, cs.main_orgs_after, cs.event):
         main_orgs_changed = False
-    
+
     affiliate_orgs_changed = _orgs_changed(cs.affiliate_orgs_before, cs.affiliate_orgs_after)
     if affiliate_orgs_changed and _suppress_org_change(cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event):
         affiliate_orgs_changed = False
-    
+
     has_changes = (
         status_changed or moniker_changed or username_changed or handle_changed
         or main_orgs_changed or affiliate_orgs_changed
