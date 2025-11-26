@@ -109,25 +109,19 @@ class TestVoiceReconciliation:
             MagicMock(), "Channel not found"
         )
 
-        with patch.object(Database, "get_connection") as mock_db_conn:
-            mock_db = AsyncMock()
-            mock_db_conn.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_db_conn.return_value.__aexit__ = AsyncMock(return_value=None)
+        # Mock the config service call that happens later
+        voice_service.config_service.get_global_setting = AsyncMock(
+            return_value="delayed"
+        )
 
-            # Mock the config service call that happens later
-            voice_service.config_service.get_global_setting = AsyncMock(
-                return_value="delayed"
-            )
-
+        # Mock the cleanup_by_channel_id method to verify it's called
+        with patch.object(voice_service, "cleanup_by_channel_id") as mock_cleanup:
             await voice_service._reconcile_single_channel(
                 12345, 111, 100, 201, 1234567890
             )
 
-            # Verify channel was removed from database
-            mock_db.execute.assert_called_with(
-                "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?", (111,)
-            )
-            mock_db.commit.assert_called_once()
+            # Verify cleanup was called with the correct channel ID
+            mock_cleanup.assert_called_once_with(111)
 
     @pytest.mark.asyncio
     async def test_reconcile_single_channel_with_members(self, voice_service, mock_bot):

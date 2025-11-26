@@ -166,11 +166,14 @@ class VerificationView(View):
         Checks rate limits, generates a token, logs the attempt,
         and sends an embed with the token information.
         """
+        # Defer immediately to prevent timeout during async operations
+        await interaction.response.defer(ephemeral=True)
+        
         member = interaction.user
         rate_limited, wait_until = await check_rate_limit(member.id, "verification")
         if rate_limited:
             embed = create_cooldown_embed(wait_until)
-            await send_message(interaction, "", embed=embed, ephemeral=True)
+            await interaction.followup.send("", embed=embed, ephemeral=True)
             logger.info(
                 "User reached max verification attempts.", extra={"user_id": member.id}
             )
@@ -183,7 +186,7 @@ class VerificationView(View):
 
         embed = create_token_embed(token, expires_unix)
         try:
-            await send_message(interaction, "", embed=embed, ephemeral=True)
+            await interaction.followup.send("", embed=embed, ephemeral=True)
             logger.info(f"Sent verification token to user '{member.display_name}'.")
         except Exception as e:
             logger.exception(
@@ -195,41 +198,43 @@ class VerificationView(View):
         """
         Callback for the 'Verify' button.
 
-        Checks rate limits and, if permitted, sends the HandleModal for user verification.
+        Opens the HandleModal for user verification. Rate limiting is handled
+        in the modal's on_submit method after validation.
         """
-        member = interaction.user
-        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
-        if rate_limited:
-            embed = create_cooldown_embed(wait_until)
-            await send_message(interaction, "", embed=embed, ephemeral=True)
-            logger.info(
-                "User reached max verification attempts.", extra={"user_id": member.id}
-            )
-            return
-
         modal = HandleModal(self.bot)
         try:
             await interaction.response.send_modal(modal)
         except discord.HTTPException as e:
-            if e.code != 10062:  # Not Unknown interaction (expired)
-                # Re-raise other HTTP exceptions, but log them first for debugging
-                logger.exception(
-                    f"HTTP exception (code {e.code}) in verify_button_callback: {e}"
+            if e.code == 10062:  # Unknown interaction (expired)
+                logger.warning(
+                    f"Interaction expired for user {interaction.user.display_name} ({interaction.user.id}). "
+                    "User may have taken too long to click the button."
                 )
+                # Try to send an ephemeral message explaining the issue
+                try:
+                    await interaction.followup.send(
+                        "⚠️ This verification button has expired. Please request a new verification message.",
+                        ephemeral=True,
+                    )
+                except Exception:
+                    # If even the followup fails, log it but don't crash
+                    logger.debug("Could not send expiration notice to user")
+            elif e.code == 40060:  # Interaction already acknowledged
+                logger.warning(
+                    f"Interaction already acknowledged for user {interaction.user.display_name} ({interaction.user.id}). "
+                    "User may have double-clicked the button."
+                )
+                # Try to send followup with helpful message
+                try:
+                    await interaction.followup.send(
+                        "⚠️ Please enter your RSI handle in one attempt. If you clicked multiple times, please wait and try again.",
+                        ephemeral=True,
+                    )
+                except Exception:
+                    logger.debug("Could not send double-click notice to user")
+            else:
+                # Re-raise unknown errors
                 raise
-            logger.warning(
-                f"Interaction expired for user {member.display_name} ({member.id}). "
-                "User may have taken too long to click the button."
-            )
-            # Try to send an ephemeral message explaining the issue
-            try:
-                await interaction.followup.send(
-                    "⚠️ This verification button has expired. Please request a new verification message.",
-                    ephemeral=True,
-                )
-            except Exception:
-                # If even the followup fails, log it but don't crash
-                logger.debug("Could not send expiration notice to user")
 
     async def recheck_button_callback(self, interaction: Interaction) -> None:
         verification_cog = self.bot.get_cog("VerificationCog")

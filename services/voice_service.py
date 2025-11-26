@@ -4,13 +4,13 @@ Voice service for managing voice channels and related functionality.
 
 import asyncio
 import time
+from collections.abc import Collection, Iterable
 from typing import Any, Optional
 
 import discord
 
 from helpers.discord_api import (
     channel_send_message,
-    create_voice_channel,
     delete_channel,
 )
 from helpers.voice_permissions import enforce_permission_changes
@@ -36,22 +36,28 @@ class VoiceService(BaseService):
     with proper async safety and deduplication.
     """
 
+    ORPHAN_OWNER_ID = 0
+
     def __init__(
         self, config_service: ConfigService, bot: Optional["discord.Client"] = None
     ) -> None:
         super().__init__("voice")
         self.config_service = config_service
         self.bot = bot  # Store bot instance for channel operations
-        self._creation_locks: dict[tuple[int, int], asyncio.Lock] = {}
+        # Track creation locks (tagged keys) and when they were last used for cleanup
+        # Keys are prefixed tuples so user-scoped locks cannot collide with JTC locks
+        self._creation_locks: dict[tuple[str, int, int], asyncio.Lock] = {}
+        self._lock_last_used: dict[tuple[str, int, int], float] = {}
         self._locks_lock = asyncio.Lock()
+        self._creation_unmark_delay = 2.0  # seconds to keep users marked as creating
 
         # Track managed voice channels like the old code
         self.managed_voice_channels: set[int] = set()
 
         # Track users currently in the process of creating a channel
-        # Key: (guild_id, jtc_channel_id, user_id)
-        # This prevents race conditions from duplicate voice state events during channel creation
-        self._users_creating_channels: set[tuple[int, int, int]] = set()
+        # Keyed by (guild_id, user_id) so hopping between different JTC entry channels
+        # cannot trigger parallel creations for the same user
+        self._users_creating_channels: set[tuple[int, int]] = set()
 
         # Debug logging configuration - defaults to False for production
         self.debug_logging_enabled = False
@@ -59,6 +65,7 @@ class VoiceService(BaseService):
         # In-memory cache of voice channel members (channel_id -> set of user_ids)
         # This is populated from Gateway events and has no Discord API overhead
         self._voice_channel_members: dict[int, set[int]] = {}
+        self._voice_channels_has_previous_owner = False
 
     async def _initialize_impl(self) -> None:
         """Initialize voice service."""
@@ -163,6 +170,14 @@ class VoiceService(BaseService):
                 self.logger.warning("Bot not available for orphaned JTC cleanup")
                 return
 
+            if not hasattr(self.bot, "guilds") or not isinstance(
+                self.bot.guilds, Iterable
+            ):
+                self.logger.warning(
+                    "Bot guilds collection missing or not iterable; skipping orphaned JTC cleanup"
+                )
+                return
+
             total_guilds_processed = 0
             total_rows_cleaned = 0
 
@@ -222,10 +237,20 @@ class VoiceService(BaseService):
                     voice_channel_id INTEGER NOT NULL UNIQUE,
                     created_at INTEGER DEFAULT (strftime('%s','now')),
                     last_activity INTEGER DEFAULT (strftime('%s','now')),
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    previous_owner_id INTEGER
                 )
             """
             )
+
+            # Ensure previous_owner_id column exists for older databases
+            cursor = await db.execute("PRAGMA table_info(voice_channels)")
+            column_names = [col[1] for col in await cursor.fetchall()]
+            if "previous_owner_id" not in column_names:
+                await db.execute(
+                    "ALTER TABLE voice_channels ADD COLUMN previous_owner_id INTEGER"
+                )
+            self._voice_channels_has_previous_owner = True
 
             # Create indexes for efficient queries
             await db.execute(
@@ -292,41 +317,96 @@ class VoiceService(BaseService):
 
             await db.commit()
 
-    def _mark_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> None:
-        """Mark a user as currently creating a channel."""
-        key = (guild_id, jtc_channel_id, user_id)
+    def _mark_user_creating(self, guild_id: int, user_id: int) -> None:
+        """Mark a user as currently creating a channel (guild-scoped)."""
+        key = (guild_id, user_id)
+        already_marked = key in self._users_creating_channels
         self._users_creating_channels.add(key)
-        self.logger.debug(f"Marked user {user_id} as creating channel in JTC {jtc_channel_id}")
+        if self.debug_logging_enabled:
+            self.logger.debug(
+                "MARK: mark_creating guild=%s user=%s already_marked=%s",
+                guild_id,
+                user_id,
+                already_marked,
+            )
 
-    def _unmark_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> None:
-        """Unmark a user as creating a channel."""
-        key = (guild_id, jtc_channel_id, user_id)
+    def _unmark_user_creating(self, guild_id: int, user_id: int) -> None:
+        """Unmark a user as creating a channel across the entire guild."""
+        key = (guild_id, user_id)
+        existed = key in self._users_creating_channels
         self._users_creating_channels.discard(key)
-        self.logger.debug(f"Unmarked user {user_id} from creating in JTC {jtc_channel_id}")
+        if self.debug_logging_enabled:
+            self.logger.debug(
+                "MARK: unmark_creating guild=%s user=%s existed=%s",
+                guild_id,
+                user_id,
+                existed,
+            )
 
-    def _is_user_creating(self, guild_id: int, jtc_channel_id: int, user_id: int) -> bool:
-        """Check if a user is currently creating a channel."""
-        key = (guild_id, jtc_channel_id, user_id)
+    def _is_user_creating(self, guild_id: int, user_id: int) -> bool:
+        """Check if a user is currently creating a channel anywhere in the guild."""
+        key = (guild_id, user_id)
         return key in self._users_creating_channels
 
+    async def _delayed_unmark_user_creating(
+        self,
+        guild_id: int,
+        user_id: int,
+        delay: float | None = None,
+    ) -> None:
+        """Unmark a user after an optional delay to absorb duplicate events."""
+        if delay and delay > 0:
+            await asyncio.sleep(delay)
+        self._unmark_user_creating(guild_id, user_id)
+
     async def _get_creation_lock(
-        self, guild_id: int, jtc_channel_id: int, user_id: int | None = None
+        self, guild_id: int, user_id: int
     ) -> asyncio.Lock:
-        """Get or create a lock for voice channel creation.
+        """Get or create a per-user lock for voice channel creation.
         
-        If user_id is provided, creates a per-user lock to prevent concurrent
-        channel creation for the same user while allowing different users to
-        create channels in parallel.
+        All channel creation must use per-user locks to prevent race conditions.
+        This prevents the same user from creating multiple channels concurrently,
+        even across different JTC entry points.
+        
+        TODO: Consider adding asyncio.wait_for(lock.acquire(), timeout=5.0) if
+        deadlocks are observed in production. Current implementation trusts the
+        lock will be released promptly by scheduled unmark tasks.
+        
+        Args:
+            guild_id: Discord guild ID
+            user_id: Discord user ID
+            
+        Returns:
+            asyncio.Lock for this specific user in this guild
         """
-        if user_id is not None:
-            key = (guild_id, jtc_channel_id, user_id)
-        else:
-            key = (guild_id, jtc_channel_id)
+        key = ("user", guild_id, user_id)
 
         async with self._locks_lock:
             if key not in self._creation_locks:
                 self._creation_locks[key] = asyncio.Lock()
+            self._lock_last_used[key] = time.time()
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    "LOCK: get_creation_lock guild=%s user=%s key=%r",
+                    guild_id,
+                    user_id,
+                    key,
+                )
             return self._creation_locks[key]
+
+    async def _cleanup_stale_locks(self, max_age_seconds: int = 300) -> None:
+        """Remove lock objects that have not been used recently."""
+        cutoff = time.time() - max_age_seconds
+        async with self._locks_lock:
+            for key in list(self._lock_last_used.keys()):
+                last_used = self._lock_last_used.get(key, 0)
+                if last_used >= cutoff:
+                    continue
+                lock = self._creation_locks.get(key)
+                if lock and lock.locked():
+                    continue
+                self._creation_locks.pop(key, None)
+                self._lock_last_used.pop(key, None)
 
     async def can_create_voice_channel(
         self, guild_id: int, jtc_channel_id: int, user_id: int
@@ -348,9 +428,9 @@ class VoiceService(BaseService):
         self._ensure_initialized()
 
         # Check if user is already in the process of creating a channel
-        if self._is_user_creating(guild_id, jtc_channel_id, user_id):
+        if self._is_user_creating(guild_id, user_id):
             self.logger.debug(
-                f"User {user_id} is already creating a channel in JTC {jtc_channel_id}"
+                f"User {user_id} is already creating a channel in guild {guild_id}"
             )
             return False, "CREATING"
 
@@ -369,82 +449,6 @@ class VoiceService(BaseService):
             )
 
         return True, None
-
-    async def create_voice_channel(
-        self,
-        guild: discord.Guild,
-        jtc_channel: discord.VoiceChannel,
-        user: discord.Member,
-        name_override: str | None = None,
-    ) -> discord.VoiceChannel | None:
-        """
-        Create a voice channel for a user in a race-safe manner.
-
-        Args:
-            guild: Discord guild
-            jtc_channel: Join-to-create voice channel
-            user: User requesting the channel
-            name_override: Optional name override for the channel
-
-        Returns:
-            Created voice channel or None if creation failed
-        """
-        self._ensure_initialized()
-
-        # Get creation lock for this JTC channel
-        lock = await self._get_creation_lock(guild.id, jtc_channel.id)
-
-        async with lock:
-            # Double-check after acquiring lock
-            can_create, reason = await self.can_create_voice_channel(
-                guild.id, jtc_channel.id, user.id
-            )
-            if not can_create:
-                self.logger.debug(f"Voice channel creation blocked: {reason}")
-                return None
-
-            # Generate channel name
-            if name_override:
-                channel_name = name_override
-            else:
-                channel_name = await self._generate_channel_name(user)
-
-            try:
-                # Create the voice channel
-                voice_channel = await create_voice_channel(
-                    guild=guild,
-                    name=channel_name,
-                    category=jtc_channel.category,
-                    overwrites={
-                        user: discord.PermissionOverwrite(
-                            manage_channels=True, move_members=True
-                        )
-                    },
-                )
-
-                # Store in database
-                await self._store_voice_channel(
-                    guild.id, jtc_channel.id, user.id, voice_channel.id
-                )
-
-                # Update cooldown
-                await self._update_cooldown(guild.id, jtc_channel.id, user.id)
-
-                # Move user to their new channel
-                try:
-                    await user.move_to(voice_channel)
-                except discord.HTTPException as e:
-                    self.logger.warning(f"Failed to move user to voice channel: {e}")
-
-                self.logger.info(
-                    f"Created voice channel '{channel_name}' for {user} in {guild.name}"
-                )
-
-                return voice_channel
-
-            except Exception as e:
-                self.logger.exception("Failed to create voice channel", exc_info=e)
-                return None
 
     async def delete_voice_channel(
         self, guild_id: int, voice_channel_id: int, reason: str = "Channel cleanup"
@@ -682,16 +686,6 @@ class VoiceService(BaseService):
     async def cleanup_by_channel_id(self, voice_channel_id: int) -> None:
         """Clean up database records for a specific voice channel."""
         async with Database.get_connection() as db:
-            # Mark channel as inactive
-            await db.execute(
-                """
-                UPDATE voice_channels
-                SET is_active = 0
-                WHERE voice_channel_id = ?
-            """,
-                (voice_channel_id,),
-            )
-
             # Clean up settings for this specific channel
             await db.execute(
                 """
@@ -701,7 +695,33 @@ class VoiceService(BaseService):
                 (voice_channel_id,),
             )
 
+            # Remove voice channel record entirely to avoid stale rows
+            await db.execute(
+                """
+                DELETE FROM voice_channels
+                WHERE voice_channel_id = ?
+            """,
+                (voice_channel_id,),
+            )
+
             await db.commit()
+
+    async def _purge_inactive_voice_channels(
+        self, older_than_seconds: int | None = None
+    ) -> int:
+        """Delete inactive voice channel rows to keep the table lean."""
+        query = "DELETE FROM voice_channels WHERE is_active = 0"
+        params: tuple[int, ...] = ()
+        if older_than_seconds is not None:
+            cutoff = int(time.time()) - older_than_seconds
+            query += " AND last_activity < ?"
+            params = (cutoff,)
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(query, params)
+            deleted = cursor.rowcount if cursor.rowcount not in (None, -1) else 0
+            await db.commit()
+        return deleted
 
     async def _generate_channel_name(self, user: discord.Member) -> str:
         """Generate a name for a voice channel."""
@@ -732,6 +752,16 @@ class VoiceService(BaseService):
                     await db.commit()
 
                 self.logger.debug("Cleaned up old voice cooldown records")
+
+                deleted_rows = await self._purge_inactive_voice_channels(
+                    older_than_seconds=7 * 24 * 3600
+                )
+                if deleted_rows:
+                    self.logger.debug(
+                        f"Purged {deleted_rows} inactive voice channel records"
+                    )
+
+                await self._cleanup_stale_locks()
 
             except Exception as e:
                 self.logger.exception("Error in voice cleanup task", exc_info=e)
@@ -814,17 +844,17 @@ class VoiceService(BaseService):
                 # The reason is already an error code from can_create_voice_channel
                 return VoiceChannelResult(False, error=reason)
 
-            # Create the channel
-            channel = await self.create_voice_channel(guild, jtc_channel, user)
+            # Create the channel using the authoritative path
+            channel = await self._create_user_channel(guild, jtc_channel, user)
 
             if channel:
                 return VoiceChannelResult(
                     True, channel_id=channel.id, channel_mention=channel.mention
                 )
-            else:
-                return VoiceChannelResult(
-                    False, error="CREATION_FAILED"
-                )
+
+            return VoiceChannelResult(
+                False, error="CREATION_FAILED"
+            )
 
         except Exception as e:
             self.logger.exception("Error creating user voice channel", exc_info=e)
@@ -973,6 +1003,15 @@ class VoiceService(BaseService):
         guild = member.guild
         guild_id = guild.id
 
+        if self.debug_logging_enabled:
+            self.logger.info(
+                "VS: event guild=%s member=%s before_channel=%s after_channel=%s",
+                guild_id,
+                getattr(member, "id", None),
+                before_channel.id if before_channel else None,
+                after_channel.id if after_channel else None,
+            )
+
         # Update voice channel members cache
         if before_channel:
             # Remove user from previous channel
@@ -992,11 +1031,56 @@ class VoiceService(BaseService):
         if before_channel and await self._is_managed_channel(before_channel.id):
             await self._handle_channel_left(before_channel, member)
 
-        # Handle joining a join-to-create channel
-        if after_channel and await self._is_join_to_create_channel(
-            guild_id, after_channel.id
-        ):
+        # Handle joining a join-to-create channel ONLY for true joins
+        # Ignore reconnects, mute/deafen, and other state changes
+        is_jtc_after = False
+        is_jtc_before = False
+        if after_channel:
+            is_jtc_after = await self._is_join_to_create_channel(
+                guild_id, after_channel.id
+            )
+        if before_channel:
+            is_jtc_before = await self._is_join_to_create_channel(
+                guild_id, before_channel.id
+            )
+
+        # True join = user enters JTC channel from:
+        # 1. No channel (before_channel is None)
+        # 2. A non-JTC channel (moving from managed channel to JTC)
+        # But NOT from another JTC channel (would be a JTC-to-JTC hop)
+        is_true_join = (
+            after_channel is not None
+            and is_jtc_after
+            and (before_channel is None or not is_jtc_before)
+        )
+
+        if self.debug_logging_enabled:
+            self.logger.info(
+                "VS: classification guild=%s member=%s is_true_join=%s is_jtc_after=%s is_jtc_before=%s before_channel=%s",
+                guild_id,
+                getattr(member, "id", None),
+                is_true_join,
+                is_jtc_after,
+                is_jtc_before,
+                before_channel.name if before_channel else None,
+            )
+
+        if is_true_join:
+            if self._is_user_creating(guild_id, member.id):
+                if self.debug_logging_enabled:
+                    self.logger.debug(
+                        f"Skipping voice state update for {member.display_name} - creation in progress"
+                    )
+                return
             await self._handle_join_to_create(guild, after_channel, member)
+        elif after_channel and is_jtc_after:
+            # User moved between JTC channels (JTC-to-JTC hop)
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    f"Ignored voice state update for {member.display_name}: JTC-to-JTC hop "
+                    f"(before={before_channel.name if before_channel else None}, "
+                    f"after={after_channel.name})"
+                )
 
     async def _is_managed_channel(self, channel_id: int) -> bool:
         """Check if a channel is managed by the bot."""
@@ -1075,15 +1159,10 @@ class VoiceService(BaseService):
 
             # Remove from database
             try:
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
-                        (channel_id,),
-                    )
-                    await db.commit()
+                await self.cleanup_by_channel_id(channel_id)
             except Exception as e:
                 self.logger.exception(
-                    "Error updating channel %s in database", channel_id, exc_info=e
+                    "Error cleaning up channel %s in database", channel_id, exc_info=e
                 )
             return
 
@@ -1113,16 +1192,11 @@ class VoiceService(BaseService):
             self.managed_voice_channels.discard(channel_id)
 
             try:
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
-                        (channel_id,),
-                    )
-                    await db.commit()
+                await self.cleanup_by_channel_id(channel_id)
                 self.logger.info(f"Cleaned up tracking for channel {channel_id}")
             except Exception as e:
                 self.logger.exception(
-                    "Error updating channel %s in database", channel_id, exc_info=e
+                    "Error cleaning up channel %s in database", channel_id, exc_info=e
                 )
 
     async def _handle_join_to_create(
@@ -1137,10 +1211,40 @@ class VoiceService(BaseService):
                 f"{member.display_name} joined JTC channel {jtc_channel.name}"
             )
 
+            if self.debug_logging_enabled:
+                self.logger.info(
+                    "JTC: handle_join guild=%s jtc=%s user=%s creating=%s",
+                    guild.id,
+                    jtc_channel.id,
+                    member.id,
+                    self._is_user_creating(guild.id, member.id),
+                )
+
+            if self._is_user_creating(guild.id, member.id):
+                if self.debug_logging_enabled:
+                    self.logger.debug(
+                        f"Ignoring duplicate event for {member.display_name} - creation already in progress"
+                    )
+                return
+
             # Get per-user creation lock to prevent race conditions
-            lock = await self._get_creation_lock(guild.id, jtc_channel.id, member.id)
+            lock = await self._get_creation_lock(guild.id, member.id)
+            
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    f"Acquired per-user lock for {member.display_name} (ID: {member.id}) in guild {guild.id}"
+                )
+
+            creation_marked = False
 
             async with lock:
+                if self._is_user_creating(guild.id, member.id):
+                    if self.debug_logging_enabled:
+                        self.logger.debug(
+                            f"Skipping creation for {member.display_name}; lock-acquired dedupe"
+                        )
+                    return
+
                 # Double-check cooldown after acquiring lock
                 can_create, error_code = await self.can_create_voice_channel(
                     guild.id, jtc_channel.id, member.id
@@ -1148,9 +1252,10 @@ class VoiceService(BaseService):
                 if not can_create:
                     # Check if it's because user is already creating
                     if error_code == "CREATING":
-                        self.logger.debug(
-                            f"Ignoring duplicate creation event for {member.display_name} - already creating"
-                        )
+                        if self.debug_logging_enabled:
+                            self.logger.debug(
+                                f"Ignoring duplicate creation event for {member.display_name} - already creating"
+                            )
                         return
 
                     self.logger.info(
@@ -1170,15 +1275,37 @@ class VoiceService(BaseService):
                     return
 
                 # Mark user as creating to prevent duplicate events during channel creation
-                self._mark_user_creating(guild.id, jtc_channel.id, member.id)
+                self._mark_user_creating(guild.id, member.id)
+                creation_marked = True
+                
+                if self.debug_logging_enabled:
+                    self.logger.debug(
+                        f"Marked user {member.id} as creating channel in guild {guild.id}"
+                    )
 
                 try:
                     # Create a new channel for the user with timeout
                     try:
-                        await asyncio.wait_for(
+                        channel: discord.VoiceChannel | None = None
+                        if self.debug_logging_enabled:
+                            self.logger.info(
+                                "JTC: about_to_create guild=%s jtc=%s user=%s",
+                                guild.id,
+                                jtc_channel.id,
+                                member.id,
+                            )
+                        channel = await asyncio.wait_for(
                             self._create_user_channel(guild, jtc_channel, member),
                             timeout=10.0
                         )
+                        if self.debug_logging_enabled:
+                            self.logger.info(
+                                "JTC: created_channel_result guild=%s jtc=%s user=%s channel=%s",
+                                guild.id,
+                                jtc_channel.id,
+                                member.id,
+                                channel.id if channel else None,
+                            )
                     except TimeoutError:
                         self.logger.error(
                             f"Channel creation timed out for {member.display_name} in JTC {jtc_channel.name}"
@@ -1199,7 +1326,14 @@ class VoiceService(BaseService):
                             pass  # Ignore DM failures
                 finally:
                     # Always unmark user as creating, even if creation fails
-                    self._unmark_user_creating(guild.id, jtc_channel.id, member.id)
+                    if creation_marked:
+                        asyncio.create_task(
+                            self._delayed_unmark_user_creating(
+                                guild.id,
+                                member.id,
+                                delay=self._creation_unmark_delay,
+                            )
+                        )
 
         except Exception as e:
             self.logger.exception("Error handling join-to-create", exc_info=e)
@@ -1209,8 +1343,16 @@ class VoiceService(BaseService):
         guild: discord.Guild,
         jtc_channel: discord.VoiceChannel,
         member: discord.Member,
-    ) -> None:
-        """Create a new voice channel for a user."""
+    ) -> discord.VoiceChannel | None:
+        """Create a new voice channel for a user and return it on success.
+
+        This is the AUTHORITATIVE channel creation path. All voice channel creation
+        must route through this function to ensure proper race-condition handling,
+        atomic DB operations, and consistent permission enforcement.
+
+        DO NOT call guild.create_voice_channel() directly elsewhere - use this function
+        or _handle_join_to_create() which calls this function.
+        """
         try:
             self.logger.info(
                 f"Creating channel for {member.display_name} (ID: {member.id}) in guild {guild.id}, JTC channel {jtc_channel.id} ('{jtc_channel.name}')"
@@ -1329,7 +1471,7 @@ class VoiceService(BaseService):
                     guild,
                     f"⚠️ Voice channel creation aborted for {member.mention} - user disconnected during setup"
                 )
-                return
+                return None
 
             # Move the user to their new channel BEFORE storing in database
             # This prevents race conditions where concurrent operations see the channel
@@ -1362,7 +1504,7 @@ class VoiceService(BaseService):
                     guild,
                     f"⚠️ Voice channel creation failed for {member.mention} - could not move user (error: {e})"
                 )
-                return
+                return None
 
             # Only store in database after successful move
             await self._store_user_channel(
@@ -1403,6 +1545,8 @@ class VoiceService(BaseService):
                     f"Error sending settings view to '{channel.name}': {e}"
                 )
 
+            return channel
+
         except discord.Forbidden as e:
             # Specific handling for permission errors
             if "50013" in str(e) or "Missing Permissions" in str(e):
@@ -1416,11 +1560,13 @@ class VoiceService(BaseService):
                     )
                 except:
                     pass  # Ignore if we can't send DM
-                return  # Stop execution as channel creation failed
+                return None  # Stop execution as channel creation failed
             else:
                 self.logger.exception("Discord permission error creating user channel", exc_info=e)
+                return None
         except Exception as e:
             self.logger.exception("Error creating user channel", exc_info=e)
+            return None
 
     def _get_user_game_name(self, member: discord.Member) -> str | None:
         """Get the user's current game/activity name."""
@@ -1434,59 +1580,190 @@ class VoiceService(BaseService):
     async def _store_user_channel(
         self, guild_id: int, jtc_channel_id: int, user_id: int, channel_id: int
     ) -> None:
-        """Store user channel in database."""
+        """Store user channel in database with atomic transaction to prevent duplicates.
+        
+        Uses explicit transaction with SELECT + INSERT to ensure only one active channel
+        per user per JTC exists in the database, preventing TOCTOU race conditions.
+        """
         try:
             async with Database.get_connection() as db:
-                # Check if there's already an active channel for this user in this JTC
-                # to prevent orphaned channels from rapid joins
-                cursor = await db.execute(
-                    """
-                    SELECT voice_channel_id FROM voice_channels 
-                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
-                """,
-                    (guild_id, jtc_channel_id, user_id),
-                )
-                existing_row = await cursor.fetchone()
+                # Begin explicit transaction for atomicity
+                await db.execute("BEGIN EXCLUSIVE TRANSACTION")
+                
+                try:
+                    # Check if there's already an active channel for this user in this JTC
+                    # This SELECT happens inside the transaction, preventing TOCTOU
+                    cursor = await db.execute(
+                        """
+                        SELECT voice_channel_id FROM voice_channels 
+                        WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                    """,
+                        (guild_id, jtc_channel_id, user_id),
+                    )
+                    existing_row = await cursor.fetchone()
+                    existing_channel_id = existing_row[0] if existing_row else None
 
-                if existing_row:
-                    old_channel_id = existing_row[0]
-                    if old_channel_id != channel_id:
+                    if self.debug_logging_enabled:
                         self.logger.info(
-                            f"User {user_id} already has active channel {old_channel_id}, "
-                            f"scheduling cleanup before storing new channel {channel_id}"
+                            "DB: store_user_channel guild=%s jtc=%s user=%s existing_channel=%s",
+                            guild_id,
+                            jtc_channel_id,
+                            user_id,
+                            existing_channel_id,
                         )
-                        # Schedule cleanup as background task to avoid blocking
-                        old_channel = self.bot.get_channel(old_channel_id) if self.bot else None
-                        if old_channel:
-                            # Only cleanup if channel is empty to avoid disrupting active users
-                            if len(old_channel.members) == 0:
-                                asyncio.create_task(self._cleanup_empty_channel(old_channel))
-                                self.logger.debug(f"Scheduled background cleanup for empty channel {old_channel_id}")
-                            else:
-                                self.logger.info(
-                                    f"Skipping cleanup of channel {old_channel_id} - has {len(old_channel.members)} member(s)"
+
+                    orphaned_channel: discord.VoiceChannel | None = None
+
+                    if existing_row:
+                        old_channel_id = existing_channel_id
+                        if old_channel_id == channel_id:
+                            # Same channel, this is a no-op (defensive check)
+                            if self.debug_logging_enabled:
+                                self.logger.debug(
+                                    f"DB: Channel {channel_id} already stored for user {user_id}, skipping duplicate insert"
                                 )
+                            await db.commit()
+                            return
+
+                        old_channel = (
+                            self.bot.get_channel(old_channel_id) if self.bot else None
+                        )
+                        channel_has_members = False
+                        members_attr = getattr(old_channel, "members", None)
+                        if isinstance(old_channel, discord.VoiceChannel):
+                            channel_has_members = len(old_channel.members) > 0
+                        elif isinstance(members_attr, Collection):
+                            channel_has_members = len(members_attr) > 0
                         else:
-                            # Channel doesn't exist, just mark as inactive in DB
+                            cached_members = self._voice_channel_members.get(
+                                old_channel_id, set()
+                            )
+                            channel_has_members = len(cached_members) > 0
+
+                        if self.debug_logging_enabled:
+                            self.logger.info(
+                                "DB: decision guild=%s jtc=%s user=%s old_channel=%s new_channel=%s has_members=%s",
+                                guild_id,
+                                jtc_channel_id,
+                                user_id,
+                                old_channel_id,
+                                channel_id,
+                                channel_has_members,
+                            )
+
+                        if channel_has_members:
+                            # Preserve record but mark ownerless so claim command can adopt it
                             await db.execute(
-                                "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
+                                """
+                                UPDATE voice_channels
+                                SET owner_id = ?, previous_owner_id = ?, last_activity = ?, is_active = 1
+                                WHERE voice_channel_id = ?
+                            """,
+                                (
+                                    self.ORPHAN_OWNER_ID,
+                                    user_id,
+                                    int(time.time()),
+                                    old_channel_id,
+                                ),
+                            )
+                            orphaned_channel = old_channel
+                        else:
+                            # Safe to remove DB rows immediately when no members remain
+                            await db.execute(
+                                "DELETE FROM voice_channel_settings WHERE voice_channel_id = ?",
+                                (old_channel_id,),
+                            )
+                            await db.execute(
+                                "DELETE FROM voice_channels WHERE voice_channel_id = ?",
                                 (old_channel_id,),
                             )
 
-                # Store the new channel
-                await db.execute(
-                    """
-                    INSERT INTO voice_channels
-                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (guild_id, jtc_channel_id, user_id, channel_id, int(time.time()), int(time.time()), 1),
-                )
-                await db.commit()
-                self.logger.debug(f"Stored channel {channel_id} for user {user_id} in JTC {jtc_channel_id}")
+                            # Schedule cleanup of empty Discord channel (outside transaction)
+                            if isinstance(old_channel, discord.VoiceChannel) and len(
+                                old_channel.members
+                            ) == 0:
+                                asyncio.create_task(
+                                    self._cleanup_empty_channel(old_channel)
+                                )
+                                if self.debug_logging_enabled:
+                                    self.logger.info(
+                                        "DB: scheduled_cleanup guild=%s old_channel=%s user=%s",
+                                        guild_id,
+                                        old_channel_id,
+                                        user_id,
+                                    )
+                            elif isinstance(members_attr, Collection) and len(
+                                members_attr
+                            ) == 0:
+                                asyncio.create_task(
+                                    self._cleanup_empty_channel(old_channel_id)
+                                )
+
+                    # Insert the new channel atomically
+                    await db.execute(
+                        """
+                        INSERT INTO voice_channels
+                        (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (guild_id, jtc_channel_id, user_id, channel_id, int(time.time()), int(time.time()), 1),
+                    )
+                    
+                    # Commit transaction
+                    await db.commit()
+                    
+                    if self.debug_logging_enabled:
+                        self.logger.info(
+                            "DB: insert_complete guild=%s jtc=%s user=%s old_channel=%s new_channel=%s",
+                            guild_id,
+                            jtc_channel_id,
+                            user_id,
+                            existing_channel_id,
+                            channel_id,
+                        )
+                    
+                except Exception as e:
+                    # Rollback on any error
+                    await db.rollback()
+                    self.logger.exception(f"Transaction rolled back during channel storage: {e}")
+                    raise
 
         except Exception as e:
             self.logger.exception("Error storing user channel", exc_info=e)
+
+        # Remove owner overwrites after transaction commits to avoid blocking DB
+        if orphaned_channel:
+            await self._remove_owner_overwrites(orphaned_channel, user_id)
+
+    async def _remove_owner_overwrites(
+        self, channel: discord.VoiceChannel, owner_id: int
+    ) -> None:
+        """Strip owner-specific overwrites so the channel truly becomes ownerless."""
+        if not channel or not hasattr(channel, "guild"):
+            return
+
+        try:
+            member = channel.guild.get_member(owner_id)
+            if not member:
+                return
+
+            overwrites = channel.overwrites.copy()
+            if member in overwrites:
+                overwrites.pop(member, None)
+                await channel.edit(overwrites=overwrites)
+                if self.debug_logging_enabled:
+                    self.logger.info(
+                        "Removed overwrites for previous owner %s on orphaned channel %s",
+                        owner_id,
+                        channel.id,
+                    )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to remove overwrites for owner %s on channel %s: %s",
+                owner_id,
+                getattr(channel, "id", "unknown"),
+                exc,
+            )
 
     async def _schedule_channel_cleanup(self, channel_id: int) -> None:
         """Schedule cleanup of an empty channel after a delay (fallback for ambiguous cases)."""
@@ -1533,6 +1810,14 @@ class VoiceService(BaseService):
         try:
             # Wait for bot to be ready
             if self.bot:
+                if not hasattr(self.bot, "guilds") or not isinstance(
+                    self.bot.guilds, Iterable
+                ):
+                    self.logger.warning(
+                        "Bot guilds collection missing or not iterable; skipping startup reconciliation scheduling"
+                    )
+                    return
+
                 await self.bot.wait_until_ready()
 
                 # Get configurable delay, default to 2000ms (2 seconds)
@@ -1544,8 +1829,8 @@ class VoiceService(BaseService):
                 # Run the reconciliation
                 await self.reconcile_all_guilds_on_ready()
 
-                # After reconciliation, promote any members still in JTC channels
-                asyncio.create_task(self._promote_jtc_members_on_startup())
+                # After reconciliation, move members back to existing channels (no new creation)
+                asyncio.create_task(self._reconcile_jtc_members_on_startup())
             else:
                 self.logger.warning(
                     "Bot instance not available for startup reconciliation"
@@ -1553,23 +1838,36 @@ class VoiceService(BaseService):
         except Exception as e:
             self.logger.exception("Error during startup reconciliation", exc_info=e)
 
-    async def _promote_jtc_members_on_startup(self) -> None:
+    async def _reconcile_jtc_members_on_startup(self) -> None:
         """
-        Promote any human members still sitting in JTC channels after bot restart.
-        This fixes the "users parked in JTC after reboot" case.
+        Reconcile members in JTC channels after bot restart.
+        
+        DOES NOT create new channels. Only moves users back to existing channels
+        if they have one. Users without existing channels must rejoin the JTC
+        channel to trigger creation (prevents startup spam and race conditions).
         """
         try:
             # Ensure bot is ready
             if not self.bot:
                 self.logger.warning(
-                    "Bot instance not available for JTC member promotion"
+                    "Bot instance not available for JTC member reconciliation"
                 )
                 return
 
             await self.bot.wait_until_ready()
-            self.logger.info("Scanning JTC channels for members to promote...")
 
-            total_promoted = 0
+            if not hasattr(self.bot, "guilds") or not isinstance(
+                self.bot.guilds, Iterable
+            ):
+                self.logger.warning(
+                    "Bot guilds collection missing or not iterable; skipping JTC member reconciliation"
+                )
+                return
+
+            self.logger.info("Reconciling JTC channel members (no new channel creation)...")
+
+            total_moved = 0
+            total_skipped = 0
             total_errors = 0
 
             # Process each guild the bot is in
@@ -1615,15 +1913,53 @@ class VoiceService(BaseService):
                                     continue  # Skip bots
 
                                 try:
-                                    self.logger.info(
-                                        f"Promoting {member.display_name} from JTC {vc.name} in guild {guild.name}"
-                                    )
-                                    # Reuse existing join handling logic
-                                    await self._handle_join_to_create(guild, vc, member)
-                                    total_promoted += 1
+                                    # Check if user has an existing active channel for this JTC
+                                    async with Database.get_connection() as db:
+                                        cursor = await db.execute(
+                                            """
+                                            SELECT voice_channel_id FROM voice_channels
+                                            WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                                            LIMIT 1
+                                        """,
+                                            (guild.id, jtc_id, member.id),
+                                        )
+                                        row = await cursor.fetchone()
+                                    
+                                    if row:
+                                        existing_channel_id = row[0]
+                                        existing_channel = guild.get_channel(existing_channel_id)
+                                        
+                                        if existing_channel and isinstance(existing_channel, discord.VoiceChannel):
+                                            # Move user back to their existing channel
+                                            try:
+                                                await member.move_to(existing_channel)
+                                                self.logger.info(
+                                                    f"Moved {member.display_name} back to existing channel {existing_channel.name}"
+                                                )
+                                                total_moved += 1
+                                            except discord.HTTPException as e:
+                                                self.logger.warning(
+                                                    f"Failed to move {member.display_name} to existing channel: {e}"
+                                                )
+                                                total_errors += 1
+                                        else:
+                                            # Channel in DB but doesn't exist in Discord - clean up
+                                            self.logger.info(
+                                                f"Cleaning up stale channel reference {existing_channel_id} for user {member.id}"
+                                            )
+                                            await self.cleanup_by_channel_id(existing_channel_id)
+                                            total_skipped += 1
+                                    else:
+                                        # No existing channel - user must rejoin JTC to create one
+                                        if self.debug_logging_enabled:
+                                            self.logger.debug(
+                                                f"User {member.display_name} has no existing channel, must rejoin JTC to create"
+                                            )
+                                        total_skipped += 1
+
                                 except Exception as e:
                                     self.logger.exception(
-                                        f"Failed to promote {member.display_name} ({member.id}) from JTC {jtc_id} in guild {guild.name}",
+                                        f"Failed to reconcile {member.display_name} ({member.id}) in JTC {jtc_id}",
                                         exc_info=e,
                                     )
                                     total_errors += 1
@@ -1637,21 +1973,17 @@ class VoiceService(BaseService):
 
                 except Exception as e:
                     self.logger.exception(
-                        f"Error processing guild {guild.name} ({guild.id}) for JTC promotion",
+                        f"Error processing guild {guild.name} ({guild.id}) for JTC reconciliation",
                         exc_info=e,
                     )
 
-            if total_promoted > 0 or total_errors > 0:
-                self.logger.info(
-                    f"JTC member promotion complete: {total_promoted} members promoted, {total_errors} errors"
-                )
-            else:
-                self.logger.info(
-                    "JTC member promotion complete: no members found in JTC channels"
-                )
+            self.logger.info(
+                f"JTC member reconciliation complete: {total_moved} moved to existing channels, "
+                f"{total_skipped} skipped (no existing channel), {total_errors} errors"
+            )
 
         except Exception as e:
-            self.logger.exception("Error during JTC member promotion", exc_info=e)
+            self.logger.exception("Error during JTC member reconciliation", exc_info=e)
 
     async def reconcile_all_guilds_on_ready(self) -> None:
         """
@@ -1670,6 +2002,12 @@ class VoiceService(BaseService):
             return
 
         self.logger.info("Starting voice channel reconciliation across all guilds")
+
+        deleted_inactive = await self._purge_inactive_voice_channels()
+        if deleted_inactive:
+            self.logger.info(
+                f"Purged {deleted_inactive} inactive voice channel rows before reconciliation"
+            )
 
         total_reconciled = 0
         total_removed = 0
@@ -1759,26 +2097,26 @@ class VoiceService(BaseService):
         # Channel no longer exists - remove DB row
         if not channel:
             self.logger.info(f"Removing stale channel {voice_channel_id} from database")
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?",
-                    (voice_channel_id,),
-                )
-                await db.commit()
+            await self.cleanup_by_channel_id(voice_channel_id)
             return
 
         # Channel exists - check if it should be kept active or cleaned up
         should_keep_active = await self._should_keep_channel_active(channel, owner_id)
 
         if should_keep_active:
-            # Add to managed channels and rehydrate settings
+            # Add to managed channels and rehydrate settings when we still have an owner
             self.managed_voice_channels.add(voice_channel_id)
-            await self._rehydrate_channel_management(
-                channel, owner_id, jtc_channel_id, guild_id
-            )
-            self.logger.info(
-                f"Rehydrated channel {voice_channel_id} for owner {owner_id} with {len(channel.members)} members."
-            )
+            if owner_id != self.ORPHAN_OWNER_ID:
+                await self._rehydrate_channel_management(
+                    channel, owner_id, jtc_channel_id, guild_id
+                )
+                self.logger.info(
+                    f"Rehydrated channel {voice_channel_id} for owner {owner_id} with {len(channel.members)} members."
+                )
+            else:
+                self.logger.info(
+                    f"Skipped rehydration for orphaned channel {voice_channel_id}; members will need to claim ownership."
+                )
         else:
             # Check startup cleanup mode (immediate vs delayed)
             startup_cleanup_mode = await self.config_service.get_global_setting(
@@ -2086,7 +2424,8 @@ class VoiceService(BaseService):
             async with Database.get_connection() as db:
                 cursor = await db.execute(
                     """
-                    SELECT owner_id, jtc_channel_id FROM voice_channels
+                    SELECT owner_id, previous_owner_id, jtc_channel_id
+                    FROM voice_channels
                     WHERE guild_id = ? AND voice_channel_id = ? AND is_active = 1
                 """,
                     (guild_id, channel.id),
@@ -2098,15 +2437,20 @@ class VoiceService(BaseService):
                         success=False, error="NOT_MANAGED"
                     )
 
-                current_owner_id, jtc_channel_id = row
+                current_owner_id, previous_owner_id, jtc_channel_id = row
+                ownerless = current_owner_id == self.ORPHAN_OWNER_ID
+                effective_previous_owner = (
+                    previous_owner_id if ownerless and previous_owner_id else current_owner_id
+                )
 
-                # Check if current owner is in the channel
-                current_owner = channel.guild.get_member(current_owner_id)
-                if current_owner and current_owner in channel.members:
-                    return VoiceChannelResult(
-                        success=False,
-                        error="OWNER_PRESENT",
-                    )
+                # Check if current owner is still in the channel (skip for orphaned channels)
+                if not ownerless:
+                    current_owner = channel.guild.get_member(current_owner_id)
+                    if current_owner and current_owner in channel.members:
+                        return VoiceChannelResult(
+                            success=False,
+                            error="OWNER_PRESENT",
+                        )
 
                 # Use the comprehensive transfer method from voice_repo
                 from helpers.voice_repo import transfer_channel_owner
@@ -2130,7 +2474,7 @@ class VoiceService(BaseService):
                 await update_channel_owner(
                     channel=channel,
                     new_owner_id=user_id,
-                    previous_owner_id=current_owner_id,
+                    previous_owner_id=effective_previous_owner,
                     guild_id=guild_id,
                     jtc_channel_id=jtc_channel_id,
                 )

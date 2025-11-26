@@ -201,25 +201,15 @@ class TestVoiceCleanup:
         # Run reconciliation to properly handle missing channels
         await voice_service.reconcile_all_guilds_on_ready()
 
-        # _load_managed_channels should NOT delete DB rows - it defers to reconciliation
-        # Verify database rows are still there (this is correct behavior)
+        # Reconciliation should remove the stale rows entirely once it confirms the
+        # channels no longer exist on Discord.
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM voice_channels WHERE voice_channel_id IN (?, ?, ?)",
                 missing_channel_ids,
             )
             count = await cursor.fetchone()
-            assert (
-                count[0] == 3
-            )  # Should still be 3 since _load_managed_channels defers to reconciliation
-
-            # Assert that is_active is 0 for missing channels after reconciliation
-            cursor = await db.execute(
-                "SELECT is_active FROM voice_channels WHERE voice_channel_id IN (?, ?, ?)",
-                missing_channel_ids,
-            )
-            is_active_values = await cursor.fetchall()
-            assert all(row[0] == 0 for row in is_active_values), "is_active should be 0 for missing channels after reconciliation"
+            assert count[0] == 0
 
     @pytest.mark.asyncio
     async def test_startup_reconciliation_active_channels(self, voice_service_with_bot):

@@ -11,6 +11,7 @@ from services.db.database import Database
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+ORPHAN_OWNER_ID = 0
 
 
 async def get_user_channel_id(
@@ -304,7 +305,7 @@ async def transfer_channel_owner(
             # Get current owner
             cursor = await db.execute(
                 """
-                SELECT owner_id FROM voice_channels
+                SELECT owner_id, previous_owner_id FROM voice_channels
                 WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
                 """,
                 (voice_channel_id, guild_id, jtc_channel_id),
@@ -316,13 +317,18 @@ async def transfer_channel_owner(
                 await db.execute("ROLLBACK")
                 return False
 
-            current_owner_id = row[0]
+            current_owner_id, previous_owner_id = row
+            effective_owner_id = (
+                previous_owner_id
+                if current_owner_id == ORPHAN_OWNER_ID and previous_owner_id
+                else current_owner_id
+            )
 
             # Transfer channel ownership
             await db.execute(
                 """
                 UPDATE voice_channels
-                SET owner_id = ?
+                SET owner_id = ?, previous_owner_id = NULL
                 WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
                 """,
                 (new_owner_id, voice_channel_id, guild_id, jtc_channel_id),
@@ -334,7 +340,7 @@ async def transfer_channel_owner(
                 SELECT channel_name, user_limit, lock FROM channel_settings
                 WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 """,
-                (current_owner_id, guild_id, jtc_channel_id),
+                    (effective_owner_id, guild_id, jtc_channel_id),
             )
             settings_row = await cursor.fetchone()
 
@@ -402,7 +408,7 @@ async def transfer_channel_owner(
                     SELECT * FROM {table}
                     WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                     """,
-                    (current_owner_id, guild_id, jtc_channel_id),
+                        (effective_owner_id, guild_id, jtc_channel_id),
                 )
                 entries = await cursor.fetchall()
 
@@ -439,7 +445,7 @@ async def transfer_channel_owner(
             await db.execute(
                 """
                 INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, last_creation)
+                (guild_id, jtc_channel_id, user_id, timestamp)
                 VALUES (?, ?, ?, strftime('%s','now'))
                 """,
                 (guild_id, jtc_channel_id, new_owner_id),
@@ -469,7 +475,7 @@ async def get_stale_voice_entries(cutoff_time: int) -> list[tuple[int, int, int]
         cursor = await db.execute(
             """
             SELECT guild_id, jtc_channel_id, user_id FROM voice_cooldowns
-            WHERE last_creation < ?
+            WHERE timestamp < ?
             """,
             (cutoff_time,),
         )

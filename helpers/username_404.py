@@ -150,6 +150,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
             initiator_kind="Auto",
             initiator_name=None,
             notes="RSI 404",
+            guild_id=member.guild.id if member.guild else None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)

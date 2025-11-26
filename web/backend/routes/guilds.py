@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import yaml
+
 from core.dependencies import (
     InternalAPIClient,
     get_db,
@@ -12,9 +17,11 @@ from core.dependencies import (
 from core.guild_settings import (
     get_bot_channel_settings,
     get_bot_role_settings,
+    get_organization_settings,
     get_voice_selectable_roles,
     set_bot_channel_settings,
     set_bot_role_settings,
+    set_organization_settings,
     set_voice_selectable_roles,
 )
 from core.schemas import (
@@ -27,6 +34,9 @@ from core.schemas import (
     GuildMemberResponse,
     GuildMembersResponse,
     GuildRolesResponse,
+    OrganizationSettings,
+    OrganizationValidationRequest,
+    OrganizationValidationResponse,
     UserProfile,
     VoiceSelectableRoles,
 )
@@ -305,3 +315,108 @@ async def get_guild_member_detail(
         )
 
     return GuildMemberResponse(member=member)
+
+
+# Organization Settings Endpoints
+
+# Load RSI config
+def _load_rsi_config() -> dict:
+    """Load RSI configuration from config.yaml."""
+    project_root = Path(__file__).parent.parent.parent.parent
+    config_path = project_root / "config" / "config.yaml"
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+            return config.get("rsi", {})
+    except Exception:
+        return {}
+
+
+# Initialize RSI client (lazy)
+_rsi_client = None
+
+
+def _get_rsi_client():
+    """Get or create RSI client singleton."""
+    global _rsi_client
+    if _rsi_client is None:
+        from core.rsi_utils import RSIClient
+
+        rsi_config = _load_rsi_config()
+        requests_per_minute = rsi_config.get("requests_per_minute", 30)
+        user_agent = rsi_config.get(
+            "user_agent",
+            "TEST-Squadron-Verification-Bot/1.0"
+        )
+        _rsi_client = RSIClient(
+            requests_per_minute=requests_per_minute,
+            user_agent=user_agent
+        )
+    return _rsi_client
+
+
+@router.get(
+    "/{guild_id}/settings/organization",
+    response_model=OrganizationSettings
+)
+async def get_organization_settings_endpoint(
+    guild_id: int,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+):
+    """Fetch organization settings for a guild."""
+    _ensure_active_guild(current_user, guild_id)
+    settings = await get_organization_settings(db, guild_id)
+    return OrganizationSettings(**settings)
+
+
+@router.put(
+    "/{guild_id}/settings/organization",
+    response_model=OrganizationSettings
+)
+async def update_organization_settings_endpoint(
+    guild_id: int,
+    payload: OrganizationSettings,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+):
+    """Update organization settings for a guild."""
+    _ensure_active_guild(current_user, guild_id)
+    await set_organization_settings(
+        db,
+        guild_id,
+        payload.organization_sid,
+        payload.organization_name,
+    )
+    updated = await get_organization_settings(db, guild_id)
+    return OrganizationSettings(**updated)
+
+
+@router.post(
+    "/{guild_id}/organization/validate-sid",
+    response_model=OrganizationValidationResponse
+)
+async def validate_organization_sid_endpoint(
+    guild_id: int,
+    payload: OrganizationValidationRequest,
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+):
+    """Validate an organization SID by fetching from RSI."""
+    _ensure_active_guild(current_user, guild_id)
+
+    from core.rsi_utils import validate_organization_sid
+
+    rsi_client = _get_rsi_client()
+
+    is_valid, org_name, error_msg = await validate_organization_sid(
+        payload.sid,
+        rsi_client
+    )
+
+    return OrganizationValidationResponse(
+        success=True,
+        is_valid=is_valid,
+        sid=payload.sid.strip().upper(),
+        name=org_name,
+        error=error_msg
+    )

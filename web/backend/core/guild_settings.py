@@ -19,6 +19,9 @@ BOT_SPAM_CHANNEL_KEY = "channels.bot_spam_channel_id"
 PUBLIC_ANNOUNCEMENT_CHANNEL_KEY = "channels.public_announcement_channel_id"
 LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY = "channels.leadership_announcement_channel_id"
 
+ORGANIZATION_SID_KEY = "organization.sid"
+ORGANIZATION_NAME_KEY = "organization.name"
+
 
 def _coerce_role_list(value: Any) -> list[int]:
     """Convert stored JSON values into a list of ints."""
@@ -233,4 +236,65 @@ async def set_voice_selectable_roles(
         """,
         (guild_id, SELECTABLE_ROLES_KEY, json.dumps(_normalize(selectable_roles))),
     )
+    await db.commit()
+
+
+async def get_organization_settings(db: Connection, guild_id: int) -> dict[str, str | None]:
+    """Fetch organization settings for a guild."""
+    query = """
+        SELECT key, value
+        FROM guild_settings
+        WHERE guild_id = ? AND key IN (?, ?)
+    """
+    cursor = await db.execute(
+        query,
+        (guild_id, ORGANIZATION_SID_KEY, ORGANIZATION_NAME_KEY),
+    )
+    rows = await cursor.fetchall()
+
+    result: dict[str, str | None] = {
+        "organization_sid": None,
+        "organization_name": None,
+    }
+
+    for key, value in rows:
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+            string_value = str(parsed) if parsed is not None else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            string_value = None
+
+        if key == ORGANIZATION_SID_KEY:
+            result["organization_sid"] = string_value
+        elif key == ORGANIZATION_NAME_KEY:
+            result["organization_name"] = string_value
+
+    return result
+
+
+async def set_organization_settings(
+    db: Connection,
+    guild_id: int,
+    organization_sid: str | None,
+    organization_name: str | None,
+) -> None:
+    """Persist organization settings for a guild."""
+    # Normalize SID to uppercase if provided
+    normalized_sid = organization_sid.upper() if organization_sid else None
+    
+    payloads = [
+        (ORGANIZATION_SID_KEY, json.dumps(normalized_sid)),
+        (ORGANIZATION_NAME_KEY, json.dumps(organization_name)),
+    ]
+
+    for key, value in payloads:
+        await db.execute(
+            """
+            INSERT INTO guild_settings (guild_id, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value
+            """,
+            (guild_id, key, value),
+        )
+
     await db.commit()

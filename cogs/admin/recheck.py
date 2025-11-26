@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 
 from helpers.http_helper import NotFoundError
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.role_helper import assign_roles
+from helpers.role_helper import assign_roles, _compute_next_recheck
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from services.db.database import Database
@@ -62,15 +62,38 @@ class AutoRecheck(commands.Cog):
         if not rows:
             return
 
-        guild: discord.Guild | None = self.bot.guilds[0] if self.bot.guilds else None
-        if not guild:
-            return
-
+        # Process users across ALL guilds
         for user_id, rsi_handle, _prev_status in rows:
-            member = await self._fetch_member_or_prune(guild, user_id)
-            if member is None:
+            # Find all guilds where this user is a member
+            user_guilds = [g for g in self.bot.guilds if g.get_member(int(user_id))]
+            
+            if not user_guilds:
+                # User not in any guild - prune
+                await self._prune_user_from_db(user_id)
                 continue
-            await self._handle_recheck(member, user_id, rsi_handle, now)
+            
+            # Recheck in each guild separately
+            for guild in user_guilds:
+                member = guild.get_member(int(user_id))
+                if member:
+                    await self._handle_recheck(member, user_id, rsi_handle, now)
+
+    async def _prune_user_from_db(self, user_id: int) -> None:
+        """Remove user records when they're no longer in any guild."""
+        try:
+            async with Database.get_connection() as db:
+                await db.execute(
+                    "DELETE FROM auto_recheck_state WHERE user_id = ?",
+                    (user_id,),
+                )
+                await db.execute(
+                    "DELETE FROM verification WHERE user_id = ?",
+                    (user_id,),
+                )
+                await db.commit()
+            logger.info(f"Pruned user {user_id} from DB (left all guilds)")
+        except Exception as e:
+            logger.warning(f"Failed to prune user {user_id}: {e}")
 
     async def _fetch_member_or_prune(
         self, guild: discord.Guild, user_id: int
@@ -117,22 +140,28 @@ class AutoRecheck(commands.Cog):
     ) -> None:
         try:
             # Validate handle and fetch current status
-            # Get organization name from guild config
+            # Get organization config from guild
             org_name = "test"  # Default fallback
+            org_sid = None
             if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
                 try:
                     org_name_config = await self.bot.services.guild_config.get_setting(
-                        interaction.guild.id, "organization.name", default="test"
+                        member.guild.id, "organization.name", default="test"
                     )
                     org_name = org_name_config.strip().lower() if org_name_config else "test"
+                    
+                    org_sid_config = await self.bot.services.guild_config.get_setting(
+                        member.guild.id, "organization.sid", default=None
+                    )
+                    org_sid = org_sid_config.strip().upper() if org_sid_config else None
                 except Exception as e:
                     logger.warning(
-                        f"Failed to get org name from config: {e}",
-                        extra={"guild_id": interaction.guild.id}
+                        f"Failed to get org config: {e}",
+                        extra={"guild_id": member.guild.id}
                     )
 
-            verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-                rsi_handle, self.bot.http_client, org_name
+            verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
+                rsi_handle, self.bot.http_client, org_name, org_sid
             )
             if verify_value is None or cased_handle is None:  # moniker optional
                 # Transient fetch/parse failure: schedule backoff
@@ -158,6 +187,8 @@ class AutoRecheck(commands.Cog):
                 cased_handle,
                 self.bot,
                 community_moniker=community_moniker,
+                main_orgs=main_orgs,
+                affiliate_orgs=affiliate_orgs,
             )
             with contextlib.suppress(Exception):
                 await flush_tasks()
@@ -169,6 +200,7 @@ class AutoRecheck(commands.Cog):
                 initiator_kind="Auto",
                 initiator_name=None,
                 notes=None,
+                guild_id=member.guild.id if member.guild else None,
             )
             for k, v in diff.items():
                 setattr(cs, k, v)
@@ -178,14 +210,15 @@ class AutoRecheck(commands.Cog):
             except Exception:
                 logger.debug("Leadership log post failed (auto recheck)")
 
-                # Schedule next success recheck using minutes → seconds
-            next_retry = now + max(1, self.backoff_base_m * 60)
-            await Database.upsert_auto_recheck_success(
-                user_id=int(user_id),
-                next_retry_at=next_retry,
-                now=now,
-                new_fail_count=0,
-            )
+            # Schedule next success recheck using cross-guild membership status
+            next_retry = await _compute_next_recheck(self.bot, int(user_id), now)
+            if next_retry > 0:
+                await Database.upsert_auto_recheck_success(
+                    user_id=int(user_id),
+                    next_retry_at=next_retry,
+                    now=now,
+                    new_fail_count=0,
+                )
 
         except NotFoundError:
             from helpers.username_404 import handle_username_404

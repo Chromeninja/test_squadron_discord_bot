@@ -180,41 +180,33 @@ class TestModernAdminRecheckUserCommand:
                                     True,
                                 )  # Success, changed
 
-                                # Mock bulk announcer - should be called once for status change
-                                with patch(
-                                    "helpers.announcement.enqueue_verification_event"
-                                ) as mock_bulk_enqueue:
+                                # Execute the command
+                                # NOTE: enqueue_verification_event is now only called inside
+                                # assign_roles() -> reverify_member(), not in the admin command
+                                await admin_cog.recheck_user.callback(
+                                    admin_cog, mock_interaction, mock_member
+                                )
 
-                                    # Execute the command
-                                    await admin_cog.recheck_user.callback(
-                                        admin_cog, mock_interaction, mock_member
-                                    )
+                                # Verify admin notification was sent with correct parameters
+                                mock_admin_notif.assert_called_once_with(
+                                    bot=admin_cog.bot,
+                                    admin_display_name="AdminUser",
+                                    member=mock_member,
+                                    old_status="affiliate",
+                                    new_status="main",
+                                )
 
-                                    # Verify admin notification was sent with correct parameters
-                                    mock_admin_notif.assert_called_once_with(
-                                        bot=admin_cog.bot,
-                                        admin_display_name="AdminUser",
-                                        member=mock_member,
-                                        old_status="affiliate",
-                                        new_status="main",
-                                    )
-
-                                    # Verify bulk announcer was called once with correct parameters
-                                    mock_bulk_enqueue.assert_called_once_with(
-                                        mock_member, "affiliate", "main"
-                                    )
-
-                                    # Verify interaction response indicates status change
-                                    mock_interaction.followup.send.assert_called_once()
-                                    response_call = (
-                                        mock_interaction.followup.send.call_args
-                                    )
-                                    response_msg = response_call[0][0]
-                                    assert "status changed" in response_msg.lower()
-                                    assert (
-                                        "Affiliate" in response_msg
-                                        and "Main" in response_msg
-                                    )  # Should show both statuses
+                                # Verify interaction response indicates status change
+                                mock_interaction.followup.send.assert_called_once()
+                                response_call = (
+                                    mock_interaction.followup.send.call_args
+                                )
+                                response_msg = response_call[0][0] if response_call[0] else response_call[1].get("content", "")
+                                assert "status changed" in response_msg.lower()
+                                assert (
+                                    "Affiliate" in response_msg
+                                    and "Main" in response_msg
+                                )  # Should show both statuses
 
     @pytest.mark.asyncio
     async def test_recheck_user_unknown_statuses_fallback(
@@ -251,9 +243,6 @@ class TestModernAdminRecheckUserCommand:
                         patch(
                             "helpers.announcement.send_admin_recheck_notification"
                         ) as mock_admin_notif,
-                        patch(
-                            "helpers.announcement.enqueue_verification_event"
-                        ) as mock_bulk_enqueue,
                     ):
 
                         mock_admin_notif.return_value = (
@@ -275,8 +264,8 @@ class TestModernAdminRecheckUserCommand:
                             new_status="unknown",
                         )
 
-                        # Verify bulk announcer was NOT called (unknown -> unknown is no change)
-                        mock_bulk_enqueue.assert_not_called()
+                        # NOTE: enqueue_verification_event is now only called inside assign_roles(),
+                        # not in the admin command, so we don't check for it here
 
     @pytest.mark.asyncio
     async def test_recheck_user_permission_denied(

@@ -6,6 +6,7 @@ Handles connection pooling, initialization, and migrations.
 """
 
 import asyncio
+import json
 import time
 from contextlib import asynccontextmanager
 
@@ -16,6 +17,114 @@ from utils.logging import get_logger
 from .schema import init_schema
 
 logger = get_logger(__name__)
+
+
+def derive_membership_status(main_orgs: list[str] | None, affiliate_orgs: list[str] | None, target_sid: str = "TEST") -> str:
+    """
+    Derive membership status from organization SID lists.
+    
+    Checks if the target organization SID appears in the user's main or affiliate
+    organization lists and returns the appropriate status.
+    
+    Args:
+        main_orgs: List of main organization SIDs (typically 0 or 1 item)
+        affiliate_orgs: List of affiliate organization SIDs
+        target_sid: Organization SID to check for (defaults to "TEST")
+        
+    Returns:
+        str: One of "main", "affiliate", or "non_member"
+    """
+    # Handle None or empty lists
+    if not main_orgs:
+        main_orgs = []
+    if not affiliate_orgs:
+        affiliate_orgs = []
+    
+    # Filter out REDACTED entries and check for target SID
+    non_redacted_main = [sid for sid in main_orgs if sid != "REDACTED"]
+    non_redacted_affiliate = [sid for sid in affiliate_orgs if sid != "REDACTED"]
+    
+    # Check main organizations first
+    if target_sid in non_redacted_main:
+        return "main"
+    
+    # Check affiliate organizations
+    if target_sid in non_redacted_affiliate:
+        return "affiliate"
+    
+    # Not a member of the target organization
+    return "non_member"
+
+
+async def get_cross_guild_membership_status(user_id: int) -> str:
+    """
+    Determine a user's highest membership status across ALL guilds tracking their orgs.
+    
+    Returns the highest status ("main", "affiliate", or "non_member") by:
+    1. Fetching user's main_orgs and affiliate_orgs from verification table
+    2. Finding all guilds that track ANY of those organizations
+    3. Returning "main" if user is main member of ANY tracked org
+    4. Returning "affiliate" if only affiliate across all tracked orgs
+    5. Returning "non_member" if not a member of any tracked org
+    
+    This is used for auto-recheck cadence: 14 days for main, 7 for affiliate, 3 for non-member.
+    
+    Args:
+        user_id: Discord user ID
+        
+    Returns:
+        str: "main", "affiliate", or "non_member"
+    """
+    async with Database.get_connection() as db:
+        # Get user's organization memberships
+        cur = await db.execute(
+            "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cur.fetchone()
+        
+        if not row:
+            return "non_member"
+        
+        main_orgs_json, affiliate_orgs_json = row
+        main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
+        affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
+        
+        # Filter out REDACTED
+        main_orgs = [sid for sid in main_orgs if sid != "REDACTED"]
+        affiliate_orgs = [sid for sid in affiliate_orgs if sid != "REDACTED"]
+        
+        if not main_orgs and not affiliate_orgs:
+            return "non_member"
+        
+        # Get all tracked organization SIDs from guild_settings
+        # We need to find guilds where organization.sid matches any of user's orgs
+        all_user_orgs = set(main_orgs + affiliate_orgs)
+        
+        # Query guild_settings for any guild tracking these orgs
+        tracked_orgs_query = """
+            SELECT json_extract(value, '$') as org_sid
+            FROM guild_settings
+            WHERE key = 'organization.sid'
+            AND json_extract(value, '$') IS NOT NULL
+        """
+        cur = await db.execute(tracked_orgs_query)
+        tracked_sids_rows = await cur.fetchall()
+        tracked_sids = {row[0].strip('"').upper() for row in tracked_sids_rows if row[0]}
+        
+        # Check intersection
+        tracked_user_orgs = all_user_orgs.intersection(tracked_sids)
+        
+        if not tracked_user_orgs:
+            return "non_member"
+        
+        # Determine highest status
+        for org_sid in tracked_user_orgs:
+            if org_sid in main_orgs:
+                return "main"  # Highest status
+        
+        # If we get here, user is only affiliate in tracked orgs
+        return "affiliate"
 
 
 class Database:
@@ -210,6 +319,75 @@ class Database:
                 (user_id, action, now),
             )
             await db.commit()
+
+    @classmethod
+    async def check_and_increment_rate_limit(
+        cls, user_id: int, action: str, max_attempts: int, window: int
+    ) -> tuple[bool, int]:
+        """
+        Atomically check and increment rate limit in a single transaction.
+        
+        This prevents race conditions where concurrent requests could bypass limits.
+        
+        Args:
+            user_id: Discord user ID
+            action: Rate limit action type ("verification" or "recheck")
+            max_attempts: Maximum allowed attempts in window
+            window: Time window in seconds
+            
+        Returns:
+            Tuple of (is_rate_limited, wait_until_timestamp)
+            - is_rate_limited: True if user has exceeded rate limit
+            - wait_until_timestamp: Unix timestamp when rate limit expires (0 if not limited)
+        """
+        # Ensure verification row exists before touching rate_limits (prevent FK errors)
+        await cls.ensure_verification_row(user_id)
+        
+        now = int(time.time())
+        
+        async with cls.get_connection() as db:
+            # Use BEGIN IMMEDIATE to acquire write lock immediately
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    "SELECT attempt_count, first_attempt FROM rate_limits WHERE user_id = ? AND action = ?",
+                    (user_id, action),
+                )
+                row = await cursor.fetchone()
+                
+                if row:
+                    attempts, first = row
+                    if now - first >= window:
+                        # Window expired - reset to 1 attempt
+                        await db.execute(
+                            "UPDATE rate_limits SET attempt_count = 1, first_attempt = ? WHERE user_id = ? AND action = ?",
+                            (now, user_id, action),
+                        )
+                        await db.commit()
+                        return False, 0
+                    elif attempts >= max_attempts:
+                        # Already at limit
+                        await db.commit()
+                        return True, first + window
+                    else:
+                        # Increment counter
+                        await db.execute(
+                            "UPDATE rate_limits SET attempt_count = attempt_count + 1 WHERE user_id = ? AND action = ?",
+                            (user_id, action),
+                        )
+                        await db.commit()
+                        return False, 0
+                else:
+                    # First attempt
+                    await db.execute(
+                        "INSERT INTO rate_limits (user_id, action, attempt_count, first_attempt) VALUES (?, ?, 1, ?)",
+                        (user_id, action, now),
+                    )
+                    await db.commit()
+                    return False, 0
+            except Exception:
+                await db.rollback()
+                raise
 
     @classmethod
     async def reset_rate_limit(

@@ -232,13 +232,25 @@ class MyBot(commands.Bot):
 
         for guild in self.guilds:
             try:
-                roles_config = await self.services.config.get_guild_roles(guild.id)
-                role_ids = [
-                    roles_config.get("bot_verified_role_id"),
-                    roles_config.get("main_role_id"),
-                    roles_config.get("affiliate_role_id"),
-                    roles_config.get("non_member_role_id"),
-                ]
+                # Get role configuration from database using new format
+                main_role_ids = await self.services.config.get_guild_setting(
+                    guild.id, "roles.main_role", []
+                )
+                affiliate_role_ids = await self.services.config.get_guild_setting(
+                    guild.id, "roles.affiliate_role", []
+                )
+                nonmember_role_ids = await self.services.config.get_guild_setting(
+                    guild.id, "roles.nonmember_role", []
+                )
+                
+                # Extract first role ID from each list
+                role_ids = []
+                if main_role_ids and len(main_role_ids) > 0:
+                    role_ids.append(main_role_ids[0])
+                if affiliate_role_ids and len(affiliate_role_ids) > 0:
+                    role_ids.append(affiliate_role_ids[0])
+                if nonmember_role_ids and len(nonmember_role_ids) > 0:
+                    role_ids.append(nonmember_role_ids[0])
 
                 for role_id in role_ids:
                     if not role_id:
@@ -278,7 +290,7 @@ class MyBot(commands.Bot):
         Periodically cleans up expired tokens.
         """
         while not self.is_closed():
-            await asyncio.sleep(600)  # Run every 10 minutes
+            await asyncio.sleep(300)  # Run every 5 minutes
             cleanup_tokens()
             logger.debug("Expired tokens cleaned up.")
 
@@ -287,7 +299,7 @@ class MyBot(commands.Bot):
         Periodically cleans up expired rate-limiting data.
         """
         while not self.is_closed():
-            await asyncio.sleep(600)  # Run every 10 minutes
+            await asyncio.sleep(300)  # Run every 5 minutes
             # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
             await cleanup_attempts()
 

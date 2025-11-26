@@ -60,6 +60,32 @@ async def get_org_name(bot, guild_id: int) -> str:
     return org_name
 
 
+async def get_org_sid(bot, guild_id: int) -> str | None:
+    """
+    Get organization SID from config service.
+    
+    Args:
+        bot: Bot instance with config service
+        guild_id: Guild ID for config lookup
+        
+    Returns:
+        Organization SID (uppercase) or None if not configured
+    """
+    if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
+        try:
+            org_sid_config = await bot.services.guild_config.get_setting(
+                guild_id, "organization.sid", default=None
+            )
+            if org_sid_config:
+                return org_sid_config.strip().upper()
+        except Exception as e:
+            logger.warning(
+                f"Failed to get org SID from config: {e}",
+                extra={"guild_id": guild_id}
+            )
+    return None
+
+
 class HandleModal(Modal, title="Verification"):
     """
     Modal to collect the user's RSI handle for verification.
@@ -98,7 +124,26 @@ class HandleModal(Modal, title="Verification"):
             return
 
         member = interaction.user
+        
+        # Check rate limit FIRST before processing anything
+        rate_limited, wait_until = await check_rate_limit(member.id, "verification")
+        if rate_limited:
+            embed = create_cooldown_embed(wait_until)
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            logger.info(
+                "User tried to verify while rate limited.",
+                extra={"user_id": member.id}
+            )
+            return
+        
         rsi_handle_input = self.rsi_handle.value.strip()
+        
+        # DEBUG: Log guild context
+        logger.info(
+            f"HandleModal.on_submit: interaction.guild={interaction.guild.name} ({interaction.guild.id}), "
+            f"member.guild={member.guild.name} ({member.guild.id}), "
+            f"member.id={member.id}"
+        )
 
         # Validate RSI handle format
         if not RSI_HANDLE_REGEX.match(rsi_handle_input):
@@ -110,11 +155,12 @@ class HandleModal(Modal, title="Verification"):
             return
 
         # Proceed with verification to get verify_value and cased_handle
-        # Get organization name from guild config
+        # Get organization config from guild
         org_name = await get_org_name(self.bot, interaction.guild.id)
+        org_sid = await get_org_sid(self.bot, interaction.guild.id)
 
-        verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-            rsi_handle_input, self.bot.http_client, org_name.lower()
+        verify_value, cased_handle, community_moniker, _, _ = await is_valid_rsi_handle(
+            rsi_handle_input, self.bot.http_client, org_name.lower(), org_sid
         )
         if verify_value is None or cased_handle is None:  # moniker optional
             embed = create_error_embed(
@@ -148,11 +194,12 @@ class HandleModal(Modal, title="Verification"):
             return
 
         # Perform RSI verification with sanitized handle
-        # Get org_name for consistency
+        # Get org config for consistency
         org_name = await get_org_name(self.bot, interaction.guild.id)
+        org_sid = await get_org_sid(self.bot, interaction.guild.id)
 
-        verify_value_check, _cased_handle_2, community_moniker_2 = (
-            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name.lower())
+        verify_value_check, _cased_handle_2, community_moniker_2, main_orgs, affiliate_orgs = (
+            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name.lower(), org_sid)
         )
         if verify_value_check is None:
             embed = create_error_embed(
@@ -256,6 +303,8 @@ class HandleModal(Modal, title="Verification"):
             cased_handle_used,
             self.bot,
             community_moniker=community_moniker,
+            main_orgs=main_orgs,
+            affiliate_orgs=affiliate_orgs,
         )
         # Allow enqueued role/nick tasks to process so snapshot reflects changes
         with contextlib.suppress(Exception):
@@ -268,6 +317,7 @@ class HandleModal(Modal, title="Verification"):
             initiator_kind="User",
             initiator_name=None,
             notes=None,
+            guild_id=member.guild.id if member.guild else None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)
@@ -291,10 +341,12 @@ class HandleModal(Modal, title="Verification"):
                 "Fly safe! <:o7:1332572027877593148>"
             )
         elif assigned_role_type == "affiliate":
+            # Use org_sid for instructions
+            org_sid_display = org_sid if org_sid else "TEST"
             description = (
                 f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "Your support helps us grow and excel. We encourage you to set **TEST** as "
+                f"Your support helps us grow and excel. We encourage you to set **{org_sid_display}** as "
                 "your MAIN Org to show your loyalty.\n\n"
                 "**Instructions:**\n"
                 ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
@@ -304,13 +356,15 @@ class HandleModal(Modal, title="Verification"):
                 "<:o7:1332572027877593148>"
             )
         elif assigned_role_type == "non_member":
+            # Use org_sid for RSI URL
+            org_sid_url = org_sid if org_sid else "TEST"
             description = (
                 f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
                 "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
                 "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
                 "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                f"🔗 [Join {org_name}](https://robertsspaceindustries.com/orgs/TEST)\n"
-                "*Click **Enlist Now!**. Test membership requests are usually approved within "
+                f"🔗 [Join {org_name}](https://robertsspaceindustries.com/orgs/{org_sid_url})\n"
+                f"*Click **Enlist Now!**. {org_name} membership requests are usually approved within "
                 "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
                 "Join our voice chats, explore events, and engage in our text channels to get "
                 "involved! <:o7:1332572027877593148>"

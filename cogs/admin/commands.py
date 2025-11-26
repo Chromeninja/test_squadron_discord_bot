@@ -293,12 +293,15 @@ class AdminCog(commands.Cog):
         self.logger.info(
             f"'reset-all' command triggered by user {interaction.user.id}."
         )
+        
+        # Defer immediately before async operations
+        await interaction.response.defer(ephemeral=True)
 
         await reset_all_attempts()
         clear_all_tokens()
 
-        await send_message(
-            interaction, "✅ Reset verification timers for all members.", ephemeral=True
+        await interaction.followup.send(
+            "✅ Reset verification timers for all members.", ephemeral=True
         )
 
         self.logger.info(
@@ -325,12 +328,14 @@ class AdminCog(commands.Cog):
         self.logger.info(
             f"'reset-user' command triggered by user {interaction.user.id} for member {member.id}."
         )
+        
+        # Defer immediately before async operations
+        await interaction.response.defer(ephemeral=True)
 
         await reset_attempts(member.id)
         clear_token(member.id)
 
-        await send_message(
-            interaction,
+        await interaction.followup.send(
             f"✅ Reset verification timer for {member.mention}.",
             ephemeral=True,
         )
@@ -339,6 +344,90 @@ class AdminCog(commands.Cog):
             "Reset-user command completed successfully.",
             extra={"user_id": interaction.user.id, "target_user_id": member.id},
         )
+
+    @app_commands.command(
+        name="flush-announcements",
+        description="Force flush pending announcement queue immediately."
+    )
+    @app_commands.guild_only()
+    @require_bot_admin()
+    async def flush_announcements(self, interaction: discord.Interaction) -> None:
+        """
+        Force flush the pending announcement queue immediately.
+        
+        This will post all pending member join/promotion announcements to the
+        public announcement channel instead of waiting for the daily scheduled time
+        or threshold trigger. Bot Admins only.
+        """
+        from helpers.discord_api import send_message
+        
+        self.logger.info(
+            f"'flush-announcements' command triggered by user {interaction.user.id} ({interaction.user.display_name})."
+        )
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get the BulkAnnouncer cog
+            announcer = self.bot.get_cog("BulkAnnouncer")
+            if not announcer:
+                await interaction.followup.send(
+                    "❌ BulkAnnouncer cog not loaded. Cannot flush announcements.",
+                    ephemeral=True
+                )
+                self.logger.error("BulkAnnouncer cog not found when flush-announcements was called")
+                return
+
+            # Get pending count before flushing
+            pending_count = await announcer._count_pending()
+            
+            if pending_count == 0:
+                await interaction.followup.send(
+                    "ℹ️ No pending announcements in queue.",
+                    ephemeral=True
+                )
+                self.logger.info(
+                    "flush-announcements: no pending announcements",
+                    extra={"user_id": interaction.user.id}
+                )
+                return
+
+            # Flush the queue
+            self.logger.info(
+                f"flush-announcements: flushing {pending_count} pending events",
+                extra={"user_id": interaction.user.id}
+            )
+            
+            sent = await announcer.flush_pending()
+            
+            if sent:
+                await interaction.followup.send(
+                    f"✅ Successfully flushed announcement queue! Posted {pending_count} pending event(s) to public announcement channels.",
+                    ephemeral=True
+                )
+                self.logger.info(
+                    f"flush-announcements: successfully flushed {pending_count} events",
+                    extra={"user_id": interaction.user.id}
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ Flush completed but no announcements were sent. Check that public announcement channels are configured.",
+                    ephemeral=True
+                )
+                self.logger.warning(
+                    f"flush-announcements: flush returned False (no announcements sent) despite {pending_count} pending",
+                    extra={"user_id": interaction.user.id}
+                )
+
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Failed to flush announcements: {e}",
+                ephemeral=True
+            )
+            self.logger.exception(
+                f"flush-announcements command failed: {e}",
+                extra={"user_id": interaction.user.id}
+            )
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
     @app_commands.guild_only()
@@ -492,7 +581,9 @@ class AdminCog(commands.Cog):
             from services.db.database import Database
 
             self.logger.info(
-                f"'recheck-user' command triggered by user {interaction.user.id} for member {member.id}."
+                f"'recheck-user' command triggered by user {interaction.user.id} for member {member.id}. "
+                f"Guild: {interaction.guild.name} ({interaction.guild_id}), "
+                f"member.guild: {member.guild.name} ({member.guild.id})"
             )
 
             await interaction.response.defer(ephemeral=True)
@@ -569,6 +660,7 @@ class AdminCog(commands.Cog):
                     initiator_kind="Admin",
                     initiator_name=interaction.user.display_name,
                     notes=f"Manual recheck by {interaction.user.display_name}",
+                    guild_id=member.guild.id if member.guild else None,
                 )
                 for k, v in diff.items():
                     setattr(cs, k, v)
@@ -618,16 +710,11 @@ class AdminCog(commands.Cog):
                     )
                 )
 
-                # Only enqueue bulk announcer event if status actually changed
+                # Note: enqueue_verification_event() is called by assign_roles() -> reverify_member()
+                # so we don't need to call it again here (avoids redundant DB operations)
                 if status_changed:
-                    await enqueue_verification_event(
-                        member,
-                        old_status_raw or "non_member",
-                        new_status_raw or "non_member",
-                    )
                     admin_response_message = f"✅ Recheck complete: {member.mention} status changed from {old_status_pretty} to {new_status_pretty}"
                 else:
-                    # No change: do not enqueue to bulk announcer
                     admin_response_message = f"ℹ️ Recheck complete: {member.mention} no status change ({old_status_pretty})"
 
                 if not notification_sent:

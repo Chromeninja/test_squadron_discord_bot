@@ -42,7 +42,9 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             verification_payload TEXT,
             needs_reverify INTEGER DEFAULT 0,
             needs_reverify_at INTEGER DEFAULT 0,
-            community_moniker TEXT
+            community_moniker TEXT,
+            main_orgs TEXT DEFAULT NULL,
+            affiliate_orgs TEXT DEFAULT NULL
         )
         """
     )
@@ -81,7 +83,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             voice_channel_id INTEGER NOT NULL UNIQUE,
             created_at INTEGER DEFAULT (strftime('%s','now')),
             last_activity INTEGER DEFAULT (strftime('%s','now')),
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            previous_owner_id INTEGER
         )
         """
     )
@@ -123,7 +126,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             guild_id INTEGER NOT NULL,
             jtc_channel_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            last_creation INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
             PRIMARY KEY (guild_id, jtc_channel_id, user_id)
         )
         """
@@ -250,6 +253,11 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             PRIMARY KEY (user_id, action)
         )
         """
+    )
+    
+    # Index for faster cleanup queries on rate_limits
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rate_limits_first_attempt ON rate_limits(action, first_attempt)"
     )
 
     # Auto-recheck state

@@ -132,6 +132,8 @@ class VerificationRecord(BaseModel):
     community_moniker: str | None = None
     last_updated: int
     needs_reverify: bool = False
+    main_orgs: list[str] | None = None
+    affiliate_orgs: list[str] | None = None
 
 
 class UserSearchResponse(BaseModel):
@@ -300,3 +302,26 @@ class BotChannelSettings(BaseModel):
     bot_spam_channel_id: str | None = None
     public_announcement_channel_id: str | None = None
     leadership_announcement_channel_id: str | None = None
+
+
+class OrganizationSettings(BaseModel):
+    """Organization configuration for guild verification."""
+
+    organization_sid: str | None = None
+    organization_name: str | None = None
+
+
+class OrganizationValidationRequest(BaseModel):
+    """Request payload for validating an organization SID."""
+
+    sid: str
+
+
+class OrganizationValidationResponse(BaseModel):
+    """Response payload for organization SID validation."""
+
+    success: bool = True
+    is_valid: bool
+    sid: str
+    name: str | None = None
+    error: str | None = None

@@ -16,6 +16,8 @@ class MemberSnapshot:
     handle: str | None  # rsi_handle from DB
     username: str | None  # discord nickname/display
     roles: set[str]  # Role names (non-managed filtered later)
+    main_orgs: list[str] | None = None  # Main organization SIDs
+    affiliate_orgs: list[str] | None = None  # Affiliate organization SIDs
 
 
 async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
@@ -23,15 +25,18 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     status = "Not a Member"
     moniker = None
     handle = None
+    main_orgs = None
+    affiliate_orgs = None
     try:
+        import json
         async with Database.get_connection() as db:
             cur = await db.execute(
-                "SELECT membership_status, community_moniker, rsi_handle FROM verification WHERE user_id=?",
+                "SELECT membership_status, community_moniker, rsi_handle, main_orgs, affiliate_orgs FROM verification WHERE user_id=?",
                 (member.id,),
             )
             row = await cur.fetchone()
             if row:
-                status_db, moniker_db, handle_db = row
+                status_db, moniker_db, handle_db, main_orgs_json, affiliate_orgs_json = row
                 # Map internal statuses to human terms for logs
                 mapping = {
                     "main": "Main",
@@ -41,6 +46,9 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
                 status = mapping.get(status_db, status_db or "Not a Member")
                 moniker = moniker_db
                 handle = handle_db
+                # Parse JSON org lists
+                main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
+                affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 
@@ -56,7 +64,8 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
             pass
         roles.add(getattr(r, "name", str(r)))
     return MemberSnapshot(
-        status=status, moniker=moniker, handle=handle, username=username, roles=roles
+        status=status, moniker=moniker, handle=handle, username=username, roles=roles,
+        main_orgs=main_orgs, affiliate_orgs=affiliate_orgs
     )
 
 
@@ -72,6 +81,10 @@ class MemberSnapshotDiff:
     username_after: str | None
     roles_added: list[str]
     roles_removed: list[str]
+    main_orgs_before: list[str] | None = None
+    main_orgs_after: list[str] | None = None
+    affiliate_orgs_before: list[str] | None = None
+    affiliate_orgs_after: list[str] | None = None
 
     # Backwards‑compatibility helpers (dict-like access in existing callers)
     def to_dict(self) -> dict[str, Any]:
@@ -108,6 +121,10 @@ def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnaps
         username_after=after.username,
         roles_added=roles_added,
         roles_removed=roles_removed,
+        main_orgs_before=before.main_orgs,
+        main_orgs_after=after.main_orgs,
+        affiliate_orgs_before=before.affiliate_orgs,
+        affiliate_orgs_after=after.affiliate_orgs,
     )
 
 

@@ -25,9 +25,9 @@ async def test_perform_rsi_recheck_concurrent_execution():
     # Track call order to verify concurrency
     call_order = []
 
-    async def mock_verify(handle, client, org_name):
+    async def mock_verify(handle, client, org_name, org_sid=None):
         call_order.append(handle)
-        return (1, handle.upper(), None)
+        return (1, handle.upper(), None, [], [])
 
     with patch("verification.rsi_verification.is_valid_rsi_handle", side_effect=mock_verify):
         result_rows = await service._perform_rsi_recheck(input_rows)
@@ -61,7 +61,7 @@ async def test_perform_rsi_recheck_all_main():
 
     # Mock is_valid_rsi_handle to return main status (verify_value=1)
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.return_value = (1, "Handle1", None)  # verify_value=1 = main
+        mock_verify.return_value = (1, "Handle1", None, [], [])  # verify_value=1 = main
 
         result_rows = await service._perform_rsi_recheck(input_rows)
 
@@ -94,9 +94,9 @@ async def test_perform_rsi_recheck_mixed_statuses():
     # Mock different return values for each call
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = [
-            (1, "Handle1", None),   # main
-            (2, "Handle2", None),   # affiliate
-            (0, "Handle3", None),   # non_member
+            (1, "Handle1", None, [], []),   # main
+            (2, "Handle2", None, [], []),   # affiliate
+            (0, "Handle3", None, [], []),   # non_member
         ]
 
         result_rows = await service._perform_rsi_recheck(input_rows)
@@ -157,7 +157,7 @@ async def test_perform_rsi_recheck_generic_error():
     # First call succeeds, second raises error
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = [
-            (1, "Handle1", None),
+            (1, "Handle1", None, [], []),
             Exception("Network error"),
         ]
 
@@ -215,7 +215,7 @@ async def test_perform_rsi_recheck_none_verify_value():
 
     # Mock returning None verify_value
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.return_value = (None, "Handle1", None)
+        mock_verify.return_value = (None, "Handle1", None, [], [])
 
         result_rows = await service._perform_rsi_recheck(input_rows)
 
@@ -245,9 +245,9 @@ async def test_perform_rsi_recheck_partial_failures():
     # Mix of success and failures
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = [
-            (1, "Handle1", None),           # success - main
+            (1, "Handle1", None, [], []),           # success - main
             NotFoundError("Not found"),     # failure - 404
-            (0, "Handle3", None),           # success - non_member
+            (0, "Handle3", None, [], []),           # success - non_member
             Exception("Timeout"),           # failure - exception
         ]
 

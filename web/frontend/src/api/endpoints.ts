@@ -53,6 +53,23 @@ export interface VoiceSelectableRolesPayload {
   selectable_roles: number[];
 }
 
+export interface OrganizationSettingsPayload {
+  organization_sid: string | null;
+  organization_name: string | null;
+}
+
+export interface OrganizationValidationRequest {
+  sid: string;
+}
+
+export interface OrganizationValidationResponse {
+  success: boolean;
+  is_valid: boolean;
+  sid: string;
+  name: string | null;
+  error: string | null;
+}
+
 export interface StatsOverview {
   total_verified: number;
   by_status: {
@@ -71,6 +88,8 @@ export interface VerificationRecord {
   community_moniker: string | null;
   last_updated: number;
   needs_reverify: boolean;
+  main_orgs: string[] | null;
+  affiliate_orgs: string[] | null;
 }
 
 export interface VoiceChannelRecord {
@@ -142,6 +161,8 @@ export interface EnrichedUser {
   last_updated: number | null;
   needs_reverify: boolean;
   roles: Array<{ id: number; name: string; color: number | null }>;
+  main_orgs: string[] | null;
+  affiliate_orgs: string[] | null;
 }
 
 export interface UsersListResponse {
@@ -379,6 +400,26 @@ export const guildApi = {
     const response = await apiClient.put<VoiceSelectableRolesPayload>(
       `/api/guilds/${guildId}/settings/voice/selectable-roles`,
       payload
+    );
+    return response.data;
+  },
+  getOrganizationSettings: async (guildId: string) => {
+    const response = await apiClient.get<OrganizationSettingsPayload>(
+      `/api/guilds/${guildId}/settings/organization`
+    );
+    return response.data;
+  },
+  updateOrganizationSettings: async (guildId: string, payload: OrganizationSettingsPayload) => {
+    const response = await apiClient.put<OrganizationSettingsPayload>(
+      `/api/guilds/${guildId}/settings/organization`,
+      payload
+    );
+    return response.data;
+  },
+  validateOrganizationSid: async (guildId: string, sid: string) => {
+    const response = await apiClient.post<OrganizationValidationResponse>(
+      `/api/guilds/${guildId}/organization/validate-sid`,
+      { sid }
     );
     return response.data;
   },

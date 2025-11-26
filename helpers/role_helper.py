@@ -1,4 +1,5 @@
 import contextlib
+import json
 import random
 import time
 
@@ -7,17 +8,37 @@ import discord
 from helpers.announcement import enqueue_verification_event
 from helpers.discord_api import add_roles, edit_member, remove_roles
 from helpers.task_queue import enqueue_task
-from services.db.database import Database
+from services.db.database import Database, get_cross_guild_membership_status
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def _compute_next_recheck(bot, new_status: str, now: int) -> int:
+async def _compute_next_recheck(bot, user_id: int, now: int) -> int:
+    """
+    Compute next auto-recheck timestamp based on user's cross-guild membership status.
+    
+    Uses the highest membership status across ALL guilds tracking user's organizations:
+    - Main member of ANY tracked org: 14 days
+    - Affiliate only across all tracked orgs: 7 days
+    - Non-member: 3 days
+    
+    Args:
+        bot: Bot instance with config
+        user_id: Discord user ID
+        now: Current timestamp
+        
+    Returns:
+        Unix timestamp for next recheck, or 0 if auto-recheck disabled
+    """
     cfg = (bot.config or {}).get("auto_recheck", {}) or {}
     cadence_map = cfg.get("cadence_days") or {}
     jitter_h = int(cfg.get("jitter_hours") or 0)
-    days = int(cadence_map.get(new_status or "", 0))  # Default 0 -> skip if unknown
+    
+    # Get cross-guild membership status
+    status = await get_cross_guild_membership_status(user_id)
+    
+    days = int(cadence_map.get(status or "", 0))  # Default 0 -> skip if unknown
     if days <= 0:
         return 0
     jitter = random.randint(-jitter_h * 3600, jitter_h * 3600) if jitter_h > 0 else 0
@@ -30,6 +51,8 @@ async def assign_roles(
     cased_handle: str,
     bot,
     community_moniker: str | None = None,
+    main_orgs: list[str] | None = None,
+    affiliate_orgs: list[str] | None = None,
 ) -> None:
     """Assign roles based on verification status.
 
@@ -39,6 +62,8 @@ async def assign_roles(
         cased_handle: Properly cased RSI handle
         bot: Bot instance with role_cache and other attributes
         community_moniker: Optional community moniker
+        main_orgs: List of main organization SIDs
+        affiliate_orgs: List of affiliate organization SIDs
 
     Raises:
         TypeError: If bot parameter is not a proper Bot instance
@@ -132,13 +157,15 @@ async def assign_roles(
     async with Database.get_connection() as db:
         await db.execute(
             """
-            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, community_moniker)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, community_moniker, main_orgs, affiliate_orgs)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 rsi_handle = excluded.rsi_handle,
                 membership_status = excluded.membership_status,
                 last_updated = excluded.last_updated,
                 community_moniker = excluded.community_moniker,
+                main_orgs = excluded.main_orgs,
+                affiliate_orgs = excluded.affiliate_orgs,
                 -- Only clear needs_reverify if it was previously set (successful re-verification)
                 needs_reverify = CASE WHEN verification.needs_reverify = 1 THEN 0 ELSE verification.needs_reverify END,
                 needs_reverify_at = CASE WHEN verification.needs_reverify = 1 THEN NULL ELSE verification.needs_reverify_at END
@@ -149,6 +176,8 @@ async def assign_roles(
                 membership_status,
                 int(time.time()),
                 community_moniker,
+                json.dumps(main_orgs) if main_orgs else None,
+                json.dumps(affiliate_orgs) if affiliate_orgs else None,
             ),
         )
         await db.commit()
@@ -156,20 +185,27 @@ async def assign_roles(
             f"Stored verification data for user {member.display_name} ({member.id})"
         )
 
-        try:
-            await enqueue_verification_event(
-                member, prev_status or "non_member", membership_status
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to enqueue announcement event: {e}",
+        # Only enqueue announcement if status actually changed
+        if prev_status != membership_status:
+            try:
+                await enqueue_verification_event(
+                    member, prev_status or "non_member", membership_status
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to enqueue announcement event: {e}",
+                    extra={"user_id": member.id},
+                )
+        else:
+            logger.debug(
+                f"Status unchanged ({membership_status}), skipping announcement queue",
                 extra={"user_id": member.id},
             )
 
             # Schedule next auto-recheck immediately after successful upsert and enqueuing announcement
         try:
             now = int(time.time())
-            next_retry = _compute_next_recheck(bot, membership_status, now)
+            next_retry = await _compute_next_recheck(bot, member.id, now)
             if next_retry > 0:
                 await Database.upsert_auto_recheck_success(
                     member.id, next_retry_at=next_retry, now=now, new_fail_count=0
@@ -373,31 +409,37 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         logger.error("No HTTP client found in bot services or bot object")
         return False, "error", "HTTP client unavailable for RSI verification."
 
-    # Get organization name from guild config
+    # Get organization config from guild
     org_name = "test"  # Default fallback
+    org_sid = None
     if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
         try:
             org_name_config = await bot.services.guild_config.get_setting(
                 member.guild.id, "organization.name", default="test"
             )
             org_name = org_name_config.strip().lower() if org_name_config else "test"
+            
+            org_sid_config = await bot.services.guild_config.get_setting(
+                member.guild.id, "organization.sid", default=None
+            )
+            org_sid = org_sid_config.strip().upper() if org_sid_config else None
         except Exception as e:
             logger.warning(
-                f"Failed to get org name from config, using default: {e}",
+                f"Failed to get org config, using defaults: {e}",
                 extra={"guild_id": member.guild.id}
             )
 
     try:
-        verify_value, cased_handle, community_moniker = await is_valid_rsi_handle(
-            rsi_handle, http_client, org_name
+        verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
+            rsi_handle, http_client, org_name, org_sid
         )  # May raise NotFoundError
     except Exception as e:
         logger.exception(
             "Error calling is_valid_rsi_handle for %s", rsi_handle, exc_info=e
         )
-        return False, "error", f"RSI verification failed: {e!s}"
+        return False, "error", f"Unexpected error: {e}"
 
-    if verify_value is None or cased_handle is None:  # moniker optional
+    if verify_value is None or cased_handle is None:
         logger.error(
             f"is_valid_rsi_handle returned None values for {rsi_handle}: verify_value={verify_value}, cased_handle={cased_handle}"
         )
@@ -408,6 +450,6 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         )
 
     role_type = await assign_roles(
-        member, verify_value, cased_handle, bot, community_moniker=community_moniker
+        member, verify_value, cased_handle, bot, community_moniker=community_moniker, main_orgs=main_orgs, affiliate_orgs=affiliate_orgs
     )
     return True, role_type, None

@@ -51,12 +51,17 @@ async def temp_db():
         await db.execute(
             """
             INSERT INTO verification 
-            (user_id, rsi_handle, membership_status, last_updated, community_moniker)
+            (user_id, rsi_handle, membership_status, last_updated, 
+             community_moniker, main_orgs, affiliate_orgs)
             VALUES 
-                (123456789, 'TestUser1', 'main', 1234567890, 'Test Main'),
-                (987654321, 'TestUser2', 'affiliate', 1234567891, 'Test Affiliate'),
-                (111222333, 'TestUser3', 'non_member', 1234567892, NULL),
-                (444555666, 'TestUser4', 'unknown', 1234567893, NULL)
+                (123456789, 'TestUser1', 'main', 1234567890, 
+                 'Test Main', '["TEST"]', '[]'),
+                (987654321, 'TestUser2', 'affiliate', 1234567891, 
+                 'Test Affiliate', '[]', '["TEST"]'),
+                (111222333, 'TestUser3', 'non_member', 1234567892, 
+                 NULL, '[]', '[]'),
+                (444555666, 'TestUser4', 'unknown', 1234567893, 
+                 NULL, NULL, NULL)
             """
         )
 

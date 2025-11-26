@@ -245,6 +245,47 @@ class TestVoiceService:
         await voice_service.shutdown()
         await config_service.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_can_create_voice_channel_blocks_across_jtcs(self, temp_db):
+        """Ensure duplicate creations are blocked when hopping between JTCs."""
+        Database._initialized = False
+        Database._db_path = temp_db
+        await Database.initialize(temp_db)
+
+        config_service = ConfigService()
+        await config_service.initialize()
+
+        voice_service = VoiceService(config_service)
+        await voice_service.initialize()
+
+        guild_id = 54321
+        first_jtc = 11111
+        second_jtc = 22222
+        user_id = 999
+
+        # Simulate an in-progress creation in the first JTC
+        voice_service._mark_user_creating(guild_id, user_id)
+
+        can_create, reason = await voice_service.can_create_voice_channel(
+            guild_id, second_jtc, user_id
+        )
+
+        assert can_create is False
+        assert reason == "CREATING"
+
+        # Once unmarked, creation should be allowed again even in a different JTC
+        voice_service._unmark_user_creating(guild_id, user_id)
+
+        can_create_again, reason_again = await voice_service.can_create_voice_channel(
+            guild_id, second_jtc, user_id
+        )
+
+        assert can_create_again is True
+        assert reason_again is None
+
+        await voice_service.shutdown()
+        await config_service.shutdown()
+
 
 class TestServiceContainer:
     """Tests for ServiceContainer."""

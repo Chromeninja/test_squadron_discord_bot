@@ -23,6 +23,10 @@ function Users() {
   
   // Filters
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
+  const [orgSearchQuery, setOrgSearchQuery] = useState<string>('');
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState<boolean>(false);
   
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -42,8 +46,85 @@ function Users() {
       .map((status) => status.toLowerCase());
   }, [selectedStatuses]);
   
+  // Get unique organizations from all users
+  const availableOrgs = useMemo(() => {
+    const orgSet = new Set<string>();
+    users.forEach(user => {
+      user.main_orgs?.forEach(org => {
+        if (org && org !== 'REDACTED') orgSet.add(org);
+      });
+      user.affiliate_orgs?.forEach(org => {
+        if (org && org !== 'REDACTED') orgSet.add(org);
+      });
+    });
+    return Array.from(orgSet).sort();
+  }, [users]);
+  
+  // Filter orgs by search query
+  const filteredAvailableOrgs = useMemo(() => {
+    if (!orgSearchQuery.trim()) {
+      return availableOrgs;
+    }
+    const query = orgSearchQuery.toLowerCase().trim();
+    return availableOrgs.filter(org => org.toLowerCase().includes(query));
+  }, [availableOrgs, orgSearchQuery]);
+  
+  // Filter users by search query and orgs (client-side)
+  const filteredUsers = useMemo(() => {
+    let filtered = users;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(user => {
+        // Search by username (discord_username)
+        if (user.discord_username?.toLowerCase().includes(query)) {
+          return true;
+        }
+        // Search by RSI handle
+        if (user.rsi_handle?.toLowerCase().includes(query)) {
+          return true;
+        }
+        // Search by Discord ID (UUID)
+        if (user.discord_id?.toLowerCase().includes(query)) {
+          return true;
+        }
+        return false;
+      });
+    }
+    
+    // Apply org filter (AND logic - user must be in ALL selected orgs)
+    if (selectedOrgs.length > 0) {
+      filtered = filtered.filter(user => {
+        const userOrgs = [
+          ...(user.main_orgs || []),
+          ...(user.affiliate_orgs || [])
+        ];
+        // Check if user has ALL selected orgs
+        return selectedOrgs.every(org => userOrgs.includes(org));
+      });
+    }
+    
+    return filtered;
+  }, [users, searchQuery, selectedOrgs]);
+  
   // Export state
   const [exporting, setExporting] = useState(false);
+
+  // Close org dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (orgDropdownOpen) {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.org-dropdown-container')) {
+          setOrgDropdownOpen(false);
+        }
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [orgDropdownOpen]);
 
   // Load user profile to get active guild
   useEffect(() => {
@@ -115,8 +196,19 @@ function Users() {
 
   const clearFilters = () => {
     setSelectedStatuses([]);
+    setSearchQuery('');
+    setSelectedOrgs([]);
+    setOrgSearchQuery('');
     setPage(1);
     resetSelection();
+  };
+
+  const toggleOrg = (org: string) => {
+    setSelectedOrgs(prev => 
+      prev.includes(org)
+        ? prev.filter(o => o !== org)
+        : [...prev, org]
+    );
   };
 
 
@@ -146,29 +238,29 @@ function Users() {
   };
 
   const handleSelectAllOnPage = () => {
-    if (users.length === 0) {
+    if (filteredUsers.length === 0) {
       return;
     }
 
     if (selectAllFiltered) {
-      const allPageSelected = users.every((user) => !excludedIds.has(user.discord_id));
+      const allPageSelected = filteredUsers.every((user) => !excludedIds.has(user.discord_id));
       setExcludedIds((prev) => {
         const next = new Set(prev);
         if (allPageSelected) {
-          users.forEach((user) => next.add(user.discord_id));
+          filteredUsers.forEach((user) => next.add(user.discord_id));
         } else {
-          users.forEach((user) => next.delete(user.discord_id));
+          filteredUsers.forEach((user) => next.delete(user.discord_id));
         }
         return next;
       });
     } else {
-      const allPageSelected = users.every((user) => selectedIds.has(user.discord_id));
+      const allPageSelected = filteredUsers.every((user) => selectedIds.has(user.discord_id));
       setSelectedIds((prev) => {
         const next = new Set(prev);
         if (allPageSelected) {
-          users.forEach((user) => next.delete(user.discord_id));
+          filteredUsers.forEach((user) => next.delete(user.discord_id));
         } else {
-          users.forEach((user) => next.add(user.discord_id));
+          filteredUsers.forEach((user) => next.add(user.discord_id));
         }
         return next;
       });
@@ -211,12 +303,12 @@ function Users() {
   }, [selectAllFiltered, selectedCount, excludedIds, selectedIds, total]);
 
   const pageSelectionInfo = useMemo(() => {
-    if (users.length === 0) {
+    if (filteredUsers.length === 0) {
       return { allSelected: false, partiallySelected: false };
     }
 
     let selectedOnPage = 0;
-    users.forEach((user) => {
+    filteredUsers.forEach((user) => {
       const isSelected = selectAllFiltered
         ? !excludedIds.has(user.discord_id)
         : selectedIds.has(user.discord_id);
@@ -226,11 +318,11 @@ function Users() {
     });
 
     return {
-      allSelected: selectedOnPage === users.length,
+      allSelected: selectedOnPage === filteredUsers.length,
       partiallySelected:
-        selectedOnPage > 0 && selectedOnPage < users.length,
+        selectedOnPage > 0 && selectedOnPage < filteredUsers.length,
     };
-  }, [users, selectAllFiltered, excludedIds, selectedIds]);
+  }, [filteredUsers, selectAllFiltered, excludedIds, selectedIds]);
 
   useEffect(() => {
     if (!headerCheckboxRef.current) {
@@ -341,6 +433,90 @@ function Users() {
       {/* Filter Bar */}
       <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700">
         <div className="flex flex-wrap gap-4 items-start">
+          {/* Search Box */}
+          <div className="flex-1 min-w-[250px]">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Search
+            </label>
+            <input
+              type="text"
+              placeholder="Search by username, RSI handle, or UUID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          
+          {/* Organization Filter */}
+          <div className="flex-1 min-w-[250px] relative org-dropdown-container">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Organizations {selectedOrgs.length > 0 && `(${selectedOrgs.length} selected)`}
+            </label>
+            <div className="relative">
+              <div 
+                className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+                onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
+              >
+                <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
+                  {selectedOrgs.length === 0 ? (
+                    <span className="text-gray-500">All Organizations</span>
+                  ) : (
+                    selectedOrgs.map(org => (
+                      <span 
+                        key={org}
+                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleOrg(org);
+                        }}
+                      >
+                        {org}
+                        <span className="hover:text-indigo-100">×</span>
+                      </span>
+                    ))
+                  )}
+                </div>
+                <span className="text-gray-400 ml-2">{orgDropdownOpen ? '▲' : '▼'}</span>
+              </div>
+              
+              {orgDropdownOpen && (
+                <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+                  <div className="p-2 border-b border-slate-700">
+                    <input
+                      type="text"
+                      placeholder="Search organizations..."
+                      value={orgSearchQuery}
+                      onChange={(e) => setOrgSearchQuery(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {filteredAvailableOrgs.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-gray-500">No organizations found</div>
+                    ) : (
+                      filteredAvailableOrgs.map(org => (
+                        <label 
+                          key={org} 
+                          className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedOrgs.includes(org)}
+                            onChange={() => toggleOrg(org)}
+                            className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                          />
+                          {org}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
           {/* Membership Status Multi-Select */}
           <div className="flex-1 min-w-[250px]">
             <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -362,7 +538,7 @@ function Users() {
           </div>
 
           {/* Clear Filters Button */}
-          {selectedStatuses.length > 0 && (
+          {(selectedStatuses.length > 0 || searchQuery.trim() || selectedOrgs.length > 0) && (
             <div className="self-end">
               <button
                 onClick={clearFilters}
@@ -466,7 +642,7 @@ function Users() {
       )}
 
       {/* Users Table */}
-      {!loading && users.length > 0 && (
+      {!loading && filteredUsers.length > 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -476,7 +652,7 @@ function Users() {
                     <input
                       ref={headerCheckboxRef}
                       type="checkbox"
-                      checked={users.length > 0 && pageSelectionInfo.allSelected}
+                      checked={filteredUsers.length > 0 && pageSelectionInfo.allSelected}
                       onChange={handleSelectAllOnPage}
                       className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
                     />
@@ -494,6 +670,12 @@ function Users() {
                     RSI Handle
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Main Org
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Affiliates
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     Roles
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
@@ -508,7 +690,7 @@ function Users() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
-                {users.map((user) => {
+                {filteredUsers.map((user) => {
                   const isRowSelected = selectAllFiltered
                     ? !excludedIds.has(user.discord_id)
                     : selectedIds.has(user.discord_id);
@@ -559,7 +741,71 @@ function Users() {
                       </span>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-300">
-                      {user.rsi_handle || '-'}
+                      {user.rsi_handle ? (
+                        <a
+                          href={`https://robertsspaceindustries.com/citizens/${user.rsi_handle}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 hover:underline"
+                        >
+                          {user.rsi_handle}
+                        </a>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-300">
+                      {user.main_orgs && user.main_orgs.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {user.main_orgs.filter(org => org !== 'REDACTED').map((org, idx) => (
+                            <a
+                              key={idx}
+                              href={`https://robertsspaceindustries.com/orgs/${org}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-0.5 text-xs rounded bg-blue-900/30 text-blue-300 border border-blue-700/50 hover:bg-blue-900/50 hover:border-blue-600/70 transition-colors cursor-pointer"
+                            >
+                              {org}
+                            </a>
+                          ))}
+                          {user.main_orgs.filter(org => org === 'REDACTED').length > 0 && (
+                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Hidden organizations">
+                              +{user.main_orgs.filter(org => org === 'REDACTED').length} hidden
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-300">
+                      {user.affiliate_orgs && user.affiliate_orgs.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {user.affiliate_orgs.filter(org => org !== 'REDACTED').slice(0, 3).map((org, idx) => (
+                            <a
+                              key={idx}
+                              href={`https://robertsspaceindustries.com/orgs/${org}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-0.5 text-xs rounded bg-green-900/30 text-green-300 border border-green-700/50 hover:bg-green-900/50 hover:border-green-600/70 transition-colors cursor-pointer"
+                            >
+                              {org}
+                            </a>
+                          ))}
+                          {user.affiliate_orgs.filter(org => org !== 'REDACTED').length > 3 && (
+                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title={`${user.affiliate_orgs.filter(org => org !== 'REDACTED').slice(3).join(', ')}`}>
+                              +{user.affiliate_orgs.filter(org => org !== 'REDACTED').length - 3}
+                            </span>
+                          )}
+                          {user.affiliate_orgs.filter(org => org === 'REDACTED').length > 0 && (
+                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Hidden organizations">
+                              +{user.affiliate_orgs.filter(org => org === 'REDACTED').length} hidden
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-4 text-sm">
                       <div className="flex flex-wrap gap-1 max-w-xs">
@@ -634,11 +880,16 @@ function Users() {
       )}
 
       {/* Empty State */}
-      {!loading && users.length === 0 && (
+      {!loading && filteredUsers.length === 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-12 text-center">
-          <div className="text-gray-400 text-lg">No members found</div>
+          <div className="text-gray-400 text-lg">
+            {searchQuery.trim() ? 'No members match your search' : 'No members found'}
+          </div>
           <div className="text-gray-500 text-sm mt-2">
-            Try adjusting your filters or check back later
+            {searchQuery.trim() 
+              ? 'Try a different search term or clear your filters'
+              : 'Try adjusting your filters or check back later'
+            }
           </div>
         </div>
       )}

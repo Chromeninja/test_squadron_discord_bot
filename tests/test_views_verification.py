@@ -18,21 +18,28 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
     )
     monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
 
-    # Patch send_message to capture calls
-    sent = {"called": False}
-
-    async def fake_send_message(
-        interaction, content, ephemeral=False, embed=None, view=None
-    ) -> None:
-        sent["called"] = True
+    # Track interaction calls
+    ix = FakeInteraction(FakeUser(7, "TestUser"))
+    defer_called = False
+    followup_called = False
+    
+    async def fake_defer(ephemeral=False):
+        nonlocal defer_called
+        defer_called = True
+        assert ephemeral is True
+    
+    async def fake_followup_send(content, ephemeral=False, embed=None, **kwargs):
+        nonlocal followup_called
+        followup_called = True
         assert ephemeral is True
         assert embed is not None
-
-    monkeypatch.setattr("helpers.views.send_message", fake_send_message)
-
-    ix = FakeInteraction(FakeUser(7, "TestUser"))
+    
+    ix.response.defer = fake_defer
+    ix.followup.send = fake_followup_send
+    
     await view.get_token_button_callback(ix)
-    assert sent["called"] is True
+    assert defer_called is True
+    assert followup_called is True
 
 
 @pytest.mark.asyncio
@@ -40,10 +47,8 @@ async def test_verify_button_opens_modal_when_not_rate_limited(
     monkeypatch, mock_bot
 ) -> None:
     view = VerificationView(mock_bot)
-    monkeypatch.setattr(
-        "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
-    )
-
+    # No longer need to patch check_rate_limit - it's been removed from button callback
+    
     ix = FakeInteraction(FakeUser(8, "VerifUser"))
     await view.verify_button_callback(ix)
     # The FakeResponse stores the modal

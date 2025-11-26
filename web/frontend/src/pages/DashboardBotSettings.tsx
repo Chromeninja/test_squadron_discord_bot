@@ -31,6 +31,15 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [channelStatusMessage, setChannelStatusMessage] = useState<string | null>(null);
   const [channelError, setChannelError] = useState<string | null>(null);
+  
+  // Organization settings
+  const [organizationSid, setOrganizationSid] = useState<string>('');
+  const [organizationName, setOrganizationName] = useState<string>('');
+  const [orgSidInput, setOrgSidInput] = useState<string>('');
+  const [orgValidating, setOrgValidating] = useState(false);
+  const [orgSaving, setOrgSaving] = useState(false);
+  const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
+  const [orgError, setOrgError] = useState<string | null>(null);
 
   const roleOptions: MultiSelectOption[] = useMemo(
     () => roles.map((role) => ({ id: role.id, name: role.name })),
@@ -42,7 +51,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       channels.map((channel) => ({
         id: channel.id,
         name: channel.name,
-        category: channel.category,
+        category: channel.category ?? undefined,
       })),
     [channels]
   );
@@ -57,12 +66,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setError(null);
 
       try {
-        const [rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse] = await Promise.all([
+        const [rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse, orgSettingsResponse] = await Promise.all([
           guildApi.getDiscordRoles(guildId),
           guildApi.getBotRoleSettings(guildId),
           guildApi.getVoiceSelectableRoles(guildId),
           guildApi.getDiscordChannels(guildId),
           guildApi.getBotChannelSettings(guildId),
+          guildApi.getOrganizationSettings(guildId),
         ]);
 
         setRoles(rolesResponse.roles);
@@ -77,6 +87,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
         setLeadershipAnnouncementChannelId(channelSettingsResponse.leadership_announcement_channel_id);
+        setOrganizationSid(orgSettingsResponse.organization_sid || '');
+        setOrganizationName(orgSettingsResponse.organization_name || '');
+        setOrgSidInput(orgSettingsResponse.organization_sid || '');
       } catch (err) {
         console.error(err);
         setError('Failed to load bot settings.');
@@ -161,6 +174,62 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     }
   };
 
+  const handleOrgValidate = async () => {
+    if (!orgSidInput.trim()) {
+      setOrgError('Please enter an organization SID');
+      return;
+    }
+
+    setOrgValidating(true);
+    setOrgError(null);
+    setOrgStatusMessage(null);
+
+    try {
+      const result = await guildApi.validateOrganizationSid(guildId, orgSidInput.trim());
+      
+      if (result.is_valid && result.name) {
+        setOrganizationName(result.name);
+        setOrgStatusMessage(`✓ Valid organization: ${result.name} (${result.sid})`);
+      } else {
+        setOrgError(result.error || 'Organization not found');
+        setOrganizationName('');
+      }
+    } catch (err) {
+      console.error(err);
+      setOrgError('Failed to validate organization SID. Please try again.');
+    } finally {
+      setOrgValidating(false);
+    }
+  };
+
+  const handleOrgSave = async () => {
+    if (!organizationName) {
+      setOrgError('Please validate the organization SID first');
+      return;
+    }
+
+    setOrgSaving(true);
+    setOrgError(null);
+    setOrgStatusMessage(null);
+
+    try {
+      const payload = {
+        organization_sid: orgSidInput.trim().toUpperCase() || null,
+        organization_name: organizationName || null,
+      };
+      const updated = await guildApi.updateOrganizationSettings(guildId, payload);
+      setOrganizationSid(updated.organization_sid || '');
+      setOrganizationName(updated.organization_name || '');
+      setOrgSidInput(updated.organization_sid || '');
+      setOrgStatusMessage('Organization settings saved successfully!');
+    } catch (err) {
+      console.error(err);
+      setOrgError('Failed to save organization settings.');
+    } finally {
+      setOrgSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-gray-400">Loading bot settings...</div>;
   }
@@ -169,9 +238,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold text-white">Role Configuration</h2>
+        <h2 className="text-3xl font-bold text-white">Server Configuration</h2>
         <p className="mt-2 text-gray-400">
-          Configure Discord roles for bot permissions and member categories.
+          Configure server settings, Discord roles, channels, and organization verification.
         </p>
       </div>
 
@@ -206,6 +275,67 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           {channelStatusMessage}
         </div>
       )}
+      {orgError && (
+        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-200">
+          {orgError}
+        </div>
+      )}
+      {orgStatusMessage && (
+        <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 text-green-200">
+          {orgStatusMessage}
+        </div>
+      )}
+
+      {/* Organization Settings - Top Level Accordion */}
+      <AccordionSection title="🏢 Organization Verification" level={1}>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-300">
+            Configure the Star Citizen organization for member verification. Enter your organization's SID (Spectrum ID) to validate members.
+          </p>
+          
+          <div>
+            <h5 className="text-sm font-semibold text-white mb-1">Organization SID</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              Enter your organization's Spectrum ID (e.g., "TEST"). This is used to verify member status.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={orgSidInput}
+                onChange={(e) => setOrgSidInput(e.target.value.toUpperCase())}
+                placeholder="Enter SID (e.g., TEST)"
+                className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                maxLength={20}
+              />
+              <button
+                onClick={handleOrgValidate}
+                disabled={orgValidating || !orgSidInput.trim()}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+              >
+                {orgValidating ? 'Validating...' : 'Validate'}
+              </button>
+            </div>
+          </div>
+
+          {organizationName && (
+            <div className="rounded-lg border border-green-700 bg-green-900/20 p-4">
+              <h5 className="text-sm font-semibold text-green-200 mb-1">Organization Found</h5>
+              <p className="text-sm text-green-100">{organizationName}</p>
+              <p className="text-xs text-green-300 mt-1">SID: {orgSidInput || organizationSid}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleOrgSave}
+              disabled={orgSaving || !organizationName}
+              className="rounded-md bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+            >
+              {orgSaving ? 'Saving...' : 'Save Organization Settings'}
+            </button>
+          </div>
+        </div>
+      </AccordionSection>
 
       {/* Assignable Roles - Top Level Accordion */}
       <AccordionSection title="📁 Assignable Roles" level={1}>

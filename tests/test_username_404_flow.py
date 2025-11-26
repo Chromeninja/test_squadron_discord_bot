@@ -309,7 +309,7 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     # Track the HTTP client passed to is_valid_rsi_handle
     captured_http_client = None
 
-    async def fake_is_valid(handle: str, http_client, org_name: str) -> None:
+    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None) -> None:
         nonlocal captured_http_client
         captured_http_client = http_client
         raise NotFoundError
@@ -448,10 +448,10 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     captured_http_client = None
 
     # Return successful verification
-    async def fake_is_valid(handle: str, http_client, org_name: str) -> None:
+    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None) -> None:
         nonlocal captured_http_client
         captured_http_client = http_client
-        return 1, "NewHandle", None
+        return 1, "NewHandle", None, [], []
 
     monkeypatch.setattr(
         "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid

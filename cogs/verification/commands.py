@@ -407,6 +407,7 @@ class VerificationCog(commands.Cog):
             initiator_kind="User",
             initiator_name=None,
             notes=None,
+            guild_id=member.guild.id if member.guild else None,
         )
         for k, v in diff.items():
             setattr(cs, k, v)

@@ -103,6 +103,12 @@ async def send_admin_recheck_notification(
     """
     guild = member.guild
     guild_config = bot.services.guild_config
+    
+    # DEBUG: Log member guild context
+    logger.info(
+        f"send_admin_recheck_notification called: member.id={member.id}, "
+        f"member.guild.id={guild.id}, member.guild.name={guild.name}"
+    )
 
     # Get leadership announcement channel via config service
     leadership_channel = await guild_config.get_channel(
@@ -171,17 +177,28 @@ async def send_verification_announcements(
     old_status = (old_status or "").lower()
     new_status = (new_status or "").lower()
 
-    def status_str(s):
+    def status_str(s, org_sid="ORG"):
+        """Return formatted status string with organization SID."""
         if s == "main":
-            return "**TEST Main**"
+            return f"**{org_sid} Main**"
         if s == "affiliate":
-            return "**TEST Affiliate**"
+            return f"**{org_sid} Affiliate**"
         return "*Not a Member*" if s == "non_member" else str(s)
 
     log_action = "re-checked" if is_recheck else "verified"
     admin_phrase = ""
     if is_recheck and by_admin and by_admin != getattr(member, "display_name", None):
         admin_phrase = f" (**{by_admin}** Initiated)"
+    
+    # Fetch organization SID for dynamic status strings
+    org_sid = "ORG"
+    if hasattr(bot, 'services') and bot.services.guild_config:
+        try:
+            org_sid = await bot.services.guild_config.get_setting(
+                member.guild.id, "organization.sid", default="ORG"
+            )
+        except Exception:
+            pass
 
     if lead_channel:
         try:
@@ -189,12 +206,12 @@ async def send_verification_announcements(
                 await channel_send_message(
                     lead_channel,
                     f"🗂️ {member.mention} {log_action}{admin_phrase}: "
-                    f"**{status_str(old_status)}** → **{status_str(new_status)}**",
+                    f"**{status_str(old_status, org_sid)}** → **{status_str(new_status, org_sid)}**",
                 )
             else:
                 await channel_send_message(
                     lead_channel,
-                    f"🗂️ {member.mention} verified as {status_str(new_status)}",
+                    f"🗂️ {member.mention} verified as {status_str(new_status, org_sid)}",
                 )
         except Exception as e:
             logger.warning(f"Could not send log to leadership channel: {e}")
@@ -276,9 +293,17 @@ async def send_admin_bulk_check_summary(
 def _classify_event(old_status: str, new_status: str) -> str | None:
     """
     Map a status transition to an announceable event type.
+    
+    Treats 'unknown' as equivalent to 'non_member' for classification.
     """
     o = (old_status or "").lower().strip()
     n = (new_status or "").lower().strip()
+    
+    # Normalize 'unknown' to 'non_member' (defensive edge case handling)
+    if o == "unknown":
+        o = "non_member"
+    if n == "unknown":
+        n = "non_member"
 
     if not o or not n or o == n:
         return None
@@ -302,32 +327,45 @@ async def enqueue_verification_event(
       • Remove any other pending events for this user first (ensures 1 pending/user).
       • Insert only the newest event. This prevents double-announcements
         when a user moves quickly (non_member → affiliate → main).
+      • NOTE: Rapid status changes will only announce the FINAL state, not intermediate
+        milestones. E.g., non_member → affiliate → main will only announce "promoted_to_main",
+        not "joined_affiliate". This is intentional to reduce announcement spam.
     """
     et = _classify_event(old_status, new_status)
     if not et:
+        logger.debug(
+            f"Status transition not announceable: {old_status} → {new_status}",
+            extra={"user_id": member.id}
+        )
         return
 
     now = int(time.time())
+    guild_id = member.guild.id if member.guild else None
+    
+    if guild_id is None:
+        logger.warning(f"Cannot enqueue announcement event for user {member.id}: no guild context")
+        return
+    
     try:
         async with Database.get_connection() as db:
-            # Coalesce: drop older pending events for this user
+            # Coalesce: drop older pending events for this user in this guild
             await db.execute(
-                "DELETE FROM announcement_events WHERE user_id = ? AND announced_at IS NULL",
-                (member.id,),
+                "DELETE FROM announcement_events WHERE user_id = ? AND guild_id = ? AND announced_at IS NULL",
+                (member.id, guild_id),
             )
 
-            # Insert the latest event
+            # Insert the latest event with guild_id
             await db.execute(
                 (
-                    "INSERT INTO announcement_events (user_id, old_status, new_status, event_type, created_at, "
-                    "announced_at) VALUES (?, ?, ?, ?, ?, NULL)"
+                    "INSERT INTO announcement_events (user_id, guild_id, old_status, new_status, event_type, created_at, "
+                    "announced_at) VALUES (?, ?, ?, ?, ?, ?, NULL)"
                 ),
-                (member.id, (old_status or "non_member"), (new_status or ""), et, now),
+                (member.id, guild_id, (old_status or "non_member"), (new_status or ""), et, now),
             )
             await db.commit()
     except Exception as e:
         logger.warning(
-            f"Failed to enqueue announcement event for user {member.id}: {e}"
+            f"Failed to enqueue announcement event for user {member.id} in guild {guild_id}: {e}"
         )
 
         # ----------------------------
@@ -351,7 +389,6 @@ class BulkAnnouncer(commands.Cog):
         self.bot = bot
 
         # Initialize with defaults; actual config loaded in before_daily/before_watch
-        self.public_channel_id: int | None = None
         self.hour_utc: int = 18
         self.minute_utc: int = 0
         self.threshold: int = 50
@@ -370,14 +407,6 @@ class BulkAnnouncer(commands.Cog):
 
         try:
             config_service = self.bot.services.config
-
-            # Get public announcement channel from first guild (global setting)
-            # Note: This could be improved to support per-guild channels
-            if self.bot.guilds:
-                guild_id = self.bot.guilds[0].id
-                self.public_channel_id = await config_service.get_guild_setting(
-                    guild_id, "channels.public_announcement_channel_id", None
-                )
 
             # Get bulk announcement settings (global)
             self.hour_utc = await config_service.get_global_setting(
@@ -417,11 +446,6 @@ class BulkAnnouncer(commands.Cog):
 
             self._config_loaded = True
 
-            if not self.public_channel_id:
-                logger.warning(
-                    "BulkAnnouncer: public_announcement_channel_id not configured."
-                )
-
         except Exception as e:
             logger.error(f"Failed to load BulkAnnouncer config: {e}")
             self._config_loaded = True  # Prevent infinite retries
@@ -434,25 +458,19 @@ class BulkAnnouncer(commands.Cog):
 
     async def flush_pending(self) -> bool:
         """
-        Flush all pending queued events into one digest (split into multiple messages as needed).
+        Flush all pending queued events grouped by guild.
+        For each guild:
+          • Fetch guild's organization SID and name
+          • Post announcements to that guild's public_announcement_channel
+          • Use SID in headers, full name in footers
         Returns True if anything was sent.
         """
-        channel = (
-            self.bot.get_channel(self.public_channel_id)
-            if self.public_channel_id
-            else None
-        )
-        if channel is None:
-            logger.warning(
-                "BulkAnnouncer: public_announcement_channel_id missing or channel not found."
-            )
-            return False
-
         async with Database.get_connection() as db:
+            # Fetch all pending events with guild_id
             cur = await db.execute(
-                "SELECT id, user_id, event_type, created_at FROM announcement_events "
-                "WHERE announced_at IS NULL "
-                "ORDER BY created_at ASC"
+                "SELECT id, user_id, guild_id, event_type, created_at FROM announcement_events "
+                "WHERE announced_at IS NULL AND guild_id IS NOT NULL "
+                "ORDER BY guild_id ASC, created_at ASC"
             )
             rows = await cur.fetchall()
 
@@ -460,85 +478,151 @@ class BulkAnnouncer(commands.Cog):
             logger.info("BulkAnnouncer: no pending announcements to flush.")
             return False
 
-        latest_by_user: dict[int, tuple] = {}  # User_id -> (id, event_type, created_at)
-        for _id, user_id, et, ts in rows:
-            prev = latest_by_user.get(user_id)
-            if (prev is None) or (ts >= prev[2]):
-                latest_by_user[user_id] = (_id, et, ts)
-
-        events_by_type: dict[str, list[tuple[int, int]]] = {
-            "joined_main": [],
-            "joined_affiliate": [],
-            "promoted_to_main": [],
-        }
-        for user_id, (ev_id, et, _) in latest_by_user.items():
-            if et in events_by_type:
-                events_by_type[et].append((ev_id, user_id))
-
-        guild = channel.guild
-        allowed = discord.AllowedMentions(users=True, roles=False, everyone=False)
+        # Group events by guild_id
+        events_by_guild: dict[int, list[tuple]] = {}
+        for row in rows:
+            ev_id, user_id, guild_id, event_type, created_at = row
+            if guild_id not in events_by_guild:
+                events_by_guild[guild_id] = []
+            events_by_guild[guild_id].append((ev_id, user_id, event_type, created_at))
 
         sent_any = False
         announced_ids: list[int] = []
 
-        sections = [
-            (
-                "joined_main",
-                "🍻 **New TEST Main reporting in!**",
-                "You made the right call. Welcome to TEST Squadron — BEST Squardon.",
-            ),
-            (
-                "joined_affiliate",
-                "🤝 **New TEST Affiliates**",
-                (
-                    "Glad to have you aboard! Ready to go all-in? Set TEST as your "
-                    "**Main Org** to fully commit to the Best Squardon."
-                ),
-            ),
-            (
-                "promoted_to_main",
-                "⬆️ **Promotion from TEST Affiliate → TEST Main**",
-                "o7 and welcome fully to TEST Squadron — BEST Squardon. 🍻",
-            ),
-        ]
+        # Process each guild separately
+        for guild_id, guild_events in events_by_guild.items():
+            try:
+                # Get guild object
+                guild = self.bot.get_guild(guild_id)
+                if not guild:
+                    logger.warning(f"BulkAnnouncer: guild {guild_id} not found, skipping {len(guild_events)} events")
+                    continue
 
-        for key, header, footer in sections:
-            items = events_by_type.get(key, [])
-            if not items:
-                continue
+                # Fetch guild's organization settings
+                org_sid = None
+                org_name = None
+                if hasattr(self.bot, 'services') and self.bot.services.guild_config:
+                    try:
+                        org_sid = await self.bot.services.guild_config.get_setting(
+                            guild_id, "organization.sid", default=None
+                        )
+                        org_name = await self.bot.services.guild_config.get_setting(
+                            guild_id, "organization.name", default=None
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch org settings for guild {guild_id}: {e}")
 
-                # Build (id, mention) list with fallback mention
-            id_mention_pairs: list[tuple[int, str]] = []
-            user_ids_in_section: list[int] = []
-            for ev_id, uid in items:
-                m = guild.get_member(uid)
-                mention = m.mention if m else f"<@{uid}>"
-                id_mention_pairs.append((ev_id, mention))
-                user_ids_in_section.append(uid)
+                # Fallback to "ORG" if no settings
+                if not org_sid:
+                    org_sid = "ORG"
+                if not org_name:
+                    org_name = "Organization"
 
-            if not id_mention_pairs:
-                continue
+                # Get public announcement channel for this guild
+                channel_id = None
+                if hasattr(self.bot, 'services') and self.bot.services.guild_config:
+                    try:
+                        channel_id = await self.bot.services.guild_config.get_channel(
+                            guild_id, "public_announcement_channel_id", guild
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch announcement channel for guild {guild_id}: {e}")
 
-            for _batch_ids, batch_mentions in self._build_batches(
-                id_mention_pairs,
-                header=header,
-                footer=footer,
-                max_mentions=self.max_mentions_per_message,
-                max_chars=self.max_chars_per_message,
-            ):
-                content = self._compose_message(header, batch_mentions, footer)
-                try:
-                    await channel.send(content, allowed_mentions=allowed)
-                    sent_any = True
-                except Exception as e:
+                if not channel_id:
                     logger.warning(
-                        f"BulkAnnouncer: failed sending a batch for {key}: {e}"
+                        f"BulkAnnouncer: public_announcement_channel_id not configured for guild {guild_id}, skipping"
                     )
+                    continue
 
-                    # Track users for deletion
-            announced_ids.extend(user_ids_in_section)
+                channel = guild.get_channel(channel_id)
+                if not channel:
+                    logger.warning(
+                        f"BulkAnnouncer: channel {channel_id} not found in guild {guild_id}, skipping"
+                    )
+                    continue
 
-            # 4) Delete all pending rows for the announced users (keep table lean)
+                # Deduplicate: keep only latest event per user in this guild
+                latest_by_user: dict[int, tuple] = {}  # user_id -> (id, event_type, created_at)
+                for ev_id, user_id, event_type, created_at in guild_events:
+                    prev = latest_by_user.get(user_id)
+                    if (prev is None) or (created_at >= prev[2]):
+                        latest_by_user[user_id] = (ev_id, event_type, created_at)
+
+                # Group by event type
+                events_by_type: dict[str, list[tuple[int, int]]] = {
+                    "joined_main": [],
+                    "joined_affiliate": [],
+                    "promoted_to_main": [],
+                }
+                for user_id, (ev_id, event_type, _) in latest_by_user.items():
+                    if event_type in events_by_type:
+                        events_by_type[event_type].append((ev_id, user_id))
+
+                allowed = discord.AllowedMentions(users=True, roles=False, everyone=False)
+
+                # Define announcement sections with dynamic org SID/name
+                sections = [
+                    (
+                        "joined_main",
+                        f"🍻 **New {org_sid} Main reporting in!**",
+                        f"You made the right call. Welcome to {org_name} — BEST Squardon.",
+                    ),
+                    (
+                        "joined_affiliate",
+                        f"🤝 **New {org_sid} Affiliates**",
+                        f"Glad to have you aboard! Ready to go all-in? Set {org_sid} as your "
+                        f"**Main Org** to fully commit to the Best Squardon.",
+                    ),
+                    (
+                        "promoted_to_main",
+                        f"⬆️ **Promotion from {org_sid} Affiliate → {org_sid} Main**",
+                        f"o7 and welcome fully to {org_name} — BEST Squardon. 🍻",
+                    ),
+                ]
+
+                # Send announcements for each section
+                for key, header, footer in sections:
+                    items = events_by_type.get(key, [])
+                    if not items:
+                        continue
+
+                    # Build (id, mention) list
+                    id_mention_pairs: list[tuple[int, str]] = []
+                    user_ids_in_section: list[int] = []
+                    for ev_id, uid in items:
+                        m = guild.get_member(uid)
+                        mention = m.mention if m else f"<@{uid}>"
+                        id_mention_pairs.append((ev_id, mention))
+                        user_ids_in_section.append(uid)
+
+                    if not id_mention_pairs:
+                        continue
+
+                    # Send batched messages
+                    for _batch_ids, batch_mentions in self._build_batches(
+                        id_mention_pairs,
+                        header=header,
+                        footer=footer,
+                        max_mentions=self.max_mentions_per_message,
+                        max_chars=self.max_chars_per_message,
+                    ):
+                        content = self._compose_message(header, batch_mentions, footer)
+                        try:
+                            await channel.send(content, allowed_mentions=allowed)
+                            sent_any = True
+                        except Exception as e:
+                            logger.warning(
+                                f"BulkAnnouncer: failed sending batch for {key} in guild {guild_id}: {e}"
+                            )
+
+                    # Track announced event IDs
+                    announced_ids.extend([ev_id for ev_id, _ in id_mention_pairs])
+
+            except Exception as e:
+                logger.error(f"BulkAnnouncer: error processing guild {guild_id}: {e}")
+                continue
+
+        # Delete all announced events
         if announced_ids:
             try:
                 async with Database.get_connection() as db:
@@ -548,7 +632,7 @@ class BulkAnnouncer(commands.Cog):
                         qmarks = ",".join("?" for _ in chunk)
                         await db.execute(
                             f"DELETE FROM announcement_events "
-                            f"WHERE announced_at IS NULL AND user_id IN ({qmarks})",
+                            f"WHERE id IN ({qmarks})",
                             (*chunk,),
                         )
                     await db.commit()
@@ -579,35 +663,51 @@ class BulkAnnouncer(commands.Cog):
           • has <= max_mentions mentions
           • and the full message length (header + mentions + footer) stays under max_chars
         Returns list of (ids, mentions) for each batch.
+
+        Optimized to O(n) by pre-calculating header/footer length
+        and tracking running total.
         """
         batches: list[tuple[list[int], list[str]]] = []
 
         current_ids: list[int] = []
         current_mentions: list[str] = []
 
-        def msg_len(mentions_list: list[str]) -> int:
-            content = self._compose_message(header, mentions_list, footer)
-            return len(content)
+        # Pre-calculate fixed overhead (header + footer + newlines)
+        # Format is: "header\nbody\n\nfooter" if footer else "header\nbody"
+        base_length = len(header) + 1  # header + newline
+        if footer:
+            base_length += 2 + len(footer)  # 2 newlines + footer
+
+        # Track current body length (mentions + commas)
+        current_body_length = 0
 
         for ev_id, mention in id_mention_pairs:
+            mention_len = len(mention)
+            # Add 1 for comma separator (except for first mention)
+            addition = mention_len + (1 if current_mentions else 0)
+
             # Enforce mention cap
             if len(current_mentions) >= max_mentions:
                 if current_mentions:
                     batches.append((current_ids, current_mentions))
                 current_ids, current_mentions = [], []
+                current_body_length = 0
 
-                # Enforce char cap (simulate before adding)
+            # Enforce char cap before adding
             if current_mentions:
-                prospective = [*current_mentions, mention]
-                if msg_len(prospective) > max_chars:
+                prospective_total = base_length + current_body_length + addition
+                if prospective_total > max_chars:
                     batches.append((current_ids, current_mentions))
                     current_ids, current_mentions = [], []
+                    current_body_length = 0
+                    addition = mention_len  # No comma for first in new batch
 
-                    # Safe to add
+            # Safe to add
             current_ids.append(ev_id)
             current_mentions.append(mention)
+            current_body_length += addition
 
-            # Final batch
+        # Final batch
         if current_mentions:
             batches.append((current_ids, current_mentions))
 
@@ -645,7 +745,8 @@ class BulkAnnouncer(commands.Cog):
             pending = await self._count_pending()
             if pending >= self.threshold:
                 logger.info(
-                    f"BulkAnnouncer: threshold reached ({pending} >= {self.threshold}); flushing."
+                    f"BulkAnnouncer: threshold reached "
+                    f"({pending} >= {self.threshold}); flushing."
                 )
                 await self.flush_pending()
         except Exception as e:

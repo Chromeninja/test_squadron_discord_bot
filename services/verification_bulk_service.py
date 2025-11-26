@@ -318,22 +318,29 @@ class VerificationBulkService:
             if not row.rsi_handle:
                 return RsiStatusResult(status="unknown", checked_at=current_time, error="No RSI handle")
 
-            # Get organization name from guild config
+            # Get organization config from guild
             org_name = "test"  # Default fallback
+            org_sid = None
             if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
                 try:
                     org_name_config = await self.bot.services.guild_config.get_setting(
                         ctx.guild.id, "organization.name", default="test"
                     )
                     org_name = org_name_config.strip().lower() if org_name_config else "test"
+                    
+                    org_sid_config = await self.bot.services.guild_config.get_setting(
+                        ctx.guild.id, "organization.sid", default=None
+                    )
+                    org_sid = org_sid_config.strip().upper() if org_sid_config else None
                 except Exception:
-                    pass  # Use default
+                    pass  # Use defaults
 
             try:
-                verify_value, _, _ = await is_valid_rsi_handle(
+                verify_value, _, _, _, _ = await is_valid_rsi_handle(
                     row.rsi_handle,
                     self.bot.http_client,
-                    org_name
+                    org_name,
+                    org_sid
                 )
 
                 # Map verify_value to status string

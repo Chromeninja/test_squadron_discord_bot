@@ -4,6 +4,7 @@ User search and management endpoints for verification records.
 
 import csv
 import io
+import json
 import time
 from collections import OrderedDict
 from datetime import datetime
@@ -154,7 +155,8 @@ async def search_users(
             """
             SELECT 
                 user_id, rsi_handle, membership_status, 
-                community_moniker, last_updated, needs_reverify
+                community_moniker, last_updated, needs_reverify,
+                main_orgs, affiliate_orgs
             FROM verification
             ORDER BY last_updated DESC
             LIMIT ? OFFSET ?
@@ -177,7 +179,8 @@ async def search_users(
                 """
                 SELECT 
                     user_id, rsi_handle, membership_status,
-                    community_moniker, last_updated, needs_reverify
+                    community_moniker, last_updated, needs_reverify,
+                    main_orgs, affiliate_orgs
                 FROM verification
                 WHERE user_id = ?
                 LIMIT ? OFFSET ?
@@ -203,7 +206,8 @@ async def search_users(
                 """
                 SELECT 
                     user_id, rsi_handle, membership_status,
-                    community_moniker, last_updated, needs_reverify
+                    community_moniker, last_updated, needs_reverify,
+                    main_orgs, affiliate_orgs
                 FROM verification
                 WHERE rsi_handle LIKE ? OR community_moniker LIKE ?
                 ORDER BY last_updated DESC
@@ -216,6 +220,8 @@ async def search_users(
     # Convert rows to VerificationRecord objects
     items = []
     for row in rows:
+        main_orgs = json.loads(row[6]) if row[6] else None
+        affiliate_orgs = json.loads(row[7]) if row[7] else None
         items.append(
             VerificationRecord(
                 user_id=row[0],
@@ -224,6 +230,8 @@ async def search_users(
                 community_moniker=row[3],
                 last_updated=row[4],
                 needs_reverify=bool(row[5]),
+                main_orgs=main_orgs,
+                affiliate_orgs=affiliate_orgs,
             )
         )
 
@@ -253,6 +261,8 @@ class EnrichedUser(BaseModel):
     last_updated: int | None = None
     needs_reverify: bool = False
     roles: list[dict] = []
+    main_orgs: list[str] | None = None
+    affiliate_orgs: list[str] | None = None
 
 
 class UsersListResponse(BaseModel):
@@ -351,7 +361,8 @@ async def list_users(
         f"""
         SELECT 
             user_id, rsi_handle, membership_status,
-            community_moniker, last_updated, needs_reverify
+            community_moniker, last_updated, needs_reverify,
+            main_orgs, affiliate_orgs
         FROM verification
         {where_sql}
         ORDER BY last_updated DESC
@@ -366,6 +377,10 @@ async def list_users(
     items: list[EnrichedUser] = []
     for row in rows:
         user_id = row[0]
+        
+        # Parse org JSON arrays
+        main_orgs = json.loads(row[6]) if row[6] else None
+        affiliate_orgs = json.loads(row[7]) if row[7] else None
 
         # Fetch Discord member info with caching
         try:
@@ -387,7 +402,9 @@ async def list_users(
                 created_at=member_data.get("created_at"),
                 last_updated=row[4],
                 needs_reverify=bool(row[5]),
-                roles=member_data.get("roles", [])
+                roles=member_data.get("roles", []),
+                main_orgs=main_orgs,
+                affiliate_orgs=affiliate_orgs,
             )
         )
 
@@ -431,7 +448,7 @@ async def export_users(
         writer.writerow([
             "discord_id", "username", "membership_status", "rsi_handle",
             "community_moniker", "joined_at", "created_at", "last_updated",
-            "needs_reverify", "role_ids", "role_names"
+            "needs_reverify", "role_ids", "role_names", "main_orgs", "affiliate_orgs"
         ])
 
         csv_content = output.getvalue()
@@ -459,7 +476,8 @@ async def export_users(
             f"""
             SELECT 
                 user_id, rsi_handle, membership_status,
-                community_moniker, last_updated, needs_reverify
+                community_moniker, last_updated, needs_reverify,
+                main_orgs, affiliate_orgs
             FROM verification
             WHERE user_id IN ({placeholders})
             ORDER BY last_updated DESC
@@ -482,7 +500,8 @@ async def export_users(
             f"""
             SELECT 
                 user_id, rsi_handle, membership_status,
-                community_moniker, last_updated, needs_reverify
+                community_moniker, last_updated, needs_reverify,
+                main_orgs, affiliate_orgs
             FROM verification
             {where_sql}
             ORDER BY last_updated DESC
@@ -501,7 +520,7 @@ async def export_users(
     writer.writerow([
         "discord_id", "username", "membership_status", "rsi_handle",
         "community_moniker", "joined_at", "created_at", "last_updated",
-        "needs_reverify", "role_ids", "role_names"
+        "needs_reverify", "role_ids", "role_names", "main_orgs", "affiliate_orgs"
     ])
 
     # Data rows with Discord enrichment and role filtering
@@ -524,6 +543,12 @@ async def export_users(
         role_ids = ",".join(str(r["id"]) for r in roles)
         role_names = ",".join(r["name"] for r in roles)
 
+        # Parse org JSON arrays
+        main_orgs_list = json.loads(row[6]) if row[6] else []
+        affiliate_orgs_list = json.loads(row[7]) if row[7] else []
+        main_orgs_str = ";".join(main_orgs_list) if main_orgs_list else ""
+        affiliate_orgs_str = ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        
         writer.writerow([
             str(user_id),
             username,
@@ -535,7 +560,9 @@ async def export_users(
             row[4] or "",  # last_updated
             "Yes" if row[5] else "No",  # needs_reverify
             role_ids,
-            role_names
+            role_names,
+            main_orgs_str,
+            affiliate_orgs_str
         ])
 
     csv_content = output.getvalue()

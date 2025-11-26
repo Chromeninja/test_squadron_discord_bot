@@ -7,7 +7,7 @@ even when the user already has an active channel from the same JTC.
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -21,20 +21,35 @@ class MockVoiceChannel:
     """Mock Discord voice channel."""
 
     def __init__(
-        self, channel_id: int, name: str = "test-channel", members: list | None = None, category=None
+        self,
+        channel_id: int,
+        name: str = "test-channel",
+        members: list | None = None,
+        category=None,
+        guild=None,
     ):
         self.id = channel_id
         self.name = name
         self.members = members or []
         self.category = category or MagicMock()
-        self.guild = MagicMock()
+        self.guild = guild or MagicMock()
         self.guild.id = 12345
+        if not hasattr(self.guild, "get_member"):
+            self.guild.get_member = MagicMock(return_value=None)
         self.user_limit = 0
         self.bitrate = 64000
+        self.overwrites = {}
+        self.mention = f"<#{channel_id}>"
 
     async def delete(self, reason: str | None = None):
         """Mock channel deletion."""
         pass
+
+    async def edit(self, **kwargs):
+        """Mock channel edit operation."""
+        overwrites = kwargs.get("overwrites")
+        if overwrites is not None:
+            self.overwrites = overwrites
 
 
 class MockMember:
@@ -207,7 +222,9 @@ class TestMultipleChannelsPerOwner:
                                 (55555,)
                             )
                             old_channel_status = await cursor.fetchone()
-                            assert old_channel_status[0] == 0, "Old channel should be marked inactive"
+                            assert (
+                                old_channel_status is None
+                            ), "Old channel should be removed once replaced"
 
     @pytest.mark.asyncio
     async def test_cleanup_by_channel_id_only_affects_specific_channel(self, voice_service_with_bot):
@@ -257,21 +274,21 @@ class TestMultipleChannelsPerOwner:
         # Cleanup only one channel
         await voice_service.cleanup_by_channel_id(55555)
 
-        # Verify only one channel was deactivated
+        # Verify the specific channel was fully removed
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """SELECT is_active FROM voice_channels WHERE voice_channel_id = ?""",
                 (55555,)
             )
             channel1_active = await cursor.fetchone()
-            assert channel1_active[0] == 0  # Should be deactivated
+            assert channel1_active is None  # Row should be deleted entirely
 
             cursor = await db.execute(
                 """SELECT is_active FROM voice_channels WHERE voice_channel_id = ?""",
                 (66666,)
             )
             channel2_active = await cursor.fetchone()
-            assert channel2_active[0] == 1  # Should still be active
+            assert channel2_active is not None and channel2_active[0] == 1
 
             # Verify settings were cleaned up only for the specific channel
             cursor = await db.execute(
@@ -319,3 +336,136 @@ class TestMultipleChannelsPerOwner:
         # Get user's channel - should return the newest one
         channel_id = await voice_service.get_user_voice_channel(12345, 67890, 11111)
         assert channel_id == 66666  # Should return the newer channel
+
+    @pytest.mark.asyncio
+    async def test_store_user_channel_marks_channel_orphan_when_occupied(
+        self, voice_service_with_bot
+    ):
+        """Ensure populated legacy channels are preserved and marked ownerless."""
+        voice_service, mock_bot = voice_service_with_bot
+
+        guild_id = 12345
+        jtc_channel_id = 67890
+        owner_id = 11111
+        old_channel_id = 55555
+        new_channel_id = 77777
+
+        previous_owner_member = MagicMock()
+        existing_channel = MockVoiceChannel(
+            channel_id=old_channel_id,
+            name="Existing",
+            members=[MagicMock()],
+        )
+        existing_channel.guild.get_member = MagicMock(return_value=previous_owner_member)
+        existing_channel.overwrites = {previous_owner_member: MagicMock()}
+        mock_bot.add_channel(existing_channel)
+
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (guild_id, jtc_channel_id, owner_id, old_channel_id, int(time.time()), int(time.time()), 1),
+            )
+            await db.execute(
+                """
+                INSERT INTO voice_channel_settings
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, setting_key, setting_value)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                (guild_id, jtc_channel_id, owner_id, old_channel_id, "channel_name", "Legacy"),
+            )
+            await db.commit()
+
+        await voice_service._store_user_channel(
+            guild_id, jtc_channel_id, owner_id, new_channel_id
+        )
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ?",
+                (old_channel_id,),
+            )
+            orphan_row = await cursor.fetchone()
+            assert orphan_row is not None
+            assert orphan_row[0] == VoiceService.ORPHAN_OWNER_ID
+
+            cursor = await db.execute(
+                "SELECT previous_owner_id FROM voice_channels WHERE voice_channel_id = ?",
+                (old_channel_id,),
+            )
+            previous_owner_row = await cursor.fetchone()
+            assert previous_owner_row is not None
+            assert previous_owner_row[0] == owner_id
+
+            cursor = await db.execute(
+                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ?",
+                (new_channel_id,),
+            )
+            new_row = await cursor.fetchone()
+            assert new_row is not None and new_row[0] == owner_id
+
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM voice_channel_settings WHERE voice_channel_id = ?",
+                (old_channel_id,),
+            )
+            settings_count = await cursor.fetchone()
+            assert settings_count is not None
+            assert settings_count[0] == 1
+
+        # Ensure overwrites for the previous owner were removed
+        assert previous_owner_member not in existing_channel.overwrites
+
+    @pytest.mark.asyncio
+    async def test_claim_voice_channel_allows_orphaned_channel(self, voice_service_with_bot):
+        """Verify /voice claim succeeds when a channel has been orphaned."""
+        voice_service, _mock_bot = voice_service_with_bot
+
+        guild = MockGuild(guild_id=12345)
+        channel = MockVoiceChannel(channel_id=88888, name="Orphan", members=[], guild=guild)
+        user = MockMember(user_id=22222, display_name="Claimer")
+        user.voice.channel = channel
+        channel.members = [user]
+        jtc_channel_id = 67890
+
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO voice_channels
+                (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    guild.id,
+                    jtc_channel_id,
+                    VoiceService.ORPHAN_OWNER_ID,
+                    channel.id,
+                    int(time.time()),
+                    int(time.time()),
+                    1,
+                ),
+            )
+            await db.commit()
+
+        with (
+            patch("helpers.voice_repo.transfer_channel_owner", new=AsyncMock(return_value=True)) as transfer_mock,
+            patch("helpers.permissions_helper.update_channel_owner", new=AsyncMock()) as perms_mock,
+        ):
+            result = await voice_service.claim_voice_channel(guild.id, user.id, user)
+
+        assert result.success
+        transfer_mock.assert_awaited_once_with(
+            voice_channel_id=channel.id,
+            new_owner_id=user.id,
+            guild_id=guild.id,
+            jtc_channel_id=jtc_channel_id,
+        )
+        perms_mock.assert_awaited_once_with(
+            channel=channel,
+            new_owner_id=user.id,
+            previous_owner_id=VoiceService.ORPHAN_OWNER_ID,
+            guild_id=guild.id,
+            jtc_channel_id=jtc_channel_id,
+        )

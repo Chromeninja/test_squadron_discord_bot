@@ -37,7 +37,7 @@ async def _get_limits(guild_config, guild_id: int, action: str) -> tuple[int, in
         guild_id, "rate_limits.max_attempts", default=5, parser=int
     )
     window = await guild_config.get_setting(
-        guild_id, "rate_limits.window_seconds", default=3600, parser=int
+        guild_id, "rate_limits.window_seconds", default=1800, parser=int
     )
     return max_attempts, window
 
