@@ -27,6 +27,12 @@ export interface GuildRole {
   color: number | null;
 }
 
+export interface GuildInfo {
+  guild_id: string;
+  guild_name: string;
+  icon_url: string | null;
+}
+
 export interface DiscordChannel {
   id: string;  // Changed from number to string to preserve Discord snowflake precision
   name: string;
@@ -68,6 +74,27 @@ export interface OrganizationValidationResponse {
   sid: string;
   name: string | null;
   error: string | null;
+}
+
+export interface ReadOnlyYamlConfig {
+  rsi?: Record<string, any> | null;
+  voice?: Record<string, any> | null;
+  voice_debug_logging_enabled?: boolean | null;
+}
+
+export interface GuildConfigData {
+  roles: BotRoleSettingsPayload;
+  channels: BotChannelSettingsPayload;
+  voice: VoiceSelectableRolesPayload;
+  organization: OrganizationSettingsPayload;
+  read_only?: ReadOnlyYamlConfig | null;
+}
+
+export interface GuildConfigUpdateRequest {
+  roles?: BotRoleSettingsPayload;
+  channels?: BotChannelSettingsPayload;
+  voice?: VoiceSelectableRolesPayload;
+  organization?: OrganizationSettingsPayload;
 }
 
 export interface StatsOverview {
@@ -349,6 +376,25 @@ export const logsApi = {
 };
 
 export const guildApi = {
+  getGuildInfo: async (guildId: string) => {
+    const response = await apiClient.get<{ success: boolean; guild: GuildInfo }>(
+      `/api/guilds/${guildId}/info`
+    );
+    return response.data;
+  },
+  getGuildConfig: async (guildId: string) => {
+    const response = await apiClient.get<{ success: boolean; data: GuildConfigData }>(
+      `/api/guilds/${guildId}/config`
+    );
+    return response.data;
+  },
+  patchGuildConfig: async (guildId: string, update: GuildConfigUpdateRequest) => {
+    const response = await apiClient.patch<{ success: boolean; data: GuildConfigData }>(
+      `/api/guilds/${guildId}/config`,
+      update
+    );
+    return response.data;
+  },
   getDiscordRoles: async (guildId: string) => {
     const response = await apiClient.get<{ success: boolean; roles: GuildRole[] }>(
       `/api/guilds/${guildId}/roles/discord`

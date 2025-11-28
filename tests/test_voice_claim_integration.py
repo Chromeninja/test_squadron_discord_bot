@@ -10,10 +10,10 @@ from services.voice_service import VoiceService
 
 # Reuse lightweight mocks similar to other test modules
 from tests.test_voice_multiple_channels import (
+    MockBot,
     MockGuild,
     MockMember,
     MockVoiceChannel,
-    MockBot,
 )
 
 

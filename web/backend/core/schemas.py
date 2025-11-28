@@ -325,3 +325,53 @@ class OrganizationValidationResponse(BaseModel):
     sid: str
     name: str | None = None
     error: str | None = None
+
+
+# Guild info/config schemas
+class GuildInfo(BaseModel):
+    """Basic guild identity for page headers."""
+
+    guild_id: str
+    guild_name: str
+    icon_url: str | None = None
+
+
+class GuildInfoResponse(BaseModel):
+    """Response for /api/guilds/{guild_id}/info."""
+
+    success: bool = True
+    guild: GuildInfo
+
+
+class ReadOnlyYamlConfig(BaseModel):
+    """Subset of global YAML config shown read-only in UI."""
+
+    rsi: dict | None = None
+    voice: dict | None = None
+    voice_debug_logging_enabled: bool | None = None
+
+
+class GuildConfigData(BaseModel):
+    """Combined guild configuration view for settings page."""
+
+    roles: BotRoleSettings
+    channels: BotChannelSettings
+    voice: VoiceSelectableRoles
+    organization: OrganizationSettings
+    read_only: ReadOnlyYamlConfig | None = None
+
+
+class GuildConfigResponse(BaseModel):
+    """Response for GET /api/guilds/{guild_id}/config."""
+
+    success: bool = True
+    data: GuildConfigData
+
+
+class GuildConfigUpdateRequest(BaseModel):
+    """PATCH payload for updating DB-backed guild settings only."""
+
+    roles: BotRoleSettings | None = None
+    channels: BotChannelSettings | None = None
+    voice: VoiceSelectableRoles | None = None
+    organization: OrganizationSettings | None = None

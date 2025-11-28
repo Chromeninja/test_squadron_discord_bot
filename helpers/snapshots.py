@@ -29,6 +29,7 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
     affiliate_orgs = None
     try:
         import json
+
         from services.db.database import derive_membership_status
 
         async with Database.get_connection() as db:

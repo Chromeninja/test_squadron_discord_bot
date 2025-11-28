@@ -15,8 +15,8 @@ from core.dependencies import (
     get_internal_api_client,
     require_admin_or_moderator,
 )
-from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
 from core.guild_settings import get_organization_settings
+from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel

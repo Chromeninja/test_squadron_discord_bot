@@ -104,6 +104,21 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
+    # Audit trail for guild_settings changes
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guild_settings_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            key TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            changed_by_user_id INTEGER,
+            changed_at INTEGER DEFAULT (strftime('%s','now'))
+        )
+        """
+    )
+
     # Voice channels (new table replacing user_voice_channels)
     await db.execute(
         """

@@ -2,8 +2,8 @@
 Voice channel search endpoints.
 """
 
-import os
 import json
+import os
 
 import httpx
 from core.dependencies import get_db, require_admin_or_moderator
@@ -157,7 +157,7 @@ async def list_active_voice_channels(
                     )
                     fetched = await members_cursor.fetchall()
                     verification_data = {r[0]: {
-                        'rsi_handle': r[1], 
+                        'rsi_handle': r[1],
                         'main_orgs': json.loads(r[2]) if r[2] else None,
                         'affiliate_orgs': json.loads(r[3]) if r[3] else None
                     } for r in fetched}

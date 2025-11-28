@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { guildApi, GuildRole, DiscordChannel } from '../api/endpoints';
+import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig } from '../api/endpoints';
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
 import AccordionSection from '../components/AccordionSection';
@@ -41,6 +41,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
 
+  // Guild header and read-only YAML snapshot
+  const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
+  const [readOnly, setReadOnly] = useState<ReadOnlyYamlConfig | null>(null);
+
   const roleOptions: MultiSelectOption[] = useMemo(
     () => roles.map((role) => ({ id: role.id, name: role.name })),
     [roles]
@@ -66,7 +70,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setError(null);
 
       try {
-        const [rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse, orgSettingsResponse] = await Promise.all([
+        const [infoResponse, configResponse, rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse, orgSettingsResponse] = await Promise.all([
+          guildApi.getGuildInfo(guildId),
+          guildApi.getGuildConfig(guildId),
           guildApi.getDiscordRoles(guildId),
           guildApi.getBotRoleSettings(guildId),
           guildApi.getVoiceSelectableRoles(guildId),
@@ -75,6 +81,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           guildApi.getOrganizationSettings(guildId),
         ]);
 
+        setGuildInfo(infoResponse.guild);
+        setReadOnly(configResponse.data.read_only ?? null);
         setRoles(rolesResponse.roles);
         setChannels(channelsResponse.channels);
         setBotAdmins(settingsResponse.bot_admins);
@@ -107,14 +115,17 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setError(null);
 
     try {
-      const payload = {
-        bot_admins: botAdmins,
-        lead_moderators: leadModerators,
-        main_role: mainRole,
-        affiliate_role: affiliateRole,
-        nonmember_role: nonmemberRole,
+      const patch = {
+        roles: {
+          bot_admins: botAdmins,
+          lead_moderators: leadModerators,
+          main_role: mainRole,
+          affiliate_role: affiliateRole,
+          nonmember_role: nonmemberRole,
+        },
       };
-      const updated = await guildApi.updateBotRoleSettings(guildId, payload);
+      const response = await guildApi.patchGuildConfig(guildId, patch);
+      const updated = response.data.roles;
       setBotAdmins(updated.bot_admins);
       setLeadModerators(updated.lead_moderators);
       setMainRole(updated.main_role || []);
@@ -135,9 +146,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setVoiceError(null);
 
     try {
-      const updated = await guildApi.updateVoiceSelectableRoles(guildId, {
-        selectable_roles: voiceSelectableRoles,
+      const response = await guildApi.patchGuildConfig(guildId, {
+        voice: { selectable_roles: voiceSelectableRoles },
       });
+      const updated = response.data.voice;
       setVoiceSelectableRoles(updated.selectable_roles || []);
       setVoiceStatusMessage('Selectable roles updated successfully.');
     } catch (err) {
@@ -154,13 +166,15 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setChannelError(null);
 
     try {
-      const payload = {
-        verification_channel_id: verificationChannelId,
-        bot_spam_channel_id: botSpamChannelId,
-        public_announcement_channel_id: publicAnnouncementChannelId,
-        leadership_announcement_channel_id: leadershipAnnouncementChannelId,
-      };
-      const updated = await guildApi.updateBotChannelSettings(guildId, payload);
+      const response = await guildApi.patchGuildConfig(guildId, {
+        channels: {
+          verification_channel_id: verificationChannelId,
+          bot_spam_channel_id: botSpamChannelId,
+          public_announcement_channel_id: publicAnnouncementChannelId,
+          leadership_announcement_channel_id: leadershipAnnouncementChannelId,
+        },
+      });
+      const updated = response.data.channels;
       setVerificationChannelId(updated.verification_channel_id);
       setBotSpamChannelId(updated.bot_spam_channel_id);
       setPublicAnnouncementChannelId(updated.public_announcement_channel_id);
@@ -213,11 +227,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setOrgStatusMessage(null);
 
     try {
-      const payload = {
-        organization_sid: orgSidInput.trim().toUpperCase() || null,
-        organization_name: organizationName || null,
-      };
-      const updated = await guildApi.updateOrganizationSettings(guildId, payload);
+      const response = await guildApi.patchGuildConfig(guildId, {
+        organization: {
+          organization_sid: orgSidInput.trim().toUpperCase() || null,
+          organization_name: organizationName || null,
+        },
+      });
+      const updated = response.data.organization;
       setOrganizationSid(updated.organization_sid || '');
       setOrganizationName(updated.organization_name || '');
       setOrgSidInput(updated.organization_sid || '');
@@ -237,12 +253,46 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold text-white">Server Configuration</h2>
-        <p className="mt-2 text-gray-400">
-          Configure server settings, Discord roles, channels, and organization verification.
-        </p>
+      <div className="flex items-center gap-4">
+        {guildInfo?.icon_url && (
+          <img
+            src={guildInfo.icon_url}
+            alt={guildInfo.guild_name}
+            className="h-12 w-12 rounded-full border border-slate-600"
+          />
+        )}
+        <div>
+          <h2 className="text-3xl font-bold text-white">
+            {guildInfo ? guildInfo.guild_name : 'Server Configuration'}
+          </h2>
+          <p className="mt-1 text-gray-400">
+            Configure roles, channels, voice, and organization settings.
+          </p>
+        </div>
       </div>
+      {/* Read-only YAML snapshot */}
+      {readOnly && (
+        <AccordionSection title="🛡️ Global YAML (Read-Only)" level={1}>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
+              <h5 className="text-sm font-semibold text-white mb-2">RSI Config</h5>
+              <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
+                {JSON.stringify(readOnly.rsi ?? {}, null, 2)}
+              </pre>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
+              <h5 className="text-sm font-semibold text-white mb-2">Voice (Global)</h5>
+              <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words mb-2">
+                {JSON.stringify(readOnly.voice ?? {}, null, 2)}
+              </pre>
+              <div className="text-xs text-gray-200">
+                <span className="font-semibold">voice_debug_logging_enabled:</span>{' '}
+                <span>{String(readOnly.voice_debug_logging_enabled ?? false)}</span>
+              </div>
+            </div>
+          </div>
+        </AccordionSection>
+      )}
 
       {/* Status Messages */}
       {error && (

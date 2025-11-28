@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
-
 from core.dependencies import (
     InternalAPIClient,
+    get_config_loader,
     get_db,
     get_internal_api_client,
     require_admin_or_moderator,
     translate_internal_api_error,
 )
 from core.guild_settings import (
+    AFFILIATE_ROLE_KEY,
+    BOT_ADMINS_KEY,
+    BOT_SPAM_CHANNEL_KEY,
+    LEAD_MODS_KEY,
+    LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
+    MAIN_ROLE_KEY,
+    NONMEMBER_ROLE_KEY,
+    ORGANIZATION_NAME_KEY,
+    ORGANIZATION_SID_KEY,
+    PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
+    SELECTABLE_ROLES_KEY,
+    VERIFICATION_CHANNEL_KEY,
     get_bot_channel_settings,
     get_bot_role_settings,
     get_organization_settings,
@@ -29,6 +42,11 @@ from core.schemas import (
     DiscordChannel,
     DiscordRole,
     GuildChannelsResponse,
+    GuildConfigData,
+    GuildConfigResponse,
+    GuildConfigUpdateRequest,
+    GuildInfo,
+    GuildInfoResponse,
     GuildMember,
     GuildMemberResponse,
     GuildMembersResponse,
@@ -40,6 +58,8 @@ from core.schemas import (
     VoiceSelectableRoles,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+from config.config_loader import ConfigLoader
 
 router = APIRouter(prefix="/api/guilds", tags=["guilds"])
 
@@ -419,3 +439,183 @@ async def validate_organization_sid_endpoint(
         name=org_name,
         error=error_msg
     )
+
+
+# Guild info (for header)
+@router.get("/{guild_id}/info", response_model=GuildInfoResponse)
+async def get_guild_info(
+    guild_id: int,
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Return basic guild identity (name, icon) for UI header."""
+    _ensure_active_guild(current_user, guild_id)
+
+    try:
+        guilds = await internal_api.get_guilds()
+    except Exception as exc:  # pragma: no cover - transport errors
+        raise translate_internal_api_error(exc, "Failed to fetch guild info") from exc
+
+    gid_str = str(guild_id)
+    match = None
+    for g in guilds:
+        if str(g.get("guild_id")) == gid_str:
+            match = g
+            break
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Guild not found")
+
+    info = GuildInfo(
+        guild_id=gid_str,
+        guild_name=match.get("guild_name", "Unnamed Guild"),
+        icon_url=match.get("icon_url"),
+    )
+    return GuildInfoResponse(guild=info)
+
+
+def _read_only_yaml_snapshot(config_loader: ConfigLoader) -> dict:
+    """Return a small subset of global YAML config for read-only display."""
+    # Load from project root config/config.yaml using loader
+    project_root = Path(__file__).parent.parent.parent.parent
+    config_path = project_root / "config" / "config.yaml"
+    try:
+        cfg = config_loader.load_config(str(config_path))
+    except Exception:
+        cfg = {}
+
+    return {
+        "rsi": cfg.get("rsi"),
+        "voice": cfg.get("voice"),
+        "voice_debug_logging_enabled": cfg.get("voice_debug_logging_enabled"),
+    }
+
+
+@router.get("/{guild_id}/config", response_model=GuildConfigResponse)
+async def get_guild_config(
+    guild_id: int,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+    config_loader: ConfigLoader = Depends(get_config_loader),
+):
+    """Return merged guild configuration (DB-backed + read-only YAML subset)."""
+    _ensure_active_guild(current_user, guild_id)
+
+    roles = await get_bot_role_settings(db, guild_id)
+    channels = await get_bot_channel_settings(db, guild_id)
+    voice_roles = await get_voice_selectable_roles(db, guild_id)
+    org = await get_organization_settings(db, guild_id)
+
+    ro = _read_only_yaml_snapshot(config_loader)
+
+    data = GuildConfigData(
+        roles=BotRoleSettings(**roles),
+        channels=BotChannelSettings(**channels),
+        voice=VoiceSelectableRoles(selectable_roles=voice_roles),
+        organization=OrganizationSettings(**org),
+        read_only=ro,  # Pydantic will coerce dict to model when field names match
+    )
+
+    return GuildConfigResponse(data=data)
+
+
+async def _audit_change(db, guild_id: int, key: str, old_value, new_value, actor_user_id: int | None):
+    """Insert an audit record for a changed key."""
+    await db.execute(
+        """
+        INSERT INTO guild_settings_audit (guild_id, key, old_value, new_value, changed_by_user_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            key,
+            json.dumps(old_value),
+            json.dumps(new_value),
+            int(actor_user_id) if actor_user_id is not None else None,
+        ),
+    )
+
+
+@router.patch("/{guild_id}/config", response_model=GuildConfigResponse)
+async def patch_guild_config(
+    guild_id: int,
+    payload: GuildConfigUpdateRequest,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+    config_loader: ConfigLoader = Depends(get_config_loader),
+):
+    """Update DB-backed guild settings. YAML-only fields remain read-only."""
+    _ensure_active_guild(current_user, guild_id)
+
+    # Fetch current values for auditing
+    current_roles = await get_bot_role_settings(db, guild_id)
+    current_channels = await get_bot_channel_settings(db, guild_id)
+    current_voice = await get_voice_selectable_roles(db, guild_id)
+    current_org = await get_organization_settings(db, guild_id)
+
+    # Apply updates if provided
+    if payload.roles is not None:
+        await set_bot_role_settings(
+            db,
+            guild_id,
+            payload.roles.bot_admins,
+            payload.roles.lead_moderators,
+            payload.roles.main_role,
+            payload.roles.affiliate_role,
+            payload.roles.nonmember_role,
+        )
+
+        # Audit each role list if changed
+        if current_roles.get("bot_admins") != payload.roles.bot_admins:
+            await _audit_change(db, guild_id, BOT_ADMINS_KEY, current_roles.get("bot_admins"), payload.roles.bot_admins, current_user.user_id)
+        if current_roles.get("lead_moderators") != payload.roles.lead_moderators:
+            await _audit_change(db, guild_id, LEAD_MODS_KEY, current_roles.get("lead_moderators"), payload.roles.lead_moderators, current_user.user_id)
+        if current_roles.get("main_role") != payload.roles.main_role:
+            await _audit_change(db, guild_id, MAIN_ROLE_KEY, current_roles.get("main_role"), payload.roles.main_role, current_user.user_id)
+        if current_roles.get("affiliate_role") != payload.roles.affiliate_role:
+            await _audit_change(db, guild_id, AFFILIATE_ROLE_KEY, current_roles.get("affiliate_role"), payload.roles.affiliate_role, current_user.user_id)
+        if current_roles.get("nonmember_role") != payload.roles.nonmember_role:
+            await _audit_change(db, guild_id, NONMEMBER_ROLE_KEY, current_roles.get("nonmember_role"), payload.roles.nonmember_role, current_user.user_id)
+
+    if payload.channels is not None:
+        await set_bot_channel_settings(
+            db,
+            guild_id,
+            payload.channels.verification_channel_id,
+            payload.channels.bot_spam_channel_id,
+            payload.channels.public_announcement_channel_id,
+            payload.channels.leadership_announcement_channel_id,
+        )
+
+        if current_channels.get("verification_channel_id") != payload.channels.verification_channel_id:
+            await _audit_change(db, guild_id, VERIFICATION_CHANNEL_KEY, current_channels.get("verification_channel_id"), payload.channels.verification_channel_id, current_user.user_id)
+        if current_channels.get("bot_spam_channel_id") != payload.channels.bot_spam_channel_id:
+            await _audit_change(db, guild_id, BOT_SPAM_CHANNEL_KEY, current_channels.get("bot_spam_channel_id"), payload.channels.bot_spam_channel_id, current_user.user_id)
+        if current_channels.get("public_announcement_channel_id") != payload.channels.public_announcement_channel_id:
+            await _audit_change(db, guild_id, PUBLIC_ANNOUNCEMENT_CHANNEL_KEY, current_channels.get("public_announcement_channel_id"), payload.channels.public_announcement_channel_id, current_user.user_id)
+        if current_channels.get("leadership_announcement_channel_id") != payload.channels.leadership_announcement_channel_id:
+            await _audit_change(db, guild_id, LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY, current_channels.get("leadership_announcement_channel_id"), payload.channels.leadership_announcement_channel_id, current_user.user_id)
+
+    if payload.voice is not None:
+        await set_voice_selectable_roles(db, guild_id, payload.voice.selectable_roles)
+        if current_voice != payload.voice.selectable_roles:
+            await _audit_change(db, guild_id, SELECTABLE_ROLES_KEY, current_voice, payload.voice.selectable_roles, current_user.user_id)
+
+    if payload.organization is not None:
+        await set_organization_settings(
+            db,
+            guild_id,
+            payload.organization.organization_sid,
+            payload.organization.organization_name,
+        )
+
+        if current_org.get("organization_sid") != payload.organization.organization_sid:
+            await _audit_change(db, guild_id, ORGANIZATION_SID_KEY, current_org.get("organization_sid"), payload.organization.organization_sid, current_user.user_id)
+        if current_org.get("organization_name") != payload.organization.organization_name:
+            await _audit_change(db, guild_id, ORGANIZATION_NAME_KEY, current_org.get("organization_name"), payload.organization.organization_name, current_user.user_id)
+
+    # Commit any pending audit inserts
+    await db.commit()
+
+    # Return updated merged view
+    return await get_guild_config(guild_id, db=db, current_user=current_user, config_loader=config_loader)
