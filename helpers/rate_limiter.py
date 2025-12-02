@@ -64,7 +64,11 @@ async def check_rate_limit(
     if isinstance(user_id_or_guild_config, int):
         # Old pattern: check_rate_limit(user_id, action)
         user_id_val = user_id_or_guild_config
-        action_val = action_or_guild_id if isinstance(action_or_guild_id, str) else "verification"
+        action_val = (
+            action_or_guild_id
+            if isinstance(action_or_guild_id, str)
+            else "verification"
+        )
         max_attempts, window = _get_default_limits(action_val)
     else:
         # New pattern: check_rate_limit(guild_config, guild_id, user_id, action)
@@ -82,7 +86,9 @@ async def check_rate_limit(
             await Database.reset_rate_limit(user_id_val, action_val)
             return False, 0
         if attempts >= max_attempts:
-            logger.info("Rate limit hit.", extra={"user_id": user_id_val, "action": action_val})
+            logger.info(
+                "Rate limit hit.", extra={"user_id": user_id_val, "action": action_val}
+            )
             return True, first + window
     return False, 0
 
@@ -108,7 +114,11 @@ async def get_remaining_attempts(
     if isinstance(user_id_or_guild_config, int):
         # Old pattern
         user_id_val = user_id_or_guild_config
-        action_val = action_or_guild_id if isinstance(action_or_guild_id, str) else "verification"
+        action_val = (
+            action_or_guild_id
+            if isinstance(action_or_guild_id, str)
+            else "verification"
+        )
         max_attempts, window = _get_default_limits(action_val)
     else:
         # New pattern

@@ -72,4 +72,3 @@ async def test_voice_state_change_move_to_jtc_does_not_trigger(voice_service):
 
     # Should NOT trigger creation since before_channel is not None
     voice_service._handle_join_to_create.assert_not_called()
-

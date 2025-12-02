@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import jsonschema
     from jsonschema import Draft7Validator
 
     JSONSCHEMA_AVAILABLE = True
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
+    Draft7Validator = None  # type: ignore[misc, assignment]
     logging.warning("jsonschema not available - schema validation disabled")
 
 logger = logging.getLogger(__name__)

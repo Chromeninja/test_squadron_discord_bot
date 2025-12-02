@@ -158,8 +158,7 @@ async def callback(code: str, state: str | None = None):
 
             if guilds_response.status_code != 200:
                 raise HTTPException(
-                    status_code=403,
-                    detail="Unable to fetch guild memberships"
+                    status_code=403, detail="Unable to fetch guild memberships"
                 )
 
             user_guilds = guilds_response.json()
@@ -200,21 +199,31 @@ async def callback(code: str, state: str | None = None):
                     # Check Discord-native permissions first (owner or administrator)
                     is_owner = guild_data.get("owner", False)
                     permissions_str = guild_data.get("permissions")
-                    has_admin_permission = _has_administrator_permission(permissions_str)
+                    has_admin_permission = _has_administrator_permission(
+                        permissions_str
+                    )
 
-                    logger.debug(f"Guild {guild_id}: owner={is_owner}, admin={has_admin_permission}")
+                    logger.debug(
+                        f"Guild {guild_id}: owner={is_owner}, admin={has_admin_permission}"
+                    )
 
                     # If user is guild owner or has administrator permission, grant admin access
                     if is_owner or has_admin_permission:
                         authorized_guild_ids.append(int(guild_id))
                         is_admin = True
-                        permission_sources[int(guild_id)] = "owner" if is_owner else "administrator"
-                        logger.info(f"User granted admin access to guild {guild_id} via {permission_sources[int(guild_id)]}")
+                        permission_sources[int(guild_id)] = (
+                            "owner" if is_owner else "administrator"
+                        )
+                        logger.info(
+                            f"User granted admin access to guild {guild_id} via {permission_sources[int(guild_id)]}"
+                        )
                         continue  # Skip role-based check for performance
 
                     # Only check role-based permissions if guild is in the database
                     if int(guild_id) not in bot_guild_ids:
-                        logger.debug(f"Guild {guild_id} not in bot database, skipping role-based check")
+                        logger.debug(
+                            f"Guild {guild_id} not in bot database, skipping role-based check"
+                        )
                         continue
 
                     # Fall back to role-based checking from database
@@ -225,7 +234,9 @@ async def callback(code: str, state: str | None = None):
 
                     if guild_member_response.status_code == 429:
                         # Rate limited - skip remaining guilds
-                        logger.warning(f"Rate limited while checking guild {guild_id}, skipping remaining guilds")
+                        logger.warning(
+                            f"Rate limited while checking guild {guild_id}, skipping remaining guilds"
+                        )
                         break
 
                     if guild_member_response.status_code != 200:
@@ -238,14 +249,20 @@ async def callback(code: str, state: str | None = None):
                     async with Database.get_connection() as db:
                         role_settings = await get_bot_role_settings(db, int(guild_id))
                         bot_admin_role_ids = role_settings.get("bot_admins", [])
-                        lead_moderator_role_ids = role_settings.get("lead_moderators", [])
+                        lead_moderator_role_ids = role_settings.get(
+                            "lead_moderators", []
+                        )
 
                     # Convert user_role_ids to integers for comparison
                     user_role_ids_int = [int(rid) for rid in user_role_ids]
 
                     # Check if user has any admin/mod roles
-                    has_admin_role = any(rid in bot_admin_role_ids for rid in user_role_ids_int)
-                    has_mod_role = any(rid in lead_moderator_role_ids for rid in user_role_ids_int)
+                    has_admin_role = any(
+                        rid in bot_admin_role_ids for rid in user_role_ids_int
+                    )
+                    has_mod_role = any(
+                        rid in lead_moderator_role_ids for rid in user_role_ids_int
+                    )
 
                     if has_admin_role or has_mod_role:
                         authorized_guild_ids.append(int(guild_id))
@@ -255,7 +272,9 @@ async def callback(code: str, state: str | None = None):
                         if has_mod_role:
                             is_moderator = True
                             permission_sources[int(guild_id)] = "moderator_role"
-                        logger.info(f"User granted access to guild {guild_id} via {permission_sources[int(guild_id)]}")
+                        logger.info(
+                            f"User granted access to guild {guild_id} via {permission_sources[int(guild_id)]}"
+                        )
 
                 except Exception as e:
                     print(f"Error checking roles for guild {guild_id}: {e}")
@@ -271,7 +290,9 @@ async def callback(code: str, state: str | None = None):
             raise HTTPException(status_code=400, detail="Invalid user data")
 
         # Debug logging
-        logger.info(f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s)")
+        logger.info(
+            f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s)"
+        )
         logger.debug(f"Authorized guild IDs: {authorized_guild_ids}")
         logger.debug(f"is_admin: {is_admin}, is_moderator: {is_moderator}")
         logger.debug(f"Permission sources: {permission_sources}")
@@ -301,7 +322,9 @@ async def callback(code: str, state: str | None = None):
 
         # Do NOT auto-select guild - force user to choose from SelectServer screen
         # This ensures users explicitly select which server to manage
-        logger.info(f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s), redirecting to guild selection")
+        logger.info(
+            f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s), redirecting to guild selection"
+        )
 
         session_data = {
             "user_id": user_id,
@@ -334,6 +357,7 @@ async def callback(code: str, state: str | None = None):
         raise
     except Exception as e:
         import traceback
+
         print(f"Error in OAuth callback: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}")
@@ -380,7 +404,9 @@ async def get_available_guilds(
         raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
 
     # Get user's authorized guild IDs from session - convert to strings for comparison
-    authorized_guild_ids = set(str(gid) for gid in (current_user.authorized_guild_ids or []))
+    authorized_guild_ids = {
+        str(gid) for gid in (current_user.authorized_guild_ids or [])
+    }
 
     logger.debug(f"Bot guilds from internal API: {[g.get('guild_id') for g in guilds]}")
     logger.debug(f"User authorized guild IDs: {authorized_guild_ids}")
@@ -407,7 +433,6 @@ async def get_available_guilds(
 
     logger.info(f"Returning {len(summaries)} guild(s) to user")
     return GuildListResponse(guilds=summaries)
-
 
 
 @api_router.post("/select-guild", response_model=SelectGuildResponse)
@@ -478,8 +503,7 @@ async def get_bot_invite_url(
 
     # Build bot invite URL with redirect back to our callback
     bot_redirect_uri = os.getenv(
-        "DISCORD_BOT_REDIRECT_URI",
-        "http://localhost:8081/auth/bot-callback"
+        "DISCORD_BOT_REDIRECT_URI", "http://localhost:8081/auth/bot-callback"
     )
 
     from urllib.parse import urlencode

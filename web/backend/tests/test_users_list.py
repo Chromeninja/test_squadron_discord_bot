@@ -46,8 +46,8 @@ async def test_list_users_admin(
         "created_at": "2023-01-01T00:00:00",
         "roles": [
             {"id": 1001, "name": "Admin", "color": 16711680},
-            {"id": 1002, "name": "Member", "color": 65280}
-        ]
+            {"id": 1002, "name": "Member", "color": 65280},
+        ],
     }
 
     response = await client.get(

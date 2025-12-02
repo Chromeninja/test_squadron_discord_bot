@@ -18,17 +18,18 @@ async def test_errors_last_success_admin(client, mock_admin_session):
                 "error_type": "HTTPException",
                 "component": "verification.commands",
                 "message": "RSI profile not found",
-                "traceback": None
+                "traceback": None,
             }
         ]
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_errors_data
 
         response = await client.get(
-            "/api/errors/last",
-            cookies={"session": mock_admin_session}
+            "/api/errors/last", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -44,12 +45,13 @@ async def test_errors_last_empty(client, mock_admin_session):
     """Test errors/last endpoint handles no errors."""
     mock_errors_data = {"errors": []}
 
-    with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_errors_data
 
         response = await client.get(
-            "/api/errors/last",
-            cookies={"session": mock_admin_session}
+            "/api/errors/last", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -68,24 +70,25 @@ async def test_errors_last_with_limit(client, mock_admin_session):
                 "error_type": "Error1",
                 "component": "component1",
                 "message": "message1",
-                "traceback": None
+                "traceback": None,
             },
             {
                 "time": "2025-11-09T11:00:00Z",
                 "error_type": "Error2",
                 "component": "component2",
                 "message": "message2",
-                "traceback": None
-            }
+                "traceback": None,
+            },
         ]
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_errors_data
 
         response = await client.get(
-            "/api/errors/last?limit=2",
-            cookies={"session": mock_admin_session}
+            "/api/errors/last?limit=2", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -104,8 +107,7 @@ async def test_errors_last_unauthorized(client):
 async def test_errors_last_forbidden_moderator(client, mock_moderator_session):
     """Test errors/last endpoint returns 403 for moderator."""
     response = await client.get(
-        "/api/errors/last",
-        cookies={"session": mock_moderator_session}
+        "/api/errors/last", cookies={"session": mock_moderator_session}
     )
     assert response.status_code == 403
 
@@ -114,8 +116,7 @@ async def test_errors_last_forbidden_moderator(client, mock_moderator_session):
 async def test_errors_last_forbidden_unauthorized(client, mock_unauthorized_session):
     """Test errors/last endpoint returns 403 for unauthorized user."""
     response = await client.get(
-        "/api/errors/last",
-        cookies={"session": mock_unauthorized_session}
+        "/api/errors/last", cookies={"session": mock_unauthorized_session}
     )
     assert response.status_code == 403
 
@@ -123,15 +124,16 @@ async def test_errors_last_forbidden_unauthorized(client, mock_unauthorized_sess
 @pytest.mark.asyncio
 async def test_errors_last_internal_error(client, mock_admin_session):
     """Test errors/last endpoint handles internal API errors."""
-    with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.RequestError(
             "Internal API unavailable",
             request=httpx.Request("GET", "http://internal"),
         )
 
         response = await client.get(
-            "/api/errors/last",
-            cookies={"session": mock_admin_session}
+            "/api/errors/last", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 503
@@ -144,10 +146,12 @@ async def test_errors_last_http_status_error(client, mock_admin_session):
     response_obj = httpx.Response(
         404,
         request=httpx.Request("GET", "http://internal"),
-        content=b"{\"detail\": \"not found\"}",
+        content=b'{"detail": "not found"}',
     )
 
-    with patch("core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.HTTPStatusError(
             "not found",
             request=response_obj.request,

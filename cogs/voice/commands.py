@@ -91,10 +91,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in list_permissions command", exc_info=e)
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="claim",
@@ -117,7 +116,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if result.success:
                 # Format success message
-                message = f"✅ **Channel claimed**\nYou now own {result.channel_mention}."
+                message = (
+                    f"✅ **Channel claimed**\nYou now own {result.channel_mention}."
+                )
                 await send_user_success(interaction, message)
             else:
                 # Format error with metadata if available
@@ -129,9 +130,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in claim_channel command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 from helpers.error_messages import format_user_error
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="transfer", description="Transfer channel ownership to another user"
@@ -172,9 +172,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         except Exception as e:
             logger.exception("Error in transfer_ownership command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="help", description="Show help for voice commands")
     async def voice_help(self, interaction: discord.Interaction) -> None:
@@ -282,10 +280,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in list_owners command", exc_info=e)
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="setup", description="Set up the voice channel system")
     @app_commands.describe(
@@ -332,9 +329,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         except Exception as e:
             logger.exception("Error in setup_voice_system command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="admin_list",
@@ -398,10 +393,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in admin_list command", exc_info=e)
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
 
 class AdminCommands(app_commands.Group):
@@ -501,6 +495,7 @@ class AdminCommands(app_commands.Group):
         except Exception as e:
             logger.exception("Error in admin_reset command", exc_info=e)
             from helpers.error_messages import format_user_error
+
             await interaction.followup.send(
                 format_user_error("UNKNOWN"),
                 ephemeral=True,

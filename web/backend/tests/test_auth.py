@@ -100,7 +100,7 @@ async def test_select_guild_sets_session_cookie(
 
     response = await client.post(
         "/api/auth/select-guild",
-    json={"guild_id": "123"},
+        json={"guild_id": "123"},
         cookies={"session": mock_admin_session},
     )
 
@@ -148,6 +148,7 @@ async def test_select_guild_allows_when_internal_api_empty(
     )
 
     assert response.status_code == 200
+
 
 @pytest.mark.asyncio
 async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkeypatch):
@@ -197,7 +198,9 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
 
     response = await client.get(
         "/auth/callback",
@@ -213,6 +216,7 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
     assert session_cookie is not None
 
     from core.security import decode_session_token
+
     session_data = decode_session_token(session_cookie)
     assert session_data is not None
     assert session_data["is_admin"] is True
@@ -221,7 +225,9 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
 
 
 @pytest.mark.asyncio
-async def test_callback_grants_access_to_administrator(client: AsyncClient, monkeypatch):
+async def test_callback_grants_access_to_administrator(
+    client: AsyncClient, monkeypatch
+):
     """Test that users with Discord administrator permission are granted admin access."""
     from unittest.mock import AsyncMock, MagicMock
 
@@ -268,7 +274,9 @@ async def test_callback_grants_access_to_administrator(client: AsyncClient, monk
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
 
     response = await client.get(
         "/auth/callback",
@@ -284,6 +292,7 @@ async def test_callback_grants_access_to_administrator(client: AsyncClient, monk
     assert session_cookie is not None
 
     from core.security import decode_session_token
+
     session_data = decode_session_token(session_cookie)
     assert session_data is not None
     assert session_data["is_admin"] is True
@@ -292,7 +301,9 @@ async def test_callback_grants_access_to_administrator(client: AsyncClient, monk
 
 
 @pytest.mark.asyncio
-async def test_callback_denies_access_without_permissions(client: AsyncClient, monkeypatch):
+async def test_callback_denies_access_without_permissions(
+    client: AsyncClient, monkeypatch
+):
     """Test that users without owner/admin/configured roles are denied access."""
     from unittest.mock import AsyncMock, MagicMock
 
@@ -344,7 +355,9 @@ async def test_callback_denies_access_without_permissions(client: AsyncClient, m
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr("routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client)
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
 
     response = await client.get(
         "/auth/callback",
@@ -355,4 +368,3 @@ async def test_callback_denies_access_without_permissions(client: AsyncClient, m
     # Should return 403 Access Denied
     assert response.status_code == 403
     assert "Access Denied" in response.text
-

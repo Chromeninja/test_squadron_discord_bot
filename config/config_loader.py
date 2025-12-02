@@ -59,8 +59,7 @@ class ConfigLoader:
                 cls._config = {}
             except UnicodeDecodeError:
                 logging.exception(
-                    "Encoding error reading configuration; "
-                    "using empty/default config."
+                    "Encoding error reading configuration; using empty/default config."
                 )
                 cls._config = {}
         return cls._config

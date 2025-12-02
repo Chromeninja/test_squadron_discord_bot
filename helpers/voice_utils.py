@@ -64,9 +64,7 @@ async def get_user_channel(
                     with contextlib.suppress(Exception):
                         # Remove stale mapping so future checks don't keep trying
                         # to fetch
-                        delete_query = (
-                            "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?"
-                        )
+                        delete_query = "UPDATE voice_channels SET is_active = 0 WHERE voice_channel_id = ?"
                         delete_params = (channel_id,)
                         if guild_id and jtc_channel_id:
                             delete_query += " AND guild_id = ? AND jtc_channel_id = ?"
@@ -109,7 +107,9 @@ async def update_channel_settings(
         **kwargs: Channel settings to update (channel_name, user_limit, lock)
     """
     if not guild_id or not jtc_channel_id:
-        logger.error("update_channel_settings requires both guild_id and jtc_channel_id")
+        logger.error(
+            "update_channel_settings requires both guild_id and jtc_channel_id"
+        )
         return
 
     fields = []
@@ -171,7 +171,9 @@ async def set_voice_feature_setting(
         jtc_channel_id: Join-to-create channel ID (required)
     """
     if not guild_id or not jtc_channel_id:
-        logger.error("set_voice_feature_setting requires both guild_id and jtc_channel_id")
+        logger.error(
+            "set_voice_feature_setting requires both guild_id and jtc_channel_id"
+        )
         return
 
     cfg = FEATURE_CONFIG.get(feature)
@@ -263,9 +265,6 @@ async def apply_voice_feature_toggle(
         # ------------------------------
 
 
-
-
-
 def create_voice_settings_embed(
     settings, formatted, title: str, footer: str
 ) -> discord.Embed:
@@ -338,7 +337,9 @@ def format_channel_settings(settings, interaction) -> None:
         ptt_lines = ["PTT is not configured."]
 
     priority_lines = []
-    priority_settings = settings.get("priority_settings", settings.get("priority_rows", []))
+    priority_settings = settings.get(
+        "priority_settings", settings.get("priority_rows", [])
+    )
     for tid, ttype, enabled in priority_settings:
         text = "Enabled" if enabled else "Disabled"
         priority_lines.append(
@@ -348,7 +349,9 @@ def format_channel_settings(settings, interaction) -> None:
         priority_lines = ["No priority speakers set."]
 
     soundboard_lines = []
-    soundboard_settings = settings.get("soundboard_settings", settings.get("soundboard_rows", []))
+    soundboard_settings = settings.get(
+        "soundboard_settings", settings.get("soundboard_rows", [])
+    )
     for tid, ttype, enabled in soundboard_settings:
         text = "Enabled" if enabled else "Disabled"
         soundboard_lines.append(

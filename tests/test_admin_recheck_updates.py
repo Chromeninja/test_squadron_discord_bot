@@ -105,7 +105,6 @@ class TestUpdatedAdminRecheckFlow:
     async def test_admin_recheck_uses_leadership_channel_config(self):
         """Test that admin recheck uses leadership_announcement_channel_id from config."""
         # Mock bot with leadership channel configured
-        leadership_channel_id = 999888777
         mock_bot = MagicMock()
 
         mock_leadership_channel = AsyncMock()

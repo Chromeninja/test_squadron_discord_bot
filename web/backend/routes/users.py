@@ -115,6 +115,7 @@ def _placeholder_member(user_id: int) -> dict:
         "roles": [],
     }
 
+
 router = APIRouter()
 
 
@@ -150,7 +151,9 @@ def _derive_status_from_orgs(
 
 @router.get("/search", response_model=UserSearchResponse)
 async def search_users(
-    query: str = Query("", description="Search by user_id, rsi_handle, or community_moniker"),
+    query: str = Query(
+        "", description="Search by user_id, rsi_handle, or community_moniker"
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db=Depends(get_db),
@@ -184,7 +187,7 @@ async def search_users(
 
         cursor = await db.execute(
             """
-            SELECT 
+            SELECT
                 user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
@@ -208,7 +211,7 @@ async def search_users(
 
             cursor = await db.execute(
                 """
-                SELECT 
+                SELECT
                     user_id, rsi_handle,
                     community_moniker, last_updated, needs_reverify,
                     main_orgs, affiliate_orgs
@@ -235,7 +238,7 @@ async def search_users(
 
             cursor = await db.execute(
                 """
-                SELECT 
+                SELECT
                     user_id, rsi_handle,
                     community_moniker, last_updated, needs_reverify,
                     main_orgs, affiliate_orgs
@@ -251,13 +254,17 @@ async def search_users(
     # Convert rows to VerificationRecord objects
     items = []
     # Derive membership status for the current guild if possible
-    org_settings = await get_organization_settings(db, int(current_user.active_guild_id) if current_user.active_guild_id else 0)
+    org_settings = await get_organization_settings(
+        db, int(current_user.active_guild_id) if current_user.active_guild_id else 0
+    )
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 
     for row in rows:
         main_orgs = json.loads(row[5]) if row[5] else None
         affiliate_orgs = json.loads(row[6]) if row[6] else None
-        derived_status = _derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
+        derived_status = _derive_status_from_orgs(
+            main_orgs, affiliate_orgs, organization_sid
+        )
         items.append(
             VerificationRecord(
                 user_id=row[0],
@@ -377,11 +384,11 @@ async def list_users(
     # Fetch all and filter in Python using derived status
     count_cursor = await db.execute("SELECT COUNT(*) FROM verification")
     count_row = await count_cursor.fetchone()
-    base_total = count_row[0] if count_row else 0
+    count_row[0] if count_row else 0
 
     cursor = await db.execute(
         """
-        SELECT 
+        SELECT
             user_id, rsi_handle,
             community_moniker, last_updated, needs_reverify,
             main_orgs, affiliate_orgs
@@ -404,16 +411,18 @@ async def list_users(
         status = _derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
         if status_filters and status not in status_filters:
             continue
-        derived_rows.append((
-            row[0],  # user_id
-            row[1],  # rsi_handle
-            status,  # derived status
-            row[2],  # community_moniker
-            row[3],  # last_updated
-            row[4],  # needs_reverify
-            main_orgs,
-            affiliate_orgs,
-        ))
+        derived_rows.append(
+            (
+                row[0],  # user_id
+                row[1],  # rsi_handle
+                status,  # derived status
+                row[2],  # community_moniker
+                row[3],  # last_updated
+                row[4],  # needs_reverify
+                main_orgs,
+                affiliate_orgs,
+            )
+        )
 
     total_filtered = len(derived_rows)
     start = offset
@@ -453,7 +462,9 @@ async def list_users(
             )
         )
 
-    total_pages = (total_filtered + page_size - 1) // page_size if total_filtered > 0 else 0
+    total_pages = (
+        (total_filtered + page_size - 1) // page_size if total_filtered > 0 else 0
+    )
     total_value = total_filtered
 
     return UsersListResponse(
@@ -490,11 +501,23 @@ async def export_users(
         # Return empty CSV
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([
-            "discord_id", "username", "membership_status", "rsi_handle",
-            "community_moniker", "joined_at", "created_at", "last_updated",
-            "needs_reverify", "role_ids", "role_names", "main_orgs", "affiliate_orgs"
-        ])
+        writer.writerow(
+            [
+                "discord_id",
+                "username",
+                "membership_status",
+                "rsi_handle",
+                "community_moniker",
+                "joined_at",
+                "created_at",
+                "last_updated",
+                "needs_reverify",
+                "role_ids",
+                "role_names",
+                "main_orgs",
+                "affiliate_orgs",
+            ]
+        )
 
         csv_content = output.getvalue()
         return StreamingResponse(
@@ -502,7 +525,7 @@ async def export_users(
             media_type="text/csv",
             headers={
                 "Content-Disposition": f"attachment; filename=members_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-            }
+            },
         )
 
     guild_id = int(current_user.active_guild_id)
@@ -519,7 +542,7 @@ async def export_users(
 
         cursor = await db.execute(
             f"""
-            SELECT 
+            SELECT
                 user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
@@ -533,7 +556,7 @@ async def export_users(
         # Fetch all; we'll filter by derived status in Python
         cursor = await db.execute(
             """
-            SELECT 
+            SELECT
                 user_id, rsi_handle,
                 community_moniker, last_updated, needs_reverify,
                 main_orgs, affiliate_orgs
@@ -550,11 +573,23 @@ async def export_users(
     writer = csv.writer(output)
 
     # Header
-    writer.writerow([
-        "discord_id", "username", "membership_status", "rsi_handle",
-        "community_moniker", "joined_at", "created_at", "last_updated",
-        "needs_reverify", "role_ids", "role_names", "main_orgs", "affiliate_orgs"
-    ])
+    writer.writerow(
+        [
+            "discord_id",
+            "username",
+            "membership_status",
+            "rsi_handle",
+            "community_moniker",
+            "joined_at",
+            "created_at",
+            "last_updated",
+            "needs_reverify",
+            "role_ids",
+            "role_names",
+            "main_orgs",
+            "affiliate_orgs",
+        ]
+    )
 
     # Org settings for derivation
     org_settings = await get_organization_settings(db, guild_id)
@@ -583,29 +618,39 @@ async def export_users(
         # Parse org JSON arrays
         main_orgs_list = json.loads(row[5]) if row[5] else []
         affiliate_orgs_list = json.loads(row[6]) if row[6] else []
-        derived_status = _derive_status_from_orgs(main_orgs_list, affiliate_orgs_list, organization_sid)
+        derived_status = _derive_status_from_orgs(
+            main_orgs_list, affiliate_orgs_list, organization_sid
+        )
 
         # Apply status filters if present (only when not using selected_ids)
-        if not request.selected_ids and status_filters and derived_status not in status_filters:
+        if (
+            not request.selected_ids
+            and status_filters
+            and derived_status not in status_filters
+        ):
             continue
         main_orgs_str = ";".join(main_orgs_list) if main_orgs_list else ""
-        affiliate_orgs_str = ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        affiliate_orgs_str = (
+            ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        )
 
-        writer.writerow([
-            str(user_id),
-            username,
-            derived_status or "",
-            row[1] or "",
-            row[2] or "",
-            joined_at,
-            created_at,
-            row[3] or "",
-            "Yes" if row[4] else "No",
-            role_ids,
-            role_names,
-            main_orgs_str,
-            affiliate_orgs_str
-        ])
+        writer.writerow(
+            [
+                str(user_id),
+                username,
+                derived_status or "",
+                row[1] or "",
+                row[2] or "",
+                joined_at,
+                created_at,
+                row[3] or "",
+                "Yes" if row[4] else "No",
+                role_ids,
+                role_names,
+                main_orgs_str,
+                affiliate_orgs_str,
+            ]
+        )
 
     csv_content = output.getvalue()
 
@@ -614,5 +659,5 @@ async def export_users(
         media_type="text/csv",
         headers={
             "Content-Disposition": f"attachment; filename=members_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-        }
+        },
     )

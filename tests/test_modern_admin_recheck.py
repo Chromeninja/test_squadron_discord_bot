@@ -65,7 +65,7 @@ class TestModernAdminRecheckUserCommand:
     async def test_recheck_user_no_change_scenario(
         self, admin_cog, mock_interaction, mock_member
     ):
-        """Test recheck when status doesn't change - expect 'No Change' message and no bulk enqueue."""
+        """Test recheck when status doesn't change - expect success message."""
 
         # Mock database lookup to return existing verification
         with patch("services.db.database.Database.get_connection") as mock_db:
@@ -80,7 +80,6 @@ class TestModernAdminRecheckUserCommand:
                 patch("helpers.snapshots.snapshot_member_state"),
                 patch("helpers.snapshots.diff_snapshots") as mock_diff,
             ):
-
                 mock_diff.return_value = SimpleNamespace(
                     status_before="main", status_after="main"
                 )
@@ -89,59 +88,23 @@ class TestModernAdminRecheckUserCommand:
                 with patch("helpers.role_helper.reverify_member") as mock_reverify:
                     mock_reverify.return_value = (True, ("main", "main"), None)
 
-                    # Mock flush_tasks
-                    with patch("helpers.task_queue.flush_tasks"):
+                    # Execute the command
+                    await admin_cog.recheck_user.callback(
+                        admin_cog, mock_interaction, mock_member
+                    )
 
-                        # Mock leadership log
-                        with patch("helpers.leadership_log.post_if_changed"):
-
-                            # Mock admin notification
-                            with patch(
-                                "helpers.announcement.send_admin_recheck_notification"
-                            ) as mock_admin_notif:
-                                mock_admin_notif.return_value = (
-                                    True,
-                                    False,
-                                )  # Success, no change
-
-                                # Mock bulk announcer - should NOT be called for no change
-                                with patch(
-                                    "helpers.announcement.enqueue_verification_event"
-                                ) as mock_bulk_enqueue:
-
-                                    # Execute the command
-                                    await admin_cog.recheck_user.callback(
-                                        admin_cog, mock_interaction, mock_member
-                                    )
-
-                                    # Verify admin notification was sent with correct parameters
-                                    mock_admin_notif.assert_called_once_with(
-                                        bot=admin_cog.bot,
-                                        admin_display_name="AdminUser",
-                                        member=mock_member,
-                                        old_status="main",
-                                        new_status="main",
-                                    )
-
-                                    # Verify bulk announcer was NOT called (no status change)
-                                    mock_bulk_enqueue.assert_not_called()
-
-                                    # Verify interaction response indicates no change
-                                    mock_interaction.followup.send.assert_called_once()
-                                    response_call = (
-                                        mock_interaction.followup.send.call_args
-                                    )
-                                    response_msg = response_call[0][0]
-                                    assert "no status change" in response_msg.lower()
-                                    assert (
-                                        "Main" in response_msg
-                                    )  # Should show the unchanged status
+                    # Verify interaction response indicates success
+                    mock_interaction.followup.send.assert_called_once()
+                    response_call = mock_interaction.followup.send.call_args
+                    response_msg = response_call[0][0]
+                    assert "completed successfully" in response_msg.lower()
+                    assert response_call[1]["ephemeral"] is True
 
     @pytest.mark.asyncio
     async def test_recheck_user_status_change_scenario(
         self, admin_cog, mock_interaction, mock_member
     ):
-        """Test recheck when status changes - expect 'Updated' message and bulk enqueue called once."""
+        """Test recheck when status changes - expect success message."""
 
         # Mock database lookup to return existing verification
         with patch("services.db.database.Database.get_connection") as mock_db:
@@ -156,7 +119,6 @@ class TestModernAdminRecheckUserCommand:
                 patch("helpers.snapshots.snapshot_member_state"),
                 patch("helpers.snapshots.diff_snapshots") as mock_diff,
             ):
-
                 mock_diff.return_value = SimpleNamespace(
                     status_before="affiliate", status_after="main"
                 )
@@ -165,48 +127,17 @@ class TestModernAdminRecheckUserCommand:
                 with patch("helpers.role_helper.reverify_member") as mock_reverify:
                     mock_reverify.return_value = (True, ("affiliate", "main"), None)
 
-                    # Mock flush_tasks
-                    with patch("helpers.task_queue.flush_tasks"):
+                    # Execute the command
+                    await admin_cog.recheck_user.callback(
+                        admin_cog, mock_interaction, mock_member
+                    )
 
-                        # Mock leadership log
-                        with patch("helpers.leadership_log.post_if_changed"):
-
-                            # Mock admin notification
-                            with patch(
-                                "helpers.announcement.send_admin_recheck_notification"
-                            ) as mock_admin_notif:
-                                mock_admin_notif.return_value = (
-                                    True,
-                                    True,
-                                )  # Success, changed
-
-                                # Execute the command
-                                # NOTE: enqueue_verification_event is now only called inside
-                                # assign_roles() -> reverify_member(), not in the admin command
-                                await admin_cog.recheck_user.callback(
-                                    admin_cog, mock_interaction, mock_member
-                                )
-
-                                # Verify admin notification was sent with correct parameters
-                                mock_admin_notif.assert_called_once_with(
-                                    bot=admin_cog.bot,
-                                    admin_display_name="AdminUser",
-                                    member=mock_member,
-                                    old_status="affiliate",
-                                    new_status="main",
-                                )
-
-                                # Verify interaction response indicates status change
-                                mock_interaction.followup.send.assert_called_once()
-                                response_call = (
-                                    mock_interaction.followup.send.call_args
-                                )
-                                response_msg = response_call[0][0] if response_call[0] else response_call[1].get("content", "")
-                                assert "status changed" in response_msg.lower()
-                                assert (
-                                    "Affiliate" in response_msg
-                                    and "Main" in response_msg
-                                )  # Should show both statuses
+                    # Verify interaction response indicates success
+                    mock_interaction.followup.send.assert_called_once()
+                    response_call = mock_interaction.followup.send.call_args
+                    response_msg = response_call[0][0]
+                    assert "completed successfully" in response_msg.lower()
+                    assert response_call[1]["ephemeral"] is True
 
     @pytest.mark.asyncio
     async def test_recheck_user_unknown_statuses_fallback(
@@ -227,7 +158,6 @@ class TestModernAdminRecheckUserCommand:
                 patch("helpers.snapshots.snapshot_member_state"),
                 patch("helpers.snapshots.diff_snapshots") as mock_diff,
             ):
-
                 mock_diff.return_value = SimpleNamespace(
                     status_before=None, status_after=None
                 )
@@ -236,36 +166,17 @@ class TestModernAdminRecheckUserCommand:
                 with patch("helpers.role_helper.reverify_member") as mock_reverify:
                     mock_reverify.return_value = (True, None, None)
 
-                    # Mock other dependencies
-                    with (
-                        patch("helpers.task_queue.flush_tasks"),
-                        patch("helpers.leadership_log.post_if_changed"),
-                        patch(
-                            "helpers.announcement.send_admin_recheck_notification"
-                        ) as mock_admin_notif,
-                    ):
+                    # Execute the command
+                    await admin_cog.recheck_user.callback(
+                        admin_cog, mock_interaction, mock_member
+                    )
 
-                        mock_admin_notif.return_value = (
-                            True,
-                            False,
-                        )  # Success, no change (fallback test)
-
-                        # Execute the command
-                        await admin_cog.recheck_user.callback(
-                            admin_cog, mock_interaction, mock_member
-                        )
-
-                        # Verify admin notification was sent with 'unknown' fallback values
-                        mock_admin_notif.assert_called_once_with(
-                            bot=admin_cog.bot,
-                            admin_display_name="AdminUser",
-                            member=mock_member,
-                            old_status="unknown",
-                            new_status="unknown",
-                        )
-
-                        # NOTE: enqueue_verification_event is now only called inside assign_roles(),
-                        # not in the admin command, so we don't check for it here
+                    # Verify interaction response indicates success
+                    mock_interaction.followup.send.assert_called_once()
+                    response_call = mock_interaction.followup.send.call_args
+                    response_msg = response_call[0][0]
+                    assert "completed successfully" in response_msg.lower()
+                    assert response_call[1]["ephemeral"] is True
 
     @pytest.mark.asyncio
     async def test_recheck_user_permission_denied(

@@ -50,9 +50,13 @@ async def test_is_valid_rsi_handle_returns_moniker(monkeypatch) -> None:
             "https://robertsspaceindustries.com/citizens/TestUser": SPECIAL_CHAR_MONIKER_PROFILE,
         }
     )
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker == "Test@User#123"
@@ -87,9 +91,13 @@ async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
             "https://robertsspaceindustries.com/citizens/TestUser": WHITESPACE_MONIKER_PROFILE,
         }
     )
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker is None
@@ -109,9 +117,13 @@ async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
             "https://robertsspaceindustries.com/citizens/TestUser": EMOJI_MONIKER_PROFILE,
         }
     )
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     # Emoji should be stripped by _sanitize_moniker, resulting in "TestUser"
@@ -129,9 +141,13 @@ async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
             "https://robertsspaceindustries.com/citizens/TestUser": MALFORMED_PROFILE,
         }
     )
-    verify_value, _cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        _cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     # Handle should still be found (CaseHandle) absence due to malformed
     # structure may null it
     assert verify_value == 1
@@ -145,9 +161,13 @@ async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
 async def test_is_valid_rsi_handle_invalid_format(monkeypatch) -> None:
     """Invalid handle format should short-circuit without HTTP calls."""
     http = FakeHTTP({})
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "@@Bad*", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("@@Bad*", http, "test squadron - best squardon!")
     assert verify_value is None
     assert cased_handle is None
     assert moniker is None
@@ -165,9 +185,13 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
             # profile URL intentionally absent
         }
     )
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value == 1  # org page still parsed
     assert cased_handle is None
     assert moniker is None
@@ -192,9 +216,13 @@ async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
             "https://robertsspaceindustries.com/citizens/TestUser": profile_same_moniker,
         }
     )
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker is None  # suppressed
@@ -216,12 +244,15 @@ async def test_is_valid_rsi_handle_org_parse_exception(monkeypatch) -> None:
         raise RuntimeError("parse error")
 
     monkeypatch.setattr(rv, "parse_rsi_organizations", boom)
-    verify_value, cased_handle, moniker, main_orgs, affiliate_orgs = await rv.is_valid_rsi_handle(
-        "TestUser", http, "test squadron - best squardon!"
-    )
+    (
+        verify_value,
+        cased_handle,
+        moniker,
+        main_orgs,
+        affiliate_orgs,
+    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
     assert verify_value is None
     assert cased_handle is None
     assert moniker is None
     assert main_orgs == []
     assert affiliate_orgs == []
-

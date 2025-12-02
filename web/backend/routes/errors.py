@@ -16,7 +16,9 @@ from fastapi import APIRouter, Depends, Query
 router = APIRouter(prefix="/api/errors", tags=["errors"])
 
 
-@router.get("/last", response_model=ErrorsResponse, dependencies=[Depends(require_any("admin"))])
+@router.get(
+    "/last", response_model=ErrorsResponse, dependencies=[Depends(require_any("admin"))]
+)
 async def get_last_errors(
     limit: int = Query(default=1, ge=1, le=100),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),

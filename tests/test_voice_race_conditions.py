@@ -159,7 +159,7 @@ async def test_concurrent_jtc_joins_create_only_one_channel(
             SELECT COUNT(*) FROM voice_channels
             WHERE guild_id = ? AND owner_id = ? AND is_active = 1
             """,
-            (mock_guild.id, mock_member.id)
+            (mock_guild.id, mock_member.id),
         )
         count = (await cursor.fetchone())[0]
 
@@ -245,7 +245,9 @@ async def test_db_transaction_atomicity(voice_service, mock_guild, mock_member):
     """
     # Simulate concurrent DB writes for the same user
     tasks = [
-        voice_service._store_user_channel(mock_guild.id, 11111, mock_member.id, 90000 + i)
+        voice_service._store_user_channel(
+            mock_guild.id, 11111, mock_member.id, 90000 + i
+        )
         for i in range(3)
     ]
 
@@ -258,7 +260,7 @@ async def test_db_transaction_atomicity(voice_service, mock_guild, mock_member):
             SELECT COUNT(*) FROM voice_channels
             WHERE guild_id = ? AND owner_id = ? AND is_active = 1
             """,
-            (mock_guild.id, mock_member.id)
+            (mock_guild.id, mock_member.id),
         )
         count = (await cursor.fetchone())[0]
 
@@ -268,7 +270,9 @@ async def test_db_transaction_atomicity(voice_service, mock_guild, mock_member):
 
 
 @pytest.mark.asyncio
-async def test_voice_state_filter_ignores_reconnects(voice_service, mock_guild, mock_member):
+async def test_voice_state_filter_ignores_reconnects(
+    voice_service, mock_guild, mock_member
+):
     """
     Test that voice_state_update filters out reconnects and only processes true joins.
     """
@@ -288,9 +292,7 @@ async def test_voice_state_filter_ignores_reconnects(voice_service, mock_guild, 
     # Test 2: Move from another channel to JTC should not trigger (not a true join)
     other_channel = MagicMock(spec=discord.VoiceChannel)
     other_channel.id = 99999
-    await voice_service.handle_voice_state_change(
-        mock_member, other_channel, mock_jtc
-    )
+    await voice_service.handle_voice_state_change(mock_member, other_channel, mock_jtc)
     voice_service._handle_join_to_create.assert_not_called()
 
     # Test 3: True join (before=None, after=JTC) should trigger
@@ -300,7 +302,9 @@ async def test_voice_state_filter_ignores_reconnects(voice_service, mock_guild, 
 
 
 @pytest.mark.asyncio
-async def test_mark_prevents_duplicate_creation(voice_service, mock_guild, mock_jtc_channel, mock_member):
+async def test_mark_prevents_duplicate_creation(
+    voice_service, mock_guild, mock_jtc_channel, mock_member
+):
     """
     Test that _mark_user_creating prevents duplicate channel creation attempts.
     """
@@ -312,7 +316,9 @@ async def test_mark_prevents_duplicate_creation(voice_service, mock_guild, mock_
 
     # Try to handle join while marked - should abort early
     voice_service._create_user_channel = AsyncMock()
-    await voice_service._handle_join_to_create(mock_guild, mock_jtc_channel, mock_member)
+    await voice_service._handle_join_to_create(
+        mock_guild, mock_jtc_channel, mock_member
+    )
 
     # Should not call creation
     voice_service._create_user_channel.assert_not_called()
@@ -323,7 +329,9 @@ async def test_mark_prevents_duplicate_creation(voice_service, mock_guild, mock_
 
 
 @pytest.mark.asyncio
-async def test_per_user_lock_serializes_requests(voice_service, mock_guild, mock_member):
+async def test_per_user_lock_serializes_requests(
+    voice_service, mock_guild, mock_member
+):
     """
     Test that per-user locks properly serialize concurrent requests.
     """
@@ -353,7 +361,9 @@ async def test_reconcile_startup_does_not_create_new_channels(
     mock_guild.get_channel = MagicMock(return_value=mock_jtc_channel)
     mock_jtc_channel.members = [mock_member]
 
-    await config_service.set_guild_setting(mock_guild.id, "voice.jtc_channels", [mock_jtc_channel.id])
+    await config_service.set_guild_setting(
+        mock_guild.id, "voice.jtc_channels", [mock_jtc_channel.id]
+    )
 
     # Track creation calls
     voice_service._handle_join_to_create = AsyncMock()
@@ -366,7 +376,9 @@ async def test_reconcile_startup_does_not_create_new_channels(
 
 
 @pytest.mark.asyncio
-async def test_db_prevents_duplicate_inserts_same_transaction(voice_service, mock_guild, mock_member):
+async def test_db_prevents_duplicate_inserts_same_transaction(
+    voice_service, mock_guild, mock_member
+):
     """
     Test that calling _store_user_channel twice with the same channel ID
     within transaction doesn't create duplicates.
@@ -375,16 +387,20 @@ async def test_db_prevents_duplicate_inserts_same_transaction(voice_service, moc
     jtc_id = 11111
 
     # Insert once
-    await voice_service._store_user_channel(mock_guild.id, jtc_id, mock_member.id, channel_id)
+    await voice_service._store_user_channel(
+        mock_guild.id, jtc_id, mock_member.id, channel_id
+    )
 
     # Insert again with same channel_id (should be no-op)
-    await voice_service._store_user_channel(mock_guild.id, jtc_id, mock_member.id, channel_id)
+    await voice_service._store_user_channel(
+        mock_guild.id, jtc_id, mock_member.id, channel_id
+    )
 
     # Verify still only 1 row
     async with Database.get_connection() as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM voice_channels WHERE voice_channel_id = ?",
-            (channel_id,)
+            (channel_id,),
         )
         count = (await cursor.fetchone())[0]
 
@@ -392,7 +408,9 @@ async def test_db_prevents_duplicate_inserts_same_transaction(voice_service, moc
 
 
 @pytest.mark.asyncio
-async def test_delayed_unmark_clears_creating_flag(voice_service, mock_guild, mock_jtc_channel, mock_member):
+async def test_delayed_unmark_clears_creating_flag(
+    voice_service, mock_guild, mock_jtc_channel, mock_member
+):
     """
     Test that _delayed_unmark_user_creating properly clears the creating flag after delay.
     """
@@ -406,7 +424,5 @@ async def test_delayed_unmark_clears_creating_flag(voice_service, mock_guild, mo
     )
 
     # Should be cleared now
-    is_creating = voice_service._is_user_creating(
-        mock_guild.id, mock_member.id
-    )
+    is_creating = voice_service._is_user_creating(mock_guild.id, mock_member.id)
     assert not is_creating

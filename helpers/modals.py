@@ -55,7 +55,7 @@ async def get_org_name(bot, guild_id: int) -> str:
         except Exception as e:
             logger.warning(
                 f"Failed to get org name from config, using default: {e}",
-                extra={"guild_id": guild_id}
+                extra={"guild_id": guild_id},
             )
     return org_name
 
@@ -80,8 +80,7 @@ async def get_org_sid(bot, guild_id: int) -> str | None:
                 return org_sid_config.strip().upper()
         except Exception as e:
             logger.warning(
-                f"Failed to get org SID from config: {e}",
-                extra={"guild_id": guild_id}
+                f"Failed to get org SID from config: {e}", extra={"guild_id": guild_id}
             )
     return None
 
@@ -117,9 +116,7 @@ class HandleModal(Modal, title="Verification"):
 
         # Ensure we have a guild and member context
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            embed = create_error_embed(
-                "This command can only be used in a server."
-            )
+            embed = create_error_embed("This command can only be used in a server.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
@@ -131,8 +128,7 @@ class HandleModal(Modal, title="Verification"):
             embed = create_cooldown_embed(wait_until)
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.info(
-                "User tried to verify while rate limited.",
-                extra={"user_id": member.id}
+                "User tried to verify while rate limited.", extra={"user_id": member.id}
             )
             return
 
@@ -198,8 +194,14 @@ class HandleModal(Modal, title="Verification"):
         org_name = await get_org_name(self.bot, interaction.guild.id)
         org_sid = await get_org_sid(self.bot, interaction.guild.id)
 
-        verify_value_check, _cased_handle_2, community_moniker_2, main_orgs, affiliate_orgs = (
-            await is_valid_rsi_handle(cased_handle, self.bot.http_client, org_name.lower(), org_sid)
+        (
+            verify_value_check,
+            _cased_handle_2,
+            community_moniker_2,
+            main_orgs,
+            affiliate_orgs,
+        ) = await is_valid_rsi_handle(
+            cased_handle, self.bot.http_client, org_name.lower(), org_sid
         )
         if verify_value_check is None:
             embed = create_error_embed(

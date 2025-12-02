@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from aiosqlite import Connection
+if TYPE_CHECKING:
+    from aiosqlite import Connection
 
 BOT_ADMINS_KEY = "roles.bot_admins"
 LEAD_MODS_KEY = "roles.lead_moderators"
@@ -23,8 +24,8 @@ ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
 
 
-def _coerce_role_list(value: Any) -> list[int]:
-    """Convert stored JSON values into a list of ints."""
+def _coerce_role_list(value: Any) -> list[str]:
+    """Convert stored JSON values into a list of string IDs to preserve precision."""
     if value is None:
         return []
 
@@ -36,11 +37,14 @@ def _coerce_role_list(value: Any) -> list[int]:
     if not isinstance(data, list):
         return []
 
-    cleaned: list[int] = []
+    cleaned: list[str] = []
     seen = set()
     for item in data:
         try:
-            role_id = int(item)
+            # Convert to string to preserve precision for large Discord snowflake IDs
+            role_id = str(
+                int(item)
+            )  # int() validates it's numeric, str() preserves precision
             if role_id not in seen:
                 cleaned.append(role_id)
                 seen.add(role_id)
@@ -49,7 +53,7 @@ def _coerce_role_list(value: Any) -> list[int]:
     return cleaned
 
 
-async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list[int]]:
+async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
     """Fetch bot role settings for a guild with sensible defaults."""
     query = """
         SELECT key, value
@@ -58,7 +62,14 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
     """
     cursor = await db.execute(
         query,
-        (guild_id, BOT_ADMINS_KEY, LEAD_MODS_KEY, MAIN_ROLE_KEY, AFFILIATE_ROLE_KEY, NONMEMBER_ROLE_KEY)
+        (
+            guild_id,
+            BOT_ADMINS_KEY,
+            LEAD_MODS_KEY,
+            MAIN_ROLE_KEY,
+            AFFILIATE_ROLE_KEY,
+            NONMEMBER_ROLE_KEY,
+        ),
     )
     rows = await cursor.fetchall()
 
@@ -88,21 +99,27 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
 async def set_bot_role_settings(
     db: Connection,
     guild_id: int,
-    bot_admins: list[int],
-    lead_moderators: list[int],
-    main_role: list[int],
-    affiliate_role: list[int],
-    nonmember_role: list[int],
+    bot_admins: list[str],
+    lead_moderators: list[str],
+    main_role: list[str],
+    affiliate_role: list[str],
+    nonmember_role: list[str],
 ) -> None:
     """Persist bot role settings for a guild."""
-    def _normalize_role_ids(values: list[int]) -> list[int]:
-        normalized: list[int] = []
+
+    def _normalize_role_ids(values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen = set()
         for value in values:
             try:
-                normalized.append(int(value))
+                # Validate it's numeric, keep as string to preserve precision
+                role_id = str(int(value))
+                if role_id not in seen:
+                    normalized.append(role_id)
+                    seen.add(role_id)
             except (TypeError, ValueError):
                 continue
-        return sorted(set(normalized))
+        return sorted(normalized, key=lambda x: int(x))
 
     payloads = [
         (BOT_ADMINS_KEY, json.dumps(_normalize_role_ids(bot_admins))),
@@ -122,7 +139,9 @@ async def set_bot_role_settings(
     await db.commit()
 
 
-async def get_bot_channel_settings(db: Connection, guild_id: int) -> dict[str, str | None]:
+async def get_bot_channel_settings(
+    db: Connection, guild_id: int
+) -> dict[str, str | None]:
     """Fetch bot channel settings for a guild."""
     query = """
         SELECT key, value
@@ -181,7 +200,10 @@ async def set_bot_channel_settings(
         (VERIFICATION_CHANNEL_KEY, json.dumps(verification_channel_id)),
         (BOT_SPAM_CHANNEL_KEY, json.dumps(bot_spam_channel_id)),
         (PUBLIC_ANNOUNCEMENT_CHANNEL_KEY, json.dumps(public_announcement_channel_id)),
-        (LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY, json.dumps(leadership_announcement_channel_id)),
+        (
+            LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
+            json.dumps(leadership_announcement_channel_id),
+        ),
     ]
 
     for key, value in payloads:
@@ -197,8 +219,8 @@ async def set_bot_channel_settings(
     await db.commit()
 
 
-async def get_voice_selectable_roles(db: Connection, guild_id: int) -> list[int]:
-    """Fetch selectable voice role IDs for a guild."""
+async def get_voice_selectable_roles(db: Connection, guild_id: int) -> list[str]:
+    """Fetch selectable voice role IDs for a guild as strings to preserve precision."""
     cursor = await db.execute(
         """
         SELECT value
@@ -216,18 +238,23 @@ async def get_voice_selectable_roles(db: Connection, guild_id: int) -> list[int]
 async def set_voice_selectable_roles(
     db: Connection,
     guild_id: int,
-    selectable_roles: list[int],
+    selectable_roles: list[str],
 ) -> None:
     """Persist selectable voice role IDs for a guild."""
 
-    def _normalize(values: list[int]) -> list[int]:
-        normalized: list[int] = []
+    def _normalize(values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen = set()
         for value in values:
             try:
-                normalized.append(int(value))
+                # Validate it's numeric, keep as string to preserve precision
+                role_id = str(int(value))
+                if role_id not in seen:
+                    normalized.append(role_id)
+                    seen.add(role_id)
             except (TypeError, ValueError):
                 continue
-        return sorted(set(normalized))
+        return sorted(normalized, key=lambda x: int(x))
 
     await db.execute(
         """
@@ -239,7 +266,9 @@ async def set_voice_selectable_roles(
     await db.commit()
 
 
-async def get_organization_settings(db: Connection, guild_id: int) -> dict[str, str | None]:
+async def get_organization_settings(
+    db: Connection, guild_id: int
+) -> dict[str, str | None]:
     """Fetch organization settings for a guild."""
     query = """
         SELECT key, value

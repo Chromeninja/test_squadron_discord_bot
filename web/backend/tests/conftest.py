@@ -21,6 +21,8 @@ sys.path.insert(0, str(project_root))
 backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
 
+import contextlib
+
 from services.db.database import Database
 
 
@@ -50,17 +52,17 @@ async def temp_db():
         # Add test verification records
         await db.execute(
             """
-            INSERT INTO verification 
-            (user_id, rsi_handle, last_updated, 
+            INSERT INTO verification
+            (user_id, rsi_handle, last_updated,
              community_moniker, main_orgs, affiliate_orgs)
-            VALUES 
-                (123456789, 'TestUser1', 1234567890, 
+            VALUES
+                (123456789, 'TestUser1', 1234567890,
                  'Test Main', '["TEST"]', '[]'),
-                (987654321, 'TestUser2', 1234567891, 
+                (987654321, 'TestUser2', 1234567891,
                  'Test Affiliate', '[]', '["TEST"]'),
-                (111222333, 'TestUser3', 1234567892, 
+                (111222333, 'TestUser3', 1234567892,
                  NULL, '[]', '[]'),
-                (444555666, 'TestUser4', 1234567893, 
+                (444555666, 'TestUser4', 1234567893,
                  NULL, NULL, NULL)
             """
         )
@@ -82,10 +84,8 @@ async def temp_db():
     yield db_path
 
     # Cleanup
-    try:
+    with contextlib.suppress(Exception):
         os.unlink(db_path)
-    except Exception:
-        pass
 
 
 @pytest_asyncio.fixture
@@ -160,7 +160,9 @@ class FakeInternalAPIClient:
         self.roles_by_guild: dict[int, list[dict]] = {}
         self.guild_stats: dict[int, dict] = {}
         self.members_by_guild: dict[int, list[dict]] = {}
-        self.member_data: dict[tuple[int, int], dict] = {}  # (guild_id, user_id) -> member_data
+        self.member_data: dict[
+            tuple[int, int], dict
+        ] = {}  # (guild_id, user_id) -> member_data
 
     async def get_guilds(self) -> list[dict]:
         return self.guilds
@@ -170,13 +172,18 @@ class FakeInternalAPIClient:
 
     async def get_guild_stats(self, guild_id: int) -> dict:
         """Return guild stats or default values."""
-        return self.guild_stats.get(guild_id, {
-            "guild_id": guild_id,
-            "member_count": 100,  # Default test value
-            "approximate_member_count": None
-        })
+        return self.guild_stats.get(
+            guild_id,
+            {
+                "guild_id": guild_id,
+                "member_count": 100,  # Default test value
+                "approximate_member_count": None,
+            },
+        )
 
-    async def get_guild_members(self, guild_id: int, page: int = 1, page_size: int = 100) -> dict:
+    async def get_guild_members(
+        self, guild_id: int, page: int = 1, page_size: int = 100
+    ) -> dict:
         """Return paginated guild members."""
         members = self.members_by_guild.get(guild_id, [])
         start_idx = (page - 1) * page_size
@@ -187,7 +194,7 @@ class FakeInternalAPIClient:
             "members": page_members,
             "page": page,
             "page_size": page_size,
-            "total": len(members)
+            "total": len(members),
         }
 
     async def get_guild_member(self, guild_id: int, user_id: int) -> dict:
@@ -205,7 +212,7 @@ class FakeInternalAPIClient:
             "avatar_url": None,
             "joined_at": "2024-01-01T00:00:00",
             "created_at": "2023-01-01T00:00:00",
-            "roles": []
+            "roles": [],
         }
 
 

@@ -71,8 +71,7 @@ class RSIClient:
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=15)
             self._session = aiohttp.ClientSession(
-                timeout=timeout,
-                raise_for_status=False
+                timeout=timeout, raise_for_status=False
             )
         return self._session
 
@@ -98,8 +97,7 @@ class RSIClient:
         session = await self._get_session()
         try:
             async with session.get(
-                url,
-                headers={"User-Agent": self.user_agent}
+                url, headers={"User-Agent": self.user_agent}
             ) as resp:
                 status = resp.status
                 if status == HTTP_OK:
@@ -121,8 +119,7 @@ class RSIClient:
 
 
 async def validate_organization_sid(
-    sid: str,
-    rsi_client: RSIClient
+    sid: str, rsi_client: RSIClient
 ) -> tuple[bool, str | None, str | None]:
     """
     Validate an organization SID by fetching its page from RSI.
@@ -144,12 +141,8 @@ async def validate_organization_sid(
         return False, None, "Organization SID cannot be empty"
 
     # Basic validation - SID should be alphanumeric and reasonable length
-    if not re.match(r'^[A-Z0-9]{1,20}$', sid):
-        return (
-            False,
-            None,
-            "Organization SID must be alphanumeric (1-20 characters)"
-        )
+    if not re.match(r"^[A-Z0-9]{1,20}$", sid):
+        return (False, None, "Organization SID must be alphanumeric (1-20 characters)")
 
     # Construct org page URL
     url = f"https://robertsspaceindustries.com/en/orgs/{sid}"
@@ -163,8 +156,7 @@ async def validate_organization_sid(
         return (
             False,
             None,
-            f"Organization '{sid}' not found on RSI. "
-            "Please verify the SID is correct."
+            f"Organization '{sid}' not found on RSI. Please verify the SID is correct.",
         )
 
     if status == HTTP_FORBIDDEN:
@@ -172,7 +164,7 @@ async def validate_organization_sid(
             False,
             None,
             "Access forbidden by RSI. This may be due to rate limiting "
-            "or bot detection. Please try again in a few minutes."
+            "or bot detection. Please try again in a few minutes.",
         )
 
     if status != HTTP_OK or html is None:
@@ -180,7 +172,7 @@ async def validate_organization_sid(
             False,
             None,
             f"Failed to fetch organization page from RSI (HTTP {status}). "
-            "Please try again later."
+            "Please try again later.",
         )
 
     # Parse the HTML to extract org name
@@ -188,8 +180,7 @@ async def validate_organization_sid(
 
 
 def _parse_org_name_from_html(
-    html: str,
-    sid: str
+    html: str, sid: str
 ) -> tuple[bool, str | None, str | None]:
     """
     Parse organization name from RSI org page HTML.
@@ -202,27 +193,25 @@ def _parse_org_name_from_html(
         Tuple of (is_valid, org_name, error_message)
     """
     try:
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, "html.parser")
 
         # Look for the org name in
         # <h1>Org Name / <span class="symbol">SID</span></h1>
-        h1_tag = soup.find('h1')
+        h1_tag = soup.find("h1")
         if not h1_tag:
             logger.warning(f"Could not find <h1> tag in org page for {sid}")
             return (
                 False,
                 None,
                 "Failed to parse organization page. "
-                "The page structure may have changed."
+                "The page structure may have changed.",
             )
 
         # Extract org name using different strategies
         org_name = _extract_org_name(h1_tag)
 
         if not org_name:
-            logger.warning(
-                f"Could not extract organization name from h1 for {sid}"
-            )
+            logger.warning(f"Could not extract organization name from h1 for {sid}")
             return False, None, "Failed to extract organization name from page."
 
         logger.info(f"Successfully validated organization: {org_name} ({sid})")
@@ -244,15 +233,15 @@ def _extract_org_name(h1_tag: "Tag") -> str:
         Extracted organization name or empty string if not found
     """
     # Extract text from h1, excluding the symbol span
-    h1_text = h1_tag.get_text(separator=' ', strip=True)
+    h1_text = h1_tag.get_text(separator=" ", strip=True)
 
     # The format is typically: "Org Name / SID"
     # We need to extract just the org name part
-    if ' / ' in h1_text:
-        return h1_text.split(' / ')[0].strip()
+    if " / " in h1_text:
+        return h1_text.split(" / ")[0].strip()
 
     # Fallback: try to find the symbol span and get text before it
-    symbol_span = h1_tag.find('span', class_='symbol')
+    symbol_span = h1_tag.find("span", class_="symbol")
     if symbol_span:
         # Get all text nodes before the span
         org_name_parts = []
@@ -261,6 +250,6 @@ def _extract_org_name(h1_tag: "Tag") -> str:
                 break
             if isinstance(content, str):
                 org_name_parts.append(content)
-        return ''.join(org_name_parts).strip().rstrip('/')
+        return "".join(org_name_parts).strip().rstrip("/")
 
     return h1_text.strip()

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
-from utils.logging import get_logger
 from services.db.database import Database
+from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from services.service_container import ServiceContainer
@@ -66,8 +66,12 @@ class InternalAPIServer:
         self.app.router.add_get("/guilds/{guild_id}/channels", self.get_guild_channels)
         self.app.router.add_get("/guilds/{guild_id}/stats", self.get_guild_stats)
         self.app.router.add_get("/guilds/{guild_id}/members", self.get_guild_members)
-        self.app.router.add_get("/guilds/{guild_id}/members/{user_id}", self.get_guild_member)
-        self.app.router.add_post("/guilds/{guild_id}/members/{user_id}/recheck", self.recheck_user)
+        self.app.router.add_get(
+            "/guilds/{guild_id}/members/{user_id}", self.get_guild_member
+        )
+        self.app.router.add_post(
+            "/guilds/{guild_id}/members/{user_id}/recheck", self.recheck_user
+        )
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -78,7 +82,9 @@ class InternalAPIServer:
             await self.runner.setup()
             self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
-            logger.info(f"Internal API server started on http://{self.host}:{self.port}")
+            logger.info(
+                f"Internal API server started on http://{self.host}:{self.port}"
+            )
         except Exception as e:
             logger.exception("Failed to start internal API server", exc_info=e)
             raise
@@ -126,10 +132,7 @@ class InternalAPIServer:
         """
         # Check authentication
         if not self._check_auth(request):
-            return web.json_response(
-                {"error": "Unauthorized"},
-                status=401
-            )
+            return web.json_response({"error": "Unauthorized"}, status=401)
 
         try:
             # Get bot instance from services
@@ -138,8 +141,7 @@ class InternalAPIServer:
             # Run health checks
             health_service = self.services.health
             health_data = await health_service.run_health_checks(
-                bot,
-                self.services.get_all_services()
+                bot, self.services.get_all_services()
             )
 
             # Transform to compact format for dashboard
@@ -153,17 +155,14 @@ class InternalAPIServer:
                 "system": {
                     "cpu_percent": round(health_data["system"]["cpu_percent"], 1),
                     "memory_percent": round(health_data["system"]["memory_percent"], 1),
-                }
+                },
             }
 
             return web.json_response(report)
 
         except Exception as e:
             logger.exception("Error generating health report", exc_info=e)
-            return web.json_response(
-                {"error": "Internal server error"},
-                status=500
-            )
+            return web.json_response({"error": "Internal server error"}, status=500)
 
     async def errors_last(self, request: web.Request) -> web.Response:
         """
@@ -179,10 +178,7 @@ class InternalAPIServer:
         """
         # Check authentication
         if not self._check_auth(request):
-            return web.json_response(
-                {"error": "Unauthorized"},
-                status=401
-            )
+            return web.json_response({"error": "Unauthorized"}, status=401)
 
         try:
             import json
@@ -201,7 +197,7 @@ class InternalAPIServer:
             error_files = sorted(
                 errors_dir.glob("errors_*.jsonl"),
                 key=lambda f: f.stat().st_mtime,
-                reverse=True
+                reverse=True,
             )
 
             errors = []
@@ -234,10 +230,7 @@ class InternalAPIServer:
 
         except Exception as e:
             logger.exception("Error reading error logs", exc_info=e)
-            return web.json_response(
-                {"error": "Internal server error"},
-                status=500
-            )
+            return web.json_response({"error": "Internal server error"}, status=500)
 
     async def logs_export(self, request: web.Request) -> web.Response:
         """
@@ -253,59 +246,52 @@ class InternalAPIServer:
         """
         # Check authentication
         if not self._check_auth(request):
-            return web.json_response(
-                {"error": "Unauthorized"},
-                status=401
-            )
+            return web.json_response({"error": "Unauthorized"}, status=401)
 
         try:
             from pathlib import Path
 
             # Parse max_bytes with safe default
-            max_bytes = min(int(request.query.get("max_bytes", "1048576")), 5 * 1024 * 1024)  # Cap at 5MB
+            max_bytes = min(
+                int(request.query.get("max_bytes", "1048576")), 5 * 1024 * 1024
+            )  # Cap at 5MB
 
             # Get current log file
             log_file = Path(__file__).parent.parent / "logs" / "bot.log"
 
             if not log_file.exists():
-                return web.json_response(
-                    {"error": "Log file not found"},
-                    status=404
-                )
+                return web.json_response({"error": "Log file not found"}, status=404)
 
             # Read tail of file efficiently
             file_size = log_file.stat().st_size
 
             if file_size <= max_bytes:
                 # File is smaller than limit, read entire file
-                with open(log_file, 'rb') as f:
+                with open(log_file, "rb") as f:
                     content = f.read()
             else:
                 # Read last N bytes
-                with open(log_file, 'rb') as f:
+                with open(log_file, "rb") as f:
                     f.seek(-max_bytes, 2)  # Seek to N bytes before end
                     content = f.read()
 
                     # Try to start at a newline to avoid partial line
-                    first_newline = content.find(b'\n')
+                    first_newline = content.find(b"\n")
                     if first_newline != -1 and first_newline < 1000:
-                        content = content[first_newline + 1:]
+                        content = content[first_newline + 1 :]
 
             # Return as downloadable file
             return web.Response(
                 body=content,
                 headers={
-                    'Content-Type': 'text/plain',
-                    'Content-Disposition': 'attachment; filename="bot.log.tail.txt"'
-                }
+                    "Content-Type": "text/plain",
+                    "Content-Disposition": 'attachment; filename="bot.log.tail.txt"',
+                },
             )
 
         except Exception as e:
             logger.exception("Error exporting logs", exc_info=e)
-            return web.json_response(
-                {"error": "Internal server error"},
-                status=500
-            )
+            return web.json_response({"error": "Internal server error"}, status=500)
 
     async def get_voice_members(self, request: web.Request) -> web.Response:
         """
@@ -320,10 +306,7 @@ class InternalAPIServer:
         """
         # Check authentication
         if not self._check_auth(request):
-            return web.json_response(
-                {"error": "Unauthorized"},
-                status=401
-            )
+            return web.json_response({"error": "Unauthorized"}, status=401)
 
         try:
             channel_id = int(request.match_info["channel_id"])
@@ -331,22 +314,19 @@ class InternalAPIServer:
             # Get members from voice service cache
             member_ids = self.services.voice.get_voice_channel_members(channel_id)
 
-            return web.json_response({
-                "channel_id": channel_id,
-                "member_ids": member_ids
-            })
+            return web.json_response(
+                {"channel_id": channel_id, "member_ids": member_ids}
+            )
 
         except ValueError:
             return web.json_response(
-                {"error": "Invalid channel_id - must be integer"},
-                status=400
+                {"error": "Invalid channel_id - must be integer"}, status=400
             )
         except Exception as e:
-            logger.exception(f"Error getting voice members for channel {channel_id}", exc_info=e)
-            return web.json_response(
-                {"error": "Internal server error"},
-                status=500
+            logger.exception(
+                f"Error getting voice members for channel {channel_id}", exc_info=e
             )
+            return web.json_response({"error": "Internal server error"}, status=500)
 
     async def get_guilds(self, request: web.Request) -> web.Response:
         """Return guilds where the bot is currently installed."""
@@ -424,7 +404,9 @@ class InternalAPIServer:
         channels_payload = []
         for channel in guild.text_channels:
             # Get category name if channel is in a category
-            category_name = channel.category.name if channel.category else "Uncategorized"
+            category_name = (
+                channel.category.name if channel.category else "Uncategorized"
+            )
 
             channels_payload.append(
                 {
@@ -475,13 +457,15 @@ class InternalAPIServer:
         member_count = guild.member_count or 0
 
         # Also include approximate_member_count if available (from guild object)
-        approximate_member_count = getattr(guild, 'approximate_member_count', None)
+        approximate_member_count = getattr(guild, "approximate_member_count", None)
 
-        return web.json_response({
-            "guild_id": guild.id,
-            "member_count": member_count,
-            "approximate_member_count": approximate_member_count
-        })
+        return web.json_response(
+            {
+                "guild_id": guild.id,
+                "member_count": member_count,
+                "approximate_member_count": approximate_member_count,
+            }
+        )
 
     async def get_guild_members(self, request: web.Request) -> web.Response:
         """
@@ -532,7 +516,9 @@ class InternalAPIServer:
             page = max(1, page)
             page_size = max(1, page_size)
         except ValueError:
-            return web.json_response({"error": "Invalid pagination parameters"}, status=400)
+            return web.json_response(
+                {"error": "Invalid pagination parameters"}, status=400
+            )
 
         # Get all members (from cache)
         all_members = list(guild.members)
@@ -556,29 +542,39 @@ class InternalAPIServer:
             for role in member.roles:
                 if role.is_default():
                     continue
-                roles_data.append({
-                    "id": role.id,
-                    "name": role.name,
-                    "color": role.color.value if role.color else None
-                })
+                roles_data.append(
+                    {
+                        "id": role.id,
+                        "name": role.name,
+                        "color": role.color.value if role.color else None,
+                    }
+                )
 
-            members_data.append({
-                "user_id": member.id,
-                "username": member.name,
-                "discriminator": member.discriminator,
-                "global_name": member.global_name,
-                "avatar_url": avatar_url,
-                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
-                "created_at": member.created_at.isoformat() if member.created_at else None,
-                "roles": roles_data
-            })
+            members_data.append(
+                {
+                    "user_id": member.id,
+                    "username": member.name,
+                    "discriminator": member.discriminator,
+                    "global_name": member.global_name,
+                    "avatar_url": avatar_url,
+                    "joined_at": member.joined_at.isoformat()
+                    if member.joined_at
+                    else None,
+                    "created_at": member.created_at.isoformat()
+                    if member.created_at
+                    else None,
+                    "roles": roles_data,
+                }
+            )
 
-        return web.json_response({
-            "members": members_data,
-            "page": page,
-            "page_size": page_size,
-            "total": total
-        })
+        return web.json_response(
+            {
+                "members": members_data,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+            }
+        )
 
     async def get_guild_member(self, request: web.Request) -> web.Response:
         """
@@ -621,7 +617,9 @@ class InternalAPIServer:
             try:
                 member = await guild.fetch_member(user_id)
             except Exception as e:
-                logger.warning(f"Could not fetch member {user_id} from guild {guild_id}: {e}")
+                logger.warning(
+                    f"Could not fetch member {user_id} from guild {guild_id}: {e}"
+                )
                 return web.json_response({"error": "Member not found"}, status=404)
 
         try:
@@ -634,22 +632,28 @@ class InternalAPIServer:
         for role in member.roles:
             if role.is_default():
                 continue
-            roles_data.append({
-                "id": role.id,
-                "name": role.name,
-                "color": role.color.value if role.color else None
-            })
+            roles_data.append(
+                {
+                    "id": role.id,
+                    "name": role.name,
+                    "color": role.color.value if role.color else None,
+                }
+            )
 
-        return web.json_response({
-            "user_id": member.id,
-            "username": member.name,
-            "discriminator": member.discriminator,
-            "global_name": member.global_name,
-            "avatar_url": avatar_url,
-            "joined_at": member.joined_at.isoformat() if member.joined_at else None,
-            "created_at": member.created_at.isoformat() if member.created_at else None,
-            "roles": roles_data
-        })
+        return web.json_response(
+            {
+                "user_id": member.id,
+                "username": member.name,
+                "discriminator": member.discriminator,
+                "global_name": member.global_name,
+                "avatar_url": avatar_url,
+                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+                "created_at": member.created_at.isoformat()
+                if member.created_at
+                else None,
+                "roles": roles_data,
+            }
+        )
 
     async def recheck_user(self, request: web.Request) -> web.Response:
         """
@@ -706,23 +710,23 @@ class InternalAPIServer:
         try:
             async with Database.get_connection() as conn:
                 cursor = await conn.execute(
-                    "SELECT rsi_handle FROM verification WHERE user_id = ?",
-                    (user_id,)
+                    "SELECT rsi_handle FROM verification WHERE user_id = ?", (user_id,)
                 )
                 row = await cursor.fetchone()
 
                 if not row or not row[0]:
-                    return web.json_response({
-                        "error": "User has no RSI handle on record. They need to verify first."
-                    }, status=400)
+                    return web.json_response(
+                        {
+                            "error": "User has no RSI handle on record. They need to verify first."
+                        },
+                        status=400,
+                    )
 
                 rsi_handle = row[0]
 
         except Exception as e:
             logger.exception(f"Error fetching RSI handle for user {user_id}: {e}")
-            return web.json_response({
-                "error": f"Database error: {str(e)}"
-            }, status=500)
+            return web.json_response({"error": f"Database error: {e!s}"}, status=500)
 
         # Use unified recheck service
         try:
@@ -741,36 +745,34 @@ class InternalAPIServer:
 
             # Handle rate limiting (shouldn't happen with enforce_rate_limit=False)
             if result["rate_limited"]:
-                return web.json_response({
-                    "error": "Rate limited",
-                    "wait_until": result["wait_until"]
-                }, status=429)
+                return web.json_response(
+                    {"error": "Rate limited", "wait_until": result["wait_until"]},
+                    status=429,
+                )
 
             # Handle remediation (404)
             if result["remediated"]:
-                return web.json_response({
-                    "error": result["error"],
-                    "remediated": True
-                }, status=404)
+                return web.json_response(
+                    {"error": result["error"], "remediated": True}, status=404
+                )
 
             # Handle other errors
             if not result["success"]:
-                return web.json_response({
-                    "error": result["error"]
-                }, status=500)
+                return web.json_response({"error": result["error"]}, status=500)
 
             # Success!
-            return web.json_response({
-                "success": True,
-                "message": "User rechecked successfully",
-                "status": result["status"],
-                "diff": result["diff"],
-                "roles_updated": True
-            })
+            return web.json_response(
+                {
+                    "success": True,
+                    "message": "User rechecked successfully",
+                    "status": result["status"],
+                    "diff": result["diff"],
+                    "roles_updated": True,
+                }
+            )
 
         except Exception as e:
-            logger.exception(f"Error rechecking user {user_id} in guild {guild_id}: {e}")
-            return web.json_response({
-                "error": f"Recheck failed: {str(e)}"
-            }, status=500)
-
+            logger.exception(
+                f"Error rechecking user {user_id} in guild {guild_id}: {e}"
+            )
+            return web.json_response({"error": f"Recheck failed: {e!s}"}, status=500)

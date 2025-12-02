@@ -14,9 +14,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from services.config_service import ConfigService  # noqa: E402
-from services.db.database import Database  # noqa: E402
-from services.voice_service import VoiceService  # noqa: E402
+from services.config_service import ConfigService
+from services.db.database import Database
+from services.voice_service import VoiceService
 
 
 # Ensure pytest-asyncio uses a dedicated loop
@@ -154,9 +154,10 @@ def mock_db_connection():
     helper = MockDBHelper()
 
     # Patch both possible import paths to ensure compatibility
-    with patch("services.voice_service.Database.get_connection") as mock_db1, \
-         patch("services.db.database.Database.get_connection") as mock_db2:
-
+    with (
+        patch("services.voice_service.Database.get_connection") as mock_db1,
+        patch("services.db.database.Database.get_connection") as mock_db2,
+    ):
         mock_db1.return_value.__aenter__.return_value = helper.mock_conn
         mock_db2.return_value.__aenter__.return_value = helper.mock_conn
         yield helper

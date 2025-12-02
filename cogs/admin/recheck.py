@@ -52,7 +52,11 @@ class AutoRecheck(commands.Cog):
         await self.bot.wait_until_ready()
 
         # Check if manual bulk check is running - defer if so
-        if hasattr(self.bot, 'services') and hasattr(self.bot.services, 'verify_bulk') and self.bot.services.verify_bulk.is_running():
+        if (
+            hasattr(self.bot, "services")
+            and hasattr(self.bot.services, "verify_bulk")
+            and self.bot.services.verify_bulk.is_running()
+        ):
             logger.info("Auto-recheck deferred: manual bulk check is running")
             return
 
@@ -143,12 +147,16 @@ class AutoRecheck(commands.Cog):
             # Get organization config from guild
             org_name = "test"  # Default fallback
             org_sid = None
-            if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
+            if hasattr(self.bot, "services") and hasattr(
+                self.bot.services, "guild_config"
+            ):
                 try:
                     org_name_config = await self.bot.services.guild_config.get_setting(
                         member.guild.id, "organization.name", default="test"
                     )
-                    org_name = org_name_config.strip().lower() if org_name_config else "test"
+                    org_name = (
+                        org_name_config.strip().lower() if org_name_config else "test"
+                    )
 
                     org_sid_config = await self.bot.services.guild_config.get_setting(
                         member.guild.id, "organization.sid", default=None
@@ -157,10 +165,16 @@ class AutoRecheck(commands.Cog):
                 except Exception as e:
                     logger.warning(
                         f"Failed to get org config: {e}",
-                        extra={"guild_id": member.guild.id}
+                        extra={"guild_id": member.guild.id},
                     )
 
-            verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
+            (
+                verify_value,
+                cased_handle,
+                community_moniker,
+                main_orgs,
+                affiliate_orgs,
+            ) = await is_valid_rsi_handle(
                 rsi_handle, self.bot.http_client, org_name, org_sid
             )
             if verify_value is None or cased_handle is None:  # moniker optional

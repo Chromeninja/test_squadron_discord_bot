@@ -33,12 +33,13 @@ async def test_put_bot_role_settings_persists_values(
     client: AsyncClient, mock_admin_session: str
 ):
     """PUT should normalize and persist role IDs for all categories."""
+    # Use strings to preserve 64-bit Discord snowflake precision
     payload = {
-        "bot_admins": [5, 5, 2],
-        "lead_moderators": [8],
-        "main_role": [10],
-        "affiliate_role": [11, 12],
-        "nonmember_role": [13],
+        "bot_admins": ["5", "5", "2"],
+        "lead_moderators": ["8"],
+        "main_role": ["10"],
+        "affiliate_role": ["11", "12"],
+        "nonmember_role": ["13"],
     }
 
     response = await client.put(
@@ -49,11 +50,12 @@ async def test_put_bot_role_settings_persists_values(
     assert response.status_code == 200
 
     data = response.json()
-    assert data["bot_admins"] == [2, 5]
-    assert data["lead_moderators"] == [8]
-    assert data["main_role"] == [10]
-    assert data["affiliate_role"] == [11, 12]
-    assert data["nonmember_role"] == [13]
+    # Response should be sorted string role IDs
+    assert data["bot_admins"] == ["2", "5"]
+    assert data["lead_moderators"] == ["8"]
+    assert data["main_role"] == ["10"]
+    assert data["affiliate_role"] == ["11", "12"]
+    assert data["nonmember_role"] == ["13"]
 
     # Subsequent GET should match persisted data
     follow_up = await client.get(
@@ -83,7 +85,8 @@ async def test_get_voice_selectable_roles_defaults(
 async def test_put_voice_selectable_roles_persists_values(
     client: AsyncClient, mock_admin_session: str
 ):
-    payload = {"selectable_roles": [9, 2, 9, 5]}
+    # Use strings to preserve 64-bit Discord snowflake precision
+    payload = {"selectable_roles": ["9", "2", "9", "5"]}
 
     response = await client.put(
         "/api/guilds/123/settings/voice/selectable-roles",
@@ -93,7 +96,8 @@ async def test_put_voice_selectable_roles_persists_values(
     assert response.status_code == 200
 
     data = response.json()
-    assert data["selectable_roles"] == [2, 5, 9]
+    # Response should be sorted, deduplicated string role IDs
+    assert data["selectable_roles"] == ["2", "5", "9"]
 
     follow_up = await client.get(
         "/api/guilds/123/settings/voice/selectable-roles",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from core.dependencies import (
@@ -59,7 +60,8 @@ from core.schemas import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from config.config_loader import ConfigLoader
+if TYPE_CHECKING:
+    from config.config_loader import ConfigLoader
 
 router = APIRouter(prefix="/api/guilds", tags=["guilds"])
 
@@ -81,15 +83,17 @@ def _safe_int(value) -> int | None:
 
 
 def _coerce_role(role_data: dict) -> DiscordRole | None:
-    role_id = _safe_int(role_data.get("id"))
+    role_id = role_data.get("id")
     if role_id is None:
         return None
 
+    # Convert to string to preserve 64-bit Discord snowflake precision
+    role_id_str = str(role_id)
     name = role_data.get("name") or "Unnamed Role"
     color_value = role_data.get("color")
     color = _safe_int(color_value) if color_value is not None else None
 
-    return DiscordRole(id=role_id, name=name, color=color)
+    return DiscordRole(id=role_id_str, name=name, color=color)
 
 
 def _coerce_member(member_data: dict) -> GuildMember | None:
@@ -338,6 +342,7 @@ async def get_guild_member_detail(
 
 # Organization Settings Endpoints
 
+
 # Load RSI config
 def _load_rsi_config() -> dict:
     """Load RSI configuration from config.yaml."""
@@ -363,21 +368,14 @@ def _get_rsi_client():
 
         rsi_config = _load_rsi_config()
         requests_per_minute = rsi_config.get("requests_per_minute", 30)
-        user_agent = rsi_config.get(
-            "user_agent",
-            "TEST-Squadron-Verification-Bot/1.0"
-        )
+        user_agent = rsi_config.get("user_agent", "TEST-Squadron-Verification-Bot/1.0")
         _rsi_client = RSIClient(
-            requests_per_minute=requests_per_minute,
-            user_agent=user_agent
+            requests_per_minute=requests_per_minute, user_agent=user_agent
         )
     return _rsi_client
 
 
-@router.get(
-    "/{guild_id}/settings/organization",
-    response_model=OrganizationSettings
-)
+@router.get("/{guild_id}/settings/organization", response_model=OrganizationSettings)
 async def get_organization_settings_endpoint(
     guild_id: int,
     db=Depends(get_db),
@@ -389,10 +387,7 @@ async def get_organization_settings_endpoint(
     return OrganizationSettings(**settings)
 
 
-@router.put(
-    "/{guild_id}/settings/organization",
-    response_model=OrganizationSettings
-)
+@router.put("/{guild_id}/settings/organization", response_model=OrganizationSettings)
 async def update_organization_settings_endpoint(
     guild_id: int,
     payload: OrganizationSettings,
@@ -413,7 +408,7 @@ async def update_organization_settings_endpoint(
 
 @router.post(
     "/{guild_id}/organization/validate-sid",
-    response_model=OrganizationValidationResponse
+    response_model=OrganizationValidationResponse,
 )
 async def validate_organization_sid_endpoint(
     guild_id: int,
@@ -428,8 +423,7 @@ async def validate_organization_sid_endpoint(
     rsi_client = _get_rsi_client()
 
     is_valid, org_name, error_msg = await validate_organization_sid(
-        payload.sid,
-        rsi_client
+        payload.sid, rsi_client
     )
 
     return OrganizationValidationResponse(
@@ -437,7 +431,7 @@ async def validate_organization_sid_endpoint(
         is_valid=is_valid,
         sid=payload.sid.strip().upper(),
         name=org_name,
-        error=error_msg
+        error=error_msg,
     )
 
 
@@ -519,7 +513,9 @@ async def get_guild_config(
     return GuildConfigResponse(data=data)
 
 
-async def _audit_change(db, guild_id: int, key: str, old_value, new_value, actor_user_id: int | None):
+async def _audit_change(
+    db, guild_id: int, key: str, old_value, new_value, actor_user_id: int | None
+):
     """Insert an audit record for a changed key."""
     await db.execute(
         """
@@ -567,15 +563,50 @@ async def patch_guild_config(
 
         # Audit each role list if changed
         if current_roles.get("bot_admins") != payload.roles.bot_admins:
-            await _audit_change(db, guild_id, BOT_ADMINS_KEY, current_roles.get("bot_admins"), payload.roles.bot_admins, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                BOT_ADMINS_KEY,
+                current_roles.get("bot_admins"),
+                payload.roles.bot_admins,
+                current_user.user_id,
+            )
         if current_roles.get("lead_moderators") != payload.roles.lead_moderators:
-            await _audit_change(db, guild_id, LEAD_MODS_KEY, current_roles.get("lead_moderators"), payload.roles.lead_moderators, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                LEAD_MODS_KEY,
+                current_roles.get("lead_moderators"),
+                payload.roles.lead_moderators,
+                current_user.user_id,
+            )
         if current_roles.get("main_role") != payload.roles.main_role:
-            await _audit_change(db, guild_id, MAIN_ROLE_KEY, current_roles.get("main_role"), payload.roles.main_role, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                MAIN_ROLE_KEY,
+                current_roles.get("main_role"),
+                payload.roles.main_role,
+                current_user.user_id,
+            )
         if current_roles.get("affiliate_role") != payload.roles.affiliate_role:
-            await _audit_change(db, guild_id, AFFILIATE_ROLE_KEY, current_roles.get("affiliate_role"), payload.roles.affiliate_role, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                AFFILIATE_ROLE_KEY,
+                current_roles.get("affiliate_role"),
+                payload.roles.affiliate_role,
+                current_user.user_id,
+            )
         if current_roles.get("nonmember_role") != payload.roles.nonmember_role:
-            await _audit_change(db, guild_id, NONMEMBER_ROLE_KEY, current_roles.get("nonmember_role"), payload.roles.nonmember_role, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                NONMEMBER_ROLE_KEY,
+                current_roles.get("nonmember_role"),
+                payload.roles.nonmember_role,
+                current_user.user_id,
+            )
 
     if payload.channels is not None:
         await set_bot_channel_settings(
@@ -587,19 +618,66 @@ async def patch_guild_config(
             payload.channels.leadership_announcement_channel_id,
         )
 
-        if current_channels.get("verification_channel_id") != payload.channels.verification_channel_id:
-            await _audit_change(db, guild_id, VERIFICATION_CHANNEL_KEY, current_channels.get("verification_channel_id"), payload.channels.verification_channel_id, current_user.user_id)
-        if current_channels.get("bot_spam_channel_id") != payload.channels.bot_spam_channel_id:
-            await _audit_change(db, guild_id, BOT_SPAM_CHANNEL_KEY, current_channels.get("bot_spam_channel_id"), payload.channels.bot_spam_channel_id, current_user.user_id)
-        if current_channels.get("public_announcement_channel_id") != payload.channels.public_announcement_channel_id:
-            await _audit_change(db, guild_id, PUBLIC_ANNOUNCEMENT_CHANNEL_KEY, current_channels.get("public_announcement_channel_id"), payload.channels.public_announcement_channel_id, current_user.user_id)
-        if current_channels.get("leadership_announcement_channel_id") != payload.channels.leadership_announcement_channel_id:
-            await _audit_change(db, guild_id, LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY, current_channels.get("leadership_announcement_channel_id"), payload.channels.leadership_announcement_channel_id, current_user.user_id)
+        if (
+            current_channels.get("verification_channel_id")
+            != payload.channels.verification_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                VERIFICATION_CHANNEL_KEY,
+                current_channels.get("verification_channel_id"),
+                payload.channels.verification_channel_id,
+                current_user.user_id,
+            )
+        if (
+            current_channels.get("bot_spam_channel_id")
+            != payload.channels.bot_spam_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                BOT_SPAM_CHANNEL_KEY,
+                current_channels.get("bot_spam_channel_id"),
+                payload.channels.bot_spam_channel_id,
+                current_user.user_id,
+            )
+        if (
+            current_channels.get("public_announcement_channel_id")
+            != payload.channels.public_announcement_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
+                current_channels.get("public_announcement_channel_id"),
+                payload.channels.public_announcement_channel_id,
+                current_user.user_id,
+            )
+        if (
+            current_channels.get("leadership_announcement_channel_id")
+            != payload.channels.leadership_announcement_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
+                current_channels.get("leadership_announcement_channel_id"),
+                payload.channels.leadership_announcement_channel_id,
+                current_user.user_id,
+            )
 
     if payload.voice is not None:
         await set_voice_selectable_roles(db, guild_id, payload.voice.selectable_roles)
         if current_voice != payload.voice.selectable_roles:
-            await _audit_change(db, guild_id, SELECTABLE_ROLES_KEY, current_voice, payload.voice.selectable_roles, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                SELECTABLE_ROLES_KEY,
+                current_voice,
+                payload.voice.selectable_roles,
+                current_user.user_id,
+            )
 
     if payload.organization is not None:
         await set_organization_settings(
@@ -610,12 +688,31 @@ async def patch_guild_config(
         )
 
         if current_org.get("organization_sid") != payload.organization.organization_sid:
-            await _audit_change(db, guild_id, ORGANIZATION_SID_KEY, current_org.get("organization_sid"), payload.organization.organization_sid, current_user.user_id)
-        if current_org.get("organization_name") != payload.organization.organization_name:
-            await _audit_change(db, guild_id, ORGANIZATION_NAME_KEY, current_org.get("organization_name"), payload.organization.organization_name, current_user.user_id)
+            await _audit_change(
+                db,
+                guild_id,
+                ORGANIZATION_SID_KEY,
+                current_org.get("organization_sid"),
+                payload.organization.organization_sid,
+                current_user.user_id,
+            )
+        if (
+            current_org.get("organization_name")
+            != payload.organization.organization_name
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                ORGANIZATION_NAME_KEY,
+                current_org.get("organization_name"),
+                payload.organization.organization_name,
+                current_user.user_id,
+            )
 
     # Commit any pending audit inserts
     await db.commit()
 
     # Return updated merged view
-    return await get_guild_config(guild_id, db=db, current_user=current_user, config_loader=config_loader)
+    return await get_guild_config(
+        guild_id, db=db, current_user=current_user, config_loader=config_loader
+    )

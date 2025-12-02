@@ -226,7 +226,11 @@ class MyBot(commands.Bot):
             logger.warning("Bot is not in any guild. Skipping role cache.")
             return
 
-        if not hasattr(self, "services") or not self.services or not self.services.config:
+        if (
+            not hasattr(self, "services")
+            or not self.services
+            or not self.services.config
+        ):
             logger.warning("Services not initialized yet. Skipping role cache.")
             return
 
@@ -260,10 +264,15 @@ class MyBot(commands.Bot):
                     else:
                         # Only warn once per guild
                         try:
-                            reported = await Database.has_reported_missing_roles(guild.id)
+                            reported = await Database.has_reported_missing_roles(
+                                guild.id
+                            )
                         except Exception:
                             reported = False
-                        if not reported and guild.id not in self._missing_role_warned_guilds:
+                        if (
+                            not reported
+                            and guild.id not in self._missing_role_warned_guilds
+                        ):
                             logger.warning(
                                 f"Role with ID {role_id} not found in guild '{guild.name}'."
                             )
@@ -281,9 +290,7 @@ class MyBot(commands.Bot):
                                 "(already reported)."
                             )
             except Exception as e:
-                logger.warning(
-                    f"Failed to cache roles for guild '{guild.name}': {e}"
-                )
+                logger.warning(f"Failed to cache roles for guild '{guild.name}': {e}")
 
     async def token_cleanup_task(self) -> None:
         """
@@ -337,6 +344,7 @@ class MyBot(commands.Bot):
 
         # Use the privileged user check which includes all fallbacks
         from helpers.permissions_helper import is_privileged_user
+
         return await is_privileged_user(self, user)
 
     async def get_guild_config(self, guild_id: int) -> dict:
@@ -381,7 +389,7 @@ class MyBot(commands.Bot):
         logger.info("Shutting down the bot and closing HTTP client session.")
 
         # Stop internal API server if running
-        if hasattr(self, 'internal_api') and self.internal_api:
+        if hasattr(self, "internal_api") and self.internal_api:
             try:
                 await self.internal_api.stop()
                 logger.info("Internal API server stopped")
@@ -389,7 +397,7 @@ class MyBot(commands.Bot):
                 logger.exception("Error stopping internal API server", exc_info=e)
 
         # Cleanup services
-        if hasattr(self, 'services') and self.services:
+        if hasattr(self, "services") and self.services:
             try:
                 await self.services.cleanup()
                 logger.info("Services cleaned up")

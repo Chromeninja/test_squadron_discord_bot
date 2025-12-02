@@ -90,7 +90,9 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             await db.execute("ALTER TABLE _verification_new RENAME TO verification")
             await db.execute("PRAGMA foreign_keys=ON")
     except Exception as e:
-        logger.warning(f"Schema migration to drop verification.membership_status failed: {e}")
+        logger.warning(
+            f"Schema migration to drop verification.membership_status failed: {e}"
+        )
 
     # Guild settings
     await db.execute(
@@ -366,12 +368,16 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         cur = await db.execute("PRAGMA table_info(announcement_events)")
         cols = [row[1] for row in await cur.fetchall()]
         if "guild_id" not in cols:
-            await db.execute("ALTER TABLE announcement_events ADD COLUMN guild_id INTEGER")
+            await db.execute(
+                "ALTER TABLE announcement_events ADD COLUMN guild_id INTEGER"
+            )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_announcement_events_guild_id ON announcement_events(guild_id)"
             )
     except Exception as e:
-        logger.warning(f"Schema check/migration for announcement_events.guild_id failed: {e}")
+        logger.warning(
+            f"Schema check/migration for announcement_events.guild_id failed: {e}"
+        )
 
     # Admin action audit log
     await db.execute(

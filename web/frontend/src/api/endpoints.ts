@@ -22,7 +22,7 @@ export interface GuildSummary {
 }
 
 export interface GuildRole {
-  id: number;
+  id: string;  // Changed from number to string to preserve 64-bit Discord snowflake precision
   name: string;
   color: number | null;
 }
@@ -41,11 +41,11 @@ export interface DiscordChannel {
 }
 
 export interface BotRoleSettingsPayload {
-  bot_admins: number[];
-  lead_moderators: number[];
-  main_role: number[];
-  affiliate_role: number[];
-  nonmember_role: number[];
+  bot_admins: string[];  // Changed to string[] to preserve Discord snowflake precision
+  lead_moderators: string[];  // Changed to string[] to preserve Discord snowflake precision
+  main_role: string[];  // Changed to string[] to preserve Discord snowflake precision
+  affiliate_role: string[];  // Changed to string[] to preserve Discord snowflake precision
+  nonmember_role: string[];  // Changed to string[] to preserve Discord snowflake precision
 }
 
 export interface BotChannelSettingsPayload {
@@ -56,7 +56,7 @@ export interface BotChannelSettingsPayload {
 }
 
 export interface VoiceSelectableRolesPayload {
-  selectable_roles: number[];
+  selectable_roles: string[];  // Changed to string[] to preserve Discord snowflake precision
 }
 
 export interface OrganizationSettingsPayload {
@@ -109,7 +109,7 @@ export interface StatsOverview {
 }
 
 export interface VerificationRecord {
-  user_id: number;
+  user_id: string;
   rsi_handle: string;
   membership_status: string | null;
   community_moniker: string | null;
@@ -120,18 +120,18 @@ export interface VerificationRecord {
 }
 
 export interface VoiceChannelRecord {
-  id: number;
-  guild_id: number;
-  jtc_channel_id: number;
-  owner_id: number;
-  voice_channel_id: number;
+  id: string;
+  guild_id: string;
+  jtc_channel_id: string;
+  owner_id: string;
+  voice_channel_id: string;
   created_at: number;
   last_activity: number;
   is_active: boolean;
 }
 
 export interface VoiceChannelMember {
-  user_id: number;
+  user_id: string;
   username: string | null;
   display_name: string | null;
   rsi_handle: string | null;
@@ -140,10 +140,10 @@ export interface VoiceChannelMember {
 }
 
 export interface ActiveVoiceChannel {
-  voice_channel_id: number;
-  guild_id: number;
-  jtc_channel_id: number;
-  owner_id: number;
+  voice_channel_id: string;
+  guild_id: string;
+  jtc_channel_id: string;
+  owner_id: string;
   owner_username: string | null;
   owner_rsi_handle: string | null;
   owner_membership_status: string | null;
@@ -151,6 +151,66 @@ export interface ActiveVoiceChannel {
   last_activity: number;
   channel_name: string | null;
   members: VoiceChannelMember[];
+}
+
+export interface PermissionEntry {
+  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_type: string;
+  permission: string;
+  target_name?: string | null;
+  is_everyone: boolean;
+}
+
+export interface PTTSettingEntry {
+  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_type: string;
+  ptt_enabled: boolean;
+  target_name?: string | null;
+  is_everyone: boolean;
+}
+
+export interface PrioritySpeakerEntry {
+  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_type: string;
+  priority_enabled: boolean;
+  target_name?: string | null;
+  is_everyone: boolean;
+}
+
+export interface SoundboardEntry {
+  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_type: string;
+  soundboard_enabled: boolean;
+  target_name?: string | null;
+  is_everyone: boolean;
+}
+
+export interface JTCChannelSettings {
+  jtc_channel_id: string;  // Changed to string to preserve Discord snowflake precision
+  channel_name: string | null;
+  user_limit: number | null;
+  lock: boolean;
+  permissions: PermissionEntry[];
+  ptt_settings: PTTSettingEntry[];
+  priority_settings: PrioritySpeakerEntry[];
+  soundboard_settings: SoundboardEntry[];
+}
+
+export interface UserJTCSettings {
+  user_id: string;  // Changed to string to preserve Discord snowflake precision
+  rsi_handle: string | null;
+  community_moniker: string | null;
+  primary_jtc_id: string | null;  // Changed to string to preserve Discord snowflake precision
+  jtcs: JTCChannelSettings[];
+}
+
+export interface VoiceUserSettingsSearchResponse {
+  success: boolean;
+  items: UserJTCSettings[];
+  total: number;
+  page: number;
+  page_size: number;
+  message?: string | null;
 }
 
 export interface SystemMetrics {
@@ -335,6 +395,15 @@ export const voiceApi = {
     }>('/api/voice/search', {
       params: { user_id: userId },
     });
+    return response.data;
+  },
+  getUserSettings: async (query: string, page = 1, pageSize = 20) => {
+    const response = await apiClient.get<VoiceUserSettingsSearchResponse>(
+      '/api/voice/user-settings',
+      {
+        params: { query, page, page_size: pageSize },
+      }
+    );
     return response.data;
   },
 };

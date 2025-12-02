@@ -88,6 +88,7 @@ async def root():
 async def debug_env():
     """Debug endpoint to check environment configuration."""
     import os
+
     return {
         "internal_api_url": os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082"),
         "internal_api_key_set": bool(os.getenv("INTERNAL_API_KEY")),

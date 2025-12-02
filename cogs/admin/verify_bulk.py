@@ -18,19 +18,21 @@ class VerifyCommands(app_commands.Group):
 
     @app_commands.command(
         name="check",
-        description="Check verification status for users (Bot Admins & Lead Moderators only)"
+        description="Check verification status for users (Bot Admins & Lead Moderators only)",
     )
     @app_commands.describe(
         targets="Target selection mode",
         members_text="User mentions/IDs (required for 'users' mode)",
         channel="Voice channel to check (required for 'voice_channel' mode)",
-        recheck="If True, verify RSI org status for each user (default: False)"
+        recheck="If True, verify RSI org status for each user (default: False)",
     )
-    @app_commands.choices(targets=[
-        app_commands.Choice(name="specific users", value="users"),
-        app_commands.Choice(name="voice channel", value="voice_channel"),
-        app_commands.Choice(name="all active voice", value="active_voice")
-    ])
+    @app_commands.choices(
+        targets=[
+            app_commands.Choice(name="specific users", value="users"),
+            app_commands.Choice(name="voice channel", value="voice_channel"),
+            app_commands.Choice(name="all active voice", value="active_voice"),
+        ]
+    )
     @app_commands.guild_only()
     @require_admin()
     async def check_verification_status(
@@ -39,7 +41,7 @@ class VerifyCommands(app_commands.Group):
         targets: app_commands.Choice[str],
         members_text: str | None = None,
         channel: discord.VoiceChannel | None = None,
-        recheck: bool = False
+        recheck: bool = False,
     ) -> None:
         """Check verification status for multiple users without making changes."""
 
@@ -53,30 +55,26 @@ class VerifyCommands(app_commands.Group):
                 await interaction.followup.send(
                     "❌ **members_text** is required when using 'specific users' mode.\n"
                     "Example: `@user1 @user2 123456789012345678`",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 return
 
             if targets_value == "voice_channel" and not channel:
                 await interaction.followup.send(
                     "❌ **channel** is required when using 'voice channel' mode.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 return
 
             # Collect target members
             try:
                 members = await collect_targets(
-                    targets_value,
-                    interaction.guild,
-                    members_text,
-                    channel
+                    targets_value, interaction.guild, members_text, channel
                 )
             except Exception as e:
                 logger.exception(f"Error collecting targets: {e}")
                 await interaction.followup.send(
-                    f"❌ Error collecting target members: {e!s}",
-                    ephemeral=True
+                    f"❌ Error collecting target members: {e!s}", ephemeral=True
                 )
                 return
 
@@ -85,30 +83,35 @@ class VerifyCommands(app_commands.Group):
                     await interaction.followup.send(
                         "❌ No valid members found. Make sure to use proper mentions or valid user IDs.\n"
                         "Example: `@user1 @user2 123456789012345678`",
-                        ephemeral=True
+                        ephemeral=True,
                     )
                 elif targets_value == "voice_channel":
                     await interaction.followup.send(
-                        "❌ The selected voice channel is empty.",
-                        ephemeral=True
+                        "❌ The selected voice channel is empty.", ephemeral=True
                     )
                 else:  # active_voice
                     await interaction.followup.send(
                         "❌ No members found in any active voice channels.",
-                        ephemeral=True
+                        ephemeral=True,
                     )
                 return
 
             # Enqueue job via verification bulk service
             try:
-                batch_size = self.bot.config.get("auto_recheck", {}).get("batch", {}).get("max_users_per_run", 50)
+                batch_size = (
+                    self.bot.config.get("auto_recheck", {})
+                    .get("batch", {})
+                    .get("max_users_per_run", 50)
+                )
 
                 # Check if another job is running
                 is_running = self.bot.services.verify_bulk.is_running()
                 queue_size_before = self.bot.services.verify_bulk.queue_size()
 
                 # Determine scope label and channel
-                scope_label = targets.name  # "specific users", "voice channel", or "all active voice"
+                scope_label = (
+                    targets.name
+                )  # "specific users", "voice channel", or "all active voice"
                 scope_channel = f"#{channel.name}" if channel else None
 
                 # Enqueue the manual job
@@ -117,7 +120,7 @@ class VerifyCommands(app_commands.Group):
                     members=members,
                     scope_label=scope_label,
                     scope_channel=scope_channel,
-                    recheck_rsi=recheck
+                    recheck_rsi=recheck,
                 )
 
                 # Provide immediate feedback
@@ -127,20 +130,20 @@ class VerifyCommands(app_commands.Group):
                         f"There's an active job running.\n"
                         f"Checking {len(members)} users (batch size: {batch_size}). "
                         f"Final results will be posted in leadership chat.",
-                        ephemeral=True
+                        ephemeral=True,
                     )
                 elif queue_size_before > 0:
                     await interaction.followup.send(
                         f"⏳ Your verification check has been queued at position {queue_size_before + 1}.\n"
                         f"Checking {len(members)} users (batch size: {batch_size}). "
                         f"Final results will be posted in leadership chat.",
-                        ephemeral=True
+                        ephemeral=True,
                     )
                 else:
                     await interaction.followup.send(
                         f"⏳ Starting verification check for {len(members)} users (batch size: {batch_size})...\n"
                         f"Final results will be posted in leadership chat.",
-                        ephemeral=True
+                        ephemeral=True,
                     )
 
                 logger.info(
@@ -152,17 +155,17 @@ class VerifyCommands(app_commands.Group):
             except Exception as e:
                 logger.exception(f"Error enqueueing bulk verification job: {e}")
                 await interaction.followup.send(
-                    f"❌ Error starting verification check: {e!s}",
-                    ephemeral=True
+                    f"❌ Error starting verification check: {e!s}", ephemeral=True
                 )
                 return
 
         except Exception as e:
-            logger.error(f"Unexpected error in bulk verification check: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error in bulk verification check: {e}", exc_info=True
+            )
             try:
                 await interaction.followup.send(
-                    f"❌ An unexpected error occurred: {e!s}",
-                    ephemeral=True
+                    f"❌ An unexpected error occurred: {e!s}", ephemeral=True
                 )
             except Exception:
                 pass  # Response might have already been sent

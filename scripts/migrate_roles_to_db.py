@@ -39,7 +39,7 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
         return False
 
     # Extract roles section
-    roles = config.get('roles', {})
+    roles = config.get("roles", {})
     if not roles:
         print("⚠️  No roles section found in config.yaml")
         print("    If you've already migrated, you're all set!")
@@ -55,30 +55,46 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
     # Prepare database inserts
     migrations = []
 
-    if roles.get('bot_admins'):
-        migrations.append(('roles.bot_admins', json.dumps(roles['bot_admins'])))
+    if roles.get("bot_admins"):
+        migrations.append(("roles.bot_admins", json.dumps(roles["bot_admins"])))
 
-    if roles.get('lead_moderators'):
-        migrations.append(('roles.lead_moderators', json.dumps(roles['lead_moderators'])))
+    if roles.get("lead_moderators"):
+        migrations.append(
+            ("roles.lead_moderators", json.dumps(roles["lead_moderators"]))
+        )
 
-    if roles.get('main_role'):
+    if roles.get("main_role"):
         # Convert single role to list format for consistency
-        main_roles = roles['main_role'] if isinstance(roles['main_role'], list) else [roles['main_role']]
-        migrations.append(('roles.main_role', json.dumps(main_roles)))
+        main_roles = (
+            roles["main_role"]
+            if isinstance(roles["main_role"], list)
+            else [roles["main_role"]]
+        )
+        migrations.append(("roles.main_role", json.dumps(main_roles)))
 
-    if roles.get('affiliate_role'):
-        affiliate_roles = roles['affiliate_role'] if isinstance(roles['affiliate_role'], list) else [roles['affiliate_role']]
-        migrations.append(('roles.affiliate_role', json.dumps(affiliate_roles)))
+    if roles.get("affiliate_role"):
+        affiliate_roles = (
+            roles["affiliate_role"]
+            if isinstance(roles["affiliate_role"], list)
+            else [roles["affiliate_role"]]
+        )
+        migrations.append(("roles.affiliate_role", json.dumps(affiliate_roles)))
 
-    if roles.get('nonmember_role'):
-        nonmember_roles = roles['nonmember_role'] if isinstance(roles['nonmember_role'], list) else [roles['nonmember_role']]
-        migrations.append(('roles.nonmember_role', json.dumps(nonmember_roles)))
+    if roles.get("nonmember_role"):
+        nonmember_roles = (
+            roles["nonmember_role"]
+            if isinstance(roles["nonmember_role"], list)
+            else [roles["nonmember_role"]]
+        )
+        migrations.append(("roles.nonmember_role", json.dumps(nonmember_roles)))
 
     if not migrations:
         print("\n⚠️  No role data to migrate")
         return True
 
-    print(f"\n{'🔍 DRY RUN MODE - No changes will be made' if dry_run else '💾 Migrating to database...'}")
+    print(
+        f"\n{'🔍 DRY RUN MODE - No changes will be made' if dry_run else '💾 Migrating to database...'}"
+    )
     print(f"   Target Guild ID: {guild_id}")
 
     if dry_run:
@@ -90,7 +106,7 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
         return True
 
     # Initialize database
-    db_path = config.get('database', {}).get('path', 'TESTDatabase.db')
+    db_path = config.get("database", {}).get("path", "TESTDatabase.db")
     if not Path(db_path).is_absolute():
         db_path = str(project_root / db_path)
 
@@ -103,14 +119,16 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
         for key, value in migrations:
             await db.execute(
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
-                (guild_id, key, value)
+                (guild_id, key, value),
             )
         await db.commit()
 
     print("\n✅ Migration complete!")
     print("\n📋 Next steps:")
     print("   1. Verify roles in web dashboard or by querying database:")
-    print(f"      sqlite3 {db_path} \"SELECT * FROM guild_settings WHERE guild_id = {guild_id};\"")
+    print(
+        f'      sqlite3 {db_path} "SELECT * FROM guild_settings WHERE guild_id = {guild_id};"'
+    )
     print("   2. Test bot admin commands to ensure permissions work")
     print("   3. Once verified, remove the 'roles:' section from config.yaml")
 
@@ -119,24 +137,24 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description='Migrate role configuration from config.yaml to database'
+        description="Migrate role configuration from config.yaml to database"
     )
     parser.add_argument(
-        '--guild-id',
+        "--guild-id",
         type=int,
         required=True,
-        help='Discord guild ID to migrate roles for'
+        help="Discord guild ID to migrate roles for",
     )
     parser.add_argument(
-        '--config',
+        "--config",
         type=str,
-        default='config/config.yaml',
-        help='Path to config.yaml (default: config/config.yaml)'
+        default="config/config.yaml",
+        help="Path to config.yaml (default: config/config.yaml)",
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be migrated without making changes'
+        "--dry-run",
+        action="store_true",
+        help="Show what would be migrated without making changes",
     )
 
     args = parser.parse_args()
@@ -151,5 +169,5 @@ async def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

@@ -147,7 +147,6 @@ class TestVoiceReconciliation:
                 voice_service, "_rehydrate_channel_management"
             ) as mock_rehydrate,
         ):
-
             await voice_service._reconcile_single_channel(
                 12345, 111, 100, 201, 1234567890
             )
@@ -186,7 +185,6 @@ class TestVoiceReconciliation:
                 voice_service, "_schedule_channel_cleanup"
             ) as mock_schedule_cleanup,
         ):
-
             await voice_service._reconcile_single_channel(
                 12345, 111, 100, 201, 1234567890
             )

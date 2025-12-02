@@ -3,6 +3,7 @@
 Test script for admin audit logging functionality.
 Run this to verify the audit system is working correctly.
 """
+
 import asyncio
 import sys
 from datetime import UTC, datetime
@@ -18,11 +19,11 @@ from services.db.database import Database
 async def test_audit_logging():
     """Test the audit logging functionality."""
     print("🧪 Testing Admin Audit Logging System\n")
-    
+
     # Initialize database
     await Database.initialize("TESTDatabase.db")
     print("✅ Database initialized\n")
-    
+
     # Test 1: Log a user recheck action
     print("Test 1: Logging RECHECK_USER action...")
     await log_admin_action(
@@ -31,10 +32,10 @@ async def test_audit_logging():
         action="RECHECK_USER",
         target_user_id="555666777",
         details={"rsi_handle": "TestUser", "status": "main"},
-        status="success"
+        status="success",
     )
     print("✅ RECHECK_USER logged\n")
-    
+
     # Test 2: Log a bulk action
     print("Test 2: Logging BULK_RECHECK action...")
     await log_admin_action(
@@ -42,10 +43,10 @@ async def test_audit_logging():
         guild_id="987654321",
         action="BULK_RECHECK",
         details={"user_count": 25, "rejected": 5},
-        status="success"
+        status="success",
     )
     print("✅ BULK_RECHECK logged\n")
-    
+
     # Test 3: Log a voice reset action
     print("Test 3: Logging RESET_VOICE_ALL action...")
     await log_admin_action(
@@ -53,10 +54,10 @@ async def test_audit_logging():
         guild_id="987654321",
         action="RESET_VOICE_ALL",
         details={"confirmed": True, "channels_deleted": 10},
-        status="success"
+        status="success",
     )
     print("✅ RESET_VOICE_ALL logged\n")
-    
+
     # Test 4: Log an error status
     print("Test 4: Logging failed action...")
     await log_admin_action(
@@ -106,4 +107,3 @@ async def test_audit_logging():
 
 if __name__ == "__main__":
     asyncio.run(test_audit_logging())
-

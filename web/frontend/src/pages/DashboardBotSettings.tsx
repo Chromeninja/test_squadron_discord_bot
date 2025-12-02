@@ -11,12 +11,13 @@ interface DashboardBotSettingsProps {
 const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
-  const [botAdmins, setBotAdmins] = useState<number[]>([]);
-  const [leadModerators, setLeadModerators] = useState<number[]>([]);
-  const [mainRole, setMainRole] = useState<number[]>([]);
-  const [affiliateRole, setAffiliateRole] = useState<number[]>([]);
-  const [nonmemberRole, setNonmemberRole] = useState<number[]>([]);
-  const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<number[]>([]);
+  // Use strings for role IDs to preserve 64-bit Discord snowflake precision
+  const [botAdmins, setBotAdmins] = useState<string[]>([]);
+  const [leadModerators, setLeadModerators] = useState<string[]>([]);
+  const [mainRole, setMainRole] = useState<string[]>([]);
+  const [affiliateRole, setAffiliateRole] = useState<string[]>([]);
+  const [nonmemberRole, setNonmemberRole] = useState<string[]>([]);
+  const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<string[]>([]);
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);

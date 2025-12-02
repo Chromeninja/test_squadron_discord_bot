@@ -111,4 +111,3 @@ def format_user_success(code: str, **kwargs) -> str:
     except KeyError:
         # If formatting fails, return generic success
         return "✅ **Success**\nOperation completed."
-

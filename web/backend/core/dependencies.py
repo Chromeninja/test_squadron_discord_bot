@@ -40,22 +40,16 @@ def translate_internal_api_error(exc: Exception, default_msg: str) -> HTTPExcept
     if isinstance(exc, httpx.ConnectError):
         return HTTPException(
             status_code=503,
-            detail="Bot is unavailable - cannot connect to internal API"
+            detail="Bot is unavailable - cannot connect to internal API",
         )
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code == 404:
             return HTTPException(status_code=404, detail="Resource not found")
         if exc.response.status_code >= 500:
             return HTTPException(status_code=502, detail="Bot internal error")
-        return HTTPException(
-            status_code=exc.response.status_code,
-            detail=default_msg
-        )
+        return HTTPException(status_code=exc.response.status_code, detail=default_msg)
     if isinstance(exc, httpx.TimeoutException):
-        return HTTPException(
-            status_code=504,
-            detail="Bot request timed out"
-        )
+        return HTTPException(status_code=504, detail="Bot request timed out")
     # Generic fallback
     return HTTPException(status_code=502, detail=default_msg)
 
@@ -160,7 +154,9 @@ def get_user_authorized_guilds(user: UserProfile) -> list[int]:
     return user.authorized_guild_ids
 
 
-def require_guild_admin(guild_id: int, user: UserProfile = Depends(get_current_user)) -> None:
+def require_guild_admin(
+    guild_id: int, user: UserProfile = Depends(get_current_user)
+) -> None:
     """Dependency to require user has admin access to a specific guild.
 
     Args:
@@ -172,8 +168,7 @@ def require_guild_admin(guild_id: int, user: UserProfile = Depends(get_current_u
     """
     if guild_id not in user.authorized_guild_ids:
         raise HTTPException(
-            status_code=403,
-            detail=f"You do not have admin access to guild {guild_id}"
+            status_code=403, detail=f"You do not have admin access to guild {guild_id}"
         )
 
 
@@ -220,12 +215,17 @@ def require_any(*roles: str):
         @app.get("/admin/stats", dependencies=[Depends(require_any("admin"))])
         async def admin_stats(): ...
     """
-    async def check_roles(current_user: UserProfile = Depends(get_current_user)) -> UserProfile:
+
+    async def check_roles(
+        current_user: UserProfile = Depends(get_current_user),
+    ) -> UserProfile:
         """Check if user has any of the required roles."""
         has_access = False
 
         for role in roles:
-            if (role == "admin" and current_user.is_admin) or (role == "moderator" and current_user.is_moderator):
+            if (role == "admin" and current_user.is_admin) or (
+                role == "moderator" and current_user.is_moderator
+            ):
                 has_access = True
                 break
 
@@ -295,11 +295,16 @@ class InternalAPIClient:
 
         # Debug logging for API key
         import logging
+
         logger = logging.getLogger(__name__)
         if self.api_key:
-            logger.info(f"InternalAPIClient initialized with API key (length: {len(self.api_key)})")
+            logger.info(
+                f"InternalAPIClient initialized with API key (length: {len(self.api_key)})"
+            )
         else:
-            logger.warning("InternalAPIClient initialized WITHOUT API key - requests will fail with 401")
+            logger.warning(
+                "InternalAPIClient initialized WITHOUT API key - requests will fail with 401"
+            )
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -309,9 +314,7 @@ class InternalAPIClient:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
             self._client = httpx.AsyncClient(
-                base_url=self.base_url,
-                headers=headers,
-                timeout=10.0
+                base_url=self.base_url, headers=headers, timeout=10.0
             )
         return self._client
 
@@ -378,7 +381,9 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
-    async def get_guild_members(self, guild_id: int, page: int = 1, page_size: int = 100) -> dict:
+    async def get_guild_members(
+        self, guild_id: int, page: int = 1, page_size: int = 100
+    ) -> dict:
         """
         Fetch paginated list of guild members with Discord enrichment.
 
@@ -392,8 +397,7 @@ class InternalAPIClient:
         """
         client = await self._get_client()
         response = await client.get(
-            f"/guilds/{guild_id}/members",
-            params={"page": page, "page_size": page_size}
+            f"/guilds/{guild_id}/members", params={"page": page, "page_size": page_size}
         )
         response.raise_for_status()
         return response.json()
@@ -441,7 +445,7 @@ class InternalAPIClient:
 
         response = await client.post(
             f"/guilds/{guild_id}/members/{user_id}/recheck",
-            json=json_body if json_body else None
+            json=json_body if json_body else None,
         )
         response.raise_for_status()
         return response.json()

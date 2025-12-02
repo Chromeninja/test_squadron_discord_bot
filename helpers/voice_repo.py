@@ -340,7 +340,7 @@ async def transfer_channel_owner(
                 SELECT channel_name, user_limit, lock FROM channel_settings
                 WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 """,
-                    (effective_owner_id, guild_id, jtc_channel_id),
+                (effective_owner_id, guild_id, jtc_channel_id),
             )
             settings_row = await cursor.fetchone()
 
@@ -408,7 +408,7 @@ async def transfer_channel_owner(
                     SELECT * FROM {table}
                     WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                     """,
-                        (effective_owner_id, guild_id, jtc_channel_id),
+                    (effective_owner_id, guild_id, jtc_channel_id),
                 )
                 entries = await cursor.fetchall()
 

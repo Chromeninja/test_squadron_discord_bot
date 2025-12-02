@@ -19,7 +19,11 @@ from .schema import init_schema
 logger = get_logger(__name__)
 
 
-def derive_membership_status(main_orgs: list[str] | None, affiliate_orgs: list[str] | None, target_sid: str = "TEST") -> str:
+def derive_membership_status(
+    main_orgs: list[str] | None,
+    affiliate_orgs: list[str] | None,
+    target_sid: str = "TEST",
+) -> str:
     """
     Derive membership status from organization SID lists.
 
@@ -79,7 +83,7 @@ async def get_cross_guild_membership_status(user_id: int) -> str:
         # Get user's organization memberships
         cur = await db.execute(
             "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?",
-            (user_id,)
+            (user_id,),
         )
         row = await cur.fetchone()
 
@@ -110,7 +114,9 @@ async def get_cross_guild_membership_status(user_id: int) -> str:
         """
         cur = await db.execute(tracked_orgs_query)
         tracked_sids_rows = await cur.fetchall()
-        tracked_sids = {row[0].strip('"').upper() for row in tracked_sids_rows if row[0]}
+        tracked_sids = {
+            row[0].strip('"').upper() for row in tracked_sids_rows if row[0]
+        }
 
         # Check intersection
         tracked_user_orgs = all_user_orgs.intersection(tracked_sids)

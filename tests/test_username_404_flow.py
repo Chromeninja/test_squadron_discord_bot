@@ -98,10 +98,12 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     mock_guild_config = AsyncMock()
     spam_chan = guild.get_channel(999)
     verification_chan = guild.get_channel(1234)
-    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
-        "bot_spam_channel_id": spam_chan,
-        "verification_channel_id": verification_chan
-    }.get(key))
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+    )
     bot.services.guild_config = mock_guild_config
 
     # Patch channel_send_message to avoid network and run queued tasks immediately
@@ -171,10 +173,12 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     mock_guild_config = AsyncMock()
     spam_chan = guild.get_channel(999)
     verification_chan = guild.get_channel(1234)
-    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
-        "bot_spam_channel_id": spam_chan,
-        "verification_channel_id": verification_chan
-    }.get(key))
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+    )
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()
@@ -237,11 +241,13 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
 
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
-        "bot_spam_channel_id": spam_chan,
-        "verification_channel_id": verification_chan,
-        "leadership_announcement_channel_id": leader_chan
-    }.get(key))
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+            "leadership_announcement_channel_id": leader_chan,
+        }.get(key)
+    )
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=222, display_name="UserGone")
@@ -305,7 +311,9 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     # Track the HTTP client passed to is_valid_rsi_handle
     captured_http_client = None
 
-    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None) -> None:
+    async def fake_is_valid(
+        handle: str, http_client, org_name: str, org_sid=None
+    ) -> None:
         nonlocal captured_http_client
         captured_http_client = http_client
         raise NotFoundError
@@ -323,15 +331,15 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     assert status_info == "error", "Status should be 'error'"
 
     # Verify that the correct HTTP client was passed
-    assert (
-        captured_http_client is not None
-    ), "HTTP client should have been passed to is_valid_rsi_handle"
-    assert (
-        captured_http_client is bot.http_client
-    ), "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(
-        captured_http_client, FakeHTTPClient
-    ), "Should receive FakeHTTPClient instance"
+    assert captured_http_client is not None, (
+        "HTTP client should have been passed to is_valid_rsi_handle"
+    )
+    assert captured_http_client is bot.http_client, (
+        "Should pass bot.http_client to is_valid_rsi_handle"
+    )
+    assert isinstance(captured_http_client, FakeHTTPClient), (
+        "Should receive FakeHTTPClient instance"
+    )
 
 
 @pytest.mark.asyncio
@@ -360,11 +368,13 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
 
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
-        "bot_spam_channel_id": spam_chan,
-        "verification_channel_id": verification_chan,
-        "leadership_announcement_channel_id": leader_chan
-    }.get(key))
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+            "leadership_announcement_channel_id": leader_chan,
+        }.get(key)
+    )
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=555, display_name="LostUser")
@@ -441,7 +451,9 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     captured_http_client = None
 
     # Return successful verification
-    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None) -> None:
+    async def fake_is_valid(
+        handle: str, http_client, org_name: str, org_sid=None
+    ) -> None:
         nonlocal captured_http_client
         captured_http_client = http_client
         return 1, "NewHandle", None, [], []
@@ -454,15 +466,15 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     assert ok is True
 
     # Verify that the correct HTTP client was passed
-    assert (
-        captured_http_client is not None
-    ), "HTTP client should have been passed to is_valid_rsi_handle"
-    assert (
-        captured_http_client is bot.http_client
-    ), "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(
-        captured_http_client, FakeHTTPClient
-    ), "Should receive FakeHTTPClient instance"
+    assert captured_http_client is not None, (
+        "HTTP client should have been passed to is_valid_rsi_handle"
+    )
+    assert captured_http_client is bot.http_client, (
+        "Should pass bot.http_client to is_valid_rsi_handle"
+    )
+    assert isinstance(captured_http_client, FakeHTTPClient), (
+        "Should receive FakeHTTPClient instance"
+    )
 
     # needs_reverify cleared
     async with Database.get_connection() as db:
@@ -502,10 +514,12 @@ async def test_handle_username_404_new_handle_triggers_again(
     mock_guild_config = AsyncMock()
     spam_chan = guild.get_channel(321)
     verification_chan = guild.get_channel(654)
-    mock_guild_config.get_channel = AsyncMock(side_effect=lambda gid, key, g: {
-        "bot_spam_channel_id": spam_chan,
-        "verification_channel_id": verification_chan
-    }.get(key))
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+    )
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()

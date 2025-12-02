@@ -29,7 +29,9 @@ async def test_perform_rsi_recheck_concurrent_execution():
         call_order.append(handle)
         return (1, handle.upper(), None, [], [])
 
-    with patch("verification.rsi_verification.is_valid_rsi_handle", side_effect=mock_verify):
+    with patch(
+        "verification.rsi_verification.is_valid_rsi_handle", side_effect=mock_verify
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows)
 
     # All handles should be checked
@@ -94,9 +96,9 @@ async def test_perform_rsi_recheck_mixed_statuses():
     # Mock different return values for each call
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = [
-            (1, "Handle1", None, [], []),   # main
-            (2, "Handle2", None, [], []),   # affiliate
-            (0, "Handle3", None, [], []),   # non_member
+            (1, "Handle1", None, [], []),  # main
+            (2, "Handle2", None, [], []),  # affiliate
+            (0, "Handle3", None, [], []),  # non_member
         ]
 
         result_rows = await service._perform_rsi_recheck(input_rows)
@@ -245,10 +247,10 @@ async def test_perform_rsi_recheck_partial_failures():
     # Mix of success and failures
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = [
-            (1, "Handle1", None, [], []),           # success - main
-            NotFoundError("Not found"),     # failure - 404
-            (0, "Handle3", None, [], []),           # success - non_member
-            Exception("Timeout"),           # failure - exception
+            (1, "Handle1", None, [], []),  # success - main
+            NotFoundError("Not found"),  # failure - 404
+            (0, "Handle3", None, [], []),  # success - non_member
+            Exception("Timeout"),  # failure - exception
         ]
 
         result_rows = await service._perform_rsi_recheck(input_rows)

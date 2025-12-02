@@ -13,9 +13,10 @@ from core.dependencies import (
 )
 from core.schemas import UserProfile
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
 from helpers.audit import log_admin_action
 from helpers.bulk_check import StatusRow, write_csv
-from pydantic import BaseModel
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -78,10 +79,11 @@ async def recheck_user(
         (user_id_int,),
     )
     row = await cursor.fetchone()
-    old_rsi_handle = row[0] if row else None
+    row[0] if row else None
 
     # Determine old status from org lists
     import json
+
     from core.guild_settings import get_organization_settings
 
     org_settings = await get_organization_settings(db, current_user.active_guild_id)
@@ -129,7 +131,7 @@ async def recheck_user(
             details={"error": str(e)},
             status="error",
         )
-        raise HTTPException(status_code=500, detail=f"Recheck failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Recheck failed: {e!s}")
 
     # Get new verification status after recheck
     cursor = await db.execute(
@@ -208,7 +210,9 @@ async def reset_reverify_timer(
     )
     row = await cursor.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="User not found in verification database")
+        raise HTTPException(
+            status_code=404, detail="User not found in verification database"
+        )
 
     # Reset the timer
     await db.execute(
@@ -284,7 +288,7 @@ async def bulk_recheck_users(
     if len(request.user_ids) > max_bulk_recheck:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot recheck more than {max_bulk_recheck} users at once"
+            detail=f"Cannot recheck more than {max_bulk_recheck} users at once",
         )
 
     successful = 0
@@ -303,58 +307,65 @@ async def bulk_recheck_users(
                 admin_user_id=current_user.user_id,
             )
             successful += 1
-            
+
             # Extract result fields
             status = recheck_result.get("status")
             diff = recheck_result.get("diff", {})
             roles_updated = recheck_result.get("roles_updated")
-            
+
             # Capture brief per-user result for UI popup
-            results.append({
-                "user_id": str(user_id_int),
-                "status": status,
-                "message": recheck_result.get("message"),
-                "roles_updated": roles_updated,
-                "diff": diff,
-            })
-            
+            results.append(
+                {
+                    "user_id": str(user_id_int),
+                    "status": status,
+                    "message": recheck_result.get("message"),
+                    "roles_updated": roles_updated,
+                    "diff": diff,
+                }
+            )
+
             # Build StatusRow for CSV export (following Discord verify check pattern)
-            username = diff.get("username_after") or diff.get("username_before") or f"User_{user_id_int}"
+            username = (
+                diff.get("username_after")
+                or diff.get("username_before")
+                or f"User_{user_id_int}"
+            )
             rsi_handle = diff.get("rsi_handle_after") or diff.get("rsi_handle_before")
             membership_status = status  # "main", "affiliate", "non_member", etc.
             voice_channel = diff.get("voice_channel_after")
-            
-            status_rows.append(StatusRow(
-                user_id=user_id_int,
-                username=username,
-                rsi_handle=rsi_handle,
-                membership_status=membership_status,
-                last_updated=int(time.time()),
-                voice_channel=voice_channel,
-                rsi_status=status,  # Recheck verified RSI status
-                rsi_checked_at=int(time.time()),
-                rsi_error=None
-            ))
+
+            status_rows.append(
+                StatusRow(
+                    user_id=user_id_int,
+                    username=username,
+                    rsi_handle=rsi_handle,
+                    membership_status=membership_status,
+                    last_updated=int(time.time()),
+                    voice_channel=voice_channel,
+                    rsi_status=status,  # Recheck verified RSI status
+                    rsi_checked_at=int(time.time()),
+                    rsi_error=None,
+                )
+            )
         except Exception as e:
             failed += 1
             error_detail = str(e)
-            errors.append({
-                "user_id": user_id,
-                "error": error_detail
-            })
-            
+            errors.append({"user_id": user_id, "error": error_detail})
+
             # Add error row to CSV
-            status_rows.append(StatusRow(
-                user_id=int(user_id) if user_id.isdigit() else 0,
-                username=f"User_{user_id}",
-                rsi_handle=None,
-                membership_status=None,
-                last_updated=None,
-                voice_channel=None,
-                rsi_status=None,
-                rsi_checked_at=int(time.time()),
-                rsi_error=error_detail
-            ))
+            status_rows.append(
+                StatusRow(
+                    user_id=int(user_id) if user_id.isdigit() else 0,
+                    username=f"User_{user_id}",
+                    rsi_handle=None,
+                    membership_status=None,
+                    last_updated=None,
+                    voice_channel=None,
+                    rsi_status=None,
+                    rsi_checked_at=int(time.time()),
+                    rsi_error=error_detail,
+                )
+            )
 
     # Log the bulk action
     await log_admin_action(
@@ -400,15 +411,13 @@ async def bulk_recheck_users(
             # Get guild name for CSV filename
             guild_name = f"guild_{current_user.active_guild_id}"
             invoker_name = current_user.username or "admin"
-            
+
             csv_filename, csv_bytes = await write_csv(
-                status_rows,
-                guild_name=guild_name,
-                invoker_name=invoker_name
+                status_rows, guild_name=guild_name, invoker_name=invoker_name
             )
-            
+
             # Base64 encode for JSON transport
-            csv_content = base64.b64encode(csv_bytes).decode('utf-8')
+            csv_content = base64.b64encode(csv_bytes).decode("utf-8")
         except Exception as e:
             logger.warning(f"Failed to generate CSV: {e}")
 

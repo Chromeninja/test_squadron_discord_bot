@@ -1,14 +1,14 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 
 export interface MultiSelectOption {
-  id: number;
+  id: string;  // Changed from number to string to preserve 64-bit Discord snowflake precision
   name: string;
 }
 
 interface SearchableMultiSelectProps {
   options: MultiSelectOption[];
-  selected: number[];
-  onChange: (ids: number[]) => void;
+  selected: string[];  // Changed from number[] to string[]
+  onChange: (ids: string[]) => void;  // Changed from number[] to string[]
   placeholder?: string;
   componentId?: string;  // Optional unique ID to prevent key collisions
 }
@@ -32,7 +32,7 @@ const SearchableMultiSelect = ({
     return options.filter((option) => option.name.toLowerCase().includes(lowerQuery));
   }, [options, query]);
 
-  const toggleSelection = (optionId: number) => {
+  const toggleSelection = (optionId: string) => {
     if (selectedSet.has(optionId)) {
       onChange(selected.filter((id) => id !== optionId));
     } else {
@@ -40,7 +40,7 @@ const SearchableMultiSelect = ({
     }
   };
 
-  const removeSelection = (optionId: number) => {
+  const removeSelection = (optionId: string) => {
     onChange(selected.filter((id) => id !== optionId));
   };
 

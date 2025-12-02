@@ -24,11 +24,11 @@ SELECTORS = {
         ],
         "main_sid": [
             '.box-content.org.main p.entry:has(span.label:contains("Spectrum Identification")) strong.value',
-            'div.org.main strong.value',
+            "div.org.main strong.value",
         ],
         "affiliate_sid": [
-            '.box-content.org.affiliation p.entry:has(span.label) strong.value',
-            'div.org.affiliation strong.value',
+            ".box-content.org.affiliation p.entry:has(span.label) strong.value",
+            "div.org.affiliation strong.value",
         ],
     },
     "bio": [
@@ -48,10 +48,7 @@ def normalize_text(s: str | None) -> str:
 
 
 async def is_valid_rsi_handle(
-    user_handle: str,
-    http_client: HTTPClient,
-    org_name: str,
-    org_sid: str | None = None
+    user_handle: str, http_client: HTTPClient, org_name: str, org_sid: str | None = None
 ) -> tuple[int | None, str | None, str | None, list[str], list[str]]:
     """
     Validates the RSI handle by checking if the user is part of the specified
@@ -104,6 +101,7 @@ async def is_valid_rsi_handle(
     if org_sid:
         # Use SID-based verification (preferred)
         from services.db.database import derive_membership_status
+
         status = derive_membership_status(main_orgs, affiliate_orgs, org_sid.upper())
         verify_value = {"main": 1, "affiliate": 2, "non_member": 0}[status]
         logger.debug(
@@ -114,13 +112,13 @@ async def is_valid_rsi_handle(
         try:
             org_data = parse_rsi_organizations(org_html, org_name)
         except Exception:
-            logger.exception(f"Exception while parsing organization data for {user_handle}")
+            logger.exception(
+                f"Exception while parsing organization data for {user_handle}"
+            )
             return None, None, None, main_orgs, affiliate_orgs
 
         verify_value = search_organization_case_insensitive(org_data, org_name)
-        logger.debug(
-            f"Name-based verification for {user_handle}: {verify_value}"
-        )
+        logger.debug(f"Name-based verification for {user_handle}: {verify_value}")
 
     # Fetch profile data (single fetch reused for handle + moniker)
     profile_url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
@@ -392,28 +390,33 @@ def parse_rsi_org_sids(html_content: str) -> dict:
         dict: Dictionary with 'main_orgs' list (0 or 1 items) and 'affiliate_orgs' list.
               Example: {"main_orgs": ["TEST"], "affiliate_orgs": ["XVII", "REDACTED", "AVOCADO"]}
     """
-    logger.debug("Parsing RSI organization SIDs from HTML content.", extra={"event": "rsi-parser.org-sids"})
+    logger.debug(
+        "Parsing RSI organization SIDs from HTML content.",
+        extra={"event": "rsi-parser.org-sids"},
+    )
     soup = BeautifulSoup(html_content, "lxml")
 
     main_orgs = []
     affiliate_orgs = []
 
     # Parse main organization SID
-    main_org_div = soup.select_one('.box-content.org.main')
+    main_org_div = soup.select_one(".box-content.org.main")
     if main_org_div:
         # Check if it's a redacted/hidden org (visibility-R or visibility-H class)
-        is_redacted = 'visibility-R' in main_org_div.get('class', []) or 'visibility-H' in main_org_div.get('class', [])
+        is_redacted = "visibility-R" in main_org_div.get(
+            "class", []
+        ) or "visibility-H" in main_org_div.get("class", [])
 
         if is_redacted:
             main_orgs.append("REDACTED")
             logger.debug("Main organization is redacted/hidden")
         else:
             # Try to find SID in the info section
-            sid_entry = main_org_div.select_one('p.entry:has(span.label)')
+            sid_entry = main_org_div.select_one("p.entry:has(span.label)")
             if sid_entry:
-                label = sid_entry.select_one('span.label')
-                if label and 'Spectrum Identification' in label.get_text():
-                    sid_value = sid_entry.select_one('strong.value')
+                label = sid_entry.select_one("span.label")
+                if label and "Spectrum Identification" in label.get_text():
+                    sid_value = sid_entry.select_one("strong.value")
                     if sid_value:
                         sid = sid_value.get_text(strip=True)
                         if sid:
@@ -421,13 +424,17 @@ def parse_rsi_org_sids(html_content: str) -> dict:
                             logger.debug(f"Main organization SID: {sid}")
                         else:
                             main_orgs.append("REDACTED")
-                            logger.debug("Main organization SID is empty, treating as REDACTED")
+                            logger.debug(
+                                "Main organization SID is empty, treating as REDACTED"
+                            )
 
     # Parse affiliate organization SIDs
-    affiliate_divs = soup.select('.box-content.org.affiliation')
+    affiliate_divs = soup.select(".box-content.org.affiliation")
     for affiliate_div in affiliate_divs:
         # Check if it's a redacted/hidden org
-        is_redacted = 'visibility-R' in affiliate_div.get('class', []) or 'visibility-H' in affiliate_div.get('class', [])
+        is_redacted = "visibility-R" in affiliate_div.get(
+            "class", []
+        ) or "visibility-H" in affiliate_div.get("class", [])
 
         if is_redacted:
             affiliate_orgs.append("REDACTED")
@@ -435,19 +442,22 @@ def parse_rsi_org_sids(html_content: str) -> dict:
         else:
             # Try to find SID in the info section
             # Look for any p.entry that has a strong.value (the SID field)
-            info_entries = affiliate_div.select('p.entry')
+            info_entries = affiliate_div.select("p.entry")
             sid_found = False
             for entry in info_entries:
                 # Check if this entry has "Spectrum Identification" or similar label
-                label = entry.select_one('span.label')
+                label = entry.select_one("span.label")
                 if label:
                     label_text = label.get_text(strip=True)
                     # Match various possible label texts for SID field
-                    if 'Spectrum' in label_text or 'SID' in label_text:
-                        sid_value = entry.select_one('strong.value')
+                    if "Spectrum" in label_text or "SID" in label_text:
+                        sid_value = entry.select_one("strong.value")
                         if sid_value:
                             sid = sid_value.get_text(strip=True)
-                            if sid and sid not in ['\xa0', '']:  # Filter out nbsp and empty
+                            if sid and sid not in [
+                                "\xa0",
+                                "",
+                            ]:  # Filter out nbsp and empty
                                 affiliate_orgs.append(sid)
                                 logger.debug(f"Affiliate organization SID: {sid}")
                                 sid_found = True
@@ -456,7 +466,9 @@ def parse_rsi_org_sids(html_content: str) -> dict:
             if not sid_found:
                 # Fallback: if no SID field found but org exists, treat as REDACTED
                 affiliate_orgs.append("REDACTED")
-                logger.debug("Affiliate organization SID not found, treating as REDACTED")
+                logger.debug(
+                    "Affiliate organization SID not found, treating as REDACTED"
+                )
 
     logger.debug(
         "Organization SID parsing complete",

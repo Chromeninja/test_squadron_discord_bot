@@ -77,7 +77,7 @@ def _permission_wrapper(
     predicate: Callable[
         [discord.Client, discord.Member, discord.Guild],
         Awaitable[bool],
-    ]
+    ],
 ) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @wraps(func)

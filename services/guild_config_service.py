@@ -34,9 +34,9 @@ class GuildConfigService:
 
     def __init__(self, *, ttl_seconds: int = 60) -> None:
         self.ttl_seconds = ttl_seconds
-        self._cache: dict[tuple[int, str], tuple[Any, float]] = (
-            {}
-        )  # (guild_id, key) -> (value, timestamp)
+        self._cache: dict[
+            tuple[int, str], tuple[Any, float]
+        ] = {}  # (guild_id, key) -> (value, timestamp)
         self._cache_lock = asyncio.Lock()
         self._write_locks: dict[tuple[int, str], asyncio.Lock] = {}
         self._write_locks_lock = asyncio.Lock()

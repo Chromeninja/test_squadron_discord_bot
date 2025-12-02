@@ -17,7 +17,9 @@ class UserProfile(BaseModel):
     is_moderator: bool
     authorized_guild_ids: list[int] = Field(default_factory=list)
     active_guild_id: str | None = None
-    permission_sources: dict[str, str] = Field(default_factory=dict)  # guild_id (str) -> source (owner/administrator/bot_admin_role/moderator_role)
+    permission_sources: dict[str, str] = Field(
+        default_factory=dict
+    )  # guild_id (str) -> source (owner/administrator/bot_admin_role/moderator_role)
 
 
 class AuthMeResponse(BaseModel):
@@ -203,6 +205,86 @@ class ActiveVoiceChannelsResponse(BaseModel):
     total: int
 
 
+class PermissionEntry(BaseModel):
+    """Permission setting for a target (role or user)."""
+
+    target_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    target_type: str
+    permission: str
+    target_name: str | None = None
+    is_everyone: bool = False
+    unknown_role: bool = False
+
+
+class PTTSettingEntry(BaseModel):
+    """Push-to-talk setting for a target."""
+
+    target_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    target_type: str
+    ptt_enabled: bool
+    target_name: str | None = None
+    is_everyone: bool = False
+    unknown_role: bool = False
+
+
+class PrioritySpeakerEntry(BaseModel):
+    """Priority speaker setting for a target."""
+
+    target_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    target_type: str
+    priority_enabled: bool
+    target_name: str | None = None
+    is_everyone: bool = False
+    unknown_role: bool = False
+
+
+class SoundboardEntry(BaseModel):
+    """Soundboard setting for a target."""
+
+    target_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    target_type: str
+    soundboard_enabled: bool
+    target_name: str | None = None
+    is_everyone: bool = False
+    unknown_role: bool = False
+
+
+class JTCChannelSettings(BaseModel):
+    """Settings for a single JTC channel."""
+
+    jtc_channel_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    channel_name: str | None = None
+    user_limit: int | None = None
+    lock: bool = False
+    permissions: list[PermissionEntry] = Field(default_factory=list)
+    ptt_settings: list[PTTSettingEntry] = Field(default_factory=list)
+    priority_settings: list[PrioritySpeakerEntry] = Field(default_factory=list)
+    soundboard_settings: list[SoundboardEntry] = Field(default_factory=list)
+
+
+class UserJTCSettings(BaseModel):
+    """User's JTC settings summary."""
+
+    user_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    rsi_handle: str | None = None
+    community_moniker: str | None = None
+    primary_jtc_id: str | None = (
+        None  # Changed to str to preserve 64-bit Discord snowflake precision
+    )
+    jtcs: list[JTCChannelSettings] = Field(default_factory=list)
+
+
+class VoiceUserSettingsSearchResponse(BaseModel):
+    """Response for /api/voice/user-settings search endpoint."""
+
+    success: bool = True
+    items: list[UserJTCSettings] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+    message: str | None = None
+
+
 # Error schemas
 class ErrorDetail(BaseModel):
     """Error detail structure."""
@@ -221,7 +303,7 @@ class ErrorResponse(BaseModel):
 class DiscordRole(BaseModel):
     """Discord role metadata."""
 
-    id: int
+    id: str  # Changed to str to preserve 64-bit Discord snowflake precision
     name: str
     color: int | None = None
 
@@ -266,17 +348,19 @@ class GuildMemberResponse(BaseModel):
 class BotRoleSettings(BaseModel):
     """Bot admin/lead moderator role assignments and member role categories."""
 
-    bot_admins: list[int] = Field(default_factory=list)
-    lead_moderators: list[int] = Field(default_factory=list)
-    main_role: list[int] = Field(default_factory=list)
-    affiliate_role: list[int] = Field(default_factory=list)
-    nonmember_role: list[int] = Field(default_factory=list)
+    # All role IDs are strings to preserve 64-bit Discord snowflake precision
+    bot_admins: list[str] = Field(default_factory=list)
+    lead_moderators: list[str] = Field(default_factory=list)
+    main_role: list[str] = Field(default_factory=list)
+    affiliate_role: list[str] = Field(default_factory=list)
+    nonmember_role: list[str] = Field(default_factory=list)
 
 
 class VoiceSelectableRoles(BaseModel):
     """Selectable voice role configuration for channel automation."""
 
-    selectable_roles: list[int] = Field(default_factory=list)
+    # Role IDs are strings to preserve 64-bit Discord snowflake precision
+    selectable_roles: list[str] = Field(default_factory=list)
 
 
 class DiscordChannel(BaseModel):

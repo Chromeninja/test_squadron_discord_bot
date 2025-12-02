@@ -2,6 +2,7 @@
 Refactored admin cog with service integration and health monitoring.
 """
 
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -18,19 +19,25 @@ logger = get_logger(__name__)
 
 class ConfigSchema:
     """Deprecated: Discord-based configuration is removed. Web Admin is required."""
+
     ALLOWED_KEYS: ClassVar[dict[str, dict[str, Any]]] = {}
+
     @classmethod
     def get_key_choices(cls) -> list[app_commands.Choice[str]]:
         return []
+
     @classmethod
     def get_type_for_key(cls, key: str) -> type:
         return str
+
     @classmethod
     def get_validation_info(cls, key: str) -> dict[str, Any]:
         return {}
+
     @classmethod
     def get_value_hint(cls, key: str) -> str:
         return ""
+
     @classmethod
     def validate_value(cls, key: str, value: Any) -> tuple[bool, str, Any]:
         return False, "Discord config editing has been removed. Use Web Admin.", None
@@ -125,7 +132,7 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(
         name="flush-announcements",
-        description="Force flush pending announcement queue immediately."
+        description="Force flush pending announcement queue immediately.",
     )
     @app_commands.guild_only()
     @require_bot_admin()
@@ -150,9 +157,11 @@ class AdminCog(commands.Cog):
             if not announcer:
                 await interaction.followup.send(
                     "❌ BulkAnnouncer cog not loaded. Cannot flush announcements.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
-                self.logger.error("BulkAnnouncer cog not found when flush-announcements was called")
+                self.logger.error(
+                    "BulkAnnouncer cog not found when flush-announcements was called"
+                )
                 return
 
             # Get pending count before flushing
@@ -160,19 +169,18 @@ class AdminCog(commands.Cog):
 
             if pending_count == 0:
                 await interaction.followup.send(
-                    "ℹ️ No pending announcements in queue.",
-                    ephemeral=True
+                    "ℹ️ No pending announcements in queue.", ephemeral=True
                 )
                 self.logger.info(
                     "flush-announcements: no pending announcements",
-                    extra={"user_id": interaction.user.id}
+                    extra={"user_id": interaction.user.id},
                 )
                 return
 
             # Flush the queue
             self.logger.info(
                 f"flush-announcements: flushing {pending_count} pending events",
-                extra={"user_id": interaction.user.id}
+                extra={"user_id": interaction.user.id},
             )
 
             sent = await announcer.flush_pending()
@@ -180,31 +188,30 @@ class AdminCog(commands.Cog):
             if sent:
                 await interaction.followup.send(
                     f"✅ Successfully flushed announcement queue! Posted {pending_count} pending event(s) to public announcement channels.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 self.logger.info(
                     f"flush-announcements: successfully flushed {pending_count} events",
-                    extra={"user_id": interaction.user.id}
+                    extra={"user_id": interaction.user.id},
                 )
             else:
                 await interaction.followup.send(
                     "⚠️ Flush completed but no announcements were sent. "
                     "Check that public announcement channels are configured.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 self.logger.warning(
                     f"flush-announcements: flush returned False (no announcements sent) despite {pending_count} pending",
-                    extra={"user_id": interaction.user.id}
+                    extra={"user_id": interaction.user.id},
                 )
 
         except Exception as e:
             await interaction.followup.send(
-                f"❌ Failed to flush announcements: {e}",
-                ephemeral=True
+                f"❌ Failed to flush announcements: {e}", ephemeral=True
             )
             self.logger.exception(
                 f"flush-announcements command failed: {e}",
-                extra={"user_id": interaction.user.id}
+                extra={"user_id": interaction.user.id},
             )
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
@@ -376,7 +383,7 @@ class AdminCog(commands.Cog):
             rsi_handle = row[0]
 
             # Snapshot before reverify
-            before_snap = await snapshot_member_state(self.bot, member)
+            await snapshot_member_state(self.bot, member)
 
             # Attempt re-verification - pass the actual bot instance
             try:
@@ -388,7 +395,7 @@ class AdminCog(commands.Cog):
                 )
                 return
 
-            success, role_assignment_result, message = result
+            success, _role_assignment_result, message = result
             if not success:
                 # Log the error and try to DM the admin with helpful info
                 error_msg = f"Re-verification failed for {member.mention} (RSI: {rsi_handle}): {message}"
@@ -418,12 +425,10 @@ class AdminCog(commands.Cog):
             return
         except Exception as e:
             self.logger.exception("Error in recheck-user command", exc_info=e)
-            try:
+            with contextlib.suppress(Exception):
                 await interaction.followup.send(
                     f"❌ Unexpected error during recheck: {e!s}", ephemeral=True
                 )
-            except Exception:
-                pass
         finally:
             # Always clear in-flight flag
             if member.id in self._recheck_in_flight:
@@ -523,7 +528,9 @@ class AdminCog(commands.Cog):
                 emoji = (
                     "✅"
                     if status == "healthy"
-                    else "⚠️" if status == "degraded" else "❌"
+                    else "⚠️"
+                    if status == "degraded"
+                    else "❌"
                 )
                 service_status.append(f"{emoji} {service_name}")
 

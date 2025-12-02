@@ -8,6 +8,7 @@ This module provides a shared implementation used by:
 Ensures consistent behavior: rate limiting, snapshots,
 remediation, audit logging.
 """
+
 import time
 from dataclasses import asdict as _asdict
 from typing import TYPE_CHECKING, Literal, cast
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-async def perform_recheck(  # noqa: PLR0912, PLR0913, PLR0915
+async def perform_recheck(
     member: discord.Member,
     rsi_handle: str,
     bot: "Bot",
@@ -123,9 +124,7 @@ async def perform_recheck(  # noqa: PLR0912, PLR0913, PLR0915
                 f"Unified 404 handler failed ({initiator_kind} recheck): {e}"
             )
 
-        result["error"] = (
-            "RSI handle not found. User may have changed their handle."
-        )
+        result["error"] = "RSI handle not found. User may have changed their handle."
 
         # Log failed admin action with remediation
         if log_audit and admin_user_id:
@@ -231,9 +230,7 @@ async def perform_recheck(  # noqa: PLR0912, PLR0913, PLR0915
     if log_leadership:
         try:
             # Cast to Literal type for ChangeSet type safety
-            initiator_literal = cast(
-                'Literal["User", "Admin", "Auto"]', initiator_kind
-            )
+            initiator_literal = cast('Literal["User", "Admin", "Auto"]', initiator_kind)
             cs = ChangeSet(
                 user_id=member.id,
                 event=EventType.RECHECK,

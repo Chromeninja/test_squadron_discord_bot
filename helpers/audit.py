@@ -1,4 +1,5 @@
 """Admin action audit logging."""
+
 import json
 import time
 
@@ -66,4 +67,3 @@ async def log_admin_action(
                 "error": str(e),
             },
         )
-

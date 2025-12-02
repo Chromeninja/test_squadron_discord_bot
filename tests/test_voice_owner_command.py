@@ -89,7 +89,6 @@ class TestVoiceOwnerCommand:
 
         # Mock admin permissions
         with patch.object(voice_service, "get_admin_role_ids", return_value=[111, 222]):
-
             # Set up test data in database
             async with Database.get_connection() as db:
                 test_data = [
@@ -119,7 +118,7 @@ class TestVoiceOwnerCommand:
                 # Create mock channel
                 channel = AsyncMock(spec=discord.VoiceChannel)
                 channel.id = voice_id
-                channel.name = f"Voice Channel {i+1}"
+                channel.name = f"Voice Channel {i + 1}"
                 channel.members = [
                     AsyncMock() for _ in range(i + 1)
                 ]  # Different member counts
@@ -207,7 +206,6 @@ class TestVoiceOwnerCommand:
 
         # Mock admin permissions
         with patch.object(voice_service, "get_admin_role_ids", return_value=[111]):
-
             # Call the command with empty database
             await voice_commands.list_owners.callback(voice_commands, mock_interaction)
 
@@ -329,7 +327,6 @@ class TestVoiceOwnerCommand:
             with patch.object(
                 voice_service, "get_admin_role_ids", return_value=[111, 222]
             ):
-
                 # Set up test data in database
                 async with Database.get_connection() as db:
                     # Insert test voice channels
@@ -348,7 +345,15 @@ class TestVoiceOwnerCommand:
                     for guild_id, jtc_id, owner_id, voice_id, created_at in test_data:
                         await db.execute(
                             "INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (guild_id, jtc_id, owner_id, voice_id, created_at, created_at, 1),
+                            (
+                                guild_id,
+                                jtc_id,
+                                owner_id,
+                                voice_id,
+                                created_at,
+                                created_at,
+                                1,
+                            ),
                         )
                     await db.commit()
 
@@ -360,7 +365,7 @@ class TestVoiceOwnerCommand:
                     # Create mock channel
                     channel = AsyncMock(spec=discord.VoiceChannel)
                     channel.id = voice_id
-                    channel.name = f"Voice Channel {i+1}"
+                    channel.name = f"Voice Channel {i + 1}"
                     channel.members = [
                         AsyncMock() for _ in range(i + 1)
                     ]  # Different member counts
@@ -432,7 +437,6 @@ class TestVoiceOwnerCommand:
         with patch.object(
             voice_commands.voice_service, "get_admin_role_ids", return_value=[111, 222]
         ):
-
             # Call the command with empty database
             await voice_commands.list_owners.callback(voice_commands, mock_interaction)
 
@@ -472,7 +476,6 @@ class TestVoiceOwnerCommand:
         with patch.object(
             voice_commands.voice_service, "get_admin_role_ids", return_value=[999]
         ):  # User has role 111, admin role is 999
-
             await voice_commands.list_owners.callback(voice_commands, mock_interaction)
 
             # Verify the command proceeded (defer was called, not permission denied)
@@ -487,14 +490,17 @@ class TestVoiceOwnerCommand:
                 message = call_args[0][0]
             else:  # kwargs
                 # For embed-based responses, check embed parameter
-                if 'embed' in call_args[1]:
+                if "embed" in call_args[1]:
                     # The command now sends an embed, not a text message when there are no channels
-                    assert call_args[1]['ephemeral'] is True
+                    assert call_args[1]["ephemeral"] is True
                     return
                 message = call_args[1].get("content", "")
 
             # Should show "No managed voice channels" not permission denied
-            assert "No managed voice channels found" in message or call_args[1].get('ephemeral') is True
+            assert (
+                "No managed voice channels found" in message
+                or call_args[1].get("ephemeral") is True
+            )
 
     @pytest.mark.asyncio
     async def test_voice_owner_handles_missing_discord_objects(
@@ -510,7 +516,6 @@ class TestVoiceOwnerCommand:
         with patch.object(
             voice_commands.voice_service, "get_admin_role_ids", return_value=[111, 222]
         ):
-
             # Set up test data in database
             async with Database.get_connection() as db:
                 await db.execute(
@@ -540,9 +545,9 @@ class TestVoiceOwnerCommand:
             if "embed" in call_args[1]:
                 embed = call_args[1]["embed"]
                 # When Discord objects are missing, they get filtered out, resulting in empty fields
-                assert (
-                    len(embed.fields) == 0
-                ), "Should have no fields when Discord objects are missing"
+                assert len(embed.fields) == 0, (
+                    "Should have no fields when Discord objects are missing"
+                )
                 # Footer should show 0 channels because filtered channels don't get displayed
                 assert (
                     "Total: 0 channels" in embed.footer.text
@@ -571,7 +576,6 @@ class TestVoiceOwnerCommand:
         with patch.object(
             voice_commands.voice_service, "get_admin_role_ids", return_value=[111, 222]
         ):
-
             # Set up test data in database
             async with Database.get_connection() as db:
                 await db.execute(

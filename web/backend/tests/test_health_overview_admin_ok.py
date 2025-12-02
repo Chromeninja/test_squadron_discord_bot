@@ -15,18 +15,16 @@ async def test_health_overview_admin_ok(client, mock_admin_session):
         "uptime_seconds": 3600,
         "db_ok": True,
         "discord_latency_ms": 25.0,
-        "system": {
-            "cpu_percent": 5.0,
-            "memory_percent": 10.0
-        }
+        "system": {"cpu_percent": 5.0, "memory_percent": 10.0},
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_health_data
 
         response = await client.get(
-            "/api/health/overview",
-            cookies={"session": mock_admin_session}
+            "/api/health/overview", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -55,18 +53,16 @@ async def test_health_overview_degraded_status(client, mock_admin_session):
         "uptime_seconds": 120,
         "db_ok": False,
         "discord_latency_ms": 150.5,
-        "system": {
-            "cpu_percent": 85.5,
-            "memory_percent": 90.2
-        }
+        "system": {"cpu_percent": 85.5, "memory_percent": 90.2},
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_health_data
 
         response = await client.get(
-            "/api/health/overview",
-            cookies={"session": mock_admin_session}
+            "/api/health/overview", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200

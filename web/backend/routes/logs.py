@@ -40,9 +40,7 @@ async def export_logs(
         return StreamingResponse(
             io.BytesIO(content),
             media_type="text/plain",
-            headers={
-                "Content-Disposition": "attachment; filename=bot.log.tail.txt"
-            }
+            headers={"Content-Disposition": "attachment; filename=bot.log.tail.txt"},
         )
 
     except Exception as exc:

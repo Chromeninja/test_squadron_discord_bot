@@ -16,18 +16,16 @@ async def test_health_overview_success_admin(client, mock_admin_session):
         "uptime_seconds": 3600,
         "db_ok": True,
         "discord_latency_ms": 45.2,
-        "system": {
-            "cpu_percent": 15.5,
-            "memory_percent": 42.3
-        }
+        "system": {"cpu_percent": 15.5, "memory_percent": 42.3},
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_health_data
 
         response = await client.get(
-            "/api/health/overview",
-            cookies={"session": mock_admin_session}
+            "/api/health/overview", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -52,18 +50,18 @@ async def test_health_overview_unauthorized(client):
 async def test_health_overview_forbidden_moderator(client, mock_moderator_session):
     """Test health overview endpoint returns 403 for moderator."""
     response = await client.get(
-        "/api/health/overview",
-        cookies={"session": mock_moderator_session}
+        "/api/health/overview", cookies={"session": mock_moderator_session}
     )
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_health_overview_forbidden_unauthorized(client, mock_unauthorized_session):
+async def test_health_overview_forbidden_unauthorized(
+    client, mock_unauthorized_session
+):
     """Test health overview endpoint returns 403 for unauthorized user."""
     response = await client.get(
-        "/api/health/overview",
-        cookies={"session": mock_unauthorized_session}
+        "/api/health/overview", cookies={"session": mock_unauthorized_session}
     )
     assert response.status_code == 403
 
@@ -71,15 +69,16 @@ async def test_health_overview_forbidden_unauthorized(client, mock_unauthorized_
 @pytest.mark.asyncio
 async def test_health_overview_internal_error(client, mock_admin_session):
     """Test health overview endpoint handles internal API errors."""
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.RequestError(
             "Internal API unavailable",
             request=httpx.Request("GET", "http://internal"),
         )
 
         response = await client.get(
-            "/api/health/overview",
-            cookies={"session": mock_admin_session}
+            "/api/health/overview", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 503
@@ -93,18 +92,16 @@ async def test_health_overview_without_latency(client, mock_admin_session):
         "status": "degraded",
         "uptime_seconds": 120,
         "db_ok": False,
-        "system": {
-            "cpu_percent": 5.0,
-            "memory_percent": 20.0
-        }
+        "system": {"cpu_percent": 5.0, "memory_percent": 20.0},
     }
 
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_health_data
 
         response = await client.get(
-            "/api/health/overview",
-            cookies={"session": mock_admin_session}
+            "/api/health/overview", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -119,10 +116,12 @@ async def test_health_overview_http_status_error(client, mock_admin_session):
     response_obj = httpx.Response(
         502,
         request=httpx.Request("GET", "http://internal"),
-        content=b"{\"detail\": \"bot unavailable\"}",
+        content=b'{"detail": "bot unavailable"}',
     )
 
-    with patch("core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.HTTPStatusError(
             "bot unavailable",
             request=response_obj.request,

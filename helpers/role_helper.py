@@ -91,7 +91,8 @@ async def assign_roles(
     prev_affiliate_orgs = None
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?", (member.id,)
+            "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?",
+            (member.id,),
         )
         row = await cursor.fetchone()
         if row:
@@ -102,7 +103,7 @@ async def assign_roles(
                 prev_affiliate_orgs = json.loads(prev_affiliate_orgs_json)
 
     # Get role configuration from database for this guild
-    if hasattr(bot, 'services') and bot.services:
+    if hasattr(bot, "services") and bot.services:
         try:
             # Fetch role IDs from database (stored as lists, use first item)
             main_role_ids = await bot.services.config.get_guild_setting(
@@ -122,10 +123,14 @@ async def assign_roles(
 
             # Get role objects from cache or guild
             main_role = bot.role_cache.get(main_role_id) if main_role_id else None
-            affiliate_role = bot.role_cache.get(affiliate_role_id) if affiliate_role_id else None
-            non_member_role = bot.role_cache.get(non_member_role_id) if non_member_role_id else None
+            affiliate_role = (
+                bot.role_cache.get(affiliate_role_id) if affiliate_role_id else None
+            )
+            non_member_role = (
+                bot.role_cache.get(non_member_role_id) if non_member_role_id else None
+            )
         except Exception as e:
-            logger.error(f"Error fetching role configuration from database: {e}")
+            logger.exception(f"Error fetching role configuration from database: {e}")
             main_role = affiliate_role = non_member_role = None
     else:
         logger.warning("Bot services not available, cannot fetch role configuration")
@@ -181,9 +186,15 @@ async def assign_roles(
 
         # Always enqueue announcement check - guild-aware function handles status derivation
         from helpers.announcement import enqueue_announcement_for_guild
+
         try:
             await enqueue_announcement_for_guild(
-                bot, member, main_orgs, affiliate_orgs, prev_main_orgs, prev_affiliate_orgs
+                bot,
+                member,
+                main_orgs,
+                affiliate_orgs,
+                prev_main_orgs,
+                prev_affiliate_orgs,
             )
         except Exception as e:
             logger.warning(
@@ -332,7 +343,11 @@ async def assign_roles(
 
     # Get guild org SID for status derivation
     guild_org_sid = "TEST"
-    if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+    if (
+        hasattr(bot, "services")
+        and bot.services
+        and hasattr(bot.services, "guild_config")
+    ):
         try:
             guild_org_sid = await bot.services.guild_config.get_setting(
                 member.guild.id, "organization.sid", default="TEST"
@@ -342,8 +357,12 @@ async def assign_roles(
         except Exception:
             pass
 
-    prev_status_derived = derive_membership_status(prev_main_orgs, prev_affiliate_orgs, guild_org_sid)
-    new_status_derived = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+    prev_status_derived = derive_membership_status(
+        prev_main_orgs, prev_affiliate_orgs, guild_org_sid
+    )
+    new_status_derived = derive_membership_status(
+        main_orgs, affiliate_orgs, guild_org_sid
+    )
 
     return prev_status_derived, new_status_derived
 
@@ -430,11 +449,17 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         except Exception as e:
             logger.warning(
                 f"Failed to get org config, using defaults: {e}",
-                extra={"guild_id": member.guild.id}
+                extra={"guild_id": member.guild.id},
             )
 
     try:
-        verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
+        (
+            verify_value,
+            cased_handle,
+            community_moniker,
+            main_orgs,
+            affiliate_orgs,
+        ) = await is_valid_rsi_handle(
             rsi_handle, http_client, org_name, org_sid
         )  # May raise NotFoundError
     except Exception as e:
@@ -454,6 +479,12 @@ async def reverify_member(member: discord.Member, rsi_handle: str, bot) -> tuple
         )
 
     role_type = await assign_roles(
-        member, verify_value, cased_handle, bot, community_moniker=community_moniker, main_orgs=main_orgs, affiliate_orgs=affiliate_orgs
+        member,
+        verify_value,
+        cased_handle,
+        bot,
+        community_moniker=community_moniker,
+        main_orgs=main_orgs,
+        affiliate_orgs=affiliate_orgs,
     )
     return True, role_type, None

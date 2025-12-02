@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import io
 import time
@@ -169,9 +170,7 @@ async def send_verification_announcements(
             return
 
     if not lead_channel:
-        logger.warning(
-            f"No leadership channel configured for guild {guild.id}"
-        )
+        logger.warning(f"No leadership channel configured for guild {guild.id}")
         return
 
     old_status = (old_status or "").lower()
@@ -192,13 +191,11 @@ async def send_verification_announcements(
 
     # Fetch organization SID for dynamic status strings
     org_sid = "ORG"
-    if hasattr(bot, 'services') and bot.services.guild_config:
-        try:
+    if hasattr(bot, "services") and bot.services.guild_config:
+        with contextlib.suppress(Exception):
             org_sid = await bot.services.guild_config.get_setting(
                 member.guild.id, "organization.sid", default="ORG"
             )
-        except Exception:
-            pass
 
     if lead_channel:
         try:
@@ -226,7 +223,7 @@ async def send_admin_bulk_check_summary(
     scope_channel: str | None,
     embed: discord.Embed,
     csv_bytes: bytes,
-    csv_filename: str
+    csv_filename: str,
 ) -> str:
     """
     Send bulk verification check summary to leadership/admin announcement channel.
@@ -266,10 +263,7 @@ async def send_admin_bulk_check_summary(
 
     try:
         # Create CSV file attachment
-        csv_file = discord.File(
-            fp=io.BytesIO(csv_bytes),
-            filename=csv_filename
-        )
+        csv_file = discord.File(fp=io.BytesIO(csv_bytes), filename=csv_filename)
 
         # Send embed + CSV to leadership channel (NOT using leadership_log header)
         await channel.send(embed=embed, file=csv_file)
@@ -282,12 +276,14 @@ async def send_admin_bulk_check_summary(
         return channel.name
 
     except Exception as e:
-        logger.exception(f"Failed to send bulk check summary to leadership channel: {e}")
+        logger.exception(
+            f"Failed to send bulk check summary to leadership channel: {e}"
+        )
         raise
 
-            # ----------------------------
-            # Queue helpers
-            # ----------------------------
+        # ----------------------------
+        # Queue helpers
+        # ----------------------------
 
 
 def _classify_event(old_status: str, new_status: str) -> str | None:
@@ -360,7 +356,11 @@ async def enqueue_announcement_for_guild(
     try:
         # Get this guild's tracked organization SID
         guild_org_sid = "TEST"  # Default fallback
-        if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+        if (
+            hasattr(bot, "services")
+            and bot.services
+            and hasattr(bot.services, "guild_config")
+        ):
             try:
                 guild_org_sid = await bot.services.guild_config.get_setting(
                     member.guild.id, "organization.sid", default="TEST"
@@ -372,14 +372,16 @@ async def enqueue_announcement_for_guild(
                 logger.debug(f"Failed to get guild org SID, using TEST: {e}")
 
         # Derive status for this guild before and after
-        old_status = derive_membership_status(prev_main_orgs, prev_affiliate_orgs, guild_org_sid)
+        old_status = derive_membership_status(
+            prev_main_orgs, prev_affiliate_orgs, guild_org_sid
+        )
         new_status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
 
         # Log for debugging
         logger.debug(
             f"Guild {member.guild.id} announcement check: {old_status} → {new_status} "
             f"(org: {guild_org_sid})",
-            extra={"user_id": member.id}
+            extra={"user_id": member.id},
         )
 
         # Enqueue if it's a promotion
@@ -409,7 +411,7 @@ async def enqueue_verification_event(
     if not et:
         logger.debug(
             f"Status transition not announceable: {old_status} → {new_status}",
-            extra={"user_id": member.id}
+            extra={"user_id": member.id},
         )
         return
 
@@ -417,7 +419,9 @@ async def enqueue_verification_event(
     guild_id = member.guild.id if member.guild else None
 
     if guild_id is None:
-        logger.warning(f"Cannot enqueue announcement event for user {member.id}: no guild context")
+        logger.warning(
+            f"Cannot enqueue announcement event for user {member.id}: no guild context"
+        )
         return
 
     try:
@@ -434,7 +438,14 @@ async def enqueue_verification_event(
                     "INSERT INTO announcement_events (user_id, guild_id, old_status, new_status, event_type, created_at, "
                     "announced_at) VALUES (?, ?, ?, ?, ?, ?, NULL)"
                 ),
-                (member.id, guild_id, (old_status or "non_member"), (new_status or ""), et, now),
+                (
+                    member.id,
+                    guild_id,
+                    (old_status or "non_member"),
+                    (new_status or ""),
+                    et,
+                    now,
+                ),
             )
             await db.commit()
     except Exception as e:
@@ -521,7 +532,7 @@ class BulkAnnouncer(commands.Cog):
             self._config_loaded = True
 
         except Exception as e:
-            logger.error(f"Failed to load BulkAnnouncer config: {e}")
+            logger.exception(f"Failed to load BulkAnnouncer config: {e}")
             self._config_loaded = True  # Prevent infinite retries
 
     def cog_unload(self):
@@ -569,13 +580,15 @@ class BulkAnnouncer(commands.Cog):
                 # Get guild object
                 guild = self.bot.get_guild(guild_id)
                 if not guild:
-                    logger.warning(f"BulkAnnouncer: guild {guild_id} not found, skipping {len(guild_events)} events")
+                    logger.warning(
+                        f"BulkAnnouncer: guild {guild_id} not found, skipping {len(guild_events)} events"
+                    )
                     continue
 
                 # Fetch guild's organization settings
                 org_sid = None
                 org_name = None
-                if hasattr(self.bot, 'services') and self.bot.services.guild_config:
+                if hasattr(self.bot, "services") and self.bot.services.guild_config:
                     try:
                         org_sid = await self.bot.services.guild_config.get_setting(
                             guild_id, "organization.sid", default=None
@@ -584,7 +597,9 @@ class BulkAnnouncer(commands.Cog):
                             guild_id, "organization.name", default=None
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to fetch org settings for guild {guild_id}: {e}")
+                        logger.warning(
+                            f"Failed to fetch org settings for guild {guild_id}: {e}"
+                        )
 
                 # Fallback to "ORG" if no settings
                 if not org_sid:
@@ -594,13 +609,15 @@ class BulkAnnouncer(commands.Cog):
 
                 # Get public announcement channel for this guild
                 channel = None
-                if hasattr(self.bot, 'services') and self.bot.services.guild_config:
+                if hasattr(self.bot, "services") and self.bot.services.guild_config:
                     try:
                         channel = await self.bot.services.guild_config.get_channel(
                             guild_id, "public_announcement_channel_id", guild
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to fetch announcement channel for guild {guild_id}: {e}")
+                        logger.warning(
+                            f"Failed to fetch announcement channel for guild {guild_id}: {e}"
+                        )
 
                 if not channel:
                     logger.warning(
@@ -609,7 +626,9 @@ class BulkAnnouncer(commands.Cog):
                     continue
 
                 # Deduplicate: keep only latest event per user in this guild
-                latest_by_user: dict[int, tuple] = {}  # user_id -> (id, event_type, created_at)
+                latest_by_user: dict[
+                    int, tuple
+                ] = {}  # user_id -> (id, event_type, created_at)
                 for ev_id, user_id, event_type, created_at in guild_events:
                     prev = latest_by_user.get(user_id)
                     if (prev is None) or (created_at >= prev[2]):
@@ -625,7 +644,9 @@ class BulkAnnouncer(commands.Cog):
                     if event_type in events_by_type:
                         events_by_type[event_type].append((ev_id, user_id))
 
-                allowed = discord.AllowedMentions(users=True, roles=False, everyone=False)
+                allowed = discord.AllowedMentions(
+                    users=True, roles=False, everyone=False
+                )
 
                 # Define announcement sections with dynamic org SID/name
                 sections = [
@@ -686,7 +707,9 @@ class BulkAnnouncer(commands.Cog):
                     announced_ids.extend([ev_id for ev_id, _ in id_mention_pairs])
 
             except Exception as e:
-                logger.error(f"BulkAnnouncer: error processing guild {guild_id}: {e}")
+                logger.exception(
+                    f"BulkAnnouncer: error processing guild {guild_id}: {e}"
+                )
                 continue
 
         # Delete all announced events
@@ -698,8 +721,7 @@ class BulkAnnouncer(commands.Cog):
                         chunk = announced_ids[i : i + CHUNK]
                         qmarks = ",".join("?" for _ in chunk)
                         await db.execute(
-                            f"DELETE FROM announcement_events "
-                            f"WHERE id IN ({qmarks})",
+                            f"DELETE FROM announcement_events WHERE id IN ({qmarks})",
                             (*chunk,),
                         )
                     await db.commit()

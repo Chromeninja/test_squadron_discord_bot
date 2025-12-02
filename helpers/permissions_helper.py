@@ -309,7 +309,9 @@ def resolve_role_ids_for_guild(
 PERMISSION_DENIED_MESSAGE = "You don't have permission to use this command."
 
 
-def _resolve_guild(member: discord.Member, guild: discord.Guild | None) -> discord.Guild | None:
+def _resolve_guild(
+    member: discord.Member, guild: discord.Guild | None
+) -> discord.Guild | None:
     if guild is not None:
         return guild
     if isinstance(member, discord.Member):
@@ -317,16 +319,16 @@ def _resolve_guild(member: discord.Member, guild: discord.Guild | None) -> disco
     return None
 
 
-def _has_owner_or_discord_admin(bot, member: discord.Member, guild: discord.Guild) -> bool:
+def _has_owner_or_discord_admin(
+    bot, member: discord.Member, guild: discord.Guild
+) -> bool:
     if not isinstance(member, discord.Member):
         return False
     if bot.owner_id and member.id == bot.owner_id:
         return True
     if member.guild_permissions.administrator:
         return True
-    if guild.owner_id and member.id == guild.owner_id:
-        return True
-    return False
+    return bool(guild.owner_id and member.id == guild.owner_id)
 
 
 async def _get_configured_role_ids(bot, guild_id: int, key: str) -> list[int]:

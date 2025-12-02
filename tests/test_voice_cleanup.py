@@ -418,9 +418,12 @@ class TestVoiceCleanup:
             await db.commit()
 
         # Set very short cleanup delay for testing
-        with patch.object(
-            voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+        with (
+            patch.object(
+                voice_service.config_service, "get_global_setting", return_value=0.1
+            ),
+            patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
+        ):
             # Schedule cleanup and wait
             await voice_service._schedule_channel_cleanup(channel.id)
             await asyncio.sleep(0.2)  # Wait for cleanup to complete
@@ -451,9 +454,12 @@ class TestVoiceCleanup:
         voice_service.managed_voice_channels.add(channel.id)
 
         # Set very short cleanup delay for testing
-        with patch.object(
-            voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+        with (
+            patch.object(
+                voice_service.config_service, "get_global_setting", return_value=0.1
+            ),
+            patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
+        ):
             # Schedule cleanup
             await voice_service._schedule_channel_cleanup(channel.id)
 

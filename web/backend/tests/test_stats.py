@@ -29,7 +29,7 @@ async def test_stats_overview_admin(
     fake_internal_api.guild_stats[123] = {
         "guild_id": 123,
         "member_count": 100,  # Total guild members
-        "approximate_member_count": None
+        "approximate_member_count": None,
     }
 
     response = await client.get(
@@ -63,7 +63,7 @@ async def test_stats_overview_moderator(
     fake_internal_api.guild_stats[123] = {
         "guild_id": 123,
         "member_count": 100,
-        "approximate_member_count": None
+        "approximate_member_count": None,
     }
 
     response = await client.get(

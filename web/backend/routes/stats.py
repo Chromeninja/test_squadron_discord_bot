@@ -2,6 +2,8 @@
 Statistics endpoints for dashboard overview.
 """
 
+import contextlib
+
 from core.dependencies import (
     InternalAPIClient,
     get_db,
@@ -66,21 +68,17 @@ async def get_stats_overview(
     if guild_id:
         cursor = await db.execute(
             "SELECT value FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
-            (guild_id,)
+            (guild_id,),
         )
         row = await cursor.fetchone()
         if row and row[0]:
             guild_org_sid = json.loads(row[0]) if isinstance(row[0], str) else row[0]
             if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
-                try:
+                with contextlib.suppress(Exception):
                     guild_org_sid = json.loads(guild_org_sid)
-                except Exception:
-                    pass
 
     # Derive status for each verified user based on their org lists
-    cursor = await db.execute(
-        "SELECT main_orgs, affiliate_orgs FROM verification"
-    )
+    cursor = await db.execute("SELECT main_orgs, affiliate_orgs FROM verification")
     rows = await cursor.fetchall()
 
     status_counts = StatusCounts()
@@ -90,7 +88,9 @@ async def get_stats_overview(
         if main_orgs_json is None and affiliate_orgs_json is None:
             continue
         main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
-        affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+        affiliate_orgs = (
+            json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+        )
 
         status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
 
@@ -104,13 +104,13 @@ async def get_stats_overview(
     # Calculate true unverified count: all guild members who aren't verified
     # This includes both users with status="unknown" in DB AND users not in DB at all
     if total_guild_members > 0:
-        verified_count = status_counts.main + status_counts.affiliate + status_counts.non_member
+        verified_count = (
+            status_counts.main + status_counts.affiliate + status_counts.non_member
+        )
         status_counts.unknown = max(0, total_guild_members - verified_count)
 
     # Active voice channels
-    cursor = await db.execute(
-        "SELECT COUNT(*) FROM voice_channels WHERE is_active = 1"
-    )
+    cursor = await db.execute("SELECT COUNT(*) FROM voice_channels WHERE is_active = 1")
     row = await cursor.fetchone()
     voice_active_count = row[0] if row else 0
 

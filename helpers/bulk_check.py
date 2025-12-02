@@ -62,7 +62,7 @@ async def collect_targets(
     targets: str,
     guild: discord.Guild,
     members_text: str | None,
-    channel: discord.VoiceChannel | None
+    channel: discord.VoiceChannel | None,
 ) -> list[discord.Member]:
     """Return ordered unique members according to targets mode."""
     if targets == "users":
@@ -100,7 +100,11 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         target_sid = "TEST"
         try:
             # All members belong to the same guild for bulk checks
-            guild_id = member_list[0].guild.id if member_list and getattr(member_list[0], "guild", None) else None
+            guild_id = (
+                member_list[0].guild.id
+                if member_list and getattr(member_list[0], "guild", None)
+                else None
+            )
             if guild_id is not None:
                 cur = await db.execute(
                     "SELECT json_extract(value, '$') FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
@@ -127,6 +131,7 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
 
     # Build a map of verification data keyed by user_id
     import json
+
     verification_map = {}
     for row in rows:
         user_id, rsi_handle, last_updated, main_orgs_json, affiliate_orgs_json = row
@@ -135,7 +140,9 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         except Exception:
             main_orgs = []
         try:
-            affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
+            affiliate_orgs = (
+                json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
+            )
         except Exception:
             affiliate_orgs = []
         derived_status = derive_membership_status(main_orgs, affiliate_orgs, target_sid)
@@ -162,14 +169,16 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         # Use display_name for consistency with Discord UI
         username = member.display_name
 
-        status_rows.append(StatusRow(
-            user_id=member.id,
-            username=username,
-            rsi_handle=rsi_handle,
-            membership_status=membership_status,
-            last_updated=last_updated,
-            voice_channel=voice_channel_name
-        ))
+        status_rows.append(
+            StatusRow(
+                user_id=member.id,
+                username=username,
+                rsi_handle=rsi_handle,
+                membership_status=membership_status,
+                last_updated=last_updated,
+                voice_channel=voice_channel_name,
+            )
+        )
 
     return status_rows
 
@@ -181,7 +190,7 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
         "Affiliate": 0,
         "Non-Member": 0,
         "Unverified": 0,
-        "Not in DB": 0
+        "Not in DB": 0,
     }
 
     for row in rows:
@@ -214,7 +223,7 @@ def _format_status_display(membership_status: str) -> str:
 def _truncate_text(text: str, max_length: int = 20) -> str:
     """Truncate text if longer than max_length, adding ellipsis."""
     if len(text) > max_length:
-        return text[:max_length - 3] + "..."
+        return text[: max_length - 3] + "..."
     return text
 
 
@@ -230,12 +239,10 @@ def _build_description_lines(
     total_processed: int,
     counts: dict[str, int],
     scope_label: str | None = None,
-    scope_channel: str | None = None
+    scope_channel: str | None = None,
 ) -> list[str]:
     """Build description lines with requester info, scope, and status counts."""
-    desc_lines = [
-        f"**Requested by:** {invoker.mention} (Admin)"
-    ]
+    desc_lines = [f"**Requested by:** {invoker.mention} (Admin)"]
 
     if scope_label:
         desc_lines.append(f"**Scope:** {scope_label}")
@@ -243,10 +250,12 @@ def _build_description_lines(
     if scope_channel:
         desc_lines.append(f"**Channel:** {scope_channel}")
 
-    desc_lines.extend([
-        f"**Checked:** {total_processed} users",
-        ""  # Blank line before counts
-    ])
+    desc_lines.extend(
+        [
+            f"**Checked:** {total_processed} users",
+            "",  # Blank line before counts
+        ]
+    )
 
     # Add non-zero status counts
     for category, count in counts.items():
@@ -276,7 +285,9 @@ def _format_detail_line(row: StatusRow) -> str:
     )
 
 
-def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:
+def _build_detail_lines(
+    rows: list[StatusRow], max_field_length: int = 1000
+) -> tuple[list[str], int]:
     """
     Build per-user detail lines, truncating if necessary.
 
@@ -311,7 +322,7 @@ def build_summary_embed(
     rows: list[StatusRow],
     truncated_count: int = 0,
     scope_label: str | None = None,
-    scope_channel: str | None = None
+    scope_channel: str | None = None,
 ) -> discord.Embed:
     """
     Create a Discord embed for bulk verification check results posted to leadership channel.
@@ -324,7 +335,7 @@ def build_summary_embed(
     embed = discord.Embed(
         title="Bulk Verification Check",
         color=discord.Color.blue(),
-        timestamp=discord.utils.utcnow()
+        timestamp=discord.utils.utcnow(),
     )
 
     # Build description with metadata and counts
@@ -339,24 +350,19 @@ def build_summary_embed(
         truncated_count = max(truncated_count, additional_truncated)
 
         if detail_lines:
-            embed.add_field(
-                name="Details",
-                value="\n".join(detail_lines),
-                inline=False
-            )
+            embed.add_field(name="Details", value="\n".join(detail_lines), inline=False)
 
     # Add footer if truncated
     if truncated_count > 0:
-        embed.set_footer(text=f"… and {truncated_count} more (see CSV for full results)")
+        embed.set_footer(
+            text=f"… and {truncated_count} more (see CSV for full results)"
+        )
 
     return embed
 
 
 async def write_csv(
-    rows: list[StatusRow],
-    *,
-    guild_name: str = "guild",
-    invoker_name: str = "admin"
+    rows: list[StatusRow], *, guild_name: str = "guild", invoker_name: str = "admin"
 ) -> tuple[str, bytes]:
     """
     Generate CSV export of verification status rows.
@@ -368,16 +374,19 @@ async def write_csv(
     if not rows:
         # Empty results
         timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
-        safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
-        safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+        safe_guild = re.sub(r"[^\w\-]", "_", guild_name)[:30]
+        safe_invoker = re.sub(r"[^\w\-]", "_", invoker_name)[:20]
         filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
-        return filename, b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n"
+        return (
+            filename,
+            b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n",
+        )
 
     # Generate filename with timestamp and invoker
     timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
     # Sanitize guild and invoker names for filename
-    safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
-    safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+    safe_guild = re.sub(r"[^\w\-]", "_", guild_name)[:30]
+    safe_invoker = re.sub(r"[^\w\-]", "_", invoker_name)[:20]
     filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
 
     # Create CSV content
@@ -385,34 +394,38 @@ async def write_csv(
     writer = csv.writer(output)
 
     # Write header (include RSI recheck fields)
-    writer.writerow([
-        "user_id",
-        "username",
-        "rsi_handle",
-        "membership_status",
-        "last_updated",
-        "voice_channel",
-        "rsi_status",
-        "rsi_checked_at",
-        "rsi_error"
-    ])
+    writer.writerow(
+        [
+            "user_id",
+            "username",
+            "rsi_handle",
+            "membership_status",
+            "last_updated",
+            "voice_channel",
+            "rsi_status",
+            "rsi_checked_at",
+            "rsi_error",
+        ]
+    )
 
     # Write data rows
     for row in rows:
-        writer.writerow([
-            row.user_id,
-            row.username,
-            row.rsi_handle or "",
-            row.membership_status or "",
-            row.last_updated or "",
-            row.voice_channel or "",
-            row.rsi_status or "",
-            row.rsi_checked_at or "",
-            row.rsi_error or ""
-        ])
+        writer.writerow(
+            [
+                row.user_id,
+                row.username,
+                row.rsi_handle or "",
+                row.membership_status or "",
+                row.last_updated or "",
+                row.voice_channel or "",
+                row.rsi_status or "",
+                row.rsi_checked_at or "",
+                row.rsi_error or "",
+            ]
+        )
 
     # Get bytes content
     csv_content = output.getvalue()
-    content_bytes = csv_content.encode('utf-8')
+    content_bytes = csv_content.encode("utf-8")
 
     return filename, content_bytes

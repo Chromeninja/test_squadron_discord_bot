@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -14,14 +13,7 @@ from helpers.embeds import (
     create_success_embed,
     create_verification_embed,
 )
-from helpers.http_helper import NotFoundError
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.recheck_service import perform_recheck
-from helpers.role_helper import reverify_member
-from helpers.snapshots import diff_snapshots, snapshot_member_state
-from helpers.task_queue import flush_tasks
-from helpers.username_404 import handle_username_404
 from helpers.views import VerificationView
 from services.db.database import Database
 from utils.logging import get_logger
@@ -80,7 +72,9 @@ def _load_verification_message_ids() -> dict[int, int]:
         # Convert string keys back to integers
         return {int(guild_id): msg_id for guild_id, msg_id in data.items()}
     except (json.JSONDecodeError, OSError, ValueError) as e:
-        logger.warning(f"Failed to read verification message IDs from {message_id_file}: {e}")
+        logger.warning(
+            f"Failed to read verification message IDs from {message_id_file}: {e}"
+        )
         return {}
 
 
@@ -131,13 +125,13 @@ def _save_verification_message_ids(message_ids: dict[int, int]) -> None:
 
         # Write to temporary file first for atomicity
         temp_file = message_id_file.with_suffix(".tmp")
-        temp_file.write_text(
-            json.dumps(json_data, indent=2), encoding="utf-8"
-        )
+        temp_file.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
 
         # Atomic replace
         temp_file.replace(message_id_file)
-        logger.info(f"Saved {len(message_ids)} verification message IDs to {message_id_file}")
+        logger.info(
+            f"Saved {len(message_ids)} verification message IDs to {message_id_file}"
+        )
 
     except OSError as e:
         logger.exception(
@@ -187,7 +181,9 @@ class VerificationCog(commands.Cog):
         message_ids = _load_verification_message_ids()
         updated_message_ids = message_ids.copy()
 
-        logger.info(f"Loaded {len(message_ids)} existing verification message IDs: {message_ids}")
+        logger.info(
+            f"Loaded {len(message_ids)} existing verification message IDs: {message_ids}"
+        )
 
         guilds_processed = 0
         guilds_sent = 0
@@ -195,46 +191,65 @@ class VerificationCog(commands.Cog):
         guilds_failed = 0
 
         for guild in self.bot.guilds:
-            logger.info(f"\n{'='*60}")
+            logger.info(f"\n{'=' * 60}")
             logger.info(f"Processing guild: {guild.name} (ID: {guild.id})")
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
             guilds_processed += 1
 
             try:
                 # Clear cache to ensure fresh data for multi-guild support
-                logger.debug(f"Clearing cache for guild {guild.id} to ensure fresh config data")
+                logger.debug(
+                    f"Clearing cache for guild {guild.id} to ensure fresh config data"
+                )
                 try:
                     await self.bot.services.config.clear_guild_cache(guild.id)
                 except Exception as cache_err:
-                    logger.warning(f"Failed to clear cache for guild {guild.id}: {cache_err}")
+                    logger.warning(
+                        f"Failed to clear cache for guild {guild.id}: {cache_err}"
+                    )
 
                 # Get verification channel from config service
-                logger.info(f"Looking up verification_channel_id for guild {guild.id}...")
+                logger.info(
+                    f"Looking up verification_channel_id for guild {guild.id}..."
+                )
                 channel = await guild_config.get_channel(
                     guild.id, "verification_channel_id", guild
                 )
 
                 logger.info(f"Channel lookup result: {channel}")
                 if channel:
-                    logger.info(f"  ✓ Found channel: #{channel.name} (ID: {channel.id})")
+                    logger.info(
+                        f"  ✓ Found channel: #{channel.name} (ID: {channel.id})"
+                    )
                     logger.info(f"  ✓ Channel type: {type(channel).__name__}")
-                    logger.info(f"  ✓ Bot permissions in channel: send_messages={channel.permissions_for(guild.me).send_messages}, embed_links={channel.permissions_for(guild.me).embed_links}")
+                    logger.info(
+                        f"  ✓ Bot permissions in channel: send_messages={channel.permissions_for(guild.me).send_messages}, embed_links={channel.permissions_for(guild.me).embed_links}"
+                    )
                 else:
-                    logger.warning("  ✗ Channel is None - no verification channel configured")
+                    logger.warning(
+                        "  ✗ Channel is None - no verification channel configured"
+                    )
 
                 if channel is None:
                     logger.warning(
-                        f"✗ No verification channel configured for guild {guild.name} ({guild.id})")
-                    logger.warning("  Skipping this guild - please configure verification channel in settings")
+                        f"✗ No verification channel configured for guild {guild.name} ({guild.id})"
+                    )
+                    logger.warning(
+                        "  Skipping this guild - please configure verification channel in settings"
+                    )
                     guilds_skipped += 1
                     continue
 
                 # Check if message already exists for this guild
                 existing_message_id = message_ids.get(guild.id)
-                logger.info(f"Existing message ID for this guild: {existing_message_id}")
+                logger.info(
+                    f"Existing message ID for this guild: {existing_message_id}"
+                )
 
                 if existing_message_id:
-                    logger.info(f"Checking if message {existing_message_id} still exists...")
+                    logger.info(
+                        f"Checking if message {existing_message_id} still exists..."
+                    )
                     try:
                         # Try to fetch the message
                         existing_msg = await channel.fetch_message(existing_message_id)
@@ -246,13 +261,21 @@ class VerificationCog(commands.Cog):
                         guilds_skipped += 1
                         continue  # Message already exists, no need to send a new one
                     except discord.NotFound:
-                        logger.info(f"✗ Message {existing_message_id} not found - will send a new one")
+                        logger.info(
+                            f"✗ Message {existing_message_id} not found - will send a new one"
+                        )
                     except discord.Forbidden:
-                        logger.warning(f"✗ No permission to fetch message {existing_message_id} - will try to send new one")
+                        logger.warning(
+                            f"✗ No permission to fetch message {existing_message_id} - will try to send new one"
+                        )
                     except Exception as e:
-                        logger.warning(f"✗ Error fetching message {existing_message_id}: {e} - will send new one")
+                        logger.warning(
+                            f"✗ Error fetching message {existing_message_id}: {e} - will send new one"
+                        )
                 else:
-                    logger.info(f"No existing message ID found for guild {guild.id} - will send new message")
+                    logger.info(
+                        f"No existing message ID found for guild {guild.id} - will send new message"
+                    )
 
                 # Create the verification embed
                 logger.info("Creating verification embed...")
@@ -264,7 +287,9 @@ class VerificationCog(commands.Cog):
 
                 # Send the embed with the interactive view to the channel
                 try:
-                    logger.info(f"Attempting to send verification embed to #{channel.name}...")
+                    logger.info(
+                        f"Attempting to send verification embed to #{channel.name}..."
+                    )
                     sent_message = await channel.send(embed=embed, view=view)
                     logger.info(f"✓ SUCCESS: Sent verification message to {guild.name}")
                     logger.info(f"  Message ID: {sent_message.id}")
@@ -276,26 +301,34 @@ class VerificationCog(commands.Cog):
                     guilds_sent += 1
 
                 except discord.Forbidden as e:
-                    logger.error(f"✗ FAILED: Bot lacks permission to send messages in {guild.name}")
-                    logger.error(f"  Channel: #{channel.name} ({channel.id})")
-                    logger.error("  Required permissions: Send Messages, Embed Links")
-                    logger.error(f"  Error: {e}")
+                    logger.exception(
+                        f"✗ FAILED: Bot lacks permission to send messages in {guild.name}"
+                    )
+                    logger.exception(f"  Channel: #{channel.name} ({channel.id})")
+                    logger.exception(
+                        "  Required permissions: Send Messages, Embed Links"
+                    )
+                    logger.exception(f"  Error: {e}")
                     guilds_failed += 1
                 except discord.HTTPException as e:
-                    logger.error(f"✗ FAILED: HTTP error sending verification message to {guild.name}")
-                    logger.error(f"  Error: {e}")
+                    logger.exception(
+                        f"✗ FAILED: HTTP error sending verification message to {guild.name}"
+                    )
+                    logger.exception(f"  Error: {e}")
                     guilds_failed += 1
 
             except Exception as e:
-                logger.error(f"✗ EXCEPTION processing guild {guild.name} ({guild.id}): {e}")
+                logger.exception(
+                    f"✗ EXCEPTION processing guild {guild.name} ({guild.id}): {e}"
+                )
                 logger.exception("Full traceback:", exc_info=e)
                 guilds_failed += 1
                 continue
 
         # Save all message IDs atomically
-        logger.info(f"\n{'='*60}")
+        logger.info(f"\n{'=' * 60}")
         logger.info("VERIFICATION MESSAGE SUMMARY")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
         logger.info(f"Guilds processed: {guilds_processed}")
         logger.info(f"Messages sent: {guilds_sent}")
         logger.info(f"Guilds skipped (already have message): {guilds_skipped}")
@@ -303,7 +336,9 @@ class VerificationCog(commands.Cog):
         logger.info(f"Total message IDs to save: {len(updated_message_ids)}")
 
         if updated_message_ids != message_ids:
-            logger.info(f"Saving {len(updated_message_ids)} message IDs to persistent storage...")
+            logger.info(
+                f"Saving {len(updated_message_ids)} message IDs to persistent storage..."
+            )
             _save_verification_message_ids(updated_message_ids)
             logger.info("✓ Successfully saved verification message IDs")
             for guild_id, msg_id in updated_message_ids.items():
@@ -311,7 +346,7 @@ class VerificationCog(commands.Cog):
         else:
             logger.info("No changes to message IDs - skipping save")
 
-        logger.info(f"{'='*60}\n")
+        logger.info(f"{'=' * 60}\n")
 
     async def recheck_button(self, interaction: discord.Interaction) -> None:
         """Handle a user-initiated recheck via the verification view button."""

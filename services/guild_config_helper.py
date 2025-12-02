@@ -64,13 +64,15 @@ class GuildConfigHelper:
             TextChannel object if found and valid, None otherwise
         """
         full_key = f"channels.{channel_key}"
-        logger.info(f"GuildConfigHelper.get_channel: guild_id={guild_id}, key='{full_key}'")
-
-        channel_id = await self.config.get(
-            guild_id, full_key, parser=int
+        logger.info(
+            f"GuildConfigHelper.get_channel: guild_id={guild_id}, key='{full_key}'"
         )
 
-        logger.info(f"  ConfigService returned channel_id: {channel_id} (type: {type(channel_id).__name__ if channel_id else 'None'})")
+        channel_id = await self.config.get(guild_id, full_key, parser=int)
+
+        logger.info(
+            f"  ConfigService returned channel_id: {channel_id} (type: {type(channel_id).__name__ if channel_id else 'None'})"
+        )
 
         if not channel_id:
             logger.info("  ✗ No channel ID found - returning None")
@@ -99,7 +101,9 @@ class GuildConfigHelper:
             logger.warning("  Channel may have been deleted or bot lacks access")
             return None
 
-        logger.info(f"  ✓ Channel object fetched: #{channel.name} (ID: {channel.id}, Type: {type(channel).__name__})")
+        logger.info(
+            f"  ✓ Channel object fetched: #{channel.name} (ID: {channel.id}, Type: {type(channel).__name__})"
+        )
 
         if not isinstance(channel, discord.TextChannel):
             logger.warning(
@@ -147,8 +151,7 @@ class GuildConfigHelper:
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 logger.warning(
-                    f"Guild {guild_id} not found when fetching "
-                    f"role {role_key}"
+                    f"Guild {guild_id} not found when fetching role {role_key}"
                 )
                 return None
 
@@ -180,9 +183,7 @@ class GuildConfigHelper:
         if guild is None:
             guild = self.bot.get_guild(guild_id)
             if guild is None:
-                logger.warning(
-                    f"Guild {guild_id} not found when fetching admin roles"
-                )
+                logger.warning(f"Guild {guild_id} not found when fetching admin roles")
                 return []
 
         roles = []
@@ -193,13 +194,9 @@ class GuildConfigHelper:
                 if role:
                     roles.append(role)
                 else:
-                    logger.warning(
-                        f"Admin role {rid} not found in guild {guild_id}"
-                    )
+                    logger.warning(f"Admin role {rid} not found in guild {guild_id}")
             except (ValueError, TypeError):
-                logger.warning(
-                    f"Invalid admin role ID: {role_id} in guild {guild_id}"
-                )
+                logger.warning(f"Invalid admin role ID: {role_id} in guild {guild_id}")
 
         return roles
 
@@ -225,8 +222,7 @@ class GuildConfigHelper:
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 logger.warning(
-                    f"Guild {guild_id} not found when fetching "
-                    f"lead moderator roles"
+                    f"Guild {guild_id} not found when fetching lead moderator roles"
                 )
                 return []
 
@@ -239,13 +235,11 @@ class GuildConfigHelper:
                     roles.append(role)
                 else:
                     logger.warning(
-                        f"Lead moderator role {rid} not found in "
-                        f"guild {guild_id}"
+                        f"Lead moderator role {rid} not found in guild {guild_id}"
                     )
             except (ValueError, TypeError):
                 logger.warning(
-                    f"Invalid lead moderator role ID: {role_id} in "
-                    f"guild {guild_id}"
+                    f"Invalid lead moderator role ID: {role_id} in guild {guild_id}"
                 )
 
         return roles
@@ -337,4 +331,3 @@ class GuildConfigHelper:
         return await self.config.get(
             guild_id, "announcements.threshold", default=10, parser=int
         )
-

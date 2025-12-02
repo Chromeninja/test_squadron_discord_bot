@@ -465,7 +465,7 @@ class ChannelSettingsView(View):
                 if not result or not result.get("settings"):
                     await interaction.response.send_message(
                         "❌ No channel settings found. Create or join a voice channel first!",
-                        ephemeral=True
+                        ephemeral=True,
                     )
                     return
 
@@ -689,6 +689,7 @@ class KickUserSelectView(View):
                 f"Kicked but failed to reject rejoining: {e}",
                 ephemeral=True,
             )
+
 
 # Unified Feature Toggle Views
 # (Handles PTT, Priority Speaker, and Soundboard toggles)
@@ -932,7 +933,9 @@ class FeatureRoleSelectView(View):
             self.role_select.refresh_options(interaction.guild)
         return True
 
-    async def _resolve_allowed_roles(self, guild: discord.Guild | None) -> list[int] | None:
+    async def _resolve_allowed_roles(
+        self, guild: discord.Guild | None
+    ) -> list[int] | None:
         """Fetch selectable roles for this guild via ConfigService, falling back to static config."""
         if guild and getattr(self.bot, "services", None):
             config_service = getattr(self.bot.services, "config", None)
@@ -1171,8 +1174,8 @@ class SelectRoleView(View):
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         # Load allowed roles from config service on first interaction
-        if interaction.guild and hasattr(self.bot, 'services'):
-            config_service = getattr(self.bot.services, 'config', None)
+        if interaction.guild and hasattr(self.bot, "services"):
+            config_service = getattr(self.bot.services, "config", None)
             if config_service:
                 try:
                     allowed_roles = await config_service.get_guild_setting(

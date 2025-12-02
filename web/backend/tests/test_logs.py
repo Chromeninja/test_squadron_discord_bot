@@ -13,12 +13,13 @@ async def test_logs_export_success_admin(client, mock_admin_session):
     """Test logs/export endpoint returns file for admin."""
     mock_log_content = b"[2025-11-09 12:00:00] INFO: Bot started\n[2025-11-09 12:01:00] INFO: Command executed\n"
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_log_content
 
         response = await client.get(
-            "/api/logs/export",
-            cookies={"session": mock_admin_session}
+            "/api/logs/export", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -33,12 +34,14 @@ async def test_logs_export_with_max_bytes(client, mock_admin_session):
     """Test logs/export endpoint respects max_bytes parameter."""
     mock_log_content = b"Log content"
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_log_content
 
         response = await client.get(
             "/api/logs/export?max_bytes=524288",  # 512KB
-            cookies={"session": mock_admin_session}
+            cookies={"session": mock_admin_session},
         )
 
     assert response.status_code == 200
@@ -57,8 +60,7 @@ async def test_logs_export_unauthorized(client):
 async def test_logs_export_forbidden_moderator(client, mock_moderator_session):
     """Test logs/export endpoint returns 403 for moderator."""
     response = await client.get(
-        "/api/logs/export",
-        cookies={"session": mock_moderator_session}
+        "/api/logs/export", cookies={"session": mock_moderator_session}
     )
     assert response.status_code == 403
 
@@ -67,8 +69,7 @@ async def test_logs_export_forbidden_moderator(client, mock_moderator_session):
 async def test_logs_export_forbidden_unauthorized(client, mock_unauthorized_session):
     """Test logs/export endpoint returns 403 for unauthorized user."""
     response = await client.get(
-        "/api/logs/export",
-        cookies={"session": mock_unauthorized_session}
+        "/api/logs/export", cookies={"session": mock_unauthorized_session}
     )
     assert response.status_code == 403
 
@@ -76,15 +77,16 @@ async def test_logs_export_forbidden_unauthorized(client, mock_unauthorized_sess
 @pytest.mark.asyncio
 async def test_logs_export_internal_error(client, mock_admin_session):
     """Test logs/export endpoint handles internal API errors."""
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.RequestError(
             "Internal API unavailable",
             request=httpx.Request("GET", "http://internal"),
         )
 
         response = await client.get(
-            "/api/logs/export",
-            cookies={"session": mock_admin_session}
+            "/api/logs/export", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 503
@@ -97,10 +99,12 @@ async def test_logs_export_http_status_error(client, mock_admin_session):
     response_obj = httpx.Response(
         500,
         request=httpx.Request("GET", "http://internal"),
-        content=b"{\"detail\": \"internal failure\"}",
+        content=b'{"detail": "internal failure"}',
     )
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.side_effect = httpx.HTTPStatusError(
             "internal failure",
             request=response_obj.request,
@@ -122,12 +126,14 @@ async def test_logs_export_large_file(client, mock_admin_session):
     # Generate 2MB of mock log content
     mock_log_content = b"Log line\n" * 200000
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_log_content
 
         response = await client.get(
             "/api/logs/export?max_bytes=2097152",  # 2MB
-            cookies={"session": mock_admin_session}
+            cookies={"session": mock_admin_session},
         )
 
     assert response.status_code == 200

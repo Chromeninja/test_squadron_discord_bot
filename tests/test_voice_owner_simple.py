@@ -275,9 +275,7 @@ async def test_voice_owner_command_accessible_to_all():
         assert "No managed voice channels found" in call_args[0][0]
         assert call_args[1]["ephemeral"] is True
 
-        print(
-            "✅ Test passed: Voice owner command is accessible to all members!"
-        )
+        print("✅ Test passed: Voice owner command is accessible to all members!")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,7 @@ import pytest
 async def test_health_overview_moderator_forbidden(client, mock_moderator_session):
     """Test health overview endpoint returns 403 for moderator (not admin)."""
     response = await client.get(
-        "/api/health/overview",
-        cookies={"session": mock_moderator_session}
+        "/api/health/overview", cookies={"session": mock_moderator_session}
     )
 
     assert response.status_code == 403

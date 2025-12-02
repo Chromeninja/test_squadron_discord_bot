@@ -78,7 +78,11 @@ async def fetch_channel_settings(
                     if settings:
                         result["settings"] = settings
                         embed = await _create_settings_embed(
-                            user, settings, result["active_channel"], is_active=True
+                            user,
+                            settings,
+                            interaction.guild,
+                            result["active_channel"],
+                            is_active=True,
                         )
                         result["embeds"].append(embed)
 
@@ -92,6 +96,7 @@ async def fetch_channel_settings(
                         embed = await _create_settings_embed(
                             user,
                             settings,
+                            interaction.guild,
                             None,
                             is_active=False,
                             jtc_channel_id=jtc_channel_id,
@@ -115,6 +120,7 @@ async def fetch_channel_settings(
                         embed = await _create_settings_embed(
                             user,
                             settings,
+                            interaction.guild,
                             None,
                             is_active=False,
                             jtc_channel_id=last_used_jtc,
@@ -122,13 +128,15 @@ async def fetch_channel_settings(
                         result["embeds"].append(embed)
                 else:
                     # No last used JTC found, get available JTCs for selection
-                    available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
+                    available_jtcs = await _get_available_jtc_channels(
+                        guild_id, user.id
+                    )
                     if available_jtcs:
                         # Create an informative embed prompting user to select a JTC
                         embed = discord.Embed(
                             title="🎙️ Multiple JTC Channels Found",
                             description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
-                            color=discord.Color.orange()
+                            color=discord.Color.orange(),
                         )
 
                         jtc_list = []
@@ -138,7 +146,7 @@ async def fetch_channel_settings(
                         embed.add_field(
                             name="Available JTC Channels",
                             value="\n".join(jtc_list),
-                            inline=False
+                            inline=False,
                         )
                         result["embeds"].append(embed)
                     # If no available JTCs, result stays empty (no settings)
@@ -308,7 +316,9 @@ async def _get_available_jtc_channels(guild_id: int, user_id: int) -> list[int]:
         return []
 
 
-async def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_id: int) -> None:
+async def update_last_used_jtc_channel(
+    guild_id: int, user_id: int, jtc_channel_id: int
+) -> None:
     """Update the last used JTC channel for a user."""
     try:
         async with Database.get_connection() as db:
@@ -325,9 +335,32 @@ async def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_
         logger.exception("Error updating last used JTC channel", exc_info=e)
 
 
+def _resolve_target_name(
+    guild: discord.Guild,
+    target_id: int,
+    target_type: str,
+) -> str:
+    """Resolve a target ID to a display name."""
+    if target_type == "user":
+        member = guild.get_member(target_id)
+        if member:
+            return member.display_name
+        return f"Unknown User ({target_id})"
+    elif target_type == "role":
+        # Check for @everyone
+        if target_id == guild.id:
+            return "@everyone"
+        role = guild.get_role(target_id)
+        if role:
+            return f"@{role.name}"
+        return f"Unknown Role ({target_id})"
+    return str(target_id)
+
+
 async def _create_settings_embed(
     user: discord.Member,
     settings: dict[str, Any],
+    guild: discord.Guild,
     active_channel: discord.VoiceChannel | None = None,
     is_active: bool = False,
     jtc_channel_id: int | None = None,
@@ -369,7 +402,9 @@ async def _create_settings_embed(
     if settings.get("permissions"):
         perm_text = []
         for target_id, target_type, permission in settings["permissions"]:
-            perm_text.append(f"**{target_type.title()} {target_id}:** {permission}")
+            target_name = _resolve_target_name(guild, target_id, target_type)
+            emoji = "✅" if permission == "permit" else "❌"
+            perm_text.append(f"{emoji} **{target_name}:** {permission}")
 
         if perm_text:
             embed.add_field(
@@ -378,17 +413,47 @@ async def _create_settings_embed(
                 inline=False,
             )
 
-    # Voice features
-    features = []
+    # Voice features with detailed target names
     if settings.get("ptt_settings"):
-        ptt_count = len(settings["ptt_settings"])
-        features.append(f"**PTT Settings:** {ptt_count} override(s)")
+        ptt_text = []
+        for target_id, target_type, enabled in settings["ptt_settings"]:
+            target_name = _resolve_target_name(guild, target_id, target_type)
+            status = "🔇 Required" if enabled else "🔊 Disabled"
+            ptt_text.append(f"{status} for **{target_name}**")
+        if ptt_text:
+            embed.add_field(
+                name="🎤 Push-to-Talk Overrides",
+                value="\n".join(ptt_text[:10]),
+                inline=False,
+            )
+
     if settings.get("priority_settings"):
-        priority_count = len(settings["priority_settings"])
-        features.append(f"**Priority Speaker:** {priority_count} override(s)")
+        priority_text = []
+        for target_id, target_type, enabled in settings["priority_settings"]:
+            target_name = _resolve_target_name(guild, target_id, target_type)
+            status = "✅ Enabled" if enabled else "❌ Disabled"
+            priority_text.append(f"{status} for **{target_name}**")
+        if priority_text:
+            embed.add_field(
+                name="📢 Priority Speaker Overrides",
+                value="\n".join(priority_text[:10]),
+                inline=False,
+            )
+
     if settings.get("soundboard_settings"):
-        soundboard_count = len(settings["soundboard_settings"])
-        features.append(f"**Soundboard:** {soundboard_count} override(s)")
+        soundboard_text = []
+        for target_id, target_type, enabled in settings["soundboard_settings"]:
+            target_name = _resolve_target_name(guild, target_id, target_type)
+            status = "✅ Enabled" if enabled else "❌ Disabled"
+            soundboard_text.append(f"{status} for **{target_name}**")
+        if soundboard_text:
+            embed.add_field(
+                name="🔊 Soundboard Overrides",
+                value="\n".join(soundboard_text[:10]),
+                inline=False,
+            )
+
+    features = []
 
     if features:
         embed.add_field(name="Voice Features", value="\n".join(features), inline=False)

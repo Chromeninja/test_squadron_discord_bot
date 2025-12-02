@@ -71,7 +71,12 @@ class ConfigService(BaseService):
                     roles[key] = [int(role_id) for role_id in roles[key] if role_id]
 
             # Convert single role ID configs
-            for key in ["bot_verified_role_id", "main_role_id", "affiliate_role_id", "non_member_role_id"]:
+            for key in [
+                "bot_verified_role_id",
+                "main_role_id",
+                "affiliate_role_id",
+                "non_member_role_id",
+            ]:
                 if key in roles and roles[key] is not None:
                     try:
                         roles[key] = int(roles[key])
@@ -98,9 +103,13 @@ class ConfigService(BaseService):
         Returns:
             Setting value (parsed if parser provided) or default
         """
-        self.logger.debug(f"ConfigService.get: guild_id={guild_id}, key='{key}', parser={parser.__name__ if parser else None}")
+        self.logger.debug(
+            f"ConfigService.get: guild_id={guild_id}, key='{key}', parser={parser.__name__ if parser else None}"
+        )
         value = await self.get_guild_setting(guild_id, key, default)
-        self.logger.debug(f"  ConfigService.get result: {value} (type: {type(value).__name__ if value is not None else 'None'})")
+        self.logger.debug(
+            f"  ConfigService.get result: {value} (type: {type(value).__name__ if value is not None else 'None'})"
+        )
 
         # Apply parser if provided and value is not None/default
         if parser and value is not None and value != default:
@@ -198,7 +207,9 @@ class ConfigService(BaseService):
         """Get all settings for a guild, using cache when possible."""
         async with self._cache_lock:
             if guild_id in self._guild_cache:
-                self.logger.debug(f"Cache HIT for guild {guild_id}: {len(self._guild_cache[guild_id])} settings")
+                self.logger.debug(
+                    f"Cache HIT for guild {guild_id}: {len(self._guild_cache[guild_id])} settings"
+                )
                 return self._guild_cache[guild_id]
 
         self.logger.debug(f"Cache MISS for guild {guild_id} - loading from database")
@@ -227,7 +238,9 @@ class ConfigService(BaseService):
         async with self._cache_lock:
             self._guild_cache[guild_id] = settings
 
-        self.logger.info(f"Loaded {len(settings)} settings from database for guild {guild_id}")
+        self.logger.info(
+            f"Loaded {len(settings)} settings from database for guild {guild_id}"
+        )
         if settings:
             self.logger.info(f"  Settings keys: {list(settings.keys())}")
 

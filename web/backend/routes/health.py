@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 
-@router.get("/overview", response_model=HealthResponse, dependencies=[Depends(require_any("admin"))])
+@router.get(
+    "/overview",
+    response_model=HealthResponse,
+    dependencies=[Depends(require_any("admin"))],
+)
 async def get_health_overview(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -40,7 +44,7 @@ async def get_health_overview(
             uptime_seconds=report["uptime_seconds"],
             db_ok=report["db_ok"],
             discord_latency_ms=report.get("discord_latency_ms"),
-            system=SystemMetrics(**report["system"])
+            system=SystemMetrics(**report["system"]),
         )
 
         return HealthResponse(data=health_overview)

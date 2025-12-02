@@ -14,12 +14,13 @@ async def test_logs_export_admin_ok(client, mock_admin_session):
 2025-11-10 12:01:00 WARNING Rate limit approaching
 2025-11-10 12:02:00 ERROR Connection timeout"""
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_log_content
 
         response = await client.get(
-            "/api/logs/export?lines=100",
-            cookies={"session": mock_admin_session}
+            "/api/logs/export?lines=100", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -46,12 +47,13 @@ async def test_logs_export_custom_lines(client, mock_admin_session):
     """Test logs export endpoint respects custom line count parameter."""
     mock_log_content = b"2025-11-10 12:00:00 INFO Test log line\n" * 50
 
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = mock_log_content
 
         response = await client.get(
-            "/api/logs/export?lines=50",
-            cookies={"session": mock_admin_session}
+            "/api/logs/export?lines=50", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -62,12 +64,13 @@ async def test_logs_export_custom_lines(client, mock_admin_session):
 @pytest.mark.asyncio
 async def test_logs_export_empty_logs(client, mock_admin_session):
     """Test logs export endpoint handles empty log content."""
-    with patch("core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock) as mock_get:
+    with patch(
+        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
+    ) as mock_get:
         mock_get.return_value = b""
 
         response = await client.get(
-            "/api/logs/export",
-            cookies={"session": mock_admin_session}
+            "/api/logs/export", cookies={"session": mock_admin_session}
         )
 
     assert response.status_code == 200
@@ -78,8 +81,7 @@ async def test_logs_export_empty_logs(client, mock_admin_session):
 async def test_logs_export_moderator_forbidden(client, mock_moderator_session):
     """Test logs export endpoint returns 403 for moderator (not admin)."""
     response = await client.get(
-        "/api/logs/export",
-        cookies={"session": mock_moderator_session}
+        "/api/logs/export", cookies={"session": mock_moderator_session}
     )
 
     assert response.status_code == 403

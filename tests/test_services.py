@@ -259,7 +259,6 @@ class TestVoiceService:
         await voice_service.initialize()
 
         guild_id = 54321
-        first_jtc = 11111
         second_jtc = 22222
         user_id = 999
 
@@ -295,6 +294,7 @@ class TestServiceContainer:
         """Test service container initializes all services."""
         # Create a mock bot instance
         from unittest.mock import Mock
+
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
@@ -318,6 +318,7 @@ class TestServiceContainer:
         """Test accessing services through container."""
         # Create a mock bot instance
         from unittest.mock import Mock
+
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
@@ -336,6 +337,7 @@ class TestServiceContainer:
         """Test health checking through services."""
         # Create a mock bot instance
         from unittest.mock import Mock
+
         mock_bot = Mock()
         mock_bot.get_channel = Mock(return_value=None)
         mock_bot.get_guild = Mock(return_value=None)
@@ -361,6 +363,7 @@ async def test_integration_flow(temp_db):
 
     # Create a mock bot instance
     from unittest.mock import Mock
+
     mock_bot = Mock()
     mock_bot.get_channel = Mock(return_value=None)
     mock_bot.get_guild = Mock(return_value=None)

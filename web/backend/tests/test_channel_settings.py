@@ -92,8 +92,18 @@ async def test_get_discord_channels_proxies_internal_api(admin_user_token):
     # Create a mock InternalAPIClient
     mock_client = AsyncMock(spec=InternalAPIClient)
     mock_client.get_guild_channels.return_value = [
-        {"id": "111111111111111111", "name": "general", "category": "Text Channels", "position": 0},
-        {"id": "222222222222222222", "name": "announcements", "category": "Info", "position": 1},
+        {
+            "id": "111111111111111111",
+            "name": "general",
+            "category": "Text Channels",
+            "position": 0,
+        },
+        {
+            "id": "222222222222222222",
+            "name": "announcements",
+            "category": "Info",
+            "position": 1,
+        },
     ]
 
     # Override the dependency
@@ -146,4 +156,3 @@ async def test_put_bot_channel_settings_allows_nulls(admin_user_token, temp_db):
     assert response.status_code == 200
     data = response.json()
     assert all(v is None for v in data.values())
-

@@ -44,21 +44,35 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
                 handle = handle_db
                 # Parse JSON org lists
                 main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
-                affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+                affiliate_orgs = (
+                    json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
+                )
 
                 # Derive status from org lists for this guild
-                if hasattr(bot, 'services') and bot.services and hasattr(bot.services, 'guild_config'):
+                if (
+                    hasattr(bot, "services")
+                    and bot.services
+                    and hasattr(bot.services, "guild_config")
+                ):
                     try:
                         guild_org_sid = await bot.services.guild_config.get_setting(
                             member.guild.id, "organization.sid", default="TEST"
                         )
                         # Remove JSON quotes if present
-                        if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
+                        if isinstance(guild_org_sid, str) and guild_org_sid.startswith(
+                            '"'
+                        ):
                             guild_org_sid = guild_org_sid.strip('"')
-                        status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+                        status = derive_membership_status(
+                            main_orgs, affiliate_orgs, guild_org_sid
+                        )
                     except Exception as e:
-                        logger.debug(f"Failed to get guild org SID for status derivation: {e}")
-                        status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
+                        logger.debug(
+                            f"Failed to get guild org SID for status derivation: {e}"
+                        )
+                        status = derive_membership_status(
+                            main_orgs, affiliate_orgs, "TEST"
+                        )
                 else:
                     # Fallback to TEST if services not available
                     status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
@@ -77,8 +91,13 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
             pass
         roles.add(getattr(r, "name", str(r)))
     return MemberSnapshot(
-        status=status, moniker=moniker, handle=handle, username=username, roles=roles,
-        main_orgs=main_orgs, affiliate_orgs=affiliate_orgs
+        status=status,
+        moniker=moniker,
+        handle=handle,
+        username=username,
+        roles=roles,
+        main_orgs=main_orgs,
+        affiliate_orgs=affiliate_orgs,
     )
 
 

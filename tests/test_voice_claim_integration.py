@@ -107,9 +107,7 @@ async def test_claim_voice_channel_integration_orphan_channel(voice_service_with
             "SELECT timestamp FROM voice_cooldowns WHERE guild_id = ? "
             "AND jtc_channel_id = ? AND user_id = ?"
         )
-        cursor = await db.execute(
-            cooldown_query, (guild.id, jtc_channel_id, user.id)
-        )
+        cursor = await db.execute(cooldown_query, (guild.id, jtc_channel_id, user.id))
         cooldown_row = await cursor.fetchone()
         assert cooldown_row is not None
         assert isinstance(cooldown_row[0], int) and cooldown_row[0] > 0

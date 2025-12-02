@@ -16,7 +16,9 @@ from jose import JWTError, jwt
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev_only_change_me_in_production")
 SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE = 86400 * 7  # 7 days
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # Set true in production
+COOKIE_SECURE = (
+    os.getenv("COOKIE_SECURE", "false").lower() == "true"
+)  # Set true in production
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")  # lax or strict
 
 # JWT configuration for session tokens
@@ -167,7 +169,9 @@ def get_discord_authorize_url(state: str) -> str:
     return f"{DISCORD_OAUTH_URL}?{query_string}"
 
 
-def check_user_has_roles(user_role_ids: list[str], admin_role_ids: list, moderator_role_ids: list) -> tuple[bool, bool]:
+def check_user_has_roles(
+    user_role_ids: list[str], admin_role_ids: list, moderator_role_ids: list
+) -> tuple[bool, bool]:
     """
     Check if a user has admin or moderator roles.
 
@@ -180,9 +184,9 @@ def check_user_has_roles(user_role_ids: list[str], admin_role_ids: list, moderat
         Tuple of (is_admin, is_moderator)
     """
     # Convert all to strings for comparison
-    user_roles_str = set(str(rid) for rid in user_role_ids)
-    admin_roles_str = set(str(rid) for rid in admin_role_ids)
-    mod_roles_str = set(str(rid) for rid in moderator_role_ids)
+    user_roles_str = {str(rid) for rid in user_role_ids}
+    admin_roles_str = {str(rid) for rid in admin_role_ids}
+    mod_roles_str = {str(rid) for rid in moderator_role_ids}
 
     is_admin = bool(user_roles_str & admin_roles_str)  # Check for intersection
     is_moderator = bool(user_roles_str & mod_roles_str)
