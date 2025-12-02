@@ -339,6 +339,67 @@ export const voiceApi = {
   },
 };
 
+export interface RecheckUserResponse {
+  success: boolean;
+  message: string;
+  rsi_handle?: string | null;
+  old_status?: string | null;
+  new_status?: string | null;
+  roles_updated?: boolean;
+}
+
+export interface ResetTimerResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface BulkRecheckRequest {
+  user_ids: string[];
+}
+
+export interface BulkRecheckResult {
+  user_id: string;
+  status: string;
+  message: string;
+  roles_updated: number;
+  diff: Record<string, any>;
+}
+
+export interface BulkRecheckResponse {
+  success: boolean;
+  message: string;
+  total: number;
+  successful: number;
+  failed: number;
+  errors: Array<{ user_id: string; error: string }>;
+  results: BulkRecheckResult[];
+  summary_text: string | null;
+  csv_filename: string | null;
+  csv_content: string | null;
+}
+
+export const adminApi = {
+  recheckUser: async (userId: string) => {
+    const response = await apiClient.post<RecheckUserResponse>(
+      `/api/admin/user/${userId}/recheck`
+    );
+    return response.data;
+  },
+  resetReverifyTimer: async (userId: string) => {
+    const response = await apiClient.post<ResetTimerResponse>(
+      `/api/admin/user/${userId}/reset-timer`
+    );
+    return response.data;
+  },
+  bulkRecheckUsers: async (userIds: string[]) => {
+    const response = await apiClient.post<BulkRecheckResponse>(
+      `/api/admin/users/bulk-recheck`,
+      { user_ids: userIds }
+    );
+    return response.data;
+  },
+};
+
 export const healthApi = {
   getOverview: async () => {
     const response = await apiClient.get<{ success: boolean; data: HealthOverview }>('/api/health/overview');

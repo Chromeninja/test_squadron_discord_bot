@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from utils.logging import get_logger
+from services.db.database import Database
 
 if TYPE_CHECKING:
     from services.service_container import ServiceContainer
@@ -66,6 +67,7 @@ class InternalAPIServer:
         self.app.router.add_get("/guilds/{guild_id}/stats", self.get_guild_stats)
         self.app.router.add_get("/guilds/{guild_id}/members", self.get_guild_members)
         self.app.router.add_get("/guilds/{guild_id}/members/{user_id}", self.get_guild_member)
+        self.app.router.add_post("/guilds/{guild_id}/members/{user_id}/recheck", self.recheck_user)
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -648,3 +650,127 @@ class InternalAPIServer:
             "created_at": member.created_at.isoformat() if member.created_at else None,
             "roles": roles_data
         })
+
+    async def recheck_user(self, request: web.Request) -> web.Response:
+        """
+        Trigger reverification check for a specific user.
+
+        Path: POST /guilds/{guild_id}/members/{user_id}/recheck
+        Headers: Authorization: Bearer <api_key>
+        Body (optional): {"admin_user_id": "123456789"}
+
+        Returns: {
+            "success": bool,
+            "message": str,
+            "status": str,
+            "diff": dict,
+            "rate_limited": bool,
+            "wait_until": int,
+            "remediated": bool
+        }
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+            user_id = int(request.match_info["user_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild or user ID"}, status=400)
+
+        # Parse optional admin_user_id from request body
+        admin_user_id = None
+        try:
+            body = await request.json()
+            admin_user_id = body.get("admin_user_id")
+        except Exception:
+            pass  # No body or invalid JSON, proceed without admin_user_id
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        # Get member
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception as e:
+                logger.warning(f"Could not fetch member {user_id}: {e}")
+                return web.json_response({"error": "Member not found"}, status=404)
+
+        # Get the member's RSI handle from verification database
+        try:
+            async with Database.get_connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT rsi_handle FROM verification WHERE user_id = ?",
+                    (user_id,)
+                )
+                row = await cursor.fetchone()
+
+                if not row or not row[0]:
+                    return web.json_response({
+                        "error": "User has no RSI handle on record. They need to verify first."
+                    }, status=400)
+
+                rsi_handle = row[0]
+
+        except Exception as e:
+            logger.exception(f"Error fetching RSI handle for user {user_id}: {e}")
+            return web.json_response({
+                "error": f"Database error: {str(e)}"
+            }, status=500)
+
+        # Use unified recheck service
+        try:
+            from helpers.recheck_service import perform_recheck
+
+            result = await perform_recheck(
+                member=member,
+                rsi_handle=rsi_handle,
+                bot=self.bot,
+                initiator_kind="Admin",
+                admin_user_id=admin_user_id,
+                enforce_rate_limit=False,  # Admin actions bypass rate limits
+                log_leadership=True,  # Always log leadership changes
+                log_audit=True,  # Always audit admin actions
+            )
+
+            # Handle rate limiting (shouldn't happen with enforce_rate_limit=False)
+            if result["rate_limited"]:
+                return web.json_response({
+                    "error": "Rate limited",
+                    "wait_until": result["wait_until"]
+                }, status=429)
+
+            # Handle remediation (404)
+            if result["remediated"]:
+                return web.json_response({
+                    "error": result["error"],
+                    "remediated": True
+                }, status=404)
+
+            # Handle other errors
+            if not result["success"]:
+                return web.json_response({
+                    "error": result["error"]
+                }, status=500)
+
+            # Success!
+            return web.json_response({
+                "success": True,
+                "message": "User rechecked successfully",
+                "status": result["status"],
+                "diff": result["diff"],
+                "roles_updated": True
+            })
+
+        except Exception as e:
+            logger.exception(f"Error rechecking user {user_id} in guild {guild_id}: {e}")
+            return web.json_response({
+                "error": f"Recheck failed: {str(e)}"
+            }, status=500)
+

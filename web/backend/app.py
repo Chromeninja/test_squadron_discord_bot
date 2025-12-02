@@ -38,7 +38,7 @@ else:
     logger.warning("✗ INTERNAL_API_KEY not found in environment!")
 
 from core.dependencies import initialize_services, shutdown_services
-from routes import auth, errors, guilds, health, logs, stats, users, voice
+from routes import admin_users, auth, errors, guilds, health, logs, stats, users, voice
 
 
 @asynccontextmanager
@@ -72,6 +72,7 @@ app.include_router(guilds.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
+app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
 app.include_router(health.router)
 app.include_router(errors.router)
 app.include_router(logs.router)

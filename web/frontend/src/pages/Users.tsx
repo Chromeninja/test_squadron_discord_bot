@@ -3,10 +3,13 @@ import {
   usersApi,
   guildApi,
   authApi,
+  adminApi,
   EnrichedUser,
   ExportUsersRequest,
   GuildRole,
+  BulkRecheckResponse,
 } from '../api/endpoints';
+import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 
 function Users() {
   // State
@@ -33,11 +36,93 @@ function Users() {
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+  
+  // Admin actions
+  const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
+  const [recheckSuccess, setRecheckSuccess] = useState<string | null>(null);
+  const [bulkRechecking, setBulkRechecking] = useState(false);
+  
+  // Recheck results modal
+  const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
+  const [showResultsModal, setShowResultsModal] = useState(false);
 
   const resetSelection = () => {
     setSelectAllFiltered(false);
     setSelectedIds(new Set());
     setExcludedIds(new Set());
+  };
+  
+  const handleRecheckUser = async (userId: string) => {
+    setRecheckingUserId(userId);
+    setRecheckSuccess(null);
+    setError(null);
+    
+    try {
+      // Use bulk recheck endpoint for consistency (allows single user)
+      const response = await adminApi.bulkRecheckUsers([userId]);
+      
+      // Show results modal
+      setRecheckResults(response);
+      setShowResultsModal(true);
+      
+      // Refresh the users list to show updated data
+      await fetchUsers();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to recheck user');
+    } finally {
+      setRecheckingUserId(null);
+    }
+  };
+  
+  const handleBulkRecheck = async () => {
+    if (!hasSelection) {
+      setError('No users selected');
+      return;
+    }
+    
+    setBulkRechecking(true);
+    setRecheckSuccess(null);
+    setError(null);
+    
+    try {
+      // Get the list of selected user IDs
+      let userIdsToRecheck: string[];
+      if (selectAllFiltered) {
+        // All filtered users except excluded ones
+        userIdsToRecheck = filteredUsers
+          .filter(u => !excludedIds.has(u.discord_id))
+          .map(u => u.discord_id);
+      } else {
+        // Only specifically selected users
+        userIdsToRecheck = Array.from(selectedIds);
+      }
+      
+      if (userIdsToRecheck.length === 0) {
+        setError('No users selected');
+        return;
+      }
+      
+      if (userIdsToRecheck.length > 100) {
+        setError('Cannot recheck more than 100 users at once');
+        return;
+      }
+      
+      const response = await adminApi.bulkRecheckUsers(userIdsToRecheck);
+      
+      // Show results modal
+      setRecheckResults(response);
+      setShowResultsModal(true);
+      
+      // Refresh the users list
+      await fetchUsers();
+      
+      // Clear selection
+      resetSelection();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to bulk recheck users');
+    } finally {
+      setBulkRechecking(false);
+    }
   };
 
   const normalizedStatusFilters = useMemo(() => {
@@ -429,6 +514,13 @@ function Users() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">Members</h2>
+      
+      {/* Success Message */}
+      {recheckSuccess && (
+        <div className="bg-green-900/20 border border-green-800 rounded-lg p-4 mb-6">
+          <p className="text-green-400">{recheckSuccess}</p>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700">
@@ -606,6 +698,14 @@ function Users() {
           </div>
           <div className="flex gap-3">
             <button
+              onClick={handleBulkRecheck}
+              disabled={bulkRechecking || !hasSelection}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
+              title="Re-verify selected users' RSI membership and update roles"
+            >
+              {bulkRechecking ? 'Rechecking...' : 'Recheck Selected'}
+            </button>
+            <button
               onClick={handleExportSelected}
               disabled={exporting || !hasSelection}
               className="bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
@@ -686,6 +786,9 @@ function Users() {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     Last Verified
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -838,6 +941,16 @@ function Users() {
                     <td className="px-4 py-4 text-sm text-gray-400">
                       {formatDateValue(user.last_updated)}
                     </td>
+                    <td className="px-4 py-4">
+                      <button
+                        onClick={() => handleRecheckUser(user.discord_id)}
+                        disabled={recheckingUserId === user.discord_id}
+                        className="px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded transition"
+                        title="Re-verify this user's RSI membership and update roles"
+                      >
+                        {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
+                      </button>
+                    </td>
                   </tr>
                   );
                 })}
@@ -892,6 +1005,18 @@ function Users() {
             }
           </div>
         </div>
+      )}
+
+      {/* Recheck Results Modal */}
+      {recheckResults && (
+        <BulkRecheckResultsModal
+          open={showResultsModal}
+          onClose={() => {
+            setShowResultsModal(false);
+            setRecheckResults(null);
+          }}
+          results={recheckResults}
+        />
       )}
     </div>
   );

@@ -39,13 +39,19 @@ async def list_active_voice_channels(
     List all active voice channels with owner information and current members.
 
     Returns active voice channels with real-time member data from Discord API.
+    Filters by the user's currently active guild.
 
     Requires: Admin or moderator role
 
     Returns:
         ActiveVoiceChannelsResponse with active channel list
     """
+    # Ensure user has an active guild selected
+    if not current_user.active_guild_id:
+        return ActiveVoiceChannelsResponse(items=[], total=0)
+
     # Query active voice channels with owner verification info
+    # FILTER BY GUILD ID to only show channels for the active guild
     cursor = await db.execute(
         """
         SELECT 
@@ -60,9 +66,10 @@ async def list_active_voice_channels(
             v.affiliate_orgs
         FROM voice_channels vc
         LEFT JOIN verification v ON vc.owner_id = v.user_id
-        WHERE vc.is_active = 1
+        WHERE vc.is_active = 1 AND vc.guild_id = ?
         ORDER BY vc.last_activity DESC
         """,
+        (current_user.active_guild_id,)
     )
     rows = await cursor.fetchall()
 

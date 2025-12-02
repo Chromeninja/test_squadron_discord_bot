@@ -17,6 +17,7 @@ from helpers.embeds import (
 from helpers.http_helper import NotFoundError
 from helpers.leadership_log import ChangeSet, EventType, post_if_changed
 from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.recheck_service import perform_recheck
 from helpers.role_helper import reverify_member
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
@@ -333,27 +334,25 @@ class VerificationCog(commands.Cog):
                 return
             rsi_handle = row[0]
 
-        # Rate limit check
-        rate_limited, wait_until = await check_rate_limit(member.id, "recheck")
-        if rate_limited:
-            embed = create_cooldown_embed(wait_until)
+        # Perform unified recheck
+        result = await perform_recheck(
+            member=member,
+            rsi_handle=rsi_handle,
+            bot=self.bot,
+            initiator_kind="User",
+            enforce_rate_limit=True,
+            log_leadership=True,
+            log_audit=False,  # User-initiated, no admin audit needed
+        )
+
+        # Handle rate limiting
+        if result["rate_limited"]:
+            embed = create_cooldown_embed(result["wait_until"])
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        # Snapshot BEFORE reverify to capture DB / handle / moniker changes
-        import time as _t
-
-        _start = _t.time()
-        before_snap = await snapshot_member_state(self.bot, member)
-        # Attempt re-verification (DB + role/nick tasks enqueued)
-        try:
-            result = await reverify_member(member, rsi_handle, self.bot)
-        except NotFoundError:
-            # Invoke unified remediation then inform user
-            try:
-                await handle_username_404(self.bot, member, rsi_handle)
-            except Exception as e:  # pragma: no cover - best effort logging
-                logger.warning(f"Unified 404 handler failed (button): {e}")
+        # Handle remediation (404)
+        if result["remediated"]:
             verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             embed = create_error_embed(
                 f"Your RSI Handle appears to have changed. Please re-verify in <#{verification_channel_id}>."
@@ -361,61 +360,19 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        success, status_info, message = result
-        if not success:
+        # Handle other errors
+        if not result["success"]:
             embed = create_error_embed(
-                message or "Re-check failed. Please try again later."
+                result["error"] or "Re-check failed. Please try again later."
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        if isinstance(status_info, tuple):
-            _old_status, new_status = status_info
-        else:
-            new_status = status_info
-
-        await log_attempt(member.id, "recheck")
-
+        # Success!
+        new_status = result["status"]
         description = build_welcome_description(new_status)
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-
-        # Leadership log snapshot
-        with contextlib.suppress(Exception):
-            await flush_tasks()
-        # Refetch member to get latest nickname / roles after queued tasks applied
-        try:
-            refreshed = await member.guild.fetch_member(member.id)
-            if refreshed:
-                member = refreshed
-        except Exception:
-            pass
-        after_snap = await snapshot_member_state(self.bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        try:
-            if diff.get("username_before") == diff.get("username_after") and getattr(
-                member, "_nickname_changed_flag", False
-            ):
-                pref = getattr(member, "_preferred_verification_nick", None)
-                if pref and pref != diff.get("username_before"):
-                    diff["username_after"] = pref
-        except Exception:
-            pass
-        cs = ChangeSet(
-            user_id=member.id,
-            event=EventType.RECHECK,
-            initiator_kind="User",
-            initiator_name=None,
-            notes=None,
-            guild_id=member.guild.id if member.guild else None,
-        )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-        # duration tracking removed
-        try:
-            await post_if_changed(self.bot, cs)
-        except Exception:
-            logger.debug("Leadership log post failed (user recheck button)")
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -373,6 +373,31 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     except Exception as e:
         logger.warning(f"Schema check/migration for announcement_events.guild_id failed: {e}")
 
+    # Admin action audit log
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_action_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            admin_user_id TEXT NOT NULL,
+            guild_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_user_id TEXT,
+            details TEXT,
+            status TEXT DEFAULT 'success'
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_admin_action_log_guild ON admin_action_log(guild_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_admin_action_log_timestamp ON admin_action_log(timestamp)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_admin_action_log_admin ON admin_action_log(admin_user_id)"
+    )
+
     # Commit all schema changes
     await db.commit()
 

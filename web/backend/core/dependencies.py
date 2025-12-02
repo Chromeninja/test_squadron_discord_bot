@@ -414,6 +414,38 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
+    async def recheck_user(
+        self, guild_id: int, user_id: int, admin_user_id: str | None = None
+    ) -> dict:
+        """
+        Trigger reverification check for a specific user.
+
+        Calls the bot's internal recheck endpoint to re-validate
+        the user's RSI organization membership and update roles.
+
+        Args:
+            guild_id: Discord guild ID
+            user_id: Discord user ID
+            admin_user_id: Optional Discord user ID of admin triggering recheck
+
+        Returns:
+            dict with recheck results (message, roles_updated, status, diff, etc.)
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        json_body = {}
+        if admin_user_id:
+            json_body["admin_user_id"] = admin_user_id
+
+        response = await client.post(
+            f"/guilds/{guild_id}/members/{user_id}/recheck",
+            json=json_body if json_body else None
+        )
+        response.raise_for_status()
+        return response.json()
+
 
 # Global internal API client instance
 _internal_api_client: InternalAPIClient | None = None
