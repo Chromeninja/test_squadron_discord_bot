@@ -10,9 +10,6 @@ rate_limits:
   window_seconds: 1800        # 30 min rate-limit window
   recheck_window_seconds: 300 # 5 min recheck rate-limit window
 
-organization:
-  name: "TEST Squadron - Best Squardon!" 
-
 logging:
   level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 

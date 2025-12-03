@@ -76,6 +76,24 @@ function Dashboard() {
     }
   };
 
+  const handleExportBackendLogs = async () => {
+    try {
+      await logsApi.exportBackendLogs();
+    } catch (err) {
+      console.error('Failed to export backend logs:', err);
+      alert('Failed to export backend logs. Please try again.');
+    }
+  };
+
+  const handleExportAuditLogs = async () => {
+    try {
+      await logsApi.exportAuditLogs();
+    } catch (err) {
+      console.error('Failed to export audit logs:', err);
+      alert('Failed to export audit logs. Please try again.');
+    }
+  };
+
   const formatUptime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -329,7 +347,45 @@ function Dashboard() {
                       d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                     />
                   </svg>
-                  Export Logs
+                  Export Bot Logs
+                </button>
+                <button
+                  onClick={handleExportBackendLogs}
+                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors text-sm flex items-center justify-center gap-2"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                  Export Backend Logs
+                </button>
+                <button
+                  onClick={handleExportAuditLogs}
+                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors text-sm flex items-center justify-center gap-2"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                  Export Audit Logs
                 </button>
               </div>
             </div>

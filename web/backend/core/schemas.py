@@ -285,6 +285,16 @@ class VoiceUserSettingsSearchResponse(BaseModel):
     message: str | None = None
 
 
+class VoiceSettingsResetResponse(BaseModel):
+    """Response for voice settings reset operation."""
+
+    success: bool = True
+    message: str
+    channel_deleted: bool = False
+    channel_id: int | None = None
+    deleted_counts: dict[str, int] = Field(default_factory=dict)
+
+
 # Error schemas
 class ErrorDetail(BaseModel):
     """Error detail structure."""

@@ -14,6 +14,7 @@ from helpers.task_queue import start_task_workers, task_queue
 from helpers.token_manager import cleanup_tokens
 from helpers.views import ChannelSettingsView, VerificationView
 from services.db.database import Database
+from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
 from utils.tasks import spawn
 
@@ -144,6 +145,7 @@ class MyBot(commands.Bot):
         # Start cleanup tasks
         spawn(self.token_cleanup_task())
         spawn(self.attempts_cleanup_task())
+        spawn(self.log_cleanup_task())
 
         # Register persistent views (must happen every startup for persistence to work)
         self.add_view(VerificationView(self))
@@ -309,6 +311,59 @@ class MyBot(commands.Bot):
             await asyncio.sleep(300)  # Run every 5 minutes
             # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
             await cleanup_attempts()
+
+    async def log_cleanup_task(self) -> None:
+        """
+        Daily cleanup of old logs based on retention policies.
+
+        Runs at the configured cleanup_hour_utc time each day.
+        """
+        await self.wait_until_ready()
+
+        # Get cleanup hour from config (default to 3 AM UTC)
+        cleanup_hour_utc = config.get("log_retention", {}).get("cleanup_hour_utc", 3)
+
+        while not self.is_closed():
+            try:
+                # Calculate seconds until next cleanup time
+                from datetime import UTC, datetime, timedelta
+
+                now = datetime.now(UTC)
+                target_time = now.replace(
+                    hour=cleanup_hour_utc, minute=0, second=0, microsecond=0
+                )
+
+                # If target time has passed today, schedule for tomorrow
+                if now >= target_time:
+                    target_time += timedelta(days=1)
+
+                seconds_until_cleanup = (target_time - now).total_seconds()
+
+                logger.info(
+                    f"Log cleanup scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S UTC')} "
+                    f"({seconds_until_cleanup / 3600:.1f} hours from now)"
+                )
+
+                # Wait until cleanup time
+                await asyncio.sleep(seconds_until_cleanup)
+
+                # Run cleanup
+                logger.info("Starting scheduled log cleanup")
+                cleanup_service = LogCleanupService(config)
+                summary = await cleanup_service.cleanup_all()
+
+                logger.info(
+                    f"Log cleanup completed: {summary}",
+                    extra={"cleanup_summary": summary},
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Log cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.exception("Error in log cleanup task", exc_info=e)
+                # Wait 1 hour before retrying on error
+                await asyncio.sleep(3600)
 
     @property
     def uptime(self) -> str:

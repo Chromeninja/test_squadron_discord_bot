@@ -387,6 +387,12 @@ export const voiceApi = {
     }>('/api/voice/active');
     return response.data;
   },
+  getIntegrity: async () => {
+    const response = await apiClient.get<VoiceIntegrityResponse>(
+      '/api/voice/integrity'
+    );
+    return response.data;
+  },
   search: async (userId: number) => {
     const response = await apiClient.get<{
       success: boolean;
@@ -406,7 +412,29 @@ export const voiceApi = {
     );
     return response.data;
   },
+  deleteUserVoiceSettings: async (userId: string, jtcChannelId?: string) => {
+    const response = await apiClient.delete<VoiceSettingsResetResponse>(
+      `/api/voice/user-settings/${userId}`,
+      {
+        params: jtcChannelId ? { jtc_channel_id: jtcChannelId } : {},
+      }
+    );
+    return response.data;
+  },
 };
+
+export interface VoiceSettingsResetResponse {
+  success: boolean;
+  message: string;
+  channel_deleted: boolean;
+  channel_id: number | null;
+  deleted_counts: Record<string, number>;
+}
+
+export interface VoiceIntegrityResponse {
+  count: number;
+  details: string[];
+}
 
 export interface RecheckUserResponse {
   success: boolean;
@@ -498,6 +526,49 @@ export const logsApi = {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'bot.log.tail.txt');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  exportBackendLogs: async (maxBytes: number = 1048576) => {
+    const response = await apiClient.get('/api/logs/backend-export', {
+      params: { max_bytes: maxBytes },
+      responseType: 'blob',
+    });
+    
+    // Trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'backend.log.tail.txt');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  exportAuditLogs: async (limit: number = 1000) => {
+    const response = await apiClient.get('/api/logs/audit-export', {
+      params: { limit },
+      responseType: 'blob',
+    });
+    
+    // Trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Extract filename from Content-Disposition header if available
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'audit_log.csv';
+    if (contentDisposition) {
+      const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+      if (matches != null && matches[1]) {
+        filename = matches[1].replace(/['"]/g, '');
+      }
+    }
+    
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.remove();

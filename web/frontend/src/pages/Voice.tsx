@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { voiceApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings } from '../api/endpoints';
+import { voiceApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse } from '../api/endpoints';
 
 function Voice() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,23 +20,34 @@ function Voice() {
 
   // Integrity issues state
   const [integrityIssues, setIntegrityIssues] = useState<{ count: number; details: string[] }>({ count: 0, details: [] });
+  const [showIntegrityModal, setShowIntegrityModal] = useState(false);
+
+  // Reset confirmation modal state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetTargetUser, setResetTargetUser] = useState<UserJTCSettings | null>(null);
+  const [resetTargetJtc, setResetTargetJtc] = useState<string | null>(null);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<VoiceSettingsResetResponse | null>(null);
 
   // Load active channels on mount
   useEffect(() => {
     loadActiveChannels();
   }, []);
 
-  // Example: fetch integrity issues from backend (to be wired up)
+  // Fetch integrity issues from backend
   useEffect(() => {
-    // TODO: Replace with real API call
-    setIntegrityIssues({
-      count: 3,
-      details: [
-        'channel_permissions rowid 42: ID 1313551309869416400',
-        'channel_ptt_settings rowid 17: ID 1313551309869416400',
-        'channel_settings rowid 5: ID 1313551309869416400',
-      ],
-    });
+    const run = async () => {
+      try {
+        const data = await voiceApi.getIntegrity();
+        setIntegrityIssues({ count: data.count, details: data.details || [] });
+      } catch (e) {
+        // If it fails, keep banner hidden
+        setIntegrityIssues({ count: 0, details: [] });
+      }
+    };
+    run();
   }, []);
 
   const loadActiveChannels = async () => {
@@ -99,6 +110,56 @@ function Voice() {
     }
   };
 
+  const openResetModal = (user: UserJTCSettings, jtcChannelId?: string) => {
+    setResetTargetUser(user);
+    setResetTargetJtc(jtcChannelId || null);
+    setResetConfirmText('');
+    setResetError(null);
+    setResetSuccess(null);
+    setShowResetModal(true);
+  };
+
+  const closeResetModal = () => {
+    setShowResetModal(false);
+    setResetTargetUser(null);
+    setResetTargetJtc(null);
+    setResetConfirmText('');
+    setResetError(null);
+    setResetSuccess(null);
+  };
+
+  const handleResetVoiceSettings = async () => {
+    if (!resetTargetUser) return;
+
+    const expectedConfirmation = resetTargetJtc ? 'RESET' : 'RESET ALL';
+    if (resetConfirmText !== expectedConfirmation) {
+      setResetError(`Please type "${expectedConfirmation}" to confirm`);
+      return;
+    }
+
+    setResetLoading(true);
+    setResetError(null);
+
+    try {
+      const response = await voiceApi.deleteUserVoiceSettings(
+        resetTargetUser.user_id,
+        resetTargetJtc || undefined
+      );
+      
+      setResetSuccess(response);
+      
+      // Refresh search results after successful reset
+      setTimeout(() => {
+        closeResetModal();
+        handleSearch(currentPage);
+      }, 3000);
+    } catch (err: any) {
+      setResetError(err.response?.data?.detail || 'Failed to reset voice settings');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const renderSettingBadge = (value: boolean, trueLabel: string, falseLabel: string) => {
     return (
       <span
@@ -116,7 +177,14 @@ function Voice() {
     return (
       <div className="bg-yellow-900/80 text-yellow-200 px-4 py-2 rounded mb-4 max-w-4xl mx-auto flex items-center justify-between">
         <span>
-          <strong>{integrityIssues.count} corrupted role IDs detected.</strong> <span className="text-yellow-300 underline cursor-pointer" title={integrityIssues.details.join('\n')}>View details</span>
+          <strong>{integrityIssues.count} corrupted role IDs detected.</strong>{' '}
+          <button
+            onClick={() => setShowIntegrityModal(true)}
+            className="text-yellow-300 underline cursor-pointer hover:text-yellow-200"
+            title="View details"
+          >
+            View details
+          </button>
         </span>
       </div>
     );
@@ -160,6 +228,16 @@ function Voice() {
               )}
             </div>
           </div>
+          <button
+            onClick={() => {
+              const user = searchResults.find(u => u.jtcs.some(j => j.jtc_channel_id === jtc.jtc_channel_id));
+              if (user) openResetModal(user, jtc.jtc_channel_id);
+            }}
+            className="px-3 py-1.5 text-sm bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 rounded transition"
+            title="Reset settings for this JTC only"
+          >
+            Reset JTC Settings
+          </button>
         </div>
 
         {/* Basic Settings - Compact Grid */}
@@ -577,6 +655,20 @@ function Voice() {
                   {/* User Settings Details (Expanded) */}
                   {expandedUsers.has(user.user_id) && (
                     <div className="px-6 py-4 bg-slate-900/50 border-t border-slate-700">
+                      {/* Reset All Button */}
+                      <div className="flex justify-end mb-4">
+                        <button
+                          onClick={() => openResetModal(user)}
+                          className="px-4 py-2 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 rounded transition flex items-center gap-2"
+                          title="Reset ALL voice settings for this user (guild-wide)"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          Reset All Voice Settings
+                        </button>
+                      </div>
+
                       {user.jtcs.length === 0 ? (
                         <div className="text-center py-8">
                           <p className="text-gray-400 mb-1">No Saved Voice Settings</p>
@@ -630,6 +722,227 @@ function Voice() {
         )}
         </div>
       </div>
+
+        {/* Integrity Details Modal */}
+        {showIntegrityModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <div className="px-6 py-4 border-b bg-yellow-900/20 border-yellow-800">
+                <h3 className="text-xl font-bold text-yellow-200">Corrupted Role/ID Entries</h3>
+              </div>
+              <div className="px-6 py-4 space-y-3">
+                {integrityIssues.details.length === 0 ? (
+                  <p className="text-sm text-gray-300">No details available.</p>
+                ) : (
+                  <ul className="text-sm text-gray-200 space-y-2">
+                    {integrityIssues.details.map((line, idx) => (
+                      <li key={idx} className="bg-slate-900/50 rounded p-3 border border-slate-700 font-mono text-xs">
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-gray-400">
+                  These IDs do not match any current roles/users/channels for this guild. Consider cleaning up orphaned JTC-scoped data.
+                </p>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-700 flex justify-end">
+                <button
+                  onClick={() => setShowIntegrityModal(false)}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded transition"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reset Confirmation Modal */}
+      {showResetModal && resetTargetUser && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className={`px-6 py-4 border-b ${resetTargetJtc ? 'bg-yellow-900/20 border-yellow-800' : 'bg-red-900/20 border-red-800'}`}>
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <svg className="w-6 h-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {resetTargetJtc ? 'Reset JTC Voice Settings' : 'Reset ALL Voice Settings'}
+              </h3>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-4 space-y-4">
+              {!resetSuccess ? (
+                <>
+                  {/* Warning */}
+                  <div className={`p-4 rounded border ${resetTargetJtc ? 'bg-yellow-900/20 border-yellow-800' : 'bg-red-900/20 border-red-800'}`}>
+                    <p className="font-semibold mb-2">
+                      {resetTargetJtc ? '⚠️ Warning - JTC Settings Reset' : '🚨 DESTRUCTIVE OPERATION WARNING'}
+                    </p>
+                    <p className="text-sm text-gray-300">
+                      {resetTargetJtc 
+                        ? `This will permanently delete voice settings for JTC ${resetTargetJtc} only.`
+                        : 'This will permanently delete ALL voice settings for this user in this guild.'}
+                    </p>
+                  </div>
+
+                  {/* Target Info */}
+                  <div className="bg-slate-900/50 rounded p-4 space-y-2">
+                    <div className="text-sm">
+                      <span className="text-gray-500">User:</span>
+                      <span className="ml-2 font-medium">{resetTargetUser.rsi_handle || `User ${resetTargetUser.user_id}`}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-gray-500">Discord ID:</span>
+                      <span className="ml-2 font-mono text-xs">{resetTargetUser.user_id}</span>
+                    </div>
+                    {resetTargetJtc && (
+                      <div className="text-sm">
+                        <span className="text-gray-500">JTC Channel:</span>
+                        <span className="ml-2 font-mono text-xs text-indigo-400">{resetTargetJtc}</span>
+                      </div>
+                    )}
+                    <div className="text-sm">
+                      <span className="text-gray-500">Scope:</span>
+                      <span className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${
+                        resetTargetJtc 
+                          ? 'bg-yellow-900/50 text-yellow-200 border border-yellow-700' 
+                          : 'bg-red-900/50 text-red-200 border border-red-700'
+                      }`}>
+                        {resetTargetJtc ? 'Single JTC' : 'Guild-Wide (All JTCs)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* What will be deleted */}
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm font-semibold mb-2">This action will delete:</p>
+                    <ul className="text-sm text-gray-400 space-y-1 ml-4 list-disc">
+                      {!resetTargetJtc && <li>User's active voice channel (if exists)</li>}
+                      <li>Channel settings (name, limit, lock status)</li>
+                      <li>Custom permissions</li>
+                      <li>Push-to-talk settings</li>
+                      <li>Priority speaker settings</li>
+                      <li>Soundboard settings</li>
+                    </ul>
+                    <p className="text-sm text-yellow-400 mt-3">⚠️ This action cannot be undone!</p>
+                  </div>
+
+                  {/* Confirmation Input */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Type <span className="font-mono bg-slate-700 px-2 py-0.5 rounded">{resetTargetJtc ? 'RESET' : 'RESET ALL'}</span> to confirm:
+                    </label>
+                    <input
+                      type="text"
+                      value={resetConfirmText}
+                      onChange={(e) => setResetConfirmText(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleResetVoiceSettings()}
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded focus:outline-none focus:border-indigo-500"
+                      placeholder={resetTargetJtc ? 'RESET' : 'RESET ALL'}
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Error */}
+                  {resetError && (
+                    <div className="bg-red-900/20 border border-red-800 rounded p-3">
+                      <p className="text-red-400 text-sm">{resetError}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Success Message */}
+                  <div className="bg-green-900/20 border border-green-800 rounded p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <svg className="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="font-semibold text-green-400">Reset Complete</p>
+                    </div>
+                    <p className="text-sm text-gray-300">{resetSuccess.message}</p>
+                  </div>
+
+                  {/* Deletion Summary */}
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm font-semibold mb-3">📊 Database Records Deleted:</p>
+                    <div className="space-y-1.5">
+                      <div className="text-sm flex justify-between">
+                        <span className="text-gray-400">Total:</span>
+                        <span className="font-semibold">
+                          {Object.values(resetSuccess.deleted_counts).reduce((a, b) => a + b, 0)} rows
+                        </span>
+                      </div>
+                      {Object.entries(resetSuccess.deleted_counts).map(([table, count]) => (
+                        count > 0 && (
+                          <div key={table} className="text-sm flex justify-between pl-4">
+                            <span className="text-gray-500">{table}:</span>
+                            <span className="text-gray-300">{count}</span>
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Channel Action */}
+                  {resetSuccess.channel_id && (
+                    <div className="bg-slate-900/50 rounded p-4">
+                      <p className="text-sm font-semibold mb-2">🎤 Channel Action:</p>
+                      {resetSuccess.channel_deleted ? (
+                        <p className="text-sm text-green-400">
+                          ✅ Deleted voice channel (ID: {resetSuccess.channel_id})
+                        </p>
+                      ) : (
+                        <p className="text-sm text-yellow-400">
+                          ⚠️ Channel {resetSuccess.channel_id} could not be deleted (may already be gone)
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-sm text-gray-400 text-center">Closing automatically and refreshing results...</p>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-700 flex justify-end gap-3">
+              {!resetSuccess ? (
+                <>
+                  <button
+                    onClick={closeResetModal}
+                    disabled={resetLoading}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 rounded transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetVoiceSettings}
+                    disabled={resetLoading || resetConfirmText !== (resetTargetJtc ? 'RESET' : 'RESET ALL')}
+                    className={`px-4 py-2 rounded transition font-medium ${
+                      resetTargetJtc
+                        ? 'bg-yellow-900 hover:bg-yellow-800 disabled:bg-slate-800 text-yellow-200'
+                        : 'bg-red-900 hover:bg-red-800 disabled:bg-slate-800 text-red-200'
+                    } disabled:text-gray-600`}
+                  >
+                    {resetLoading ? 'Resetting...' : (resetTargetJtc ? 'Reset JTC Settings' : 'Reset All Settings')}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={closeResetModal}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded transition"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

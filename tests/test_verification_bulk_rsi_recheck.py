@@ -32,7 +32,7 @@ async def test_perform_rsi_recheck_concurrent_execution():
     with patch(
         "verification.rsi_verification.is_valid_rsi_handle", side_effect=mock_verify
     ):
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # All handles should be checked
     assert len(call_order) == 3
@@ -65,7 +65,7 @@ async def test_perform_rsi_recheck_all_main():
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.return_value = (1, "Handle1", None, [], [])  # verify_value=1 = main
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results
     assert len(result_rows) == 2
@@ -101,7 +101,7 @@ async def test_perform_rsi_recheck_mixed_statuses():
             (0, "Handle3", None, [], []),  # non_member
         ]
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results map correctly
     assert len(result_rows) == 3
@@ -132,7 +132,7 @@ async def test_perform_rsi_recheck_not_found():
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.side_effect = NotFoundError("Handle not found")
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Should handle gracefully and mark as unknown
     assert len(result_rows) == 1
@@ -163,7 +163,7 @@ async def test_perform_rsi_recheck_generic_error():
             Exception("Network error"),
         ]
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # First should succeed, second should be marked unknown with error
     assert len(result_rows) == 2
@@ -189,7 +189,7 @@ async def test_perform_rsi_recheck_no_handle():
 
     # Should not call is_valid_rsi_handle
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
         # Verify was not called since no handle
         mock_verify.assert_not_called()
@@ -219,7 +219,7 @@ async def test_perform_rsi_recheck_none_verify_value():
     with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
         mock_verify.return_value = (None, "Handle1", None, [], [])
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Should map None to unknown
     assert len(result_rows) == 1
@@ -253,7 +253,7 @@ async def test_perform_rsi_recheck_partial_failures():
             Exception("Timeout"),  # failure - exception
         ]
 
-        result_rows = await service._perform_rsi_recheck(input_rows)
+        result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify mixed results
     assert len(result_rows) == 4

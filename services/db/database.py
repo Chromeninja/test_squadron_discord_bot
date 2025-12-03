@@ -708,3 +708,47 @@ class Database:
                 raise
 
         return deleted_counts
+
+    @classmethod
+    async def fetch_audit_logs_by_guild(
+        cls, guild_id: str, limit: int = 1000
+    ) -> list[dict]:
+        """
+        Fetch audit log entries for a specific guild.
+
+        Args:
+            guild_id: Discord guild ID to filter by
+            limit: Maximum number of rows to return (default 1000)
+
+        Returns:
+            List of audit log dictionaries with keys:
+            - timestamp: Unix timestamp
+            - admin_user_id: Discord ID of admin who performed action
+            - action: Action type (e.g., "RECHECK_USER", "BULK_RECHECK")
+            - target_user_id: Discord ID of target user (may be None)
+            - details: JSON string with additional details (may be None)
+            - status: Action status (e.g., "success", "error")
+        """
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """SELECT timestamp, admin_user_id, action, target_user_id, details, status
+                   FROM admin_action_log
+                   WHERE guild_id = ?
+                   ORDER BY timestamp DESC
+                   LIMIT ?""",
+                (guild_id, limit),
+            )
+            rows = await cursor.fetchall()
+
+            # Convert rows to dictionaries
+            return [
+                {
+                    "timestamp": row[0],
+                    "admin_user_id": row[1],
+                    "action": row[2],
+                    "target_user_id": row[3],
+                    "details": row[4],
+                    "status": row[5],
+                }
+                for row in rows
+            ]

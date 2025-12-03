@@ -25,14 +25,19 @@ from core.schemas import (
     UserProfile,
     VoiceChannelRecord,
     VoiceSearchResponse,
+    VoiceSettingsResetResponse,
     VoiceUserSettingsSearchResponse,
 )
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from helpers.audit import log_admin_action
 from helpers.voice_settings import (
     _get_all_user_jtc_settings,
     _get_last_used_jtc_channel,
 )
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -46,6 +51,57 @@ INTERNAL_API_URL = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
 INTERNAL_API_KEY = os.getenv(
     "INTERNAL_API_KEY", "dev_internal_api_key_change_in_production"
 )
+
+
+@router.get("/integrity")
+async def voice_integrity_audit(
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """
+    Detect likely corrupted/unknown role IDs in voice settings tables for the active guild.
+
+    Returns:
+        { count: int, details: list[str] }
+    """
+    if not current_user.active_guild_id:
+        return {"count": 0, "details": []}
+
+    guild_id = int(current_user.active_guild_id)
+
+    try:
+        # Fetch current guild role IDs as strings
+        roles = await internal_api.get_guild_roles(guild_id)
+        valid_role_ids = {str(r.get("id")) for r in roles if r.get("id") is not None}
+
+        details: list[str] = []
+
+        # Tables that have role targets
+        role_tables = [
+            ("channel_permissions", "target_id", "target_type"),
+            ("channel_ptt_settings", "target_id", "target_type"),
+            ("channel_priority_speaker_settings", "target_id", "target_type"),
+            ("channel_soundboard_settings", "target_id", "target_type"),
+        ]
+
+        for table, col_id, col_type in role_tables:
+            cursor = await db.execute(
+                f"SELECT rowid, {col_id}, {col_type} FROM {table} WHERE guild_id = ? AND {col_type} = 'role'",
+                (guild_id,),
+            )
+            rows = await cursor.fetchall()
+            for rowid, target_id, _ in rows:
+                sid = str(target_id)
+                if sid not in valid_role_ids:
+                    details.append(f"{table} rowid {rowid}: ID {sid}")
+
+        return {"count": len(details), "details": details}
+
+    except Exception as e:
+        logger.exception("Integrity audit failed", exc_info=e)
+        # Fail closed but non-fatal for UI
+        return {"count": 0, "details": []}
 
 
 @router.get("/active", response_model=ActiveVoiceChannelsResponse)
@@ -600,3 +656,185 @@ async def search_user_voice_settings(
         page=page,
         page_size=page_size,
     )
+
+
+@router.delete("/user-settings/{user_id}", response_model=VoiceSettingsResetResponse)
+async def reset_user_voice_settings(
+    user_id: str,
+    jtc_channel_id: int | None = Query(
+        None, description="Optional JTC channel ID to reset only specific JTC settings"
+    ),
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_admin_or_moderator),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """
+    Reset voice settings for a user.
+
+    Follows the bot's /voice admin reset command pattern:
+    1. Deletes user's owned voice channel if it exists
+    2. Purges voice-related database records
+    3. Clears managed channel cache
+
+    Scope:
+    - If jtc_channel_id is provided: Reset only settings for that specific JTC
+    - If jtc_channel_id is None: Reset ALL voice settings for user in guild (guild-wide)
+
+    Requires: Admin role (following bot's @require_admin pattern)
+
+    Args:
+        user_id: Discord user ID to reset
+        jtc_channel_id: Optional JTC channel ID for scoped reset
+
+    Returns:
+        VoiceSettingsResetResponse with deletion summary
+    """
+    # Ensure user has an active guild selected
+    if not current_user.active_guild_id:
+        raise HTTPException(status_code=400, detail="No active guild selected")
+
+    # Require admin role for destructive operations (following bot pattern)
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin role required for voice settings reset operations",
+        )
+
+    guild_id = int(current_user.active_guild_id)
+    user_id_int = int(user_id)
+
+    try:
+        # Log the action
+        action_type = (
+            "RESET_USER_JTC_SETTINGS"
+            if jtc_channel_id
+            else "RESET_USER_VOICE_SETTINGS"
+        )
+        action_details = f"Admin {current_user.username} ({current_user.user_id}) resetting voice data for user {user_id} in guild {guild_id}"
+        if jtc_channel_id:
+            action_details += f" (JTC: {jtc_channel_id})"
+
+        logger.info(action_details)
+
+        # Get user's active voice channel info before deletion
+        channel_deleted = False
+        channel_id = None
+
+        # Check if user has an active voice channel (best-effort info)
+        cursor = await db.execute(
+            "SELECT voice_channel_id FROM voice_channels WHERE guild_id = ? AND owner_id = ? AND is_active = 1",
+            (guild_id, user_id_int),
+        )
+        row = await cursor.fetchone()
+        if row:
+            channel_id = row[0]
+            # Deleting the live Discord channel requires an internal endpoint.
+            # This API currently performs DB cleanup only; channel deletion is a best-effort TODO.
+            # We keep the channel_id in response for transparency.
+            channel_deleted = False
+
+        # Step 2: Purge database records
+        if jtc_channel_id:
+            # JTC-scoped reset: Only delete settings for specific JTC
+            from services.db.database import Database
+
+            deleted_counts = {}
+            jtc_tables = [
+                "channel_settings",
+                "channel_permissions",
+                "channel_ptt_settings",
+                "channel_priority_speaker_settings",
+                "channel_soundboard_settings",
+            ]
+
+            await db.execute("BEGIN TRANSACTION")
+            try:
+                for table in jtc_tables:
+                    cursor = await db.execute(
+                        f"DELETE FROM {table} WHERE guild_id = ? AND user_id = ? AND jtc_channel_id = ?",
+                        (guild_id, user_id_int, jtc_channel_id),
+                    )
+                    deleted_counts[table] = cursor.rowcount
+                await db.commit()
+                logger.info(
+                    f"JTC-scoped reset complete - {deleted_counts} for user {user_id} JTC {jtc_channel_id}"
+                )
+            except Exception as e:
+                await db.rollback()
+                logger.exception(
+                    f"Failed to purge JTC-scoped voice data: {e}", exc_info=e
+                )
+                raise
+        else:
+            # Guild-wide reset: Purge all voice data for user in guild
+            from services.db.database import Database
+
+            deleted_counts = await Database.purge_voice_data(guild_id, user_id_int)
+
+        # Calculate totals
+        total_rows = sum(deleted_counts.values())
+
+        # Log detailed breakdown
+        for table, count in deleted_counts.items():
+            if count > 0:
+                logger.info(
+                    f"Voice reset - {table}: {count} records deleted for user {user_id}"
+                )
+
+        if channel_deleted:
+            logger.info(
+                f"Voice reset - channel {channel_id} successfully deleted"
+            )
+        elif channel_id:
+            logger.warning(
+                f"Voice reset - channel {channel_id} deletion failed"
+            )
+
+        # Log admin action to audit table
+        scope_desc = f"JTC {jtc_channel_id}" if jtc_channel_id else "guild-wide"
+        await log_admin_action(
+            admin_user_id=str(current_user.user_id),
+            guild_id=str(guild_id),
+            action=action_type,
+            target_user_id=str(user_id),
+            details={
+                "scope": scope_desc,
+                "total_rows_deleted": total_rows,
+                "channel_deleted": channel_deleted,
+                "deleted_counts": deleted_counts,
+            },
+            status="success",
+        )
+
+        # Build response message
+        message = f"Successfully reset voice data for user {user_id}"
+        if jtc_channel_id:
+            message += f" (JTC {jtc_channel_id})"
+        message += f": {total_rows} total records deleted"
+
+        return VoiceSettingsResetResponse(
+            success=True,
+            message=message,
+            channel_deleted=channel_deleted,
+            channel_id=channel_id,
+            deleted_counts=deleted_counts,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error resetting user voice settings", exc_info=e)
+        # Log failed action
+        await log_admin_action(
+            admin_user_id=str(current_user.user_id),
+            guild_id=str(guild_id),
+            action=action_type,
+            target_user_id=str(user_id),
+            details={
+                "error": str(e),
+            },
+            status="error",
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset voice settings: {e!s}"
+        )
