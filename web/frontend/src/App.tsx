@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { authApi, UserProfile } from './api/endpoints';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Voice from './pages/Voice';
 import SelectServer from './pages/SelectServer';
 import DashboardBotSettings from './pages/DashboardBotSettings';
+import { handleApiError } from './utils/toast';
 
 type Tab = 'dashboard' | 'users' | 'voice' | 'bot-settings';
 
@@ -81,12 +83,15 @@ function App() {
       // Refresh user profile to trigger SelectServer screen
       await fetchUserProfile();
     } catch (err) {
-      console.error('Failed to switch server:', err);
+      handleApiError(err, 'Failed to switch server');
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-900">
+      {/* Toast notifications */}
+      <Toaster />
+
       {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

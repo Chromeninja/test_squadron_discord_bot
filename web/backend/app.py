@@ -10,8 +10,8 @@ A minimal admin dashboard providing:
 For local development/testing only.
 """
 
-import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,24 +20,33 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add project root to path to import from bot modules
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Import bot's structured logging setup
+from utils.logging import get_logger, setup_logging
+
+# Setup structured logging for backend (same as bot)
+setup_logging(log_file="web/backend/logs/bot.log")
+logger = get_logger(__name__)
 
 # Load environment variables from project root .env file
-project_root = Path(__file__).parent.parent.parent
 env_path = project_root / ".env"
-logger.info(f"Loading .env from: {env_path}")
+logger.info("Loading backend environment", extra={"env_path": str(env_path)})
 load_dotenv(env_path)
 
 # Debug: Check if INTERNAL_API_KEY was loaded
 api_key = os.getenv("INTERNAL_API_KEY")
 if api_key:
-    logger.info(f"✓ INTERNAL_API_KEY loaded (length: {len(api_key)})")
+    logger.info(
+        "INTERNAL_API_KEY loaded successfully", extra={"key_length": len(api_key)}
+    )
 else:
-    logger.warning("✗ INTERNAL_API_KEY not found in environment!")
+    logger.warning("INTERNAL_API_KEY not found in environment")
 
 from core.dependencies import initialize_services, shutdown_services
+from core.request_id import RequestIDMiddleware
 from routes import admin_users, auth, errors, guilds, health, logs, stats, users, voice
 
 
@@ -64,6 +73,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request ID middleware for correlation tracking
+app.add_middleware(RequestIDMiddleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])

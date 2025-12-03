@@ -272,7 +272,7 @@ async def perform_recheck(
                 "rsi_handle": rsi_handle,
                 "status": new_status,
                 "duration_ms": int((time.time() - start_time) * 1000),
-                "diff": diff,
+                "diff": diff.to_dict() if hasattr(diff, "to_dict") else None,
             },
             status="success",
         )

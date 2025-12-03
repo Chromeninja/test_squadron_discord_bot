@@ -38,6 +38,7 @@ from helpers.voice_utils import (
     update_channel_settings,
 )
 from services.db.database import Database
+from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -184,7 +185,8 @@ class VerificationView(View):
             embed = create_cooldown_embed(wait_until)
             await interaction.followup.send("", embed=embed, ephemeral=True)
             logger.info(
-                "User reached max verification attempts.", extra={"user_id": member.id}
+                "User reached max verification attempts",
+                extra=get_interaction_extra(interaction),
             )
             return
 
@@ -196,11 +198,14 @@ class VerificationView(View):
         embed = create_token_embed(token, expires_unix)
         try:
             await interaction.followup.send("", embed=embed, ephemeral=True)
-            logger.info(f"Sent verification token to user '{member.display_name}'.")
-        except Exception as e:
+            logger.info(
+                "Sent verification token to user",
+                extra=get_interaction_extra(interaction),
+            )
+        except Exception:
             logger.exception(
-                f"Failed to send verification token to user '{member.display_name}': {e}",
-                extra={"user_id": member.id},
+                "Failed to send verification token to user",
+                extra=get_interaction_extra(interaction),
             )
 
     async def verify_button_callback(self, interaction: Interaction) -> None:
@@ -216,8 +221,8 @@ class VerificationView(View):
         except discord.HTTPException as e:
             if e.code == 10062:  # Unknown interaction (expired)
                 logger.warning(
-                    f"Interaction expired for user {interaction.user.display_name} ({interaction.user.id}). "
-                    "User may have taken too long to click the button."
+                    "Interaction expired - user may have taken too long to click button",
+                    extra=get_interaction_extra(interaction),
                 )
                 # Try to send an ephemeral message explaining the issue
                 try:
@@ -227,11 +232,14 @@ class VerificationView(View):
                     )
                 except Exception:
                     # If even the followup fails, log it but don't crash
-                    logger.debug("Could not send expiration notice to user")
+                    logger.debug(
+                        "Could not send expiration notice to user",
+                        extra=get_interaction_extra(interaction),
+                    )
             elif e.code == 40060:  # Interaction already acknowledged
                 logger.warning(
-                    f"Interaction already acknowledged for user {interaction.user.display_name} ({interaction.user.id}). "
-                    "User may have double-clicked the button."
+                    "Interaction already acknowledged - user may have double-clicked button",
+                    extra=get_interaction_extra(interaction),
                 )
                 # Try to send followup with helpful message
                 try:
@@ -240,7 +248,10 @@ class VerificationView(View):
                         ephemeral=True,
                     )
                 except Exception:
-                    logger.debug("Could not send double-click notice to user")
+                    logger.debug(
+                        "Could not send double-click notice to user",
+                        extra=get_interaction_extra(interaction),
+                    )
             else:
                 # Re-raise unknown errors
                 raise

@@ -10,6 +10,7 @@ import {
   BulkRecheckResponse,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
+import { handleApiError } from '../utils/toast';
 
 function Users() {
   // State
@@ -218,7 +219,7 @@ function Users() {
         const response = await authApi.getMe();
         setActiveGuildId(response.user?.active_guild_id || null);
       } catch (err) {
-        console.error('Failed to load user profile:', err);
+        handleApiError(err, 'Failed to load user profile');
       }
     };
     

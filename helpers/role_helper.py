@@ -276,7 +276,10 @@ async def assign_roles(
 
         await enqueue_task(add_task)
     else:
-        logger.error("No valid roles to add.", extra={"user_id": member.id})
+        logger.warning(
+            "No roles configured to add for this user",
+            extra={"user_id": member.id},
+        )
 
         # Enqueue nickname change
     # Nickname policy: Always use RSI handle (properly cased) as Discord nickname.

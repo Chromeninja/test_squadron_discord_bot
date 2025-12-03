@@ -706,9 +706,7 @@ async def reset_user_voice_settings(
     try:
         # Log the action
         action_type = (
-            "RESET_USER_JTC_SETTINGS"
-            if jtc_channel_id
-            else "RESET_USER_VOICE_SETTINGS"
+            "RESET_USER_JTC_SETTINGS" if jtc_channel_id else "RESET_USER_VOICE_SETTINGS"
         )
         action_details = f"Admin {current_user.username} ({current_user.user_id}) resetting voice data for user {user_id} in guild {guild_id}"
         if jtc_channel_id:
@@ -782,13 +780,9 @@ async def reset_user_voice_settings(
                 )
 
         if channel_deleted:
-            logger.info(
-                f"Voice reset - channel {channel_id} successfully deleted"
-            )
+            logger.info(f"Voice reset - channel {channel_id} successfully deleted")
         elif channel_id:
-            logger.warning(
-                f"Voice reset - channel {channel_id} deletion failed"
-            )
+            logger.warning(f"Voice reset - channel {channel_id} deletion failed")
 
         # Log admin action to audit table
         scope_desc = f"JTC {jtc_channel_id}" if jtc_channel_id else "guild-wide"

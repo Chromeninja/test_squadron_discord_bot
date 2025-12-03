@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from helpers.decorators import require_admin, require_bot_admin
+from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -77,7 +78,8 @@ class AdminCog(commands.Cog):
         from helpers.token_manager import clear_all_tokens
 
         self.logger.info(
-            f"'reset-all' command triggered by user {interaction.user.id}."
+            "reset-all command triggered",
+            extra=get_interaction_extra(interaction),
         )
 
         # Defer immediately before async operations
@@ -91,8 +93,8 @@ class AdminCog(commands.Cog):
         )
 
         self.logger.info(
-            "Reset-all command completed successfully.",
-            extra={"user_id": interaction.user.id},
+            "reset-all command completed successfully",
+            extra=get_interaction_extra(interaction),
         )
 
     @app_commands.command(
@@ -111,7 +113,8 @@ class AdminCog(commands.Cog):
         from helpers.token_manager import clear_token
 
         self.logger.info(
-            f"'reset-user' command triggered by user {interaction.user.id} for member {member.id}."
+            "reset-user command triggered",
+            extra=get_interaction_extra(interaction, target_user_id=str(member.id)),
         )
 
         # Defer immediately before async operations
@@ -126,8 +129,8 @@ class AdminCog(commands.Cog):
         )
 
         self.logger.info(
-            "Reset-user command completed successfully.",
-            extra={"user_id": interaction.user.id, "target_user_id": member.id},
+            "reset-user command completed successfully",
+            extra=get_interaction_extra(interaction, target_user_id=str(member.id)),
         )
 
     @app_commands.command(
@@ -145,8 +148,8 @@ class AdminCog(commands.Cog):
         or threshold trigger. Bot Admins only.
         """
         self.logger.info(
-            f"'flush-announcements' command triggered by user {interaction.user.id} "
-            f"({interaction.user.display_name})."
+            "flush-announcements command triggered",
+            extra=get_interaction_extra(interaction),
         )
 
         await interaction.response.defer(ephemeral=True)

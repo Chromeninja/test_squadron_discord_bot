@@ -472,13 +472,13 @@ class Database:
     @classmethod
     async def get_due_auto_rechecks(cls, now: int, limit: int) -> None:
         """
-        Returns list of (user_id, rsi_handle, membership_status) that are due for auto recheck.
+        Returns list of (user_id, rsi_handle) that are due for auto recheck.
         If a user has no row in auto_recheck_state, treat as due (bootstrap on first touch).
         """
         async with cls.get_connection() as db:
             cursor = await db.execute(
                 """
-                SELECT v.user_id, v.rsi_handle, v.membership_status
+                SELECT v.user_id, v.rsi_handle
                 FROM verification v
                 LEFT JOIN auto_recheck_state s ON s.user_id = v.user_id
                 WHERE COALESCE(s.next_retry_at, 0) <= ?

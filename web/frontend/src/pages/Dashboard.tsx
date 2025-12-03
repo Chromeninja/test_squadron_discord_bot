@@ -9,6 +9,7 @@ import {
   logsApi,
   authApi
 } from '../api/endpoints';
+import { handleApiError, showSuccess } from '../utils/toast';
 
 function Dashboard() {
   const [stats, setStats] = useState<StatsOverview | null>(null);
@@ -38,14 +39,14 @@ function Dashboard() {
           const healthResponse = await healthApi.getOverview();
           setHealth(healthResponse.data);
         } catch (err) {
-          console.error('Failed to fetch health data:', err);
+          // Health data is optional, log but don't show toast
         }
         
         try {
           const errorsResponse = await errorsApi.getLast(1);
           setLastError(errorsResponse.errors[0] || null);
         } catch (err) {
-          console.error('Failed to fetch error data:', err);
+          // Error data is optional, log but don't show toast
         }
       }
       
@@ -70,27 +71,27 @@ function Dashboard() {
   const handleExportLogs = async () => {
     try {
       await logsApi.exportLogs();
+      showSuccess('Bot logs exported successfully');
     } catch (err) {
-      console.error('Failed to export logs:', err);
-      alert('Failed to export logs. Please try again.');
+      handleApiError(err, 'Failed to export bot logs');
     }
   };
 
   const handleExportBackendLogs = async () => {
     try {
       await logsApi.exportBackendLogs();
+      showSuccess('Backend logs exported successfully');
     } catch (err) {
-      console.error('Failed to export backend logs:', err);
-      alert('Failed to export backend logs. Please try again.');
+      handleApiError(err, 'Failed to export backend logs');
     }
   };
 
   const handleExportAuditLogs = async () => {
     try {
       await logsApi.exportAuditLogs();
+      showSuccess('Audit logs exported successfully');
     } catch (err) {
-      console.error('Failed to export audit logs:', err);
-      alert('Failed to export audit logs. Please try again.');
+      handleApiError(err, 'Failed to export audit logs');
     }
   };
 

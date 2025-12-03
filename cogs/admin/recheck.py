@@ -67,7 +67,7 @@ class AutoRecheck(commands.Cog):
             return
 
         # Process users across ALL guilds
-        for user_id, rsi_handle, _prev_status in rows:
+        for user_id, rsi_handle in rows:
             # Find all guilds where this user is a member
             user_guilds = [g for g in self.bot.guilds if g.get_member(int(user_id))]
 

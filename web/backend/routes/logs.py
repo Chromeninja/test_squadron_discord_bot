@@ -6,13 +6,11 @@ Provides endpoints for downloading bot logs, backend logs, and audit logs.
 
 import csv
 import io
-import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.dependencies import (
     InternalAPIClient,
-    get_db,
     get_internal_api_client,
     require_any,
     translate_internal_api_error,
@@ -150,13 +148,20 @@ async def export_audit_logs(
 
         # Write header
         writer.writerow(
-            ["Timestamp", "Admin_User_ID", "Action", "Target_User_ID", "Status", "Details"]
+            [
+                "Timestamp",
+                "Admin_User_ID",
+                "Action",
+                "Target_User_ID",
+                "Status",
+                "Details",
+            ]
         )
 
         # Write data rows
         for log in logs:
             # Format timestamp as readable datetime
-            timestamp_str = datetime.fromtimestamp(log["timestamp"]).strftime(
+            timestamp_str = datetime.fromtimestamp(log["timestamp"], UTC).strftime(
                 "%Y-%m-%d %H:%M:%S UTC"
             )
 
@@ -176,7 +181,7 @@ async def export_audit_logs(
         output.close()
 
         # Generate filename with guild ID and date
-        date_str = datetime.now().strftime("%Y%m%d")
+        date_str = datetime.now(UTC).strftime("%Y%m%d")
         filename = f"audit_log_guild_{guild_id}_{date_str}.csv"
 
         # Return as downloadable CSV file

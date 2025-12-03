@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authApi, GuildSummary } from '../api/endpoints';
+import { handleApiError } from '../utils/toast';
 
 interface SelectServerProps {
   onSelected: () => Promise<void> | void;
@@ -18,7 +19,7 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
       setGuilds(response.guilds);
       setError(null);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Unable to load your servers');
       setError('Unable to load your servers.');
     } finally {
       setLoading(false);
@@ -36,7 +37,7 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
       await authApi.selectGuild(guildId);
       await onSelected();
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to select server');
       setError('Failed to select server. Please try again.');
     } finally {
       setSelectingId(null);
@@ -55,7 +56,7 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
       // Discord will redirect back to our bot-callback endpoint
       window.location.href = response.invite_url;
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to get bot invite URL');
       setError('Failed to get bot invite URL. Please try again.');
     }
   };

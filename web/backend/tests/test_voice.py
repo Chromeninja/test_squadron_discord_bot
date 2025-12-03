@@ -436,17 +436,23 @@ async def test_user_settings_search_all_setting_types(
 
     # Check PTT settings
     assert len(jtc["ptt_settings"]) == 1
-    assert jtc["ptt_settings"][0]["target_id"] == "222"  # String for snowflake precision
+    assert (
+        jtc["ptt_settings"][0]["target_id"] == "222"
+    )  # String for snowflake precision
     assert jtc["ptt_settings"][0]["ptt_enabled"] is True
 
     # Check priority speaker settings
     assert len(jtc["priority_settings"]) == 1
-    assert jtc["priority_settings"][0]["target_id"] == "333"  # String for snowflake precision
+    assert (
+        jtc["priority_settings"][0]["target_id"] == "333"
+    )  # String for snowflake precision
     assert jtc["priority_settings"][0]["priority_enabled"] is False
 
     # Check soundboard settings
     assert len(jtc["soundboard_settings"]) == 1
-    assert jtc["soundboard_settings"][0]["target_id"] == "444"  # String for snowflake precision
+    assert (
+        jtc["soundboard_settings"][0]["target_id"] == "444"
+    )  # String for snowflake precision
     assert jtc["soundboard_settings"][0]["soundboard_enabled"] is True
 
 

@@ -65,7 +65,10 @@ class LogCleanupService:
                         deleted_count += 1
                         logger.info(
                             f"Deleted old bot log file: {log_file.name}",
-                            extra={"file": str(log_file), "age_days": (datetime.now(UTC) - file_mtime).days},
+                            extra={
+                                "file": str(log_file),
+                                "age_days": (datetime.now(UTC) - file_mtime).days,
+                            },
                         )
                 except Exception as e:
                     logger.warning(
@@ -75,7 +78,10 @@ class LogCleanupService:
 
             logger.info(
                 f"Bot logs cleanup completed: {deleted_count} files deleted",
-                extra={"files_deleted": deleted_count, "retention_days": self.bot_logs_days},
+                extra={
+                    "files_deleted": deleted_count,
+                    "retention_days": self.bot_logs_days,
+                },
             )
             return {"files_deleted": deleted_count}
 
@@ -113,7 +119,10 @@ class LogCleanupService:
                         deleted_count += 1
                         logger.info(
                             f"Deleted old backend log file: {log_file.name}",
-                            extra={"file": str(log_file), "age_days": (datetime.now(UTC) - file_mtime).days},
+                            extra={
+                                "file": str(log_file),
+                                "age_days": (datetime.now(UTC) - file_mtime).days,
+                            },
                         )
                 except Exception as e:
                     logger.warning(
@@ -123,7 +132,10 @@ class LogCleanupService:
 
             logger.info(
                 f"Backend logs cleanup completed: {deleted_count} files deleted",
-                extra={"files_deleted": deleted_count, "retention_days": self.backend_logs_days},
+                extra={
+                    "files_deleted": deleted_count,
+                    "retention_days": self.backend_logs_days,
+                },
             )
             return {"files_deleted": deleted_count}
 
@@ -154,7 +166,10 @@ class LogCleanupService:
 
                 logger.info(
                     f"Audit logs cleanup completed: {rows_deleted} rows deleted",
-                    extra={"rows_deleted": rows_deleted, "retention_days": self.audit_logs_days},
+                    extra={
+                        "rows_deleted": rows_deleted,
+                        "retention_days": self.audit_logs_days,
+                    },
                 )
                 return {"rows_deleted": rows_deleted}
 
@@ -181,14 +196,19 @@ class LogCleanupService:
             if bot_errors_dir.exists():
                 for error_file in bot_errors_dir.glob("errors_*.jsonl"):
                     try:
-                        file_mtime = datetime.fromtimestamp(error_file.stat().st_mtime, UTC)
+                        file_mtime = datetime.fromtimestamp(
+                            error_file.stat().st_mtime, UTC
+                        )
 
                         if file_mtime < cutoff_date:
                             error_file.unlink()
                             deleted_count += 1
                             logger.info(
                                 f"Deleted old bot error log file: {error_file.name}",
-                                extra={"file": str(error_file), "age_days": (datetime.now(UTC) - file_mtime).days},
+                                extra={
+                                    "file": str(error_file),
+                                    "age_days": (datetime.now(UTC) - file_mtime).days,
+                                },
                             )
                     except Exception as e:
                         logger.warning(
@@ -197,18 +217,25 @@ class LogCleanupService:
                         )
 
             # Cleanup backend error logs
-            backend_errors_dir = self.project_root / "web" / "backend" / "logs" / "errors"
+            backend_errors_dir = (
+                self.project_root / "web" / "backend" / "logs" / "errors"
+            )
             if backend_errors_dir.exists():
                 for error_file in backend_errors_dir.glob("errors_*.jsonl"):
                     try:
-                        file_mtime = datetime.fromtimestamp(error_file.stat().st_mtime, UTC)
+                        file_mtime = datetime.fromtimestamp(
+                            error_file.stat().st_mtime, UTC
+                        )
 
                         if file_mtime < cutoff_date:
                             error_file.unlink()
                             deleted_count += 1
                             logger.info(
                                 f"Deleted old backend error log file: {error_file.name}",
-                                extra={"file": str(error_file), "age_days": (datetime.now(UTC) - file_mtime).days},
+                                extra={
+                                    "file": str(error_file),
+                                    "age_days": (datetime.now(UTC) - file_mtime).days,
+                                },
                             )
                     except Exception as e:
                         logger.warning(
@@ -218,7 +245,10 @@ class LogCleanupService:
 
             logger.info(
                 f"Error logs cleanup completed: {deleted_count} files deleted",
-                extra={"files_deleted": deleted_count, "retention_days": self.error_logs_days},
+                extra={
+                    "files_deleted": deleted_count,
+                    "retention_days": self.error_logs_days,
+                },
             )
             return {"files_deleted": deleted_count}
 
