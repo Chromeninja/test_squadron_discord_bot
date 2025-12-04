@@ -90,16 +90,24 @@ The bot requires specific Discord permissions to function properly. **Do not gra
 5. For voice categories: Right-click the voice category → Edit Category → Permissions → Add bot role with "Manage Channels" permission
 
 #### Role Configuration:
-Configure admin roles in `config/config.yaml`:
+Configure role access levels in `config/config.yaml`:
 ```yaml
 roles:
-  bot_admins: [123456789012345678]  # Role IDs that can use admin commands
-  lead_moderators: [987654321098765432]  # Additional elevated roles
+  bot_owner: 123456789012345678  # Bot owner user ID (full system access)
+  bot_admins: [123456789012345678, 987654321098765432]  # Bot Admin role IDs
+  discord_managers: [111111111111111111]  # Discord Manager role IDs
+  moderators: [222222222222222222]  # Moderator role IDs
+  staff: [333333333333333333]  # Staff role IDs (read-only access)
 ```
+
+**Web Dashboard Access:**
+- **Bot Admin & Moderator**: Full access (user recheck, reset voice, manage settings)
+- **Staff & Higher**: Read-only access (view dashboards, search users, statistics)
+- All role levels require at least one guild where they have the configured role
 
 ### Admin Commands
 
-The bot includes several administrative commands for configuration and management. All admin commands require users to have either the **Bot Admin** or **Lead Moderator** role configured in `config/config.yaml`.
+The bot includes several administrative commands for configuration and management. All admin commands require users to have the appropriate role level configured in `config/config.yaml` (see [Permission System](#permission-system) for details).
 
 > **💡 Live Command Discovery**: For the most up-to-date list of available commands, use `/help` in Discord or `/status` for detailed bot information. Commands listed below represent the core functionality but may not reflect the latest additions or changes.
 
@@ -107,22 +115,22 @@ The bot includes several administrative commands for configuration and managemen
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
-| `/status` | Show detailed bot health and status information | Bot Admin / Lead Moderator | `/status detailed:true` |
-| `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Bot Admin / Lead Moderator | `/guild-config` |
+| `/status` | Show detailed bot health and status information | Moderator+ | `/status detailed:true` |
+| `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Moderator+ | `/guild-config` |
 | `/set-config` | Set a guild configuration value | Bot Admin | `/set-config key:"voice.cooldown_seconds" value:"30"` |
 | `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |
-| `/reset-user` | Reset verification timer for a specific user | Bot Admin / Lead Moderator | `/reset-user member:@username` |
-| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin / Lead Moderator | `/view-logs` |
-| `/recheck-user` | Force a verification re-check for a user | Bot Admin / Lead Moderator | `/recheck-user member:@username` |
-| `/verify check` | Check verification status for multiple users (read-only) | Bot Admin / Lead Moderator | `/verify check targets:users members_text:"@user1 @user2"` |
+| `/reset-user` | Reset verification timer for a specific user | Moderator+ | `/reset-user member:@username` |
+| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
+| `/recheck-user` | Force a verification re-check for a user | Moderator+ | `/recheck-user member:@username` |
+| `/verify check` | Check verification status for multiple users (read-only) | Staff+ | `/verify check targets:users members_text:"@user1 @user2"` |
 
 #### Voice Admin Commands (`/voice` group)
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
 | `/voice setup` | Set up voice channel system (create JTC channels and category) | Bot Admin | `/voice setup category:#Voice-Channels num_channels:2` |
-| `/voice admin reset` | Reset voice data with modern safety features | Bot Admin | `/voice admin reset scope:user member:@username` or `/voice admin reset scope:all confirm:YES` |
-| `/voice admin_list` | View saved voice channel settings for a user | Bot Admin | `/voice admin_list user:@username` |
+| `/voice admin reset` | Reset voice data with modern safety features | Moderator+ | `/voice admin reset scope:user member:@username` or `/voice admin reset scope:all confirm:YES` |
+| `/voice admin_list` | View saved voice channel settings for a user | Staff+ | `/voice admin_list user:@username` |
 
 #### User Voice Commands (`/voice` group)
 
@@ -186,17 +194,27 @@ The command respects the `auto_recheck.batch.max_users_per_run` configuration li
 
 ### Permission System
 
-The bot uses a **role-based permission system** rather than Discord's built-in Administrator permission for security:
+Both the Discord bot and web dashboard use a **hierarchical role-based permission system** rather than Discord's built-in Administrator permission for security:
 
-#### Role Hierarchy:
-1. **Bot Admin** - Full administrative access to all bot functions
-2. **Lead Moderator** - Administrative access to most functions (excluding some sensitive operations)
-3. **Regular Users** - Access to user-facing commands only
+#### Role Hierarchy (Highest to Lowest Privilege):
+1. **Bot Owner** - Full system access (user must be bot owner in config)
+2. **Bot Admin** - Full administrative access to all functions
+3. **Discord Manager** - Advanced administrative capabilities
+4. **Moderator** - Moderation and user management capabilities
+5. **Staff** - Read-only access to dashboards and status information
+6. **Regular Users** - Access to user-facing commands and voice channel management only
+
+#### Permission Examples:
+- **Bot Admin**: Can recheck users, reset voice settings, manage guild configuration
+- **Moderator**: Can recheck users, view logs, manage user-specific settings
+- **Staff**: Can view dashboards, search users, monitor statistics (read-only)
+- **Regular Users**: Can manage their own voice channels, request verification
 
 #### Permission Checks:
-- Commands check for specific role IDs configured in `config/config.yaml`
-- Multiple roles can be assigned the same permissions
-- Role checks are performed on every command execution
+- Commands and API endpoints check for specific role IDs configured in `config/config.yaml`
+- Web dashboard enforces role validation on every request with TTL-based caching (30 second default)
+- Live Discord role validation: Access is immediately revoked if user's Discord roles change
+- Multiple roles can be assigned the same permission level
 - No Discord Administrator permission is required or recommended
 
 #### Security Benefits:
@@ -222,15 +240,20 @@ If you prefer to view HTML docs locally, build them from the Sphinx sources on y
 
 ## 🌐 Web Admin Dashboard
 
-The bot includes a minimal web admin dashboard for managing and monitoring bot operations from a browser interface.
+The bot includes a comprehensive web admin dashboard for managing and monitoring bot operations from a browser interface.
 
 ### Features
 
 - **Discord OAuth2 Authentication**: Secure login with your Discord account
-- **Role-Based Access Control**: Only bot admins and lead moderators can access
+- **Live Role-Based Access Control**: Access enforced based on Discord roles
+  - **Bot Admin** & **Moderator**: Full administrative access (user recheck, voice reset, logs export)
+  - **Staff & Higher**: Read-only dashboard access (statistics, user search, voice management)
+  - **Regular Users**: No dashboard access
+- **Live Role Validation**: Access immediately revoked if Discord roles change (TTL: 30 seconds)
 - **Dashboard Overview**: View verification statistics and active voice channels
-- **User Search**: Search verification records by user ID, RSI handle, or community moniker
-- **Voice Channel Search**: Look up voice channels by user ID
+- **User Management**: Search, recheck, and export verification records by user ID, RSI handle, or community moniker
+- **Voice Channel Management**: View and search voice channels by user ID, with moderator-level reset capabilities
+- **Permission-Aware UI**: Buttons hidden for users without required permissions
 
 ### Quick Start
 

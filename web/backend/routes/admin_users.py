@@ -9,7 +9,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_db,
     get_internal_api_client,
-    require_any,
+    require_moderator,
 )
 from core.schemas import UserProfile
 from fastapi import APIRouter, Depends, HTTPException
@@ -46,7 +46,7 @@ class ResetTimerResponse(BaseModel):
 async def recheck_user(
     user_id: str,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_any("admin")),
+    current_user: UserProfile = Depends(require_moderator()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -178,7 +178,7 @@ async def recheck_user(
 async def reset_reverify_timer(
     user_id: str,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_any("admin")),
+    current_user: UserProfile = Depends(require_moderator()),
 ):
     """
     Reset the reverification timer for a specific user.
@@ -261,7 +261,7 @@ class BulkRecheckResponse(BaseModel):
 @router.post("/users/bulk-recheck", response_model=BulkRecheckResponse)
 async def bulk_recheck_users(
     request: BulkRecheckRequest,
-    current_user: UserProfile = Depends(require_any("admin")),
+    current_user: UserProfile = Depends(require_moderator()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """

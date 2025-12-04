@@ -1,8 +1,7 @@
-"""
-Configuration service for per-guild settings and global configuration.
-"""
+"""Configuration service for per-guild settings and global configuration."""
 
 import asyncio
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -11,6 +10,8 @@ import yaml
 from services.db.database import Database
 
 from .base import BaseService
+
+SETTINGS_VERSION_KEY = "meta.settings_version"
 
 
 class ConfigService(BaseService):
@@ -26,6 +27,7 @@ class ConfigService(BaseService):
         self._global_config: dict[str, Any] = {}
         self._guild_cache: dict[int, dict[str, Any]] = {}
         self._cache_lock = asyncio.Lock()
+        self._guild_versions: dict[int, str | None] = {}
 
     async def _initialize_impl(self) -> None:
         """Load global configuration."""
@@ -185,6 +187,8 @@ class ConfigService(BaseService):
             if guild_id not in self._guild_cache:
                 self._guild_cache[guild_id] = {}
             self._guild_cache[guild_id][key] = value
+            if key == SETTINGS_VERSION_KEY:
+                self._guild_versions[guild_id] = self._extract_version_value(value)
 
         self.logger.debug(f"Set guild {guild_id} setting {key} = {value}")
 
@@ -237,6 +241,9 @@ class ConfigService(BaseService):
         # Cache the settings
         async with self._cache_lock:
             self._guild_cache[guild_id] = settings
+            self._guild_versions[guild_id] = self._extract_version_value(
+                settings.get(SETTINGS_VERSION_KEY)
+            )
 
         self.logger.info(
             f"Loaded {len(settings)} settings from database for guild {guild_id}"
@@ -276,9 +283,18 @@ class ConfigService(BaseService):
         ]
 
         for role_key in role_keys:
-            role_id = await self.get_guild_setting(guild_id, f"roles.{role_key}")
-            if role_id:
-                roles[role_key] = role_id
+            # bot_verified_role is stored as list in DB, handle specially
+            if role_key == "bot_verified_role_id":
+                role_ids = await self.get_guild_setting(guild_id, "roles.bot_verified_role", [])
+                if role_ids:
+                    roles[role_key] = role_ids[0] if isinstance(role_ids, list) else role_ids
+            else:
+                # Other roles stored directly or as lists
+                setting_key = role_key.replace("_id", "")
+                role_ids = await self.get_guild_setting(guild_id, f"roles.{setting_key}", [])
+                if role_ids:
+                    # Handle both list and single values
+                    roles[role_key] = role_ids[0] if isinstance(role_ids, list) else role_ids
 
         # Admin roles (list) - already normalized to list[int]
         admin_roles = await self.get_guild_setting(guild_id, "roles.bot_admins", [])
@@ -331,8 +347,27 @@ class ConfigService(BaseService):
         """Clear cached settings for a guild."""
         async with self._cache_lock:
             self._guild_cache.pop(guild_id, None)
+            self._guild_versions.pop(guild_id, None)
 
         self.logger.debug(f"Cleared cache for guild {guild_id}")
+
+    async def maybe_refresh_guild(self, guild_id: int, force: bool = False) -> bool:
+        """Reload guild settings if the version marker changed."""
+        if force:
+            await self.clear_guild_cache(guild_id)
+            await self._get_guild_settings(guild_id)
+            return True
+
+        db_version = await self._fetch_settings_version_from_db(guild_id)
+        async with self._cache_lock:
+            cached_version = self._guild_versions.get(guild_id)
+
+        if db_version == cached_version:
+            return False
+
+        await self.clear_guild_cache(guild_id)
+        await self._get_guild_settings(guild_id)
+        return True
 
     async def health_check(self) -> dict[str, Any]:
         """Return health information for the config service."""
@@ -409,6 +444,38 @@ class ConfigService(BaseService):
         if not isinstance(channels, list):
             return []
         return [int(c) for c in channels]
+
+    def _extract_version_value(self, raw_value: Any) -> str | None:
+        """Extract a comparable version string from stored metadata."""
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, dict):
+            candidate = raw_value.get("version") or raw_value.get("updated_at")
+            return str(candidate) if candidate else None
+        if isinstance(raw_value, str):
+            return raw_value
+        return None
+
+    async def _fetch_settings_version_from_db(self, guild_id: int) -> str | None:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT value FROM guild_settings
+                WHERE guild_id = ? AND key = ?
+                """,
+                (guild_id, SETTINGS_VERSION_KEY),
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            return None
+
+        try:
+            payload = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        return self._extract_version_value(payload)
 
     def get_config(self) -> dict[str, Any]:
         """

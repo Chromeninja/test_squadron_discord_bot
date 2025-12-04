@@ -13,7 +13,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers.decorators import require_admin
+from helpers.decorators import require_permission_level
+from helpers.permissions_helper import PermissionLevel
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -289,7 +290,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         category="Category to place voice channels in",
         num_channels="Number of 'Join to Create' channels",
     )
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def setup_voice_system(
         self,
         interaction: discord.Interaction,
@@ -338,7 +339,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @app_commands.describe(
         user="The user whose voice channel settings you want to view"
     )
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def admin_list(
         self, interaction: discord.Interaction, user: discord.Member
     ) -> None:
@@ -430,7 +431,7 @@ class AdminCommands(app_commands.Group):
             app_commands.Choice(name="all", value="all"),
         ]
     )
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def admin_reset(
         self,
         interaction: discord.Interaction,

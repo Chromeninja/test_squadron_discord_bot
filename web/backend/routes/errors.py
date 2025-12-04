@@ -7,7 +7,7 @@ Provides endpoints for viewing recent error logs.
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
-    require_any,
+    require_bot_admin,
     translate_internal_api_error,
 )
 from core.schemas import ErrorsResponse, StructuredError
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/errors", tags=["errors"])
 
 
 @router.get(
-    "/last", response_model=ErrorsResponse, dependencies=[Depends(require_any("admin"))]
+    "/last", response_model=ErrorsResponse, dependencies=[Depends(require_bot_admin())]
 )
 async def get_last_errors(
     limit: int = Query(default=1, ge=1, le=100),

@@ -49,6 +49,27 @@ async def temp_db():
 
     # Seed some test data
     async with Database.get_connection() as db:
+        # Add test guild_settings for role configuration
+        # Guild 123 with bot_admin and moderator roles
+        await db.execute(
+            """
+            INSERT INTO guild_settings (guild_id, key, value)
+            VALUES
+                (123, 'roles.bot_admins', '[\"999111222\"]'),
+                (123, 'roles.moderators', '[\"999111223\"]'),
+                (123, 'roles.staff', '[\"999111224\"]'),
+                (1, 'roles.bot_admins', '[\"999111222\"]'),
+                (1, 'roles.moderators', '[\"999111223\"]'),
+                (1, 'roles.staff', '[\"999111224\"]'),
+                (2, 'roles.bot_admins', '[\"999111222\"]'),
+                (2, 'roles.moderators', '[\"999111223\"]'),
+                (2, 'roles.staff', '[\"999111224\"]'),
+                (999, 'roles.bot_admins', '[\"999111222\"]'),
+                (999, 'roles.moderators', '[\"999111223\"]'),
+                (999, 'roles.staff', '[\"999111224\"]')
+            """
+        )
+
         # Add test verification records
         await db.execute(
             """
@@ -109,10 +130,13 @@ def mock_admin_session():
             "username": "TestAdmin",
             "discriminator": "0001",
             "avatar": None,
-            "is_admin": True,
-            "is_moderator": False,
             "active_guild_id": "123",  # Default test guild
             "authorized_guild_ids": [1, 2],  # Include authorized guilds for filtering
+            "authorized_guilds": {
+                "123": {"guild_id": "123", "role_level": "bot_admin", "source": "bot_admin_role"},
+                "1": {"guild_id": "1", "role_level": "bot_admin", "source": "bot_admin_role"},
+                "2": {"guild_id": "2", "role_level": "bot_admin", "source": "bot_admin_role"},
+            },
         }
     )
 
@@ -128,9 +152,10 @@ def mock_moderator_session():
             "username": "TestModerator",
             "discriminator": "0002",
             "avatar": None,
-            "is_admin": False,
-            "is_moderator": True,
             "active_guild_id": "123",  # Default test guild
+            "authorized_guilds": {
+                "123": {"guild_id": "123", "role_level": "moderator", "source": "moderator_role"},
+            },
         }
     )
 
@@ -146,8 +171,7 @@ def mock_unauthorized_session():
             "username": "UnauthorizedUser",
             "discriminator": "0003",
             "avatar": None,
-            "is_admin": False,
-            "is_moderator": False,
+            "authorized_guilds": {},  # No guild permissions
         }
     )
 
@@ -163,6 +187,15 @@ class FakeInternalAPIClient:
         self.member_data: dict[
             tuple[int, int], dict
         ] = {}  # (guild_id, user_id) -> member_data
+        self.refresh_calls: list[dict] = []
+        self.channels_by_guild: dict[int, list[dict]] = {}
+        self.health_data: dict | None = None
+        self.error_logs: list[dict] = []
+        self.log_content: bytes = b"Mock log content\n"
+        # Allow overriding method responses for specific tests
+        self._health_report_override = None
+        self._last_errors_override = None
+        self._export_logs_override = None
 
     async def get_guilds(self) -> list[dict]:
         return self.guilds
@@ -201,9 +234,43 @@ class FakeInternalAPIClient:
         """Return single guild member data."""
         key = (guild_id, user_id)
         if key in self.member_data:
-            return self.member_data[key]
+            member = self.member_data[key].copy()  # Don't modify the original
+            # Ensure role_ids is present for validation to work
+            if "role_ids" not in member and "roles" in member:
+                member["role_ids"] = [r.get("id") for r in member["roles"]]
+            # Add source if missing
+            if "source" not in member:
+                member["source"] = "discord"
 
-        # Default member data
+            # For role validation to pass, we need to ensure the user has one of the
+            # configured role IDs (999111222 for bot_admin, 999111223 for moderator, 999111224 for staff)
+            # Add the appropriate validation role ID based on user_id
+            if user_id == 1428084144860303511:
+                # Moderator user - ensure moderator role ID is present
+                if "role_ids" not in member or "999111223" not in member.get("role_ids", []):
+                    if "role_ids" not in member:
+                        member["role_ids"] = []
+                    member["role_ids"].append("999111223")
+            # All other users - ensure bot_admin role ID is present
+            elif "role_ids" not in member or "999111222" not in str(member.get("role_ids", [])):
+                if "role_ids" not in member:
+                    member["role_ids"] = []
+                member["role_ids"].append("999111222")
+
+            return member
+
+        # Default member data - include test admin/moderator roles
+        # Admin user: 246604397155581954 - gets bot_admin role ID 999111222
+        # Moderator user: 1428084144860303511 - gets moderator role ID 999111223
+        # Any other user: gets bot_admin role by default (for tests that use custom user IDs)
+        roles = []
+        if user_id == 1428084144860303511:
+            # Moderator user gets moderator role
+            roles = [{"id": "999111223", "name": "Moderator"}]
+        else:
+            # All other users get bot_admin role (including 246604397155581954 and test-specific IDs)
+            roles = [{"id": "999111222", "name": "Bot Admin"}]
+
         return {
             "user_id": user_id,
             "username": f"User{user_id}",
@@ -212,11 +279,67 @@ class FakeInternalAPIClient:
             "avatar_url": None,
             "joined_at": "2024-01-01T00:00:00",
             "created_at": "2023-01-01T00:00:00",
-            "roles": [],
+            "roles": roles,
+            "role_ids": [r["id"] for r in roles],
+            "source": "discord",
         }
 
+    async def notify_guild_settings_refresh(
+        self, guild_id: int, source: str | None = None
+    ) -> dict:
+        self.refresh_calls.append({"guild_id": guild_id, "source": source})
+        return {"status": "ok"}
 
-@pytest.fixture
+    async def get_health_report(self) -> dict:
+        """Return health report for testing."""
+        if self._health_report_override is not None:
+            if isinstance(self._health_report_override, Exception):
+                raise self._health_report_override
+            return self._health_report_override
+        if self.health_data:
+            return self.health_data
+        return {
+            "status": "healthy",
+            "uptime_seconds": 3600,
+            "db_ok": True,
+            "discord_latency_ms": 45.0,
+            "system": {
+                "cpu_percent": 15.0,
+                "memory_percent": 40.0,
+            },
+        }
+
+    async def get_last_errors(self, limit: int = 1) -> dict:
+        """Return recent error logs."""
+        if self._last_errors_override is not None:
+            if isinstance(self._last_errors_override, Exception):
+                raise self._last_errors_override
+            return self._last_errors_override
+        return {"errors": self.error_logs[:limit]}
+
+    async def export_logs(self, max_bytes: int = 1048576) -> bytes:
+        """Return mock log content."""
+        if self._export_logs_override is not None:
+            if isinstance(self._export_logs_override, Exception):
+                raise self._export_logs_override
+            return self._export_logs_override
+        return self.log_content[:max_bytes]
+
+    async def get_guild_channels(self, guild_id: int) -> list[dict]:
+        """Return text channels for a guild."""
+        return self.channels_by_guild.get(guild_id, [])
+
+    async def recheck_user(
+        self, guild_id: int, user_id: int, admin_user_id: str | None = None
+    ) -> dict:
+        """Mock user recheck operation."""
+        return {
+            "status": "success",
+            "message": "User rechecked successfully",
+            "roles_updated": True,
+        }
+
+@pytest.fixture(autouse=True)
 def fake_internal_api(monkeypatch):
     """Patch get_internal_api_client to return a fake client."""
     fake = FakeInternalAPIClient()

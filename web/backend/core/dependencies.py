@@ -1,15 +1,23 @@
+from __future__ import annotations
+
 """
 Dependency injection for FastAPI routes.
 
 Provides access to configuration, database, and session management.
 """
 
+import logging
 import os
 import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
-from fastapi import Cookie, Depends, HTTPException
+from fastapi import Cookie, Depends, HTTPException, Request, Response
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Add project root to Python path for imports
 project_root = Path(__file__).parent.parent.parent.parent
@@ -19,12 +27,31 @@ from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
 
+from .request_id import get_request_id
 from .schemas import UserProfile
-from .security import SESSION_COOKIE_NAME, decode_session_token
+from .security import (
+    SESSION_COOKIE_NAME,
+    clear_session_cookie,
+    decode_session_token,
+    set_session_cookie,
+)
+
+logger = logging.getLogger(__name__)
 
 # Global service instances
 _config_service: ConfigService | None = None
 _config_loader: ConfigLoader | None = None
+
+# Internal API client singleton
+_internal_api_client: InternalAPIClient | None = None
+
+
+def get_internal_api_client() -> InternalAPIClient:
+    """Return the cached InternalAPIClient instance."""
+    global _internal_api_client
+    if _internal_api_client is None:
+        _internal_api_client = InternalAPIClient()
+    return _internal_api_client
 
 
 def translate_internal_api_error(exc: Exception, default_msg: str) -> HTTPException:
@@ -75,7 +102,7 @@ async def initialize_services():
     _config_service = ConfigService()
     await _config_service.initialize()
 
-    print(f"✓ Services initialized (DB: {db_path})")
+    logger.info("Services initialized", extra={"db_path": db_path})
 
 
 async def shutdown_services():
@@ -87,7 +114,7 @@ async def shutdown_services():
     if _internal_api_client:
         await _internal_api_client.close()
 
-    print("✓ Services shut down")
+    logger.info("Services shut down")
 
 
 def get_config_service() -> ConfigService:
@@ -139,6 +166,17 @@ async def get_current_user(
     if not user_data:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
+    # Reconstruct GuildPermission objects from dict
+    from .schemas import GuildPermission
+
+    if "authorized_guilds" in user_data:
+        authorized_guilds_data = user_data["authorized_guilds"]
+        authorized_guilds = {
+            guild_id: GuildPermission(**perm_data)
+            for guild_id, perm_data in authorized_guilds_data.items()
+        }
+        user_data["authorized_guilds"] = authorized_guilds
+
     return UserProfile(**user_data)
 
 
@@ -154,90 +192,463 @@ def get_user_authorized_guilds(user: UserProfile) -> list[int]:
     return user.authorized_guild_ids
 
 
-def require_guild_admin(
-    guild_id: int, user: UserProfile = Depends(get_current_user)
-) -> None:
-    """Dependency to require user has admin access to a specific guild.
+# Role hierarchy for permission checking
+# Higher number = higher privilege
+ROLE_HIERARCHY = {
+    "bot_owner": 6,
+    "bot_admin": 5,
+    "discord_manager": 4,
+    "moderator": 3,
+    "staff": 2,
+    "user": 1,
+}
+
+
+def _has_minimum_role(user_role: str, required_role: str) -> bool:
+    """Check if user's role meets minimum requirement.
 
     Args:
-        guild_id: Guild ID to check access for
-        user: Authenticated user profile
-
-    Raises:
-        HTTPException: 403 if user doesn't have access to this guild
-    """
-    if guild_id not in user.authorized_guild_ids:
-        raise HTTPException(
-            status_code=403, detail=f"You do not have admin access to guild {guild_id}"
-        )
-
-
-async def require_admin_or_moderator(
-    current_user: UserProfile = Depends(get_current_user),
-) -> UserProfile:
-    """
-    Dependency to require admin or moderator role.
-
-    Checks if user has admin or moderator permissions.
-    Raises 403 if not authorized.
-
-    Args:
-        current_user: Authenticated user from get_current_user dependency
+        user_role: User's role level
+        required_role: Minimum required role level
 
     Returns:
-        UserProfile if authorized
-
-    Raises:
-        HTTPException: 403 if not admin or moderator
+        True if user_role >= required_role in hierarchy
     """
-    if not (current_user.is_admin or current_user.is_moderator):
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied - admin or moderator role required",
-        )
-    return current_user
+    user_level = ROLE_HIERARCHY.get(user_role, 0)
+    required_level = ROLE_HIERARCHY.get(required_role, 0)
+    return user_level >= required_level
 
 
-def require_any(*roles: str):
-    """
-    Factory function for role-based access control dependency.
+def require_guild_permission(min_role: str):
+    """Factory function to create permission dependency for specific role level.
 
-    Creates a dependency that checks if user has any of the specified roles.
-    Server-side role validation against config.
+    Checks user's permission level in their active guild against minimum requirement.
+    Bot owners always pass regardless of guild membership.
 
     Args:
-        *roles: Role names to check (e.g., "admin", "moderator")
+        min_role: Minimum required role level (bot_owner, bot_admin, discord_manager, moderator, staff)
 
     Returns:
-        FastAPI dependency function
+        Dependency function that validates permissions
 
     Example:
-        @app.get("/admin/stats", dependencies=[Depends(require_any("admin"))])
-        async def admin_stats(): ...
+        @router.get("/admin-only", dependencies=[Depends(require_guild_permission("bot_admin"))])
     """
 
-    async def check_roles(
+    async def check_permission(
+        request: Request,
+        response: Response,
+        raw_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
         current_user: UserProfile = Depends(get_current_user),
+        internal_api: InternalAPIClient = Depends(get_internal_api_client),
     ) -> UserProfile:
-        """Check if user has any of the required roles."""
-        has_access = False
+        """Check if user has required permission level in active guild."""
 
-        for role in roles:
-            if (role == "admin" and current_user.is_admin) or (
-                role == "moderator" and current_user.is_moderator
-            ):
-                has_access = True
-                break
+        await _ensure_fresh_guild_access(
+            request,
+            response,
+            raw_session,
+            current_user,
+            internal_api,
+        )
 
-        if not has_access:
+        # User must have selected a guild
+        if not current_user.active_guild_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No active guild selected"
+            )
+
+        # Get user's permission for active guild
+        guild_perm = current_user.authorized_guilds.get(current_user.active_guild_id)
+
+        if not guild_perm:
             raise HTTPException(
                 status_code=403,
-                detail=f"Access denied - requires one of: {', '.join(roles)}",
+                detail=f"Not authorized for guild {current_user.active_guild_id}"
+            )
+
+        # Check if user's role meets minimum requirement
+        if not _has_minimum_role(guild_perm.role_level, min_role):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Requires {min_role} role (you have: {guild_perm.role_level})"
             )
 
         return current_user
 
-    return check_roles
+    return check_permission
+
+
+# Convenience dependency functions for common permission levels
+def require_bot_admin():
+    """Require bot_admin level or higher (bot_owner, bot_admin)."""
+    return require_guild_permission("bot_admin")
+
+
+def require_discord_manager():
+    """Require discord_manager level or higher (bot_owner, bot_admin, discord_manager)."""
+    return require_guild_permission("discord_manager")
+
+
+def require_moderator():
+    """Require moderator level or higher (bot_owner, bot_admin, discord_manager, moderator)."""
+    return require_guild_permission("moderator")
+
+
+def require_staff():
+    """Require staff level or higher (bot_owner, bot_admin, discord_manager, moderator, staff)."""
+    return require_guild_permission("staff")
+
+
+# Fresh role validation (TTL-based) against Internal API
+ROLE_VALIDATION_TTL = int(os.getenv("ROLE_VALIDATION_TTL", "30"))
+
+
+def _now_ts() -> int:
+    return int(time.time())
+
+
+async def _validate_guild_membership(
+    request: Request,
+    current_user: UserProfile,
+    internal_api: InternalAPIClient,
+    guild_id_str: str,
+) -> str | None:
+    """Fetch live member data for a guild and return the computed role level."""
+    log_context = {
+        "request_id": get_request_id(),
+        "user_id": current_user.user_id,
+        "guild_id": guild_id_str,
+        "path": request.url.path,
+    }
+
+    try:
+        guild_id_int = int(guild_id_str)
+    except (TypeError, ValueError):
+        logger.warning(
+            "role validation failed - invalid guild id",
+            extra={**log_context, "cause": "invalid_guild_id"},
+        )
+        return None
+
+    try:
+        member = await internal_api.get_guild_member(
+            guild_id_int,
+            int(current_user.user_id),
+        )
+    except httpx.HTTPStatusError as exc:
+        # 404 means user is not in the guild - this is expected if they left
+        # Don't fail validation, just return None to preserve existing permission
+        if exc.response.status_code == 404:
+            logger.info(
+                "user not found in guild - skipping role validation",
+                extra={**log_context, "cause": "user_not_in_guild"},
+            )
+            return None
+        # Other HTTP errors
+        logger.warning(
+            "role validation failed - internal API HTTP error",
+            extra={**log_context, "cause": "internal_api_http_error", "status": exc.response.status_code},
+        )
+        return None
+    except Exception as exc:  # pragma: no cover - transport errors
+        logger.warning(
+            "role validation failed - internal API error",
+            extra={**log_context, "cause": "internal_api_error", "error": str(exc)},
+        )
+        return None
+
+    role_ids = member.get("role_ids") or [r.get("id") for r in (member.get("roles") or [])]
+    if not isinstance(role_ids, list):
+        logger.warning(
+            "role validation failed - invalid payload",
+            extra={**log_context, "cause": "invalid_payload"},
+        )
+        return None
+
+    def _to_int(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    from .guild_settings import get_bot_role_settings
+
+    async with Database.get_connection() as db:
+        role_settings = await get_bot_role_settings(db, guild_id_int)
+
+    user_roles_int = {rid for rid in (_to_int(r) for r in role_ids) if rid is not None}
+    bot_admin_ids = {int(r) for r in role_settings.get("bot_admins", [])}
+    discord_manager_ids = {int(r) for r in role_settings.get("discord_managers", [])}
+    moderator_ids = {int(r) for r in role_settings.get("moderators", [])}
+    staff_ids = {int(r) for r in role_settings.get("staff", [])}
+
+    computed_level = None
+    if user_roles_int & bot_admin_ids:
+        computed_level = "bot_admin"
+    elif user_roles_int & discord_manager_ids:
+        computed_level = "discord_manager"
+    elif user_roles_int & moderator_ids:
+        computed_level = "moderator"
+    elif user_roles_int & staff_ids:
+        computed_level = "staff"
+
+    if not computed_level:
+        logger.warning(
+            "role validation failed - role mismatch",
+            extra={**log_context, "cause": "role_mismatch"},
+        )
+        return None
+
+    logger.info(
+        "role validation refreshed",
+        extra={**log_context, "new_role": computed_level, "source": member.get("source")},
+    )
+    return computed_level
+
+
+async def _refresh_authorized_guilds(
+    request: Request,
+    response: Response,
+    raw_session: str | None,
+    current_user: UserProfile,
+    internal_api: InternalAPIClient,
+    target_guilds: Iterable[str] | None = None,
+    fail_on_missing: bool = False,
+    force_refresh: bool = False,
+):
+    """Refresh guild permissions for the provided guild IDs or all authorized guilds."""
+    if not raw_session:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "role_revoked", "message": "Session missing"},
+        )
+
+    user_data = decode_session_token(raw_session)
+    if not user_data:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "role_revoked", "message": "Session invalid"},
+        )
+
+    authorized_map: dict[str, dict] = user_data.get("authorized_guilds") or {}
+    roles_validated_at: dict[str, int] = user_data.get("roles_validated_at") or {}
+
+    guild_ids = list(target_guilds) if target_guilds else list(authorized_map.keys())
+    guild_ids = [gid for gid in guild_ids if gid in authorized_map]
+
+    if target_guilds and not guild_ids:
+        user_data["active_guild_id"] = None
+        current_user.active_guild_id = None
+        if fail_on_missing:
+            clear_session_cookie(response)
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "role_revoked", "message": "Your Discord permissions changed. Please sign in again."},
+            )
+
+    removed: set[str] = set()
+    session_mutated = False
+    now_ts = _now_ts()
+
+    for guild_id_str in guild_ids:
+        last_ts = int(roles_validated_at.get(guild_id_str, 0) or 0)
+
+        # Check if this guild has Discord-native permissions that don't need role validation
+        existing_perm = authorized_map.get(guild_id_str, {})
+        existing_source = existing_perm.get("source", "")
+
+        # Skip validation for Discord-native permissions (bot_owner, discord_owner, discord_administrator)
+        if existing_source in ("bot_owner", "discord_owner", "discord_administrator"):
+            # Just update the timestamp to show we checked
+            if force_refresh or not last_ts or (now_ts - last_ts) >= ROLE_VALIDATION_TTL:
+                roles_validated_at[guild_id_str] = now_ts
+                session_mutated = True
+            continue
+
+        # Only validate role-based permissions within TTL
+        if not force_refresh and last_ts and (now_ts - last_ts) < ROLE_VALIDATION_TTL:
+            continue
+
+        role_level = await _validate_guild_membership(
+            request,
+            current_user,
+            internal_api,
+            guild_id_str,
+        )
+
+        if not role_level:
+            # Role validation failed - remove this guild
+            removed.add(guild_id_str)
+            roles_validated_at.pop(guild_id_str, None)
+            session_mutated = True
+            continue
+
+        roles_validated_at[guild_id_str] = now_ts
+        authorized_map[guild_id_str]["role_level"] = role_level
+        if guild_id_str in current_user.authorized_guilds:
+            current_user.authorized_guilds[guild_id_str].role_level = role_level
+        session_mutated = True
+
+    if removed:
+        session_mutated = True
+        for gid in removed:
+            authorized_map.pop(gid, None)
+            current_user.authorized_guilds.pop(gid, None)
+
+        updated_ids = [
+            int(gid)
+            for gid in authorized_map
+            if isinstance(gid, str) and gid.isdigit()
+        ]
+        user_data["authorized_guild_ids"] = updated_ids
+        current_user.authorized_guild_ids = updated_ids
+
+        if user_data.get("active_guild_id") in removed:
+            user_data["active_guild_id"] = None
+            current_user.active_guild_id = None
+
+    user_data["authorized_guilds"] = authorized_map
+    user_data["roles_validated_at"] = roles_validated_at
+
+    if session_mutated:
+        set_session_cookie(response, user_data)
+
+    if fail_on_missing and removed & set(guild_ids):
+        clear_session_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "role_revoked", "message": "Your Discord permissions changed. Please sign in again."},
+        )
+
+    if not authorized_map:
+        clear_session_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "role_revoked", "message": "You no longer have access to any guilds."},
+        )
+
+    return removed
+
+
+async def _ensure_fresh_guild_access(
+    request: Request,
+    response: Response,
+    raw_session: str | None,
+    current_user: UserProfile,
+    internal_api: InternalAPIClient,
+    force_refresh: bool = False,
+):
+    if not current_user.active_guild_id:
+        raise HTTPException(status_code=400, detail="No active guild selected")
+
+    await _refresh_authorized_guilds(
+        request,
+        response,
+        raw_session,
+        current_user,
+        internal_api,
+        target_guilds=[current_user.active_guild_id],
+        fail_on_missing=True,
+        force_refresh=force_refresh,
+    )
+
+    return current_user
+
+
+async def require_fresh_guild_access(
+    request: Request,
+    response: Response,
+    raw_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
+    current_user: UserProfile = Depends(get_current_user),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    await _ensure_fresh_guild_access(
+        request,
+        response,
+        raw_session,
+        current_user,
+        internal_api,
+        force_refresh=False,
+    )
+    return current_user
+
+
+# Special dependency for guild selection endpoints (before guild is selected)
+async def require_any_guild_access(
+    request: Request,
+    response: Response,
+    raw_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
+    current_user: UserProfile = Depends(get_current_user),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+) -> UserProfile:
+    """
+    Require user to have access to at least one guild.
+    Used for endpoints that work across guilds (like /guilds list, /select-guild).
+    Does NOT require active_guild_id to be set (used before guild selection).
+    """
+    force_refresh = request.query_params.get("force_refresh") in {"1", "true", "True"}
+
+    await _refresh_authorized_guilds(
+        request,
+        response,
+        raw_session,
+        current_user,
+        internal_api,
+        force_refresh=force_refresh,
+    )
+
+    if not current_user.authorized_guilds:
+        raise HTTPException(
+            status_code=403,
+            detail="No authorized guilds found"
+        )
+
+    return current_user
+
+
+# Legacy function - kept for backward compatibility during migration
+async def require_admin_or_moderator(
+    request: Request,
+    response: Response,
+    raw_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
+    current_user: UserProfile = Depends(get_current_user),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+) -> UserProfile:
+    """
+    DEPRECATED: Use require_guild_permission() instead.
+
+    Legacy dependency for backward compatibility.
+    Checks if user has at least moderator level in active guild.
+    """
+    await _ensure_fresh_guild_access(
+        request,
+        response,
+        raw_session,
+        current_user,
+        internal_api,
+    )
+
+    if not current_user.active_guild_id:
+        raise HTTPException(status_code=400, detail="No active guild selected")
+
+    guild_perm = current_user.authorized_guilds.get(current_user.active_guild_id)
+
+    if not guild_perm:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized for this guild"
+        )
+
+    # Allow moderator or higher
+    if not _has_minimum_role(guild_perm.role_level, "moderator"):
+        raise HTTPException(
+            status_code=403,
+            detail="Requires moderator role or higher"
+        )
+
+    return current_user
 
 
 # Internal API client for proxying requests to bot's internal server
@@ -450,14 +861,16 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
+    async def notify_guild_settings_refresh(
+        self, guild_id: int, source: str | None = None
+    ) -> dict:
+        """Notify the bot that guild configuration has changed."""
+        client = await self._get_client()
+        json_body = {"source": source} if source else None
+        response = await client.post(
+            f"/guilds/{guild_id}/config/refresh",
+            json=json_body,
+        )
+        response.raise_for_status()
+        return response.json()
 
-# Global internal API client instance
-_internal_api_client: InternalAPIClient | None = None
-
-
-def get_internal_api_client() -> InternalAPIClient:
-    """Get the global InternalAPIClient instance."""
-    global _internal_api_client
-    if _internal_api_client is None:
-        _internal_api_client = InternalAPIClient()
-    return _internal_api_client

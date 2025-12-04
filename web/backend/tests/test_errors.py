@@ -2,14 +2,15 @@
 Tests for error monitoring endpoints.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_errors_last_success_admin(client, mock_admin_session):
+async def test_errors_last_success_admin(
+    client, mock_admin_session, fake_internal_api
+):
     """Test errors/last endpoint returns data for admin."""
     mock_errors_data = {
         "errors": [
@@ -23,14 +24,11 @@ async def test_errors_last_success_admin(client, mock_admin_session):
         ]
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_errors_data
+    fake_internal_api._last_errors_override = mock_errors_data
 
-        response = await client.get(
-            "/api/errors/last", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -41,18 +39,15 @@ async def test_errors_last_success_admin(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_errors_last_empty(client, mock_admin_session):
+async def test_errors_last_empty(client, mock_admin_session, fake_internal_api):
     """Test errors/last endpoint handles no errors."""
     mock_errors_data = {"errors": []}
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_errors_data
+    fake_internal_api._last_errors_override = mock_errors_data
 
-        response = await client.get(
-            "/api/errors/last", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -61,7 +56,7 @@ async def test_errors_last_empty(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_errors_last_with_limit(client, mock_admin_session):
+async def test_errors_last_with_limit(client, mock_admin_session, fake_internal_api):
     """Test errors/last endpoint respects limit parameter."""
     mock_errors_data = {
         "errors": [
@@ -82,14 +77,11 @@ async def test_errors_last_with_limit(client, mock_admin_session):
         ]
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_errors_data
+    fake_internal_api._last_errors_override = mock_errors_data
 
-        response = await client.get(
-            "/api/errors/last?limit=2", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last?limit=2", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -118,30 +110,31 @@ async def test_errors_last_forbidden_unauthorized(client, mock_unauthorized_sess
     response = await client.get(
         "/api/errors/last", cookies={"session": mock_unauthorized_session}
     )
-    assert response.status_code == 403
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio
-async def test_errors_last_internal_error(client, mock_admin_session):
+async def test_errors_last_internal_error(
+    client, mock_admin_session, fake_internal_api
+):
     """Test errors/last endpoint handles internal API errors."""
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.side_effect = httpx.RequestError(
-            "Internal API unavailable",
-            request=httpx.Request("GET", "http://internal"),
-        )
+    fake_internal_api._last_errors_override = httpx.RequestError(
+        "Internal API unavailable",
+        request=httpx.Request("GET", "http://internal"),
+    )
 
-        response = await client.get(
-            "/api/errors/last", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 503
     assert "Failed to fetch error logs" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_errors_last_http_status_error(client, mock_admin_session):
+async def test_errors_last_http_status_error(
+    client, mock_admin_session, fake_internal_api
+):
     """Internal API HTTP errors should propagate status codes and detail."""
     response_obj = httpx.Response(
         404,
@@ -149,19 +142,16 @@ async def test_errors_last_http_status_error(client, mock_admin_session):
         content=b'{"detail": "not found"}',
     )
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.side_effect = httpx.HTTPStatusError(
-            "not found",
-            request=response_obj.request,
-            response=response_obj,
-        )
+    fake_internal_api._last_errors_override = httpx.HTTPStatusError(
+        "not found",
+        request=response_obj.request,
+        response=response_obj,
+    )
 
-        response = await client.get(
-            "/api/errors/last",
-            cookies={"session": mock_admin_session},
-        )
+    response = await client.get(
+        "/api/errors/last",
+        cookies={"session": mock_admin_session},
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "not found"

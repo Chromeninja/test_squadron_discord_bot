@@ -16,7 +16,7 @@ async def test_stats_overview_unauthorized(
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio

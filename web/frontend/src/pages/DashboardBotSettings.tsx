@@ -13,7 +13,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   // Use strings for role IDs to preserve 64-bit Discord snowflake precision
   const [botAdmins, setBotAdmins] = useState<string[]>([]);
-  const [leadModerators, setLeadModerators] = useState<string[]>([]);
+  const [discordManagers, setDiscordManagers] = useState<string[]>([]);
+  const [moderators, setModerators] = useState<string[]>([]);
+  const [staff, setStaff] = useState<string[]>([]);
+  const [botVerifiedRole, setBotVerifiedRole] = useState<string[]>([]);
   const [mainRole, setMainRole] = useState<string[]>([]);
   const [affiliateRole, setAffiliateRole] = useState<string[]>([]);
   const [nonmemberRole, setNonmemberRole] = useState<string[]>([]);
@@ -87,7 +90,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setRoles(rolesResponse.roles);
         setChannels(channelsResponse.channels);
         setBotAdmins(settingsResponse.bot_admins);
-        setLeadModerators(settingsResponse.lead_moderators);
+        setDiscordManagers(settingsResponse.discord_managers || []);
+        setModerators(settingsResponse.moderators || settingsResponse.lead_moderators || []);
+        setStaff(settingsResponse.staff || []);
+        setBotVerifiedRole(settingsResponse.bot_verified_role || []);
         setMainRole(settingsResponse.main_role || []);
         setAffiliateRole(settingsResponse.affiliate_role || []);
         setNonmemberRole(settingsResponse.nonmember_role || []);
@@ -119,7 +125,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       const patch = {
         roles: {
           bot_admins: botAdmins,
-          lead_moderators: leadModerators,
+          discord_managers: discordManagers,
+          moderators: moderators,
+          staff: staff,
+          bot_verified_role: botVerifiedRole,
           main_role: mainRole,
           affiliate_role: affiliateRole,
           nonmember_role: nonmemberRole,
@@ -128,7 +137,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       const response = await guildApi.patchGuildConfig(guildId, patch);
       const updated = response.data.roles;
       setBotAdmins(updated.bot_admins);
-      setLeadModerators(updated.lead_moderators);
+      setDiscordManagers(updated.discord_managers || []);
+      setModerators(updated.moderators || []);
+      setStaff(updated.staff || []);
+      setBotVerifiedRole(updated.bot_verified_role || []);
+      setMainRole(updated.main_role || []);
       setMainRole(updated.main_role || []);
       setAffiliateRole(updated.affiliate_role || []);
       setNonmemberRole(updated.nonmember_role || []);
@@ -394,10 +407,21 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           {/* Bot Administration - Second Level Accordion */}
           <AccordionSection title="📁 Bot Administration" level={2}>
             <div className="space-y-4">
+              <div className="rounded-lg border border-indigo-700 bg-indigo-900/20 p-3 mb-4">
+                <h5 className="text-sm font-semibold text-indigo-200 mb-1">Permission Hierarchy</h5>
+                <p className="text-xs text-indigo-100">
+                  Permissions are inherited from higher levels. Bot Admins have all permissions, 
+                  Discord Managers can manage users, Moderators handle moderation, and Staff have basic access.
+                </p>
+                <div className="mt-2 text-xs text-indigo-200 font-mono">
+                  Bot Owner &gt; Bot Admin &gt; Discord Manager &gt; Moderator &gt; Staff &gt; User
+                </div>
+              </div>
+
               <div>
                 <h5 className="text-sm font-semibold text-white mb-1">Bot Admin Roles</h5>
                 <p className="text-xs text-gray-400 mb-2">
-                  Users with these roles have full bot administration access.
+                  Full bot administration access. Can configure all settings, manage all roles, and access all commands.
                 </p>
                 <SearchableMultiSelect
                   options={roleOptions}
@@ -409,16 +433,63 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               </div>
 
               <div>
-                <h5 className="text-sm font-semibold text-white mb-1">Lead Moderator Roles</h5>
+                <h5 className="text-sm font-semibold text-white mb-1">Discord Manager Roles</h5>
                 <p className="text-xs text-gray-400 mb-2">
-                  Users with these roles have elevated moderation permissions.
+                  Elevated permissions for user management. Can search/manage users and view member data.
                 </p>
                 <SearchableMultiSelect
                   options={roleOptions}
-                  selected={leadModerators}
-                  onChange={setLeadModerators}
+                  selected={discordManagers}
+                  onChange={setDiscordManagers}
+                  placeholder="Search and select Discord manager roles"
+                  componentId="discord-managers"
+                />
+              </div>
+
+              <div>
+                <h5 className="text-sm font-semibold text-white mb-1">Moderator Roles</h5>
+                <p className="text-xs text-gray-400 mb-2">
+                  Moderation permissions. Can manage voice channels, reset verification timers, and run bulk checks.
+                </p>
+                <SearchableMultiSelect
+                  options={roleOptions}
+                  selected={moderators}
+                  onChange={setModerators}
                   placeholder="Search and select moderator roles"
-                  componentId="lead-mods"
+                  componentId="moderators"
+                />
+              </div>
+
+              <div>
+                <h5 className="text-sm font-semibold text-white mb-1">Staff Roles</h5>
+                <p className="text-xs text-gray-400 mb-2">
+                  Basic staff access. Can view dashboard and access read-only features.
+                </p>
+                <SearchableMultiSelect
+                  options={roleOptions}
+                  selected={staff}
+                  onChange={setStaff}
+                  placeholder="Search and select staff roles"
+                  componentId="staff"
+                />
+              </div>
+            </div>
+          </AccordionSection>
+
+          {/* Verification Roles - Second Level Accordion */}
+          <AccordionSection title="✅ Verification Roles" level={2}>
+            <div className="space-y-4">
+              <div>
+                <h5 className="text-sm font-semibold text-white mb-1">Base Verified Role</h5>
+                <p className="text-xs text-gray-400 mb-2">
+                  Role assigned to ALL users who complete RSI verification, regardless of organization membership status.
+                </p>
+                <SearchableMultiSelect
+                  options={roleOptions}
+                  selected={botVerifiedRole}
+                  onChange={setBotVerifiedRole}
+                  placeholder="Search and select base verified role"
+                  componentId="bot-verified-role"
                 />
               </div>
             </div>

@@ -184,17 +184,22 @@ Tests use a temporary SQLite database and cover:
 
 ## Access Control
 
-Users must be listed in `config/config.yaml`:
+Users must have appropriate roles configured in `config/config.yaml` using the hierarchical role system:
 
 ```yaml
 roles:
-  bot_admins:
-    - '246604397155581954'  # Your admin Discord user IDs (as strings!)
-  lead_moderators:
-    - '1428084144860303511'  # Your moderator Discord user IDs
+  bot_owner: 123456789012345678  # Bot owner user ID (full access)
+  bot_admins: [246604397155581954, 987654321098765432]  # Bot Admin role IDs (full access)
+  discord_managers: [111111111111111111]  # Discord Manager role IDs (full access)
+  moderators: [222222222222222222]  # Moderator role IDs (full access)
+  staff: [333333333333333333]  # Staff role IDs (read-only access)
+  # Legacy support for backward compatibility:
+  lead_moderators: [1428084144860303511]  # Fallback to moderators if not set
 ```
 
-The dashboard checks logged-in Discord user ID against these lists.
+The dashboard enforces role-based access control on every request:
+- **Moderator+**: Full administrative access
+- **Staff**: Read-only dashboard access
 
 ## Key Implementation Details
 

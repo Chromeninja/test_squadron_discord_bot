@@ -12,31 +12,44 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-MANAGED_ROLE_KEYS = [
-    "BOT_VERIFIED_ROLE_ID",
-    "MAIN_ROLE_ID",
-    "AFFILIATE_ROLE_ID",
-    "NON_MEMBER_ROLE_ID",
-]
 
-
-def _gather_managed_roles(bot, member: discord.Member) -> None:
+async def _gather_managed_roles(bot, member: discord.Member) -> list:
+    """Gather all managed verification roles from guild configuration."""
     roles = []
-    for key in MANAGED_ROLE_KEYS:
-        rid = getattr(bot, key, None)
-        if not rid:
-            continue
-        role = bot.role_cache.get(rid) or (
-            member.guild.get_role(rid) if member.guild else None
-        )
-        if role:
-            roles.append(role)
+
+    if not hasattr(bot, "services") or not bot.services:
+        return roles
+
+    try:
+        # Get all managed role IDs from config
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role"
+        ]
+
+        for role_key in role_keys:
+            role_ids = await bot.services.config.get_guild_setting(
+                member.guild.id, role_key, []
+            )
+            if role_ids:
+                role_id = role_ids[0]  # Get first role from list
+                role = bot.role_cache.get(role_id) or member.guild.get_role(role_id)
+                if role:
+                    roles.append(role)
+    except Exception as e:
+        from utils.logging import get_logger
+        logger = get_logger(__name__)
+        logger.warning(f"Error gathering managed roles: {e}")
+
     return roles
+
 
 
 async def remove_bot_roles(member: discord.Member, bot) -> None:
     """Remove managed roles from member if present (idempotent)."""
-    managed_roles = _gather_managed_roles(bot, member)
+    managed_roles = await _gather_managed_roles(bot, member)
     roles_to_remove = [r for r in managed_roles if r in member.roles]
 
     if not roles_to_remove:

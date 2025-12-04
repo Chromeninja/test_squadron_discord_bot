@@ -7,7 +7,7 @@ Provides endpoints for checking bot health, system metrics, and status.
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
-    require_any,
+    require_bot_admin,
     translate_internal_api_error,
 )
 from core.schemas import HealthOverview, HealthResponse, SystemMetrics
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/health", tags=["health"])
 @router.get(
     "/overview",
     response_model=HealthResponse,
-    dependencies=[Depends(require_any("admin"))],
+    dependencies=[Depends(require_bot_admin())],
 )
 async def get_health_overview(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),

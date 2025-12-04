@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,20 +14,26 @@ from core.dependencies import (
     get_db,
     get_internal_api_client,
     require_admin_or_moderator,
+    require_bot_admin,
+    require_fresh_guild_access,
+    require_staff,
     translate_internal_api_error,
 )
 from core.guild_settings import (
     AFFILIATE_ROLE_KEY,
     BOT_ADMINS_KEY,
     BOT_SPAM_CHANNEL_KEY,
-    LEAD_MODS_KEY,
+    BOT_VERIFIED_ROLE_KEY,
+    DISCORD_MANAGERS_KEY,
     LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
     MAIN_ROLE_KEY,
+    MODERATORS_KEY,
     NONMEMBER_ROLE_KEY,
     ORGANIZATION_NAME_KEY,
     ORGANIZATION_SID_KEY,
     PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
     SELECTABLE_ROLES_KEY,
+    STAFF_KEY,
     VERIFICATION_CHANNEL_KEY,
     get_bot_channel_settings,
     get_bot_role_settings,
@@ -64,6 +71,7 @@ if TYPE_CHECKING:
     from config.config_loader import ConfigLoader
 
 router = APIRouter(prefix="/api/guilds", tags=["guilds"])
+logger = logging.getLogger(__name__)
 
 
 def _ensure_active_guild(current_user: UserProfile, guild_id: int) -> None:
@@ -119,10 +127,14 @@ def _coerce_member(member_data: dict) -> GuildMember | None:
     )
 
 
-@router.get("/{guild_id}/roles/discord", response_model=GuildRolesResponse)
+@router.get(
+    "/{guild_id}/roles/discord",
+    response_model=GuildRolesResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_discord_roles(
     guild_id: int,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return roles for a guild sourced from the bot's internal API."""
@@ -141,10 +153,14 @@ async def get_discord_roles(
     return GuildRolesResponse(roles=roles)
 
 
-@router.get("/{guild_id}/channels/discord", response_model=GuildChannelsResponse)
+@router.get(
+    "/{guild_id}/channels/discord",
+    response_model=GuildChannelsResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_discord_channels(
     guild_id: int,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return text channels for a guild sourced from the bot's internal API."""
@@ -170,11 +186,15 @@ async def get_discord_channels(
     return GuildChannelsResponse(channels=channels)
 
 
-@router.get("/{guild_id}/settings/bot-roles", response_model=BotRoleSettings)
+@router.get(
+    "/{guild_id}/settings/bot-roles",
+    response_model=BotRoleSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_bot_roles_settings(
     guild_id: int,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """Fetch stored bot role assignments for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -182,12 +202,17 @@ async def get_bot_roles_settings(
     return BotRoleSettings(**settings)
 
 
-@router.put("/{guild_id}/settings/bot-roles", response_model=BotRoleSettings)
+@router.put(
+    "/{guild_id}/settings/bot-roles",
+    response_model=BotRoleSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def update_bot_roles_settings(
     guild_id: int,
     payload: BotRoleSettings,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_bot_admin()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Persist admin, moderator, and member category role assignments for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -195,16 +220,33 @@ async def update_bot_roles_settings(
         db,
         guild_id,
         payload.bot_admins,
-        payload.lead_moderators,
+        payload.discord_managers,
+        payload.moderators,
+        payload.staff,
+        payload.bot_verified_role,
         payload.main_role,
         payload.affiliate_role,
         payload.nonmember_role,
     )
     updated = await get_bot_role_settings(db, guild_id)
+
+    # Fire-and-forget notification to bot; warn on failure but don't block response
+    try:
+        await internal_api.notify_guild_settings_refresh(
+            guild_id, source="bot_roles"
+        )
+    except Exception as exc:  # pragma: no cover - network errors
+        logger.warning(
+            "Failed to notify bot about guild %s role change: %s", guild_id, exc
+        )
     return BotRoleSettings(**updated)
 
 
-@router.get("/{guild_id}/settings/bot-channels", response_model=BotChannelSettings)
+@router.get(
+    "/{guild_id}/settings/bot-channels",
+    response_model=BotChannelSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_bot_channels_settings(
     guild_id: int,
     db=Depends(get_db),
@@ -216,7 +258,11 @@ async def get_bot_channels_settings(
     return BotChannelSettings(**settings)
 
 
-@router.put("/{guild_id}/settings/bot-channels", response_model=BotChannelSettings)
+@router.put(
+    "/{guild_id}/settings/bot-channels",
+    response_model=BotChannelSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def update_bot_channels_settings(
     guild_id: int,
     payload: BotChannelSettings,
@@ -240,11 +286,12 @@ async def update_bot_channels_settings(
 @router.get(
     "/{guild_id}/settings/voice/selectable-roles",
     response_model=VoiceSelectableRoles,
+    dependencies=[Depends(require_fresh_guild_access)],
 )
-async def get_voice_selectable_roles_settings(
+async def get_voice_selectable_roles_endpoint(
     guild_id: int,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """Return selectable roles that voice automations can target for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -255,6 +302,7 @@ async def get_voice_selectable_roles_settings(
 @router.put(
     "/{guild_id}/settings/voice/selectable-roles",
     response_model=VoiceSelectableRoles,
+    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def update_voice_selectable_roles_settings(
     guild_id: int,
@@ -272,12 +320,13 @@ async def update_voice_selectable_roles_settings(
 @router.get(
     "/{guild_id}/members",
     response_model=GuildMembersResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def list_guild_members(
     guild_id: int,
     page: int = Query(1, ge=1, le=1000),
     page_size: int = Query(100, ge=1, le=1000),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Proxy paginated Discord member data from the bot's internal API."""
@@ -312,11 +361,12 @@ async def list_guild_members(
 @router.get(
     "/{guild_id}/members/{user_id}",
     response_model=GuildMemberResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def get_guild_member_detail(
     guild_id: int,
     user_id: int,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Proxy a single Discord member lookup via the internal API."""
@@ -375,11 +425,15 @@ def _get_rsi_client():
     return _rsi_client
 
 
-@router.get("/{guild_id}/settings/organization", response_model=OrganizationSettings)
+@router.get(
+    "/{guild_id}/settings/organization",
+    response_model=OrganizationSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_organization_settings_endpoint(
     guild_id: int,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """Fetch organization settings for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -387,7 +441,11 @@ async def get_organization_settings_endpoint(
     return OrganizationSettings(**settings)
 
 
-@router.put("/{guild_id}/settings/organization", response_model=OrganizationSettings)
+@router.put(
+    "/{guild_id}/settings/organization",
+    response_model=OrganizationSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def update_organization_settings_endpoint(
     guild_id: int,
     payload: OrganizationSettings,
@@ -409,11 +467,12 @@ async def update_organization_settings_endpoint(
 @router.post(
     "/{guild_id}/organization/validate-sid",
     response_model=OrganizationValidationResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def validate_organization_sid_endpoint(
     guild_id: int,
     payload: OrganizationValidationRequest,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """Validate an organization SID by fetching from RSI."""
     _ensure_active_guild(current_user, guild_id)
@@ -436,10 +495,14 @@ async def validate_organization_sid_endpoint(
 
 
 # Guild info (for header)
-@router.get("/{guild_id}/info", response_model=GuildInfoResponse)
+@router.get(
+    "/{guild_id}/info",
+    response_model=GuildInfoResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_guild_info(
     guild_id: int,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return basic guild identity (name, icon) for UI header."""
@@ -485,11 +548,15 @@ def _read_only_yaml_snapshot(config_loader: ConfigLoader) -> dict:
     }
 
 
-@router.get("/{guild_id}/config", response_model=GuildConfigResponse)
+@router.get(
+    "/{guild_id}/config",
+    response_model=GuildConfigResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def get_guild_config(
     guild_id: int,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """Return merged guild configuration (DB-backed + read-only YAML subset)."""
@@ -532,12 +599,16 @@ async def _audit_change(
     )
 
 
-@router.patch("/{guild_id}/config", response_model=GuildConfigResponse)
+@router.patch(
+    "/{guild_id}/config",
+    response_model=GuildConfigResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def patch_guild_config(
     guild_id: int,
     payload: GuildConfigUpdateRequest,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_bot_admin()),
     config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """Update DB-backed guild settings. YAML-only fields remain read-only."""
@@ -555,7 +626,10 @@ async def patch_guild_config(
             db,
             guild_id,
             payload.roles.bot_admins,
-            payload.roles.lead_moderators,
+            payload.roles.discord_managers,
+            payload.roles.moderators,
+            payload.roles.staff,
+            payload.roles.bot_verified_role,
             payload.roles.main_role,
             payload.roles.affiliate_role,
             payload.roles.nonmember_role,
@@ -571,13 +645,40 @@ async def patch_guild_config(
                 payload.roles.bot_admins,
                 current_user.user_id,
             )
-        if current_roles.get("lead_moderators") != payload.roles.lead_moderators:
+        if current_roles.get("discord_managers") != payload.roles.discord_managers:
             await _audit_change(
                 db,
                 guild_id,
-                LEAD_MODS_KEY,
-                current_roles.get("lead_moderators"),
-                payload.roles.lead_moderators,
+                DISCORD_MANAGERS_KEY,
+                current_roles.get("discord_managers"),
+                payload.roles.discord_managers,
+                current_user.user_id,
+            )
+        if current_roles.get("moderators") != payload.roles.moderators:
+            await _audit_change(
+                db,
+                guild_id,
+                MODERATORS_KEY,
+                current_roles.get("moderators"),
+                payload.roles.moderators,
+                current_user.user_id,
+            )
+        if current_roles.get("staff") != payload.roles.staff:
+            await _audit_change(
+                db,
+                guild_id,
+                STAFF_KEY,
+                current_roles.get("staff"),
+                payload.roles.staff,
+                current_user.user_id,
+            )
+        if current_roles.get("bot_verified_role") != payload.roles.bot_verified_role:
+            await _audit_change(
+                db,
+                guild_id,
+                BOT_VERIFIED_ROLE_KEY,
+                current_roles.get("bot_verified_role"),
+                payload.roles.bot_verified_role,
                 current_user.user_id,
             )
         if current_roles.get("main_role") != payload.roles.main_role:

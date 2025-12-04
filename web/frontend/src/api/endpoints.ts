@@ -3,16 +3,25 @@
  */
 
 import { apiClient } from './client';
+import { RoleLevel } from '../utils/permissions';
 
 // Types
+export interface GuildPermission {
+  guild_id: string;
+  role_level: RoleLevel;
+  source: string;
+}
+
 export interface UserProfile {
   user_id: string;
   username: string;
   discriminator: string;
   avatar: string | null;
-  is_admin: boolean;
-  is_moderator: boolean;
+  authorized_guilds: Record<string, GuildPermission>;
   active_guild_id?: string | null;
+  // Legacy fields (deprecated, use authorized_guilds instead)
+  is_admin?: boolean;
+  is_moderator?: boolean;
 }
 
 export interface GuildSummary {
@@ -41,11 +50,14 @@ export interface DiscordChannel {
 }
 
 export interface BotRoleSettingsPayload {
-  bot_admins: string[];  // Changed to string[] to preserve Discord snowflake precision
-  lead_moderators: string[];  // Changed to string[] to preserve Discord snowflake precision
-  main_role: string[];  // Changed to string[] to preserve Discord snowflake precision
-  affiliate_role: string[];  // Changed to string[] to preserve Discord snowflake precision
-  nonmember_role: string[];  // Changed to string[] to preserve Discord snowflake precision
+  bot_admins: string[];  // Bot admin roles
+  discord_managers: string[];  // Discord manager roles (new)
+  moderators: string[];  // Moderator roles (replaces lead_moderators)
+  staff: string[];  // Staff roles (new)
+  bot_verified_role: string[];  // Base verification role (all verified users)
+  main_role: string[];  // Verification role: full members
+  affiliate_role: string[];  // Verification role: affiliate members
+  nonmember_role: string[];  // Verification role: non-members
 }
 
 export interface BotChannelSettingsPayload {
@@ -276,12 +288,15 @@ export const authApi = {
     return response.data;
   },
   logout: async () => {
-    const response = await apiClient.post('/auth/logout');
+    const response = await apiClient.post('/api/auth/logout');
     return response.data;
   },
-  getGuilds: async () => {
+  getGuilds: async (forceRefresh: boolean = false) => {
     const response = await apiClient.get<{ success: boolean; guilds: GuildSummary[] }>(
-      '/api/auth/guilds'
+      '/api/auth/guilds',
+      {
+        params: forceRefresh ? { force_refresh: '1' } : undefined,
+      }
     );
     return response.data;
   },

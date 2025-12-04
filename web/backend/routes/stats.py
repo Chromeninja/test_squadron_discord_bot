@@ -8,7 +8,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_db,
     get_internal_api_client,
-    require_admin_or_moderator,
+    require_staff,
 )
 from core.schemas import StatsOverview, StatsResponse, StatusCounts, UserProfile
 from fastapi import APIRouter, Depends
@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get("/overview", response_model=StatsResponse)
 async def get_stats_overview(
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -30,7 +30,7 @@ async def get_stats_overview(
     The "unknown" count represents all guild members who have not completed verification,
     calculated as: total_guild_members - (main + affiliate + non_member).
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Returns:
         StatsResponse with overview data

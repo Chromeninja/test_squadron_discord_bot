@@ -10,6 +10,9 @@ import discord
 
 from helpers.permissions_helper import (
     PERMISSION_DENIED_MESSAGE,
+    PermissionLevel,
+    get_permission_level,
+    # Legacy imports for backward compatibility
     is_bot_admin_only,
     is_lead_moderator_or_higher,
 )
@@ -46,6 +49,7 @@ async def _call_bot_admin(
     member: discord.Member,
     guild: discord.Guild,
 ) -> bool:
+    """Check bot admin permissions (legacy wrapper for backward compatibility)."""
     checker = getattr(bot, "has_bot_admin_permissions", None)
     if callable(checker):
         checker_callable = cast(
@@ -62,6 +66,7 @@ async def _call_admin_or_higher(
     member: discord.Member,
     guild: discord.Guild,
 ) -> bool:
+    """Check moderator+ permissions (legacy wrapper for backward compatibility)."""
     checker = getattr(bot, "has_admin_permissions", None)
     if callable(checker):
         checker_callable = cast(
@@ -71,6 +76,17 @@ async def _call_admin_or_higher(
         return await checker_callable(member, guild)
 
     return await is_lead_moderator_or_higher(bot, member, guild)
+
+
+async def _check_permission_level(
+    bot: discord.Client,
+    member: discord.Member,
+    guild: discord.Guild,
+    min_level: PermissionLevel,
+) -> bool:
+    """Check if member has minimum permission level using new hierarchy system."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= min_level
 
 
 def _permission_wrapper(
@@ -105,15 +121,84 @@ def _permission_wrapper(
 
 
 def require_bot_admin() -> Callable[[F], F]:
-    """Decorator that limits a command to configured bot admins."""
+    """Decorator that limits a command to configured bot admins.
 
+    DEPRECATED: Use require_permission_level(PermissionLevel.BOT_ADMIN) instead.
+    Kept for backward compatibility with existing commands.
+    """
     return _permission_wrapper(_call_bot_admin)
 
 
 def require_admin() -> Callable[[F], F]:
-    """Decorator that limits a command to lead moderators or higher."""
+    """Decorator that limits a command to moderators or higher.
 
+    DEPRECATED: Use require_permission_level(PermissionLevel.MODERATOR) instead.
+    Kept for backward compatibility with existing commands.
+    """
     return _permission_wrapper(_call_admin_or_higher)
 
 
-__all__ = ["require_admin", "require_bot_admin"]
+def require_permission_level(min_level: PermissionLevel) -> Callable[[F], F]:
+    """Decorator factory that limits commands to users with minimum permission level.
+
+    Uses new hierarchy system with support for all 6 role levels:
+    - PermissionLevel.BOT_OWNER (6): Bot owner only
+    - PermissionLevel.BOT_ADMIN (5): Bot admins + owner
+    - PermissionLevel.DISCORD_MANAGER (4): Discord managers + higher
+    - PermissionLevel.MODERATOR (3): Moderators + higher
+    - PermissionLevel.STAFF (2): Staff + higher
+    - PermissionLevel.USER (1): All users (no restriction)
+
+    Args:
+        min_level: Minimum permission level required to use command
+
+    Returns:
+        Decorator function
+
+    Example:
+        @app_commands.command()
+        @require_permission_level(PermissionLevel.MODERATOR)
+        async def my_command(self, interaction: discord.Interaction):
+            ...
+    """
+    async def predicate(
+        bot: discord.Client,
+        member: discord.Member,
+        guild: discord.Guild,
+    ) -> bool:
+        return await _check_permission_level(bot, member, guild, min_level)
+
+    return _permission_wrapper(predicate)
+
+
+def require_bot_owner() -> Callable[[F], F]:
+    """Decorator that limits a command to the bot owner only."""
+    return require_permission_level(PermissionLevel.BOT_OWNER)
+
+
+def require_discord_manager() -> Callable[[F], F]:
+    """Decorator that limits a command to discord managers or higher."""
+    return require_permission_level(PermissionLevel.DISCORD_MANAGER)
+
+
+def require_moderator() -> Callable[[F], F]:
+    """Decorator that limits a command to moderators or higher."""
+    return require_permission_level(PermissionLevel.MODERATOR)
+
+
+def require_staff() -> Callable[[F], F]:
+    """Decorator that limits a command to staff or higher."""
+    return require_permission_level(PermissionLevel.STAFF)
+
+
+__all__ = [
+    # Legacy decorators (deprecated, use new ones above)
+    "require_admin",
+    "require_bot_admin",
+    "require_bot_owner",
+    "require_discord_manager",
+    "require_moderator",
+    # New hierarchy decorators (preferred)
+    "require_permission_level",
+    "require_staff",
+]

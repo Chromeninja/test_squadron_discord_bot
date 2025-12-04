@@ -6,20 +6,35 @@ from pydantic import BaseModel, Field
 
 
 # Auth schemas
+class GuildPermission(BaseModel):
+    """Permission level for a specific guild.
+
+    Role hierarchy (highest to lowest):
+    - bot_owner: Bot owner (global access)
+    - bot_admin: Bot administrator
+    - discord_manager: Discord manager (can reset verification, manage voice)
+    - moderator: Moderator (read-only access)
+    - staff: Staff member (basic privileges)
+    - user: Regular user (no special privileges)
+    """
+
+    guild_id: str
+    role_level: str  # One of: bot_owner, bot_admin, discord_manager, moderator, staff, user
+    source: str  # How permission was granted: bot_owner, discord_owner, discord_administrator, bot_admin_role, discord_manager_role, moderator_role, staff_role
+
+
 class UserProfile(BaseModel):
-    """Authenticated user profile."""
+    """Authenticated user profile with per-guild permissions."""
 
     user_id: str
     username: str
     discriminator: str
     avatar: str | None = None
-    is_admin: bool
-    is_moderator: bool
-    authorized_guild_ids: list[int] = Field(default_factory=list)
-    active_guild_id: str | None = None
-    permission_sources: dict[str, str] = Field(
+    authorized_guilds: dict[str, GuildPermission] = Field(
         default_factory=dict
-    )  # guild_id (str) -> source (owner/administrator/bot_admin_role/moderator_role)
+    )  # guild_id -> GuildPermission mapping
+    authorized_guild_ids: list[int] = Field(default_factory=list)  # For backward compatibility
+    active_guild_id: str | None = None
 
 
 class AuthMeResponse(BaseModel):
@@ -356,11 +371,27 @@ class GuildMemberResponse(BaseModel):
 
 
 class BotRoleSettings(BaseModel):
-    """Bot admin/lead moderator role assignments and member role categories."""
+    """Bot permission role assignments and member category roles.
+
+    Permission roles (managed via web admin):
+    - bot_admins: Full bot administration access
+    - discord_managers: Can reset verification, manage voice, view all users
+    - moderators: Read-only access to user/voice info
+    - staff: Basic staff privileges
+
+    Verification roles (assigned by verification system):
+    - bot_verified_role: Base verification role (all users who complete RSI verification)
+    - main_role: Main organization members
+    - affiliate_role: Affiliate organization members
+    - nonmember_role: Non-members who have verified
+    """
 
     # All role IDs are strings to preserve 64-bit Discord snowflake precision
     bot_admins: list[str] = Field(default_factory=list)
-    lead_moderators: list[str] = Field(default_factory=list)
+    discord_managers: list[str] = Field(default_factory=list)
+    moderators: list[str] = Field(default_factory=list)
+    staff: list[str] = Field(default_factory=list)
+    bot_verified_role: list[str] = Field(default_factory=list)
     main_role: list[str] = Field(default_factory=list)
     affiliate_role: list[str] = Field(default_factory=list)
     nonmember_role: list[str] = Field(default_factory=list)

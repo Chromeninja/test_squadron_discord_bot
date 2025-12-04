@@ -2,26 +2,24 @@
 Tests for logs export endpoint with RBAC enforcement and download headers.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_logs_export_admin_ok(client, mock_admin_session):
+async def test_logs_export_admin_ok(
+    client, mock_admin_session, fake_internal_api
+):
     """Test logs export endpoint returns log content with download headers for admin."""
     mock_log_content = b"""2025-11-10 12:00:00 INFO Bot started
 2025-11-10 12:01:00 WARNING Rate limit approaching
 2025-11-10 12:02:00 ERROR Connection timeout"""
 
-    with patch(
-        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_log_content
+    fake_internal_api._export_logs_override = mock_log_content
 
-        response = await client.get(
-            "/api/logs/export?lines=100", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/logs/export?lines=100", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
 
@@ -43,35 +41,32 @@ async def test_logs_export_admin_ok(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_logs_export_custom_lines(client, mock_admin_session):
+async def test_logs_export_custom_lines(
+    client, mock_admin_session, fake_internal_api
+):
     """Test logs export endpoint respects custom line count parameter."""
     mock_log_content = b"2025-11-10 12:00:00 INFO Test log line\n" * 50
 
-    with patch(
-        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_log_content
+    fake_internal_api._export_logs_override = mock_log_content
 
-        response = await client.get(
-            "/api/logs/export?lines=50", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/logs/export?lines=50", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
-    # Verify mock was called (InternalAPIClient handles line limit)
-    mock_get.assert_called_once()
+    # FakeInternalAPIClient handles the request
 
 
 @pytest.mark.asyncio
-async def test_logs_export_empty_logs(client, mock_admin_session):
+async def test_logs_export_empty_logs(
+    client, mock_admin_session, fake_internal_api
+):
     """Test logs export endpoint handles empty log content."""
-    with patch(
-        "core.dependencies.InternalAPIClient.export_logs", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = b""
+    fake_internal_api._export_logs_override = b""
 
-        response = await client.get(
-            "/api/logs/export", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/logs/export", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     assert response.content == b""

@@ -7,6 +7,7 @@ import Voice from './pages/Voice';
 import SelectServer from './pages/SelectServer';
 import DashboardBotSettings from './pages/DashboardBotSettings';
 import { handleApiError } from './utils/toast';
+import { hasPermission, getRoleBadgeColor, getRoleDisplayName, RoleLevel } from './utils/permissions';
 
 type Tab = 'dashboard' | 'users' | 'voice' | 'bot-settings';
 
@@ -14,6 +15,19 @@ function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+
+  // Helper to get user's permission level in active guild
+  const getUserRoleLevel = useCallback((): RoleLevel => {
+    if (!user?.active_guild_id) return 'user';
+    const permission = user.authorized_guilds[user.active_guild_id];
+    return permission?.role_level || 'user';
+  }, [user]);
+
+  // Helper to check if user has minimum permission level
+  const userHasPermission = useCallback((required: RoleLevel): boolean => {
+    const userRole = getUserRoleLevel();
+    return hasPermission(userRole, required);
+  }, [getUserRoleLevel]);
 
   const fetchUserProfile = useCallback(() => {
     return authApi
@@ -57,7 +71,29 @@ function App() {
     );
   }
 
-  if (!user.is_admin && !user.is_moderator) {
+  // Check if user has any permissions
+  // Legacy support: if authorized_guilds doesn't exist, fall back to is_admin/is_moderator
+  const hasAnyPermissions = (() => {
+    // Check for legacy session format
+    if (user.is_admin || user.is_moderator) {
+      return true;
+    }
+    
+    // Check new format: user needs at least staff level in active guild
+    if (user.active_guild_id && user.authorized_guilds) {
+      const guildPerm = user.authorized_guilds[user.active_guild_id];
+      return guildPerm && hasPermission(guildPerm.role_level, 'staff');
+    }
+    
+    // Check if user has permissions in ANY guild (e.g., bot owner)
+    if (user.authorized_guilds && Object.keys(user.authorized_guilds).length > 0) {
+      return true;
+    }
+    
+    return false;
+  })();
+
+  if (!hasAnyPermissions) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md">
@@ -87,6 +123,16 @@ function App() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+      setUser(null);
+      window.location.href = '/';
+    } catch (err) {
+      handleApiError(err, 'Failed to log out');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900">
       {/* Toast notifications */}
@@ -106,17 +152,32 @@ function App() {
               >
                 🔄 Switch Server
               </button>
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1 text-sm font-medium bg-red-700 text-white rounded hover:bg-red-600 transition"
+              >
+                🚪 Logout
+              </button>
               <span className="text-sm text-gray-400">
                 {user.username}#{user.discriminator}
               </span>
-              {user.is_admin && (
-                <span className="px-2 py-1 text-xs font-semibold bg-red-900 text-red-200 rounded">
-                  ADMIN
+              {/* Show role badge - new format */}
+              {user.active_guild_id && user.authorized_guilds?.[user.active_guild_id] && (
+                <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                  getRoleBadgeColor(user.authorized_guilds[user.active_guild_id].role_level)
+                }`}>
+                  {getRoleDisplayName(user.authorized_guilds[user.active_guild_id].role_level).toUpperCase()}
                 </span>
               )}
-              {user.is_moderator && !user.is_admin && (
+              {/* Legacy format support */}
+              {(!user.authorized_guilds || !user.active_guild_id) && user.is_admin && (
+                <span className="px-2 py-1 text-xs font-semibold bg-red-900 text-red-200 rounded">
+                  ADMIN (LEGACY)
+                </span>
+              )}
+              {(!user.authorized_guilds || !user.active_guild_id) && user.is_moderator && !user.is_admin && (
                 <span className="px-2 py-1 text-xs font-semibold bg-blue-900 text-blue-200 rounded">
-                  MOD
+                  MOD (LEGACY)
                 </span>
               )}
             </div>
@@ -158,7 +219,7 @@ function App() {
             >
               Voice
             </button>
-            {user.is_admin && (
+            {userHasPermission('bot_admin') && (
               <button
                 onClick={() => setActiveTab('bot-settings')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
@@ -179,7 +240,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'voice' && <Voice />}
-        {activeTab === 'bot-settings' && user.is_admin && user.active_guild_id && (
+        {activeTab === 'bot-settings' && userHasPermission('bot_admin') && user.active_guild_id && (
           <DashboardBotSettings guildId={user.active_guild_id} />
         )}
       </main>

@@ -13,7 +13,8 @@ from core.dependencies import (
     InternalAPIClient,
     get_db,
     get_internal_api_client,
-    require_admin_or_moderator,
+    require_fresh_guild_access,
+    require_staff,
 )
 from core.guild_settings import get_organization_settings
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
@@ -149,7 +150,7 @@ def _derive_status_from_orgs(
     return "non_member"
 
 
-@router.get("/search", response_model=UserSearchResponse)
+@router.get("/search", response_model=UserSearchResponse, dependencies=[Depends(require_fresh_guild_access)])
 async def search_users(
     query: str = Query(
         "", description="Search by user_id, rsi_handle, or community_moniker"
@@ -157,7 +158,7 @@ async def search_users(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """
     Search verification records.
@@ -167,7 +168,7 @@ async def search_users(
     - rsi_handle (case-insensitive partial match)
     - community_moniker (case-insensitive partial match)
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Args:
         query: Search term
@@ -342,7 +343,7 @@ async def list_users(
         description="Comma-separated membership statuses (e.g., main,affiliate)",
     ),
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -357,7 +358,7 @@ async def list_users(
     - membership_statuses: Comma-separated list (e.g., "main,affiliate,unknown")
     - role_ids: Comma-separated Discord role IDs (e.g., "123,456")
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Returns:
         UsersListResponse with enriched user data
@@ -481,7 +482,7 @@ async def list_users(
 async def export_users(
     request: ExportUsersRequest,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -492,7 +493,7 @@ async def export_users(
     - All filtered users (if membership_status filter provided)
     - All users (if no filters)
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Returns:
         CSV file as streaming response

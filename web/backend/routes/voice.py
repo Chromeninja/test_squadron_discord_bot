@@ -10,7 +10,8 @@ from core.dependencies import (
     InternalAPIClient,
     get_db,
     get_internal_api_client,
-    require_admin_or_moderator,
+    require_moderator,
+    require_staff,
 )
 from core.guild_settings import get_organization_settings
 from core.schemas import (
@@ -56,11 +57,13 @@ INTERNAL_API_KEY = os.getenv(
 @router.get("/integrity")
 async def voice_integrity_audit(
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     Detect likely corrupted/unknown role IDs in voice settings tables for the active guild.
+
+    Requires: Moderator role or higher
 
     Returns:
         { count: int, details: list[str] }
@@ -107,7 +110,7 @@ async def voice_integrity_audit(
 @router.get("/active", response_model=ActiveVoiceChannelsResponse)
 async def list_active_voice_channels(
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """
     List all active voice channels with owner information and current members.
@@ -115,7 +118,7 @@ async def list_active_voice_channels(
     Returns active voice channels with real-time member data from Discord API.
     Filters by the user's currently active guild.
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Returns:
         ActiveVoiceChannelsResponse with active channel list
@@ -334,7 +337,7 @@ async def list_active_voice_channels(
 async def search_voice_channels(
     user_id: int = Query(..., description="Discord user ID to search for"),
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
 ):
     """
     Search voice channels by owner user ID.
@@ -342,7 +345,7 @@ async def search_voice_channels(
     Returns all voice channel records for the specified user,
     ordered by most recent activity.
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Args:
         user_id: Discord user ID
@@ -393,7 +396,7 @@ async def search_user_voice_settings(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -405,7 +408,7 @@ async def search_user_voice_settings(
 
     Returns all saved JTC settings for each matched user in the currently active guild.
 
-    Requires: Admin or moderator role
+    Requires: Staff role or higher
 
     Args:
         query: Search term (Discord ID or RSI handle)
@@ -665,7 +668,7 @@ async def reset_user_voice_settings(
         None, description="Optional JTC channel ID to reset only specific JTC settings"
     ),
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """

@@ -10,13 +10,13 @@ from httpx import AsyncClient
 async def test_users_search_unauthorized(
     client: AsyncClient, mock_unauthorized_session: str
 ):
-    """Test user search rejects unauthorized users."""
+    """Test search rejects unauthorized users."""
     response = await client.get(
-        "/api/users/search",
+        "/api/users/search?query=test",
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio

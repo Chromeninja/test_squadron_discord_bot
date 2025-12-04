@@ -27,7 +27,7 @@ async def test_list_users_unauthorized(
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio
@@ -224,7 +224,7 @@ async def test_export_users_unauthorized(
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio

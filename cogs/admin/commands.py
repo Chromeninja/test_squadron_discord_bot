@@ -11,7 +11,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers.decorators import require_admin, require_bot_admin
+from helpers.decorators import require_admin, require_permission_level
+from helpers.permissions_helper import PermissionLevel
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
@@ -58,7 +59,7 @@ class AdminCog(commands.Cog):
         # Track in-flight recheck operations to prevent duplicate execution
         self._recheck_in_flight: set[int] = set()
 
-    async def cog_check(self, ctx: commands.Context) -> bool:
+    async def cog_check(self, ctx: commands.Context) -> bool:  # type: ignore[override]
         """Check if user has admin permissions."""
         if not ctx.guild or not isinstance(ctx.author, discord.Member):
             return False
@@ -69,7 +70,7 @@ class AdminCog(commands.Cog):
         name="reset-all", description="Reset verification timers for all members."
     )
     @app_commands.guild_only()
-    @require_bot_admin()
+    @require_permission_level(PermissionLevel.BOT_ADMIN)
     async def reset_all(self, interaction: discord.Interaction) -> None:
         """
         Reset verification timers for all members. Bot Admins only.
@@ -102,7 +103,7 @@ class AdminCog(commands.Cog):
     )
     @app_commands.describe(member="The member whose timer you want to reset.")
     @app_commands.guild_only()
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def reset_user(
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
@@ -138,7 +139,7 @@ class AdminCog(commands.Cog):
         description="Force flush pending announcement queue immediately.",
     )
     @app_commands.guild_only()
-    @require_bot_admin()
+    @require_permission_level(PermissionLevel.BOT_ADMIN)
     async def flush_announcements(self, interaction: discord.Interaction) -> None:
         """
         Force flush the pending announcement queue immediately.
@@ -219,7 +220,7 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
     @app_commands.guild_only()
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def view_logs(self, interaction: discord.Interaction) -> None:
         """View recent bot logs with dual delivery - channel preview and full content via DM."""
         self.logger.info(
@@ -336,15 +337,33 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(
         name="recheck-user",
-        description="Force a verification re-check for a user (Bot Admins & Lead Moderators).",
+        description="Force a verification re-check for a user (Bot Admins & Moderators).",
     )
     @app_commands.describe(member="The member to recheck.")
     @app_commands.guild_only()
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def recheck_user(
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         """Force a verification re-check for a user."""
+        # Explicit permission guard for testability and runtime safety
+        try:
+            assert interaction.guild is not None  # Required by @app_commands.guild_only()
+            has_perm = False
+            if hasattr(self.bot, "has_admin_permissions"):
+                # Treat moderators and above as authorized
+                has_perm = await self.bot.has_admin_permissions(interaction.user, interaction.guild)
+            if not has_perm:
+                await interaction.response.send_message(
+                    "You don't have permission to run this command.", ephemeral=True
+                )
+                return
+        except Exception:
+            # If permission check fails unexpectedly, deny gracefully
+            await interaction.response.send_message(
+                "You don't have permission to run this command.", ephemeral=True
+            )
+            return
         # Check if recheck is already in progress for this user
         if member.id in self._recheck_in_flight:
             await interaction.response.send_message(

@@ -2,7 +2,6 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -12,7 +11,6 @@ backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
 
 from app import app
-from core.dependencies import InternalAPIClient, get_internal_api_client
 from core.security import create_session_token
 
 
@@ -24,8 +22,13 @@ def admin_user_token():
         "username": "AdminUser",
         "discriminator": "0001",
         "avatar": None,
-        "is_admin": True,
-        "is_moderator": False,
+        "authorized_guilds": {
+            "123": {
+                "guild_id": "123",
+                "role_level": "bot_admin",
+                "source": "bot_admin_role"
+            }
+        },
         "active_guild_id": "123",
     }
     return create_session_token(user_data)
@@ -87,11 +90,12 @@ async def test_put_bot_channel_settings_persists_values(admin_user_token, temp_d
 
 
 @pytest.mark.asyncio
-async def test_get_discord_channels_proxies_internal_api(admin_user_token):
+async def test_get_discord_channels_proxies_internal_api(
+    admin_user_token, fake_internal_api, temp_db
+):
     """Test GET /api/guilds/{guild_id}/channels/discord proxies to internal API."""
-    # Create a mock InternalAPIClient
-    mock_client = AsyncMock(spec=InternalAPIClient)
-    mock_client.get_guild_channels.return_value = [
+    # Set up the fake client to return mock channels
+    fake_internal_api.channels_by_guild[123] = [
         {
             "id": "111111111111111111",
             "name": "general",
@@ -106,32 +110,22 @@ async def test_get_discord_channels_proxies_internal_api(admin_user_token):
         },
     ]
 
-    # Override the dependency
-    def override_get_internal_api_client():
-        return mock_client
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/guilds/123/channels/discord",
+            cookies={"session": admin_user_token},
+        )
 
-    app.dependency_overrides[get_internal_api_client] = override_get_internal_api_client
-
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.get(
-                "/api/guilds/123/channels/discord",
-                cookies={"session": admin_user_token},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert len(data["channels"]) == 2
-        assert data["channels"][0]["id"] == "111111111111111111"
-        assert data["channels"][0]["name"] == "general"
-        assert data["channels"][1]["id"] == "222222222222222222"
-        assert data["channels"][1]["name"] == "announcements"
-    finally:
-        # Clean up override
-        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert len(data["channels"]) == 2
+    assert data["channels"][0]["id"] == "111111111111111111"
+    assert data["channels"][0]["name"] == "general"
+    assert data["channels"][1]["id"] == "222222222222222222"
+    assert data["channels"][1]["name"] == "announcements"
 
 
 @pytest.mark.asyncio

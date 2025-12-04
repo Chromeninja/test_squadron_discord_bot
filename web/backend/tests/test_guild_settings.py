@@ -1,12 +1,13 @@
 """Tests for guild settings and member endpoints."""
 
 import json
-from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from core.security import create_session_token
 from httpx import AsyncClient
+
+from services.db.database import Database
 
 
 @pytest.mark.asyncio
@@ -14,15 +15,31 @@ async def test_get_bot_role_settings_defaults(
     client: AsyncClient, mock_admin_session: str
 ):
     """When no settings exist, all role arrays should be empty."""
+    # Use guild ID 888 which has no seeded data
+    # First need to create a session for guild 888
+    session_888 = create_session_token(
+        {
+            "user_id": "246604397155581954",
+            "username": "TestAdmin",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": "888",
+            "authorized_guild_ids": [888],
+            "authorized_guilds": {
+                "888": {"guild_id": "888", "role_level": "bot_admin", "source": "bot_owner"},
+            },
+        }
+    )
+
     response = await client.get(
-        "/api/guilds/123/settings/bot-roles",
-        cookies={"session": mock_admin_session},
+        "/api/guilds/888/settings/bot-roles",
+        cookies={"session": session_888},
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["bot_admins"] == []
-    assert data["lead_moderators"] == []
+    assert data["moderators"] == []
     assert data["main_role"] == []
     assert data["affiliate_role"] == []
     assert data["nonmember_role"] == []
@@ -30,13 +47,14 @@ async def test_get_bot_role_settings_defaults(
 
 @pytest.mark.asyncio
 async def test_put_bot_role_settings_persists_values(
-    client: AsyncClient, mock_admin_session: str
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
 ):
     """PUT should normalize and persist role IDs for all categories."""
     # Use strings to preserve 64-bit Discord snowflake precision
+    # Include 999111222 (the admin's current role) so validation passes on follow-up GET
     payload = {
-        "bot_admins": ["5", "5", "2"],
-        "lead_moderators": ["8"],
+        "bot_admins": ["999111222", "5", "5", "2"],
+        "moderators": ["8"],
         "main_role": ["10"],
         "affiliate_role": ["11", "12"],
         "nonmember_role": ["13"],
@@ -51,8 +69,8 @@ async def test_put_bot_role_settings_persists_values(
 
     data = response.json()
     # Response should be sorted string role IDs
-    assert data["bot_admins"] == ["2", "5"]
-    assert data["lead_moderators"] == ["8"]
+    assert data["bot_admins"] == ["2", "5", "999111222"]
+    assert data["moderators"] == ["8"]
     assert data["main_role"] == ["10"]
     assert data["affiliate_role"] == ["11", "12"]
     assert data["nonmember_role"] == ["13"]
@@ -65,6 +83,47 @@ async def test_put_bot_role_settings_persists_values(
     assert follow_up.status_code == 200
     persisted = follow_up.json()
     assert persisted == data
+
+    # Ensure bot was notified about the change
+    assert fake_internal_api.refresh_calls
+    assert fake_internal_api.refresh_calls[0]["guild_id"] == 123
+    assert fake_internal_api.refresh_calls[0]["source"] == "bot_roles"
+
+
+@pytest.mark.asyncio
+async def test_put_bot_role_settings_updates_version_marker(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    payload = {
+        "bot_admins": ["5"],
+        "moderators": ["7"],
+        "main_role": ["10"],
+        "affiliate_role": [],
+        "nonmember_role": [],
+    }
+
+    response = await client.put(
+        "/api/guilds/123/settings/bot-roles",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == 200
+
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT value FROM guild_settings
+            WHERE guild_id = ? AND key = ?
+            """,
+            (123, "meta.settings_version"),
+        )
+        row = await cursor.fetchone()
+
+    assert row is not None
+    serialized = row[0]
+    payload = json.loads(serialized)
+    assert payload["source"] == "bot_roles"
+    assert "version" in payload
 
 
 @pytest.mark.asyncio
@@ -190,6 +249,11 @@ async def test_list_guild_members_forbidden_without_matching_active_guild(
             "is_admin": True,
             "is_moderator": False,
             "active_guild_id": "999",
+            "authorized_guild_ids": [999, 123],
+            "authorized_guilds": {
+                "999": {"guild_id": "999", "role_level": "bot_admin", "source": "bot_admin_role"},
+                "123": {"guild_id": "123", "role_level": "bot_admin", "source": "bot_admin_role"},
+            },
         }
     )
 
@@ -232,6 +296,7 @@ async def test_get_guild_member_detail_success(
 async def test_get_guild_member_detail_http_status_error(
     client: AsyncClient,
     mock_admin_session: str,
+    fake_internal_api,
 ):
     """HTTP errors from the internal API should propagate status and detail."""
     error_response = httpx.Response(
@@ -240,20 +305,26 @@ async def test_get_guild_member_detail_http_status_error(
         content=json.dumps({"detail": "Member not found"}).encode(),
     )
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_guild_member",
-        new_callable=AsyncMock,
-    ) as mock_get:
-        mock_get.side_effect = httpx.HTTPStatusError(
-            "not found",
-            request=error_response.request,
-            response=error_response,
-        )
+    # Override get_guild_member to raise an exception ONLY for user 999
+    # For the admin user (246604397155581954), return normal data for role validation
+    original_get_guild_member = fake_internal_api.get_guild_member
 
-        response = await client.get(
-            "/api/guilds/123/members/999",
-            cookies={"session": mock_admin_session},
-        )
+    async def selective_raise_error(guild_id, user_id):
+        if user_id == 999:
+            raise httpx.HTTPStatusError(
+                "not found",
+                request=error_response.request,
+                response=error_response,
+            )
+        # For role validation of admin user, return normal member data
+        return await original_get_guild_member(guild_id, user_id)
+
+    fake_internal_api.get_guild_member = selective_raise_error
+
+    response = await client.get(
+        "/api/guilds/123/members/999",
+        cookies={"session": mock_admin_session},
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Member not found"

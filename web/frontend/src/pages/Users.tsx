@@ -8,9 +8,11 @@ import {
   ExportUsersRequest,
   GuildRole,
   BulkRecheckResponse,
+  UserProfile,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { handleApiError } from '../utils/toast';
+import { hasPermission } from '../utils/permissions';
 
 function Users() {
   // State
@@ -18,6 +20,7 @@ function Users() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeGuildId, setActiveGuildId] = useState<number | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -69,7 +72,9 @@ function Users() {
       // Refresh the users list to show updated data
       await fetchUsers();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to recheck user');
+      const status = err.response?.status;
+      const message = status === 403 ? 'No access - moderator role required' : (err.response?.data?.detail || 'Failed to recheck user');
+      setError(message);
     } finally {
       setRecheckingUserId(null);
     }
@@ -120,7 +125,9 @@ function Users() {
       // Clear selection
       resetSelection();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to bulk recheck users');
+      const status = err.response?.status;
+      const message = status === 403 ? 'No access - moderator role required' : (err.response?.data?.detail || 'Failed to bulk recheck users');
+      setError(message);
     } finally {
       setBulkRechecking(false);
     }
@@ -217,6 +224,7 @@ function Users() {
     const loadUserProfile = async () => {
       try {
         const response = await authApi.getMe();
+        setUserProfile(response.user);
         setActiveGuildId(response.user?.active_guild_id || null);
       } catch (err) {
         handleApiError(err, 'Failed to load user profile');
@@ -225,6 +233,15 @@ function Users() {
     
     loadUserProfile();
   }, []);
+
+  // Check if user has moderator access (required for recheck operations)
+  const canRecheck = useMemo(() => {
+    if (!userProfile?.active_guild_id || !userProfile.authorized_guilds) {
+      return false;
+    }
+    const guildPerm = userProfile.authorized_guilds[userProfile.active_guild_id];
+    return guildPerm && hasPermission(guildPerm.role_level, 'moderator');
+  }, [userProfile]);
 
 
 
@@ -698,14 +715,16 @@ function Users() {
             </div>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={handleBulkRecheck}
-              disabled={bulkRechecking || !hasSelection}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
-              title="Re-verify selected users' RSI membership and update roles"
-            >
-              {bulkRechecking ? 'Rechecking...' : 'Recheck Selected'}
-            </button>
+            {canRecheck && (
+              <button
+                onClick={handleBulkRecheck}
+                disabled={bulkRechecking || !hasSelection}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
+                title="Re-verify selected users' RSI membership and update roles"
+              >
+                {bulkRechecking ? 'Rechecking...' : 'Recheck Selected'}
+              </button>
+            )}
             <button
               onClick={handleExportSelected}
               disabled={exporting || !hasSelection}
@@ -943,14 +962,18 @@ function Users() {
                       {formatDateValue(user.last_updated)}
                     </td>
                     <td className="px-4 py-4">
-                      <button
-                        onClick={() => handleRecheckUser(user.discord_id)}
-                        disabled={recheckingUserId === user.discord_id}
-                        className="px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded transition"
-                        title="Re-verify this user's RSI membership and update roles"
-                      >
-                        {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
-                      </button>
+                      {canRecheck ? (
+                        <button
+                          onClick={() => handleRecheckUser(user.discord_id)}
+                          disabled={recheckingUserId === user.discord_id}
+                          className="px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded transition"
+                          title="Re-verify this user's RSI membership and update roles"
+                        >
+                          {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-500">-</span>
+                      )}
                     </td>
                   </tr>
                   );

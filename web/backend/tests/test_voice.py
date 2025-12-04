@@ -12,11 +12,11 @@ async def test_voice_search_unauthorized(
 ):
     """Test voice search rejects unauthorized users."""
     response = await client.get(
-        "/api/voice/search?user_id=123456789",
+        "/api/voice/search?query=12345",
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio
@@ -81,11 +81,11 @@ async def test_user_settings_search_unauthorized(
 ):
     """Test user settings search rejects unauthorized users."""
     response = await client.get(
-        "/api/voice/user-settings?query=TestUser1",
+        "/api/voice/user-settings?query=test",  # Use query param, not path segment
         cookies={"session": mock_unauthorized_session},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 400  # User has no authorized guilds
 
 
 @pytest.mark.asyncio

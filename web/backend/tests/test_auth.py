@@ -31,8 +31,10 @@ async def test_auth_me_with_admin_session(client: AsyncClient, mock_admin_sessio
     data = response.json()
     assert data["success"] is True
     assert data["user"] is not None
-    assert data["user"]["is_admin"] is True
     assert data["user"]["user_id"] == "246604397155581954"
+    assert "authorized_guilds" in data["user"]
+    assert "123" in data["user"]["authorized_guilds"]
+    assert data["user"]["authorized_guilds"]["123"]["role_level"] == "bot_admin"
 
 
 @pytest.mark.asyncio
@@ -49,8 +51,10 @@ async def test_auth_me_with_moderator_session(
     data = response.json()
     assert data["success"] is True
     assert data["user"] is not None
-    assert data["user"]["is_moderator"] is True
     assert data["user"]["user_id"] == "1428084144860303511"
+    assert "authorized_guilds" in data["user"]
+    assert "123" in data["user"]["authorized_guilds"]
+    assert data["user"]["authorized_guilds"]["123"]["role_level"] == "moderator"
 
 
 @pytest.mark.asyncio
@@ -219,9 +223,11 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
 
     session_data = decode_session_token(session_cookie)
     assert session_data is not None
-    assert session_data["is_admin"] is True
-    assert 246486575137947648 in session_data["authorized_guild_ids"]
-    assert session_data["permission_sources"]["246486575137947648"] == "owner"
+    # Check authorized_guilds structure
+    assert "246486575137947648" in session_data["authorized_guilds"]
+    guild_permission = session_data["authorized_guilds"]["246486575137947648"]
+    assert guild_permission["role_level"] == "bot_admin"  # Guild owners get bot_admin level
+    assert guild_permission["source"] == "discord_owner"
 
 
 @pytest.mark.asyncio
@@ -295,9 +301,11 @@ async def test_callback_grants_access_to_administrator(
 
     session_data = decode_session_token(session_cookie)
     assert session_data is not None
-    assert session_data["is_admin"] is True
-    assert 246486575137947648 in session_data["authorized_guild_ids"]
-    assert session_data["permission_sources"]["246486575137947648"] == "administrator"
+    # Check authorized_guilds structure
+    assert "246486575137947648" in session_data["authorized_guilds"]
+    guild_permission = session_data["authorized_guilds"]["246486575137947648"]
+    assert guild_permission["role_level"] == "bot_admin"
+    assert guild_permission["source"] == "discord_administrator"
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { voiceApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse } from '../api/endpoints';
+import { voiceApi, authApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile } from '../api/endpoints';
+import { hasPermission } from '../utils/permissions';
 
 function Voice() {
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserJTCSettings[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -30,6 +32,28 @@ function Voice() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState<VoiceSettingsResetResponse | null>(null);
+
+  // Check if user has moderator access (required for reset operations)
+  const canReset = (() => {
+    if (!userProfile?.active_guild_id || !userProfile.authorized_guilds) {
+      return false;
+    }
+    const guildPerm = userProfile.authorized_guilds[userProfile.active_guild_id];
+    return guildPerm && hasPermission(guildPerm.role_level, 'moderator');
+  })();
+
+  // Load user profile on mount
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        const response = await authApi.getMe();
+        setUserProfile(response.user);
+      } catch (err) {
+        console.error('Failed to load user profile:', err);
+      }
+    };
+    loadUserProfile();
+  }, []);
 
   // Load active channels on mount
   useEffect(() => {
@@ -154,7 +178,9 @@ function Voice() {
         handleSearch(currentPage);
       }, 3000);
     } catch (err: any) {
-      setResetError(err.response?.data?.detail || 'Failed to reset voice settings');
+      const status = err.response?.status;
+      const message = status === 403 ? 'No access - moderator role required' : (err.response?.data?.detail || 'Failed to reset voice settings');
+      setResetError(message);
     } finally {
       setResetLoading(false);
     }
@@ -228,16 +254,18 @@ function Voice() {
               )}
             </div>
           </div>
-          <button
-            onClick={() => {
-              const user = searchResults.find(u => u.jtcs.some(j => j.jtc_channel_id === jtc.jtc_channel_id));
-              if (user) openResetModal(user, jtc.jtc_channel_id);
-            }}
-            className="px-3 py-1.5 text-sm bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 rounded transition"
-            title="Reset settings for this JTC only"
-          >
-            Reset JTC Settings
-          </button>
+          {canReset && (
+            <button
+              onClick={() => {
+                const user = searchResults.find(u => u.jtcs.some(j => j.jtc_channel_id === jtc.jtc_channel_id));
+                if (user) openResetModal(user, jtc.jtc_channel_id);
+              }}
+              className="px-3 py-1.5 text-sm bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 rounded transition"
+              title="Reset settings for this JTC only"
+            >
+              Reset JTC Settings
+            </button>
+          )}
         </div>
 
         {/* Basic Settings - Compact Grid */}
@@ -656,18 +684,20 @@ function Voice() {
                   {expandedUsers.has(user.user_id) && (
                     <div className="px-6 py-4 bg-slate-900/50 border-t border-slate-700">
                       {/* Reset All Button */}
-                      <div className="flex justify-end mb-4">
-                        <button
-                          onClick={() => openResetModal(user)}
-                          className="px-4 py-2 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 rounded transition flex items-center gap-2"
-                          title="Reset ALL voice settings for this user (guild-wide)"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                          </svg>
-                          Reset All Voice Settings
-                        </button>
-                      </div>
+                      {canReset && (
+                        <div className="flex justify-end mb-4">
+                          <button
+                            onClick={() => openResetModal(user)}
+                            className="px-4 py-2 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 rounded transition flex items-center gap-2"
+                            title="Reset ALL voice settings for this user (guild-wide)"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            Reset All Voice Settings
+                          </button>
+                        </div>
+                      )}
 
                       {user.jtcs.length === 0 ? (
                         <div className="text-center py-8">

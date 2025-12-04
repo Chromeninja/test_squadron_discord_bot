@@ -15,6 +15,7 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from core.security import clear_session_cookie
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -110,29 +111,61 @@ async def debug_env():
 
 @app.exception_handler(401)
 async def unauthorized_handler(request, exc):
-    """Return standardized 401 response."""
-    return JSONResponse(
+    """Return standardized 401 response and clear session if role was revoked."""
+    # Default payload
+    code = "UNAUTHORIZED"
+    message = "Authentication required"
+
+    # If detail contains structured payload, prefer it
+    try:
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict):
+            err_code = detail.get("code")
+            err_msg = detail.get("message")
+            if err_code:
+                code = err_code
+            if err_msg:
+                message = err_msg
+    except Exception:
+        pass
+
+    response = JSONResponse(
         status_code=401,
         content={
             "success": False,
             "error": {
-                "code": "UNAUTHORIZED",
-                "message": "Authentication required",
+                "code": code,
+                "message": message,
             },
         },
     )
+
+    # If the error indicates role revocation, clear session cookie
+    if code == "role_revoked":
+        clear_session_cookie(response)
+
+    return response
 
 
 @app.exception_handler(403)
 async def forbidden_handler(request, exc):
     """Return standardized 403 response."""
+    # Extract detail from HTTPException if available
+    detail = getattr(exc, 'detail', None)
+    if isinstance(detail, dict):
+        message = detail.get('message', 'Access denied')
+    elif isinstance(detail, str):
+        message = detail
+    else:
+        message = "Access denied"
+
     return JSONResponse(
         status_code=403,
         content={
             "success": False,
             "error": {
                 "code": "FORBIDDEN",
-                "message": "Access denied - admin or moderator role required",
+                "message": message,
             },
         },
     )

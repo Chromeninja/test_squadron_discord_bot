@@ -45,7 +45,12 @@ async def voice_service(config_service, mock_bot):
     service = VoiceService(config_service, bot=mock_bot)
     service.debug_logging_enabled = True  # Enable debug logging for tests
     await service.initialize()
-    return service
+    yield service
+    # Cleanup: shutdown the service to close any background tasks
+    try:
+        await service.shutdown()
+    except Exception:
+        pass  # Ignore cleanup errors
 
 
 @pytest.fixture

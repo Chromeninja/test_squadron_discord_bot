@@ -3,7 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from helpers.bulk_check import collect_targets
-from helpers.decorators import require_admin
+from helpers.decorators import require_permission_level
+from helpers.permissions_helper import PermissionLevel
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -18,7 +19,7 @@ class VerifyCommands(app_commands.Group):
 
     @app_commands.command(
         name="check",
-        description="Check verification status for users (Bot Admins & Lead Moderators only)",
+        description="Check verification status for users (Bot Admins & Moderators only)",
     )
     @app_commands.describe(
         targets="Target selection mode",
@@ -34,7 +35,7 @@ class VerifyCommands(app_commands.Group):
         ]
     )
     @app_commands.guild_only()
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def check_verification_status(
         self,
         interaction: discord.Interaction,

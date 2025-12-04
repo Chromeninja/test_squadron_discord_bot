@@ -5,7 +5,7 @@ A minimal, clean web admin interface for the Test Squadron Discord bot, built wi
 ## Features
 
 - **Discord OAuth2 Authentication**: Secure login with Discord
-- **Role-Based Access Control**: Only bot admins and lead moderators can access
+- **Role-Based Access Control**: Access controlled by Discord roles (Bot Admin, Discord Manager, Moderator, Staff)
 - **Dashboard**: View verification stats and voice channel metrics
 - **User Search**: Search and view verification records by user ID, RSI handle, or community moniker
 - **Voice Channel Search**: Look up voice channels by user ID
@@ -104,7 +104,7 @@ A minimal, clean web admin interface for the Test Squadron Discord bot, built wi
 1. Open your browser to `http://localhost:5173`
 2. Click "Login with Discord"
 3. Authorize the application
-4. You'll be redirected to the dashboard (if you have admin/moderator role)
+4. You'll be redirected to the dashboard (if you have moderator or higher role)
 
 ## VS Code Debugging
 
@@ -234,23 +234,24 @@ web/
 
 ## Access Control
 
-The dashboard checks user Discord IDs against roles in `config/config.yaml`:
+The dashboard checks user roles based on the hierarchical permission system in `config/config.yaml`:
 
 ```yaml
 roles:
-  bot_admins:
-    - '246604397155581954'  # Your admin user IDs
-  lead_moderators:
-    - '1428084144860303511'  # Your moderator user IDs
+  bot_owner: 123456789012345678  # Bot owner user ID (full access)
+  bot_admins: [123456789012345678, 987654321098765432]  # Bot Admin role IDs (full access)
+  discord_managers: [111111111111111111]  # Discord Manager role IDs (full access)
+  moderators: [222222222222222222]  # Moderator role IDs (full access)
+  staff: [333333333333333333]  # Staff role IDs (read-only access)
 ```
 
-Only users listed in `bot_admins` or `lead_moderators` can access the dashboard.
+Users with **Moderator** role or higher can access the full dashboard. **Staff** role users get read-only access to dashboards and statistics.
 
 ## Troubleshooting
 
 ### "Access Denied" after logging in
 
-- Verify your Discord user ID is in `config/config.yaml` under `roles.bot_admins` or `roles.lead_moderators`
+- Verify your Discord user ID has at least the **Staff** role in `config/config.yaml` (for read-only access) or **Moderator** role (for full access)
 - User IDs must be strings in YAML (wrapped in quotes)
 
 ### Backend won't start

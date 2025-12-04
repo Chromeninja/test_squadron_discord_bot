@@ -13,7 +13,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_config_loader,
     get_internal_api_client,
-    require_admin_or_moderator,
+    require_any_guild_access,
     translate_internal_api_error,
 )
 from core.schemas import (
@@ -33,6 +33,7 @@ from core.security import (
     DISCORD_TOKEN_URL,
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE,
+    clear_session_cookie,
     create_session_token,
     get_discord_authorize_url,
     set_session_cookie,
@@ -179,24 +180,42 @@ async def callback(code: str, state: str | None = None):
 
             logger.debug(f"Bot is installed in guilds (from DB): {bot_guild_ids}")
 
-            # Track authorization details for each guild
+            # Check if user is bot owner (global permission)
+            BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
+            user_id_from_data = user_data.get("id")
+            is_bot_owner = BOT_OWNER_ID and str(user_id_from_data) == str(BOT_OWNER_ID)
+
+            if is_bot_owner:
+                logger.info(f"User {user_id_from_data} identified as BOT OWNER - granting global access")
+
+            # Track per-guild permissions using new GuildPermission model
+            from core.schemas import GuildPermission
+
+            authorized_guilds: dict[str, GuildPermission] = {}
             authorized_guild_ids = []
-            is_admin = False
-            is_moderator = False
-            permission_sources = {}  # guild_id -> permission source
 
             # Build a map of guild data for efficient lookup
             guild_data_map = {g["id"]: g for g in user_guilds}
 
-            # Check ALL user guilds for Discord-native permissions (owner/administrator)
-            # Then check database-registered guilds for role-based permissions
+            # Check ALL user guilds for permissions
             for guild_id in user_guild_ids:
                 try:
                     guild_data = guild_data_map.get(guild_id)
                     if not guild_data:
                         continue
 
-                    # Check Discord-native permissions first (owner or administrator)
+                    # Bot owner gets full access to ALL guilds
+                    if is_bot_owner:
+                        authorized_guilds[str(guild_id)] = GuildPermission(
+                            guild_id=str(guild_id),
+                            role_level="bot_owner",
+                            source="bot_owner"
+                        )
+                        if int(guild_id) not in authorized_guild_ids:
+                            authorized_guild_ids.append(int(guild_id))
+                        continue
+
+                    # Check Discord-native permissions (owner or administrator)
                     is_owner = guild_data.get("owner", False)
                     permissions_str = guild_data.get("permissions")
                     has_admin_permission = _has_administrator_permission(
@@ -207,17 +226,33 @@ async def callback(code: str, state: str | None = None):
                         f"Guild {guild_id}: owner={is_owner}, admin={has_admin_permission}"
                     )
 
-                    # If user is guild owner or has administrator permission, grant admin access
-                    if is_owner or has_admin_permission:
-                        authorized_guild_ids.append(int(guild_id))
-                        is_admin = True
-                        permission_sources[int(guild_id)] = (
-                            "owner" if is_owner else "administrator"
+                    # Guild owner gets bot_admin level
+                    if is_owner:
+                        authorized_guilds[str(guild_id)] = GuildPermission(
+                            guild_id=str(guild_id),
+                            role_level="bot_admin",
+                            source="discord_owner"
                         )
+                        if int(guild_id) not in authorized_guild_ids:
+                            authorized_guild_ids.append(int(guild_id))
                         logger.info(
-                            f"User granted admin access to guild {guild_id} via {permission_sources[int(guild_id)]}"
+                            f"User granted bot_admin access to guild {guild_id} via discord_owner"
                         )
-                        continue  # Skip role-based check for performance
+                        continue
+
+                    # Discord administrator permission gets bot_admin level
+                    if has_admin_permission:
+                        authorized_guilds[str(guild_id)] = GuildPermission(
+                            guild_id=str(guild_id),
+                            role_level="bot_admin",
+                            source="discord_administrator"
+                        )
+                        if int(guild_id) not in authorized_guild_ids:
+                            authorized_guild_ids.append(int(guild_id))
+                        logger.info(
+                            f"User granted bot_admin access to guild {guild_id} via discord_administrator"
+                        )
+                        continue
 
                     # Only check role-based permissions if guild is in the database
                     if int(guild_id) not in bot_guild_ids:
@@ -226,54 +261,62 @@ async def callback(code: str, state: str | None = None):
                         )
                         continue
 
-                    # Fall back to role-based checking from database
+                    # Fetch guild member info for role checking
                     guild_member_response = await client.get(
                         f"{DISCORD_API_BASE}/users/@me/guilds/{guild_id}/member",
                         headers={"Authorization": f"Bearer {access_token}"},
                     )
 
                     if guild_member_response.status_code == 429:
-                        # Rate limited - skip remaining guilds
                         logger.warning(
                             f"Rate limited while checking guild {guild_id}, skipping remaining guilds"
                         )
                         break
 
                     if guild_member_response.status_code != 200:
-                        continue  # Skip guilds where we can't fetch member info
+                        continue
 
                     guild_member_data = guild_member_response.json()
                     user_role_ids = guild_member_data.get("roles", [])
 
-                    # Check if user has admin/mod roles in this guild (from database)
+                    # Fetch role configuration from database
                     async with Database.get_connection() as db:
                         role_settings = await get_bot_role_settings(db, int(guild_id))
-                        bot_admin_role_ids = role_settings.get("bot_admins", [])
-                        lead_moderator_role_ids = role_settings.get(
-                            "lead_moderators", []
-                        )
+                        bot_admin_role_ids = [int(rid) for rid in role_settings.get("bot_admins", [])]
+                        discord_manager_role_ids = [int(rid) for rid in role_settings.get("discord_managers", [])]
+                        moderator_role_ids = [int(rid) for rid in role_settings.get("moderators", [])]
+                        staff_role_ids = [int(rid) for rid in role_settings.get("staff", [])]
 
-                    # Convert user_role_ids to integers for comparison
+                    # Convert user_role_ids to integers
                     user_role_ids_int = [int(rid) for rid in user_role_ids]
 
-                    # Check if user has any admin/mod roles
-                    has_admin_role = any(
-                        rid in bot_admin_role_ids for rid in user_role_ids_int
-                    )
-                    has_mod_role = any(
-                        rid in lead_moderator_role_ids for rid in user_role_ids_int
-                    )
+                    # Determine highest role level (check in hierarchy order)
+                    role_level = None
+                    source = None
 
-                    if has_admin_role or has_mod_role:
-                        authorized_guild_ids.append(int(guild_id))
-                        if has_admin_role:
-                            is_admin = True
-                            permission_sources[int(guild_id)] = "bot_admin_role"
-                        if has_mod_role:
-                            is_moderator = True
-                            permission_sources[int(guild_id)] = "moderator_role"
+                    if any(rid in bot_admin_role_ids for rid in user_role_ids_int):
+                        role_level = "bot_admin"
+                        source = "bot_admin_role"
+                    elif any(rid in discord_manager_role_ids for rid in user_role_ids_int):
+                        role_level = "discord_manager"
+                        source = "discord_manager_role"
+                    elif any(rid in moderator_role_ids for rid in user_role_ids_int):
+                        role_level = "moderator"
+                        source = "moderator_role"
+                    elif any(rid in staff_role_ids for rid in user_role_ids_int):
+                        role_level = "staff"
+                        source = "staff_role"
+
+                    if role_level and source:
+                        authorized_guilds[str(guild_id)] = GuildPermission(
+                            guild_id=str(guild_id),
+                            role_level=role_level,
+                            source=source
+                        )
+                        if int(guild_id) not in authorized_guild_ids:
+                            authorized_guild_ids.append(int(guild_id))
                         logger.info(
-                            f"User granted access to guild {guild_id} via {permission_sources[int(guild_id)]}"
+                            f"User granted {role_level} access to guild {guild_id} via {source}"
                         )
 
                 except Exception as e:
@@ -294,8 +337,7 @@ async def callback(code: str, state: str | None = None):
             f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s)"
         )
         logger.debug(f"Authorized guild IDs: {authorized_guild_ids}")
-        logger.debug(f"is_admin: {is_admin}, is_moderator: {is_moderator}")
-        logger.debug(f"Permission sources: {permission_sources}")
+        logger.debug(f"Per-guild permissions: {[(g, p.role_level) for g, p in authorized_guilds.items()]}")
 
         # Require at least one authorized guild
         if not authorized_guild_ids:
@@ -307,7 +349,7 @@ async def callback(code: str, state: str | None = None):
                 <head><title>Access Denied</title></head>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                     <h1>Access Denied</h1>
-                    <p>You do not have bot admin or moderator roles in any server where this bot is installed.</p>
+                    <p>You do not have permission roles in any server where this bot is installed.</p>
                     <p>Contact a bot administrator if you believe this is an error.</p>
                 </body>
                 </html>
@@ -316,12 +358,17 @@ async def callback(code: str, state: str | None = None):
                 status_code=403,
             )
 
-        # Create session token with authorized guild IDs and permission sources
-        # Convert permission_sources keys to strings for JSON/JWT serialization
-        permission_sources_str = {str(k): v for k, v in permission_sources.items()}
+        # Convert authorized_guilds to serializable dict for JWT
+        authorized_guilds_dict = {
+            guild_id: {
+                "guild_id": perm.guild_id,
+                "role_level": perm.role_level,
+                "source": perm.source
+            }
+            for guild_id, perm in authorized_guilds.items()
+        }
 
         # Do NOT auto-select guild - force user to choose from SelectServer screen
-        # This ensures users explicitly select which server to manage
         logger.info(
             f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s), redirecting to guild selection"
         )
@@ -331,11 +378,10 @@ async def callback(code: str, state: str | None = None):
             "username": username,
             "discriminator": discriminator,
             "avatar": avatar,
-            "is_admin": is_admin,
-            "is_moderator": is_moderator,
-            "authorized_guild_ids": authorized_guild_ids,
+            "authorized_guilds": authorized_guilds_dict,
+            "authorized_guild_ids": authorized_guild_ids,  # For backward compatibility
             "active_guild_id": None,  # Null to trigger SelectServer screen
-            "permission_sources": permission_sources_str,  # Store for debugging/audit
+            "roles_validated_at": {},  # Per-guild validation timestamps
         }
 
         session_token = create_session_token(session_data)
@@ -388,7 +434,7 @@ async def get_me(session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME)):
 
 @api_router.get("/guilds", response_model=GuildListResponse)
 async def get_available_guilds(
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_any_guild_access),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -439,7 +485,7 @@ async def get_available_guilds(
 async def select_active_guild(
     payload: SelectGuildRequest,
     response: Response,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_any_guild_access),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Persist the active guild in the session cookie."""
@@ -462,8 +508,13 @@ async def select_active_guild(
     elif payload.guild_id not in allowed_ids:
         raise HTTPException(status_code=404, detail="Guild not found")
 
-    session_payload = current_user.dict()
+    # Rebuild session payload, initializing/refreshing validation timestamp for the chosen guild
+    session_payload = current_user.model_dump()
     session_payload["active_guild_id"] = payload.guild_id
+    roles_validated_at = session_payload.get("roles_validated_at") or {}
+    import time as _t
+    roles_validated_at[payload.guild_id] = int(_t.time())
+    session_payload["roles_validated_at"] = roles_validated_at
     set_session_cookie(response, session_payload)
 
     return SelectGuildResponse()
@@ -471,13 +522,8 @@ async def select_active_guild(
 
 @api_router.post("/logout")
 async def logout(response: Response):
-    """
-    Logout user by clearing session cookie.
-
-    Returns:
-        Success response
-    """
-    response.delete_cookie(key=SESSION_COOKIE_NAME)
+    """Logout user by clearing the session cookie."""
+    clear_session_cookie(response)
     return {"success": True, "message": "Logged out successfully"}
 
 
@@ -561,7 +607,7 @@ async def bot_authorization_callback(
 @api_router.delete("/active-guild")
 async def clear_active_guild(
     response: Response,
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_any_guild_access),
 ):
     """
     Clear the active guild from session, forcing user to SelectServer screen.
@@ -571,7 +617,7 @@ async def clear_active_guild(
     Returns:
         Success response
     """
-    session_payload = current_user.dict()
+    session_payload = current_user.model_dump()
     session_payload["active_guild_id"] = None
     set_session_cookie(response, session_payload)
 

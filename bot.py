@@ -88,9 +88,27 @@ class MyBot(commands.Bot):
         # Initialize role cache and warning tracking
         self.role_cache = {}
         self._missing_role_warned_guilds = set()
+        self._guild_role_expectations: dict[int, set[str]] = {}
 
     async def setup_hook(self) -> None:
         """Load cogs, initialize services, and sync commands."""
+        # Get bot owner ID from application info
+        try:
+            app_info = await self.application_info()
+            if app_info.owner:
+                self.owner_id = app_info.owner.id
+                logger.info(f"Bot owner detected: {app_info.owner.name} (ID: {self.owner_id})")
+            elif app_info.team:
+                # If bot is owned by a team, use team owner
+                self.owner_id = app_info.team.owner_id
+                logger.info(f"Bot owned by team, team owner ID: {self.owner_id}")
+            else:
+                logger.warning("Could not determine bot owner from application info")
+                self.owner_id = None
+        except Exception as e:
+            logger.exception("Failed to fetch application info for owner detection", exc_info=e)
+            self.owner_id = None
+
         # Initialize the database
         await Database.initialize()
 
@@ -141,6 +159,7 @@ class MyBot(commands.Bot):
 
         # Cache roles after bot is ready
         spawn(self.cache_roles())
+        spawn(self.role_refresh_task())
 
         # Start cleanup tasks
         spawn(self.token_cleanup_task())
@@ -238,61 +257,116 @@ class MyBot(commands.Bot):
 
         for guild in self.guilds:
             try:
-                # Get role configuration from database using new format
-                main_role_ids = await self.services.config.get_guild_setting(
-                    guild.id, "roles.main_role", []
-                )
-                affiliate_role_ids = await self.services.config.get_guild_setting(
-                    guild.id, "roles.affiliate_role", []
-                )
-                nonmember_role_ids = await self.services.config.get_guild_setting(
-                    guild.id, "roles.nonmember_role", []
-                )
-
-                # Extract first role ID from each list
-                role_ids = []
-                if main_role_ids and len(main_role_ids) > 0:
-                    role_ids.append(main_role_ids[0])
-                if affiliate_role_ids and len(affiliate_role_ids) > 0:
-                    role_ids.append(affiliate_role_ids[0])
-                if nonmember_role_ids and len(nonmember_role_ids) > 0:
-                    role_ids.append(nonmember_role_ids[0])
-
-                for role_id in role_ids:
-                    if not role_id:
-                        continue
-                    if role := guild.get_role(int(role_id)):
-                        self.role_cache[role_id] = role
-                    else:
-                        # Only warn once per guild
-                        try:
-                            reported = await Database.has_reported_missing_roles(
-                                guild.id
-                            )
-                        except Exception:
-                            reported = False
-                        if (
-                            not reported
-                            and guild.id not in self._missing_role_warned_guilds
-                        ):
-                            logger.warning(
-                                f"Role with ID {role_id} not found in guild '{guild.name}'."
-                            )
-                            self._missing_role_warned_guilds.add(guild.id)
-                            try:
-                                await Database.mark_reported_missing_roles(guild.id)
-                            except Exception:
-                                logger.debug(
-                                    "Failed to persist missing-role warning for guild %s",
-                                    guild.id,
-                                )
-                        else:
-                            logger.info(
-                                f"Role {role_id} missing in '{guild.name}' "
-                                "(already reported)."
-                            )
+                await self.refresh_guild_roles(guild.id, source="startup")
             except Exception as e:
                 logger.warning(f"Failed to cache roles for guild '{guild.name}': {e}")
+
+    async def refresh_guild_roles(
+        self, guild_id: int, source: str | None = None
+    ) -> None:
+        """Refresh cached discord.Role objects for a single guild."""
+        await self.wait_until_ready()
+        if (
+            not hasattr(self, "services")
+            or not self.services
+            or not self.services.config
+        ):
+            logger.debug("Config service unavailable; skipping role refresh")
+            return
+
+        guild = self.get_guild(guild_id)
+        if not guild:
+            logger.debug("Guild %s not found for role refresh", guild_id)
+            return
+
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role",
+        ]
+
+        expected_ids: set[str] = set()
+        for key in role_keys:
+            ids = await self.services.config.get_guild_setting(guild_id, key, [])
+            if isinstance(ids, list) and ids:
+                role_id = str(ids[0])
+                if role_id:
+                    expected_ids.add(role_id)
+
+        previous_ids = self._guild_role_expectations.get(guild_id, set())
+        removed_ids = previous_ids - expected_ids
+        for stale_id in removed_ids:
+            self.role_cache.pop(stale_id, None)
+
+        for role_id in expected_ids:
+            role = guild.get_role(int(role_id))
+            if role:
+                self.role_cache[role_id] = role
+            else:
+                await self._warn_missing_role(guild, role_id)
+
+        self._guild_role_expectations[guild_id] = expected_ids
+        logger.info(
+            "Refreshed %s role mappings for guild %s (%s)",
+            len(expected_ids),
+            guild.name,
+            source or "manual",
+        )
+
+    async def role_refresh_task(self) -> None:
+        """Background task that periodically refreshes guild role caches."""
+        await self.wait_until_ready()
+        interval_seconds = 300  # 5 minutes
+
+        while not self.is_closed():
+            try:
+                if (
+                    not hasattr(self, "services")
+                    or not self.services
+                    or not self.services.config
+                ):
+                    await asyncio.sleep(interval_seconds)
+                    continue
+
+                for guild in list(self.guilds):
+                    refreshed = await self.services.config.maybe_refresh_guild(
+                        guild.id
+                    )
+                    if refreshed:
+                        await self.refresh_guild_roles(guild.id, source="scheduled")
+            except asyncio.CancelledError:
+                logger.info("Role refresh task cancelled")
+                break
+            except Exception as exc:
+                logger.exception("Error during scheduled role refresh", exc_info=exc)
+
+            await asyncio.sleep(interval_seconds)
+
+    async def _warn_missing_role(
+        self, guild: discord.Guild, role_id: str
+    ) -> None:
+        try:
+            reported = await Database.has_reported_missing_roles(guild.id)
+        except Exception:
+            reported = False
+
+        if not reported and guild.id not in self._missing_role_warned_guilds:
+            logger.warning(
+                f"Role with ID {role_id} not found in guild '{guild.name}'."
+            )
+            self._missing_role_warned_guilds.add(guild.id)
+            try:
+                await Database.mark_reported_missing_roles(guild.id)
+            except Exception:
+                logger.debug(
+                    "Failed to persist missing-role warning for guild %s",
+                    guild.id,
+                )
+        else:
+            logger.info(
+                f"Role {role_id} missing in '{guild.name}' (already reported)."
+            )
 
     async def token_cleanup_task(self) -> None:
         """

@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from aiosqlite import Connection
 
 BOT_ADMINS_KEY = "roles.bot_admins"
-LEAD_MODS_KEY = "roles.lead_moderators"
+LEAD_MODS_KEY = "roles.lead_moderators"  # Legacy - use MODERATORS_KEY for new code
+MODERATORS_KEY = "roles.moderators"
+DISCORD_MANAGERS_KEY = "roles.discord_managers"
+STAFF_KEY = "roles.staff"
+BOT_VERIFIED_ROLE_KEY = "roles.bot_verified_role"
 MAIN_ROLE_KEY = "roles.main_role"
 AFFILIATE_ROLE_KEY = "roles.affiliate_role"
 NONMEMBER_ROLE_KEY = "roles.nonmember_role"
 SELECTABLE_ROLES_KEY = "selectable_roles"
+
+SETTINGS_VERSION_KEY = "meta.settings_version"
+SETTINGS_VERSION_ROLES_SOURCE = "bot_roles"
 
 VERIFICATION_CHANNEL_KEY = "channels.verification_channel_id"
 BOT_SPAM_CHANNEL_KEY = "channels.bot_spam_channel_id"
@@ -54,11 +62,18 @@ def _coerce_role_list(value: Any) -> list[str]:
 
 
 async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
-    """Fetch bot role settings for a guild with sensible defaults."""
+    """Fetch bot role settings for a guild with sensible defaults.
+
+    Returns dict with keys: bot_admins, discord_managers, moderators, staff,
+    main_role, affiliate_role, nonmember_role.
+
+    Backward compatibility: If moderators is empty but lead_moderators exists,
+    returns lead_moderators under 'moderators' key for seamless migration.
+    """
     query = """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = await db.execute(
         query,
@@ -66,6 +81,10 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
             guild_id,
             BOT_ADMINS_KEY,
             LEAD_MODS_KEY,
+            MODERATORS_KEY,
+            DISCORD_MANAGERS_KEY,
+            STAFF_KEY,
+            BOT_VERIFIED_ROLE_KEY,
             MAIN_ROLE_KEY,
             AFFILIATE_ROLE_KEY,
             NONMEMBER_ROLE_KEY,
@@ -75,17 +94,30 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
 
     result = {
         "bot_admins": [],
-        "lead_moderators": [],
+        "discord_managers": [],
+        "moderators": [],
+        "staff": [],
+        "bot_verified_role": [],
         "main_role": [],
         "affiliate_role": [],
         "nonmember_role": [],
     }
 
+    legacy_lead_mods = []
+
     for key, value in rows:
         if key == BOT_ADMINS_KEY:
             result["bot_admins"] = _coerce_role_list(value)
+        elif key == MODERATORS_KEY:
+            result["moderators"] = _coerce_role_list(value)
+        elif key == DISCORD_MANAGERS_KEY:
+            result["discord_managers"] = _coerce_role_list(value)
+        elif key == STAFF_KEY:
+            result["staff"] = _coerce_role_list(value)
+        elif key == BOT_VERIFIED_ROLE_KEY:
+            result["bot_verified_role"] = _coerce_role_list(value)
         elif key == LEAD_MODS_KEY:
-            result["lead_moderators"] = _coerce_role_list(value)
+            legacy_lead_mods = _coerce_role_list(value)
         elif key == MAIN_ROLE_KEY:
             result["main_role"] = _coerce_role_list(value)
         elif key == AFFILIATE_ROLE_KEY:
@@ -93,19 +125,52 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
         elif key == NONMEMBER_ROLE_KEY:
             result["nonmember_role"] = _coerce_role_list(value)
 
+    # Backward compatibility: Use lead_moderators if moderators is empty
+    if not result["moderators"] and legacy_lead_mods:
+        result["moderators"] = legacy_lead_mods
+
     return result
+
+
+def _make_version_payload(source: str | None = None) -> str:
+    """Serialize a version payload with UTC timestamp for cache invalidation."""
+    payload = {
+        "version": datetime.now(UTC).isoformat(),
+        "source": source or "unknown",
+    }
+    return json.dumps(payload)
+
+
+async def _touch_settings_version(
+    db: Connection, guild_id: int, *, source: str | None = None
+) -> None:
+    """Update the guild's settings version marker to signal downstream caches."""
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        (guild_id, SETTINGS_VERSION_KEY, _make_version_payload(source)),
+    )
 
 
 async def set_bot_role_settings(
     db: Connection,
     guild_id: int,
     bot_admins: list[str],
-    lead_moderators: list[str],
+    discord_managers: list[str],
+    moderators: list[str],
+    staff: list[str],
+    bot_verified_role: list[str],
     main_role: list[str],
     affiliate_role: list[str],
     nonmember_role: list[str],
 ) -> None:
-    """Persist bot role settings for a guild."""
+    """Persist bot role settings for a guild.
+
+    Note: This function writes to the new role keys (moderators, discord_managers, staff, bot_verified_role).
+    Legacy lead_moderators is preserved in DB but not updated by this function.
+    """
 
     def _normalize_role_ids(values: list[str]) -> list[str]:
         normalized: list[str] = []
@@ -123,7 +188,10 @@ async def set_bot_role_settings(
 
     payloads = [
         (BOT_ADMINS_KEY, json.dumps(_normalize_role_ids(bot_admins))),
-        (LEAD_MODS_KEY, json.dumps(_normalize_role_ids(lead_moderators))),
+        (DISCORD_MANAGERS_KEY, json.dumps(_normalize_role_ids(discord_managers))),
+        (MODERATORS_KEY, json.dumps(_normalize_role_ids(moderators))),
+        (STAFF_KEY, json.dumps(_normalize_role_ids(staff))),
+        (BOT_VERIFIED_ROLE_KEY, json.dumps(_normalize_role_ids(bot_verified_role))),
         (MAIN_ROLE_KEY, json.dumps(_normalize_role_ids(main_role))),
         (AFFILIATE_ROLE_KEY, json.dumps(_normalize_role_ids(affiliate_role))),
         (NONMEMBER_ROLE_KEY, json.dumps(_normalize_role_ids(nonmember_role))),
@@ -135,6 +203,9 @@ async def set_bot_role_settings(
         VALUES (?, ?, ?)
         """,
         [(guild_id, key, value) for key, value in payloads],
+    )
+    await _touch_settings_version(
+        db, guild_id, source=SETTINGS_VERSION_ROLES_SOURCE
     )
     await db.commit()
 
@@ -216,6 +287,7 @@ async def set_bot_channel_settings(
             (guild_id, key, value),
         )
 
+    await _touch_settings_version(db, guild_id, source="bot_channels")
     await db.commit()
 
 
@@ -263,6 +335,7 @@ async def set_voice_selectable_roles(
         """,
         (guild_id, SELECTABLE_ROLES_KEY, json.dumps(_normalize(selectable_roles))),
     )
+    await _touch_settings_version(db, guild_id, source="voice_selectable_roles")
     await db.commit()
 
 
@@ -326,4 +399,5 @@ async def set_organization_settings(
             (guild_id, key, value),
         )
 
+    await _touch_settings_version(db, guild_id, source="organization")
     await db.commit()

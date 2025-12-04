@@ -87,6 +87,10 @@ class MockGuild:
         """Mock get_member method."""
         return None
 
+    def get_member(self, user_id: int):
+        """Mock get_member method."""
+        return None
+
     async def create_voice_channel(self, name: str, category=None, **kwargs):
         """Mock voice channel creation."""
         return MockVoiceChannel(channel_id=99999, name=name, category=category)
@@ -105,8 +109,16 @@ class MockBot:
         """Mock wait_until_ready method."""
         pass
 
+    def get_guild(self, guild_id: int):
+        """Get mock guild by ID."""
+        return None
+
     def get_channel(self, channel_id: int):
         """Get mock channel by ID."""
+        return self._channels.get(channel_id)
+
+    async def fetch_channel(self, channel_id: int):
+        """Fetch mock channel by ID (async version)."""
         return self._channels.get(channel_id)
 
     def add_channel(self, channel: MockVoiceChannel):
@@ -174,10 +186,18 @@ class TestMultipleChannelsPerOwner:
             await db.commit()
 
         # Mock channel permissions check
+        # Create mock roles that can be compared (role position is higher = higher privilege)
+        bot_role = MagicMock()
+        bot_role.position = 10
+        bot_role.name = "bot"
+
+        member_role = MagicMock()
+        member_role.position = 5
+        member_role.name = "member"
+
         bot_member = MagicMock()
-        bot_member.top_role = MagicMock()
-        bot_member.top_role.name = "bot"
-        member.top_role.name = "member"
+        bot_member.top_role = bot_role
+        member.top_role = member_role
 
         # Mock guild methods
         guild.get_member = MagicMock(return_value=bot_member)
@@ -188,6 +208,8 @@ class TestMultipleChannelsPerOwner:
 
         # Mock channel creation
         new_channel = MockVoiceChannel(channel_id=77777, name="TestUser's Channel")
+        # Add the new channel to the mock bot so it can be found during reconciliation
+        mock_bot.add_channel(new_channel)
 
         with patch.object(
             guild, "create_voice_channel", return_value=new_channel

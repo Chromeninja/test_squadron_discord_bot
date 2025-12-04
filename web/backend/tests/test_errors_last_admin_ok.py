@@ -2,13 +2,14 @@
 Tests for errors last endpoint with RBAC enforcement.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_errors_last_admin_ok(client, mock_admin_session):
+async def test_errors_last_admin_ok(
+    client, mock_admin_session, fake_internal_api
+):
     """Test errors last endpoint returns structured errors for admin."""
     mock_errors = {
         "errors": [
@@ -22,14 +23,11 @@ async def test_errors_last_admin_ok(client, mock_admin_session):
         ]
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_errors
+    fake_internal_api._last_errors_override = mock_errors
 
-        response = await client.get(
-            "/api/errors/last?limit=1", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last?limit=1", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -49,7 +47,9 @@ async def test_errors_last_admin_ok(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_errors_last_multiple_errors(client, mock_admin_session):
+async def test_errors_last_multiple_errors(
+    client, mock_admin_session, fake_internal_api
+):
     """Test errors last endpoint handles multiple errors correctly."""
     mock_errors = {
         "errors": [
@@ -68,14 +68,11 @@ async def test_errors_last_multiple_errors(client, mock_admin_session):
         ]
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_errors
+    fake_internal_api._last_errors_override = mock_errors
 
-        response = await client.get(
-            "/api/errors/last?limit=5", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last?limit=5", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     errors = response.json()["errors"]
@@ -85,16 +82,15 @@ async def test_errors_last_multiple_errors(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_errors_last_empty_list(client, mock_admin_session):
+async def test_errors_last_empty_list(
+    client, mock_admin_session, fake_internal_api
+):
     """Test errors last endpoint handles empty error list."""
-    with patch(
-        "core.dependencies.InternalAPIClient.get_last_errors", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = {"errors": []}
+    fake_internal_api._last_errors_override = {"errors": []}
 
-        response = await client.get(
-            "/api/errors/last", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/errors/last", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()

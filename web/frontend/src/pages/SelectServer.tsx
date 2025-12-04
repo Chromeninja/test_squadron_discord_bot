@@ -12,10 +12,11 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
   const [error, setError] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const fetchGuilds = useCallback(async () => {
+  const fetchGuilds = useCallback(async (forceRefresh = false) => {
     try {
-      const response = await authApi.getGuilds();
+      const response = await authApi.getGuilds(forceRefresh);
       setGuilds(response.guilds);
       setError(null);
     } catch (err) {
@@ -46,7 +47,19 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchGuilds();
+    await fetchGuilds(true);
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await authApi.logout();
+      window.location.href = '/';
+    } catch (err) {
+      handleApiError(err, 'Failed to log out');
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   const handleAddBot = async () => {
@@ -91,6 +104,13 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
             className="rounded-md bg-green-700 px-4 py-2 font-semibold transition hover:bg-green-600"
           >
             ➕ Add Bot to Server
+          </button>
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="rounded-md bg-red-700 px-4 py-2 font-semibold transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-900"
+          >
+            {loggingOut ? 'Logging out...' : '🚪 Logout'}
           </button>
         </div>
 

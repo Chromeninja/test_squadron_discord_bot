@@ -1,7 +1,7 @@
 import pytest
 
 from cogs.admin.commands import AdminCog
-from tests.conftest import FakeInteraction, FakeUser
+from tests.test_helpers import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio

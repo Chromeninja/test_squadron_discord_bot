@@ -309,6 +309,20 @@ def resolve_role_ids_for_guild(
 PERMISSION_DENIED_MESSAGE = "You don't have permission to use this command."
 
 
+# Role hierarchy levels for permission checking
+from enum import IntEnum
+
+
+class PermissionLevel(IntEnum):
+    """Permission levels in hierarchical order (higher = more privilege)."""
+    USER = 1
+    STAFF = 2
+    MODERATOR = 3
+    DISCORD_MANAGER = 4
+    BOT_ADMIN = 5
+    BOT_OWNER = 6
+
+
 def _resolve_guild(
     member: discord.Member, guild: discord.Guild | None
 ) -> discord.Guild | None:
@@ -349,25 +363,134 @@ def _member_role_ids(member: discord.Member) -> set[int]:
     return {role.id for role in getattr(member, "roles", [])}
 
 
+async def get_permission_level(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> PermissionLevel:
+    """Determine the highest permission level for a member.
+
+    Checks in hierarchy order:
+    1. Bot owner (global)
+    2. Guild owner / Discord administrator
+    3. Bot admin role
+    4. Discord manager role
+    5. Moderator role
+    6. Staff role
+    7. Regular user (default)
+
+    Args:
+        bot: Bot instance with owner_id and services
+        member: Discord member to check
+        guild: Guild context (optional, derived from member if not provided)
+
+    Returns:
+        PermissionLevel enum value representing highest privilege
+    """
+    if not isinstance(member, discord.Member):
+        return PermissionLevel.USER
+
+    guild = _resolve_guild(member, guild)
+    if guild is None:
+        return PermissionLevel.USER
+
+    # Check bot owner (highest privilege)
+    if bot.owner_id and member.id == bot.owner_id:
+        return PermissionLevel.BOT_OWNER
+
+    # Check guild owner or Discord administrator (bot_admin equivalent)
+    if member.guild_permissions.administrator or (guild.owner_id and member.id == guild.owner_id):
+        return PermissionLevel.BOT_ADMIN
+
+    # Get user's role IDs
+    user_role_ids = _member_role_ids(member)
+
+    # Check configured role lists in hierarchy order
+    bot_admin_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
+    if user_role_ids & set(bot_admin_ids):
+        return PermissionLevel.BOT_ADMIN
+
+    discord_manager_ids = await _get_configured_role_ids(bot, guild.id, "roles.discord_managers")
+    if user_role_ids & set(discord_manager_ids):
+        return PermissionLevel.DISCORD_MANAGER
+
+    # Check moderators (includes legacy lead_moderators for backward compatibility)
+    moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.moderators")
+    if not moderator_ids:
+        # Fallback to legacy lead_moderators if moderators not set
+        moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.lead_moderators")
+    if user_role_ids & set(moderator_ids):
+        return PermissionLevel.MODERATOR
+
+    staff_ids = await _get_configured_role_ids(bot, guild.id, "roles.staff")
+    if user_role_ids & set(staff_ids):
+        return PermissionLevel.STAFF
+
+    return PermissionLevel.USER
+
+
+async def is_bot_owner(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user is the bot owner."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.BOT_OWNER
+
+
+async def is_bot_admin(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user has bot admin privileges or higher."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.BOT_ADMIN
+
+
+async def is_discord_manager(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user has discord manager privileges or higher."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.DISCORD_MANAGER
+
+
+async def is_moderator(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user has moderator privileges or higher."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.MODERATOR
+
+
+async def is_staff(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user has staff privileges or higher."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.STAFF
+
+
+# Legacy functions - kept for backward compatibility
 async def is_bot_admin_only(
     bot,
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """Check if a user has bot-admin privileges without lead-mod inheritance."""
+    """DEPRECATED: Use is_bot_admin() instead.
 
-    if not isinstance(member, discord.Member):
-        return False
-
-    guild = _resolve_guild(member, guild)
-    if guild is None:
-        return False
-
-    if _has_owner_or_discord_admin(bot, member, guild):
-        return True
-
-    admin_role_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
-    return bool(_member_role_ids(member) & set(admin_role_ids))
+    Check if a user has bot-admin privileges.
+    Now includes discord_manager inheritance via hierarchy.
+    """
+    return await is_bot_admin(bot, member, guild)
 
 
 async def is_lead_moderator_or_higher(
@@ -375,24 +498,11 @@ async def is_lead_moderator_or_higher(
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """Check if a user has lead moderator or bot admin permissions."""
+    """DEPRECATED: Use is_moderator() instead.
 
-    if not isinstance(member, discord.Member):
-        return False
-
-    guild = _resolve_guild(member, guild)
-    if guild is None:
-        return False
-
-    if _has_owner_or_discord_admin(bot, member, guild):
-        return True
-
-    admin_role_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
-    lead_mod_role_ids = await _get_configured_role_ids(
-        bot, guild.id, "roles.lead_moderators"
-    )
-    combined_roles = set(admin_role_ids or []) | set(lead_mod_role_ids or [])
-    return bool(_member_role_ids(member) & combined_roles)
+    Check if a user has moderator or higher permissions.
+    """
+    return await is_moderator(bot, member, guild)
 
 
 async def is_privileged_user(
@@ -400,9 +510,11 @@ async def is_privileged_user(
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """Backward compatible alias for lead moderator or higher checks."""
+    """DEPRECATED: Use is_moderator() instead.
 
-    return await is_lead_moderator_or_higher(bot, member, guild)
+    Backward compatible alias for moderator or higher checks.
+    """
+    return await is_moderator(bot, member, guild)
 
 
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
@@ -425,13 +537,21 @@ def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
 __all__ = [
     "FEATURE_CONFIG",
     "PERMISSION_DENIED_MESSAGE",
+    "PermissionLevel",
     "app_command_check_configured_roles",
     "apply_permissions_changes",
     "apply_permit_reject_settings",
     "fetch_permit_reject_entries",
+    "get_permission_level",
+    "is_bot_admin",
+    # Legacy functions (deprecated, use new hierarchy functions above)
     "is_bot_admin_only",
+    "is_bot_owner",
+    "is_discord_manager",
     "is_lead_moderator_or_higher",
+    "is_moderator",
     "is_privileged_user",
+    "is_staff",
     "reset_channel_permissions",
     "resolve_role_ids_for_guild",
     "store_permit_reject_in_db",

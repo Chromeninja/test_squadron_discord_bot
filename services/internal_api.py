@@ -6,6 +6,7 @@ without hitting Discord API rate limits.
 """
 
 import os
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from aiohttp import web
@@ -71,6 +72,9 @@ class InternalAPIServer:
         )
         self.app.router.add_post(
             "/guilds/{guild_id}/members/{user_id}/recheck", self.recheck_user
+        )
+        self.app.router.add_post(
+            "/guilds/{guild_id}/config/refresh", self.refresh_guild_config
         )
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
@@ -230,6 +234,50 @@ class InternalAPIServer:
 
         except Exception as e:
             logger.exception("Error reading error logs", exc_info=e)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    async def refresh_guild_config(self, request: web.Request) -> web.Response:
+        """Invalidate guild configuration caches and refresh role mappings."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            guild_id = int(request.match_info.get("guild_id", "0"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid guild id"}, status=400)
+
+        source = None
+        try:
+            payload = await request.json()
+            if isinstance(payload, dict):
+                source = payload.get("source")
+        except Exception:
+            pass
+
+        cache_refreshed = False
+        roles_refreshed = False
+
+        try:
+            config_service = getattr(self.services, "config", None)
+            if config_service:
+                await config_service.maybe_refresh_guild(guild_id, force=True)
+                cache_refreshed = True
+
+            if hasattr(self.bot, "refresh_guild_roles"):
+                await self.bot.refresh_guild_roles(guild_id, source or "config_refresh")
+                roles_refreshed = True
+
+            return web.json_response(
+                {
+                    "status": "ok",
+                    "cache_refreshed": cache_refreshed,
+                    "roles_refreshed": roles_refreshed,
+                }
+            )
+        except Exception as exc:  # pragma: no cover - runtime safeguard
+            logger.exception(
+                "Failed to refresh guild %s configuration", guild_id, exc_info=exc
+            )
             return web.json_response({"error": "Internal server error"}, status=500)
 
     async def logs_export(self, request: web.Request) -> web.Response:
@@ -612,10 +660,12 @@ class InternalAPIServer:
 
         # Try to get member from cache first
         member = guild.get_member(user_id)
+        source = "gateway_cache"
         if member is None:
             # Try to fetch from API
             try:
                 member = await guild.fetch_member(user_id)
+                source = "api_refresh"
             except Exception as e:
                 logger.warning(
                     f"Could not fetch member {user_id} from guild {guild_id}: {e}"
@@ -629,6 +679,7 @@ class InternalAPIServer:
 
         # Get roles (excluding @everyone)
         roles_data = []
+        role_ids = []
         for role in member.roles:
             if role.is_default():
                 continue
@@ -639,9 +690,11 @@ class InternalAPIServer:
                     "color": role.color.value if role.color else None,
                 }
             )
+            role_ids.append(role.id)
 
         return web.json_response(
             {
+                "guild_id": guild.id,
                 "user_id": member.id,
                 "username": member.name,
                 "discriminator": member.discriminator,
@@ -652,6 +705,9 @@ class InternalAPIServer:
                 if member.created_at
                 else None,
                 "roles": roles_data,
+                "role_ids": role_ids,
+                "last_synced_at": datetime.utcnow().isoformat() + "Z",
+                "source": source,
             }
         )
 

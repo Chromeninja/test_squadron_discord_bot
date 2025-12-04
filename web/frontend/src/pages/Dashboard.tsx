@@ -10,12 +10,13 @@ import {
   authApi
 } from '../api/endpoints';
 import { handleApiError, showSuccess } from '../utils/toast';
+import { hasPermission, RoleLevel } from '../utils/permissions';
 
 function Dashboard() {
   const [stats, setStats] = useState<StatsOverview | null>(null);
   const [health, setHealth] = useState<HealthOverview | null>(null);
   const [lastError, setLastError] = useState<StructuredError | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isBotAdmin, setIsBotAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,15 +27,38 @@ function Dashboard() {
       
       // Fetch user profile to check admin status
       const userResponse = await authApi.getMe();
-      const userIsAdmin = userResponse.user?.is_admin || false;
-      setIsAdmin(userIsAdmin);
+      const user = userResponse.user;
+      
+      // Check if user has bot_admin level or higher (includes bot_owner)
+      let userIsBotAdmin = false;
+      if (user) {
+        // Legacy check
+        if (user.is_admin) {
+          userIsBotAdmin = true;
+        }
+        // New permission system - check if user has bot_admin in active guild or any guild
+        if (user.active_guild_id && user.authorized_guilds?.[user.active_guild_id]) {
+          const roleLevel = user.authorized_guilds[user.active_guild_id].role_level as RoleLevel;
+          userIsBotAdmin = hasPermission(roleLevel, 'bot_admin');
+        } else if (user.authorized_guilds) {
+          // Check any guild for bot owner
+          for (const guildPerm of Object.values(user.authorized_guilds)) {
+            const roleLevel = guildPerm.role_level as RoleLevel;
+            if (hasPermission(roleLevel, 'bot_admin')) {
+              userIsBotAdmin = true;
+              break;
+            }
+          }
+        }
+      }
+      setIsBotAdmin(userIsBotAdmin);
       
       // Fetch stats (available to all authenticated users)
       const statsResponse = await statsApi.getOverview();
       setStats(statsResponse.data);
       
       // Fetch admin-only data
-      if (userIsAdmin) {
+      if (userIsBotAdmin) {
         try {
           const healthResponse = await healthApi.getOverview();
           setHealth(healthResponse.data);
@@ -214,8 +238,8 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Admin Section - Only visible to admins */}
-      {isAdmin && (
+      {/* Admin Section - Only visible to bot admins and bot owners */}
+      {isBotAdmin && (
         <>
           <h3 className="text-xl font-bold mt-8 mb-4">Admin Monitoring</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

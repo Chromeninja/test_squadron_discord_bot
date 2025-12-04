@@ -106,6 +106,20 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     )
     bot.services.guild_config = mock_guild_config
 
+    # Mock config service for get_guild_setting (used by _gather_managed_roles)
+    # Return the actual role IDs so roles can be found and removed
+    mock_config = AsyncMock()
+    async def mock_get_guild_setting(guild_id, key, default=None):
+        role_map = {
+            "roles.bot_verified_role": [1],
+            "roles.main_role": [2],
+            "roles.affiliate_role": [3],
+            "roles.nonmember_role": [4],
+        }
+        return role_map.get(key, default or [])
+    mock_config.get_guild_setting = mock_get_guild_setting
+    bot.services.config = mock_config
+
     # Patch channel_send_message to avoid network and run queued tasks immediately
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
@@ -173,12 +187,14 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     mock_guild_config = AsyncMock()
     spam_chan = guild.get_channel(999)
     verification_chan = guild.get_channel(1234)
-    mock_guild_config.get_channel = AsyncMock(
-        side_effect=lambda gid, key, g: {
+
+    async def get_channel_mock(gid, key, g):
+        return {
             "bot_spam_channel_id": spam_chan,
             "verification_channel_id": verification_chan,
         }.get(key)
-    )
+
+    mock_guild_config.get_channel = get_channel_mock
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()
@@ -241,13 +257,15 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
 
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(
-        side_effect=lambda gid, key, g: {
+
+    async def get_channel_mock(gid, key, g):
+        return {
             "bot_spam_channel_id": spam_chan,
             "verification_channel_id": verification_chan,
             "leadership_announcement_channel_id": leader_chan,
         }.get(key)
-    )
+
+    mock_guild_config.get_channel = get_channel_mock
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=222, display_name="UserGone")
@@ -368,13 +386,15 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     bot.services.config = mock_config
 
     mock_guild_config = AsyncMock()
-    mock_guild_config.get_channel = AsyncMock(
-        side_effect=lambda gid, key, g: {
+
+    async def get_channel_mock(gid, key, g):
+        return {
             "bot_spam_channel_id": spam_chan,
             "verification_channel_id": verification_chan,
             "leadership_announcement_channel_id": leader_chan,
         }.get(key)
-    )
+
+    mock_guild_config.get_channel = get_channel_mock
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=555, display_name="LostUser")
@@ -442,7 +462,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
         id=303,
         display_name="UserReverify",
         roles=[],
-        guild=SimpleNamespace(me=SimpleNamespace(top_role=1), owner_id=999),
+        guild=SimpleNamespace(id=123, me=SimpleNamespace(top_role=1), owner_id=999),
     )
     # Avoid nickname path complexity
     monkeypatch.setattr("helpers.role_helper.can_modify_nickname", lambda m: False)
@@ -514,12 +534,14 @@ async def test_handle_username_404_new_handle_triggers_again(
     mock_guild_config = AsyncMock()
     spam_chan = guild.get_channel(321)
     verification_chan = guild.get_channel(654)
-    mock_guild_config.get_channel = AsyncMock(
-        side_effect=lambda gid, key, g: {
+
+    async def get_channel_mock(gid, key, g):
+        return {
             "bot_spam_channel_id": spam_chan,
             "verification_channel_id": verification_chan,
         }.get(key)
-    )
+
+    mock_guild_config.get_channel = get_channel_mock
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()

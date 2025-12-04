@@ -85,28 +85,31 @@ def _changed_material(a: str | None, b: str | None) -> bool:
     return (a or "").lower() != (b or "").lower()
 
 
-def _managed_role_names(bot) -> list[str]:  # pragma: no cover (trivial helper)
+async def _managed_role_names(bot, guild_id: int) -> list[str]:
+    """Get names of managed verification roles for a guild."""
     names = []
-    keys = [
-        "BOT_VERIFIED_ROLE_ID",
-        "MAIN_ROLE_ID",
-        "AFFILIATE_ROLE_ID",
-        "NON_MEMBER_ROLE_ID",
-    ]
-    for k in keys:
-        rid = getattr(bot, k, None)
-        if not rid:
-            continue
-        role = getattr(bot, "role_cache", {}).get(rid)
-        if role is None:
-            # Attempt guild fetch fallback (first guild assumed)
-            try:
-                guild = bot.guilds[0]
-                role = guild.get_role(rid)
-            except Exception:
-                role = None
-        if role:
-            names.append(getattr(role, "name", str(role)))
+
+    if not hasattr(bot, "services") or not bot.services:
+        return names
+
+    try:
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role"
+        ]
+
+        for role_key in role_keys:
+            role_ids = await bot.services.config.get_guild_setting(guild_id, role_key, [])
+            if role_ids:
+                role_id = role_ids[0]  # Get first role from list
+                role = bot.role_cache.get(role_id)
+                if role:
+                    names.append(role.name)
+    except Exception:
+        pass
+
     return names
 
 
@@ -522,7 +525,10 @@ def _render_plaintext(cs: ChangeSet) -> str:
 
 async def post_if_changed(bot, cs: ChangeSet):
     # Normalize roles to managed set only; discard others for change signature & rendering
-    managed_names = set(_managed_role_names(bot))
+    if not cs.guild_id:
+        return  # Cannot proceed without guild context
+
+    managed_names = set(await _managed_role_names(bot, cs.guild_id))
     if cs.roles_added:
         cs.roles_added = [r for r in cs.roles_added if r in managed_names]
     if cs.roles_removed:

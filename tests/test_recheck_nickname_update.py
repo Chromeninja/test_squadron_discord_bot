@@ -13,6 +13,7 @@ class FakeRole:
 
 class FakeGuild:
     def __init__(self, owner_id, me_member) -> None:
+        self.id = 123  # Add guild ID for role_helper
         self.owner_id = owner_id
         self._me = me_member
 

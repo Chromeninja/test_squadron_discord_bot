@@ -71,11 +71,13 @@ class TestAdminListCommand:
         self, voice_commands, mock_interaction, mock_target_user
     ):
         """Test admin_list denies access to non-admin users."""
-        voice_commands.bot.has_admin_permissions.return_value = False
+        # Mock get_permission_level to return USER level (insufficient for MODERATOR requirement)
+        from helpers.permissions_helper import PermissionLevel
 
-        await voice_commands.admin_list.callback(
-            voice_commands, mock_interaction, mock_target_user
-        )
+        with patch("helpers.decorators.get_permission_level", return_value=PermissionLevel.USER):
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
 
         mock_interaction.response.send_message.assert_called_once_with(
             "You don't have permission to use this command.", ephemeral=True

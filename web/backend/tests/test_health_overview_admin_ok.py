@@ -2,13 +2,14 @@
 Tests for health overview endpoint with RBAC enforcement.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_health_overview_admin_ok(client, mock_admin_session):
+async def test_health_overview_admin_ok(
+    client, mock_admin_session, fake_internal_api
+):
     """Test health overview endpoint returns data for admin with proper shape."""
     mock_health_data = {
         "status": "healthy",
@@ -18,14 +19,11 @@ async def test_health_overview_admin_ok(client, mock_admin_session):
         "system": {"cpu_percent": 5.0, "memory_percent": 10.0},
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_health_data
+    fake_internal_api._health_report_override = mock_health_data
 
-        response = await client.get(
-            "/api/health/overview", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/health/overview", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -46,7 +44,9 @@ async def test_health_overview_admin_ok(client, mock_admin_session):
 
 
 @pytest.mark.asyncio
-async def test_health_overview_degraded_status(client, mock_admin_session):
+async def test_health_overview_degraded_status(
+    client, mock_admin_session, fake_internal_api
+):
     """Test health overview handles degraded status correctly."""
     mock_health_data = {
         "status": "degraded",
@@ -56,14 +56,11 @@ async def test_health_overview_degraded_status(client, mock_admin_session):
         "system": {"cpu_percent": 85.5, "memory_percent": 90.2},
     }
 
-    with patch(
-        "core.dependencies.InternalAPIClient.get_health_report", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = mock_health_data
+    fake_internal_api._health_report_override = mock_health_data
 
-        response = await client.get(
-            "/api/health/overview", cookies={"session": mock_admin_session}
-        )
+    response = await client.get(
+        "/api/health/overview", cookies={"session": mock_admin_session}
+    )
 
     assert response.status_code == 200
     health = response.json()["data"]

@@ -12,7 +12,8 @@ from pathlib import Path
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
-    require_any,
+    require_bot_admin,
+    require_fresh_guild_access,
     translate_internal_api_error,
 )
 from core.schemas import UserProfile
@@ -28,7 +29,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
-@router.get("/export", dependencies=[Depends(require_any("admin"))])
+@router.get("/export", dependencies=[Depends(require_bot_admin()), Depends(require_fresh_guild_access)])
 async def export_logs(
     max_bytes: int = Query(default=1048576, ge=1024, le=5242880),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
@@ -57,7 +58,7 @@ async def export_logs(
         raise translate_internal_api_error(exc, "Failed to export logs")
 
 
-@router.get("/backend-export", dependencies=[Depends(require_any("admin"))])
+@router.get("/backend-export", dependencies=[Depends(require_bot_admin()), Depends(require_fresh_guild_access)])
 async def export_backend_logs(
     max_bytes: int = Query(default=1048576, ge=1024, le=5242880),
 ):
@@ -116,9 +117,9 @@ async def export_backend_logs(
         raise translate_internal_api_error(e, "Failed to export backend logs")
 
 
-@router.get("/audit-export", dependencies=[Depends(require_any("admin"))])
+@router.get("/audit-export", dependencies=[Depends(require_bot_admin()), Depends(require_fresh_guild_access)])
 async def export_audit_logs(
-    current_user: UserProfile = Depends(require_any("admin")),
+    current_user: UserProfile = Depends(require_bot_admin()),
     limit: int = Query(default=1000, ge=1, le=10000),
 ):
     """
