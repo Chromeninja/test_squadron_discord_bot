@@ -24,6 +24,9 @@ class StatusRow(NamedTuple):
     rsi_status: str | None = None  # "main" | "affiliate" | "non_member" | "unknown"
     rsi_checked_at: int | None = None  # Unix timestamp
     rsi_error: str | None = None  # Error message if RSI check failed
+    # Organization affiliation fields (optional)
+    rsi_main_orgs: list[str] | None = None  # List of main organization names
+    rsi_affiliate_orgs: list[str] | None = None  # List of affiliate organization names
 
 
 MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
@@ -61,14 +64,41 @@ async def parse_members_text(guild: discord.Guild, text: str) -> list[discord.Me
 async def collect_targets(
     targets: str,
     guild: discord.Guild,
-    members_text: str | None,
+    members_input: str | list[discord.Member] | None,
     channel: discord.VoiceChannel | None,
 ) -> list[discord.Member]:
-    """Return ordered unique members according to targets mode."""
+    """
+    Return ordered unique members according to targets mode.
+
+    Args:
+        targets: "users" (from members_input), "voice_channel", or "active_voice"
+        guild: The Discord guild
+        members_input: For "users" mode, either:
+          - A string of mentions/IDs (legacy, e.g., "@user1 123456789")
+          - A list of discord.Member objects (modern)
+        channel: VoiceChannel for "voice_channel" mode
+
+    Returns:
+        List of unique discord.Member objects
+    """
     if targets == "users":
-        if not members_text:
+        if not members_input:
             return []
-        return await parse_members_text(guild, members_text)
+
+        # Handle both string and list inputs for backward compatibility
+        if isinstance(members_input, str):
+            return await parse_members_text(guild, members_input)
+        elif isinstance(members_input, list):
+            # Already a list of members, deduplicate and return
+            seen = set()
+            result = []
+            for member in members_input:
+                if member.id not in seen:
+                    result.append(member)
+                    seen.add(member.id)
+            return result
+        else:
+            return []
 
     elif targets == "voice_channel":
         if not channel:
@@ -150,6 +180,8 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
             "rsi_handle": rsi_handle,
             "membership_status": derived_status,
             "last_updated": last_updated,
+            "main_orgs": main_orgs,
+            "affiliate_orgs": affiliate_orgs,
         }
 
     # Build the final result rows
@@ -169,6 +201,10 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         # Use display_name for consistency with Discord UI
         username = member.display_name
 
+        # Get org affiliations if available
+        main_orgs = verification_data.get("main_orgs", [])
+        affiliate_orgs = verification_data.get("affiliate_orgs", [])
+
         status_rows.append(
             StatusRow(
                 user_id=member.id,
@@ -177,6 +213,8 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
                 membership_status=membership_status,
                 last_updated=last_updated,
                 voice_channel=voice_channel_name,
+                rsi_main_orgs=main_orgs if main_orgs else None,
+                rsi_affiliate_orgs=affiliate_orgs if affiliate_orgs else None,
             )
         )
 
@@ -379,7 +417,7 @@ async def write_csv(
         filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
         return (
             filename,
-            b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n",
+            b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs\n",
         )
 
     # Generate filename with timestamp and invoker
@@ -393,7 +431,7 @@ async def write_csv(
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Write header (include RSI recheck fields)
+    # Write header (include RSI recheck fields and org affiliations)
     writer.writerow(
         [
             "user_id",
@@ -405,11 +443,17 @@ async def write_csv(
             "rsi_status",
             "rsi_checked_at",
             "rsi_error",
+            "main_orgs",
+            "affiliate_orgs",
         ]
     )
 
     # Write data rows
     for row in rows:
+        # Format org lists as semicolon-separated strings
+        main_orgs_str = ";".join(row.rsi_main_orgs) if row.rsi_main_orgs else ""
+        affiliate_orgs_str = ";".join(row.rsi_affiliate_orgs) if row.rsi_affiliate_orgs else ""
+
         writer.writerow(
             [
                 row.user_id,
@@ -421,6 +465,8 @@ async def write_csv(
                 row.rsi_status or "",
                 row.rsi_checked_at or "",
                 row.rsi_error or "",
+                main_orgs_str,
+                affiliate_orgs_str,
             ]
         )
 

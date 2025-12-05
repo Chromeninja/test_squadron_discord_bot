@@ -208,16 +208,16 @@ async def test_write_csv():
     content = content_bytes.decode("utf-8")
     lines = content.strip().split("\n")
 
-    # Check header includes RSI recheck fields (backward compatible)
+    # Check header includes RSI recheck fields and org affiliations
     assert (
         lines[0].strip()
-        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error"
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
     )
 
-    # Check data rows (RSI fields should be empty for rows without recheck)
-    assert "1,User1,handle1,main,1609459200,General,,," in lines[1]
-    assert "2,User2,handle2,affiliate,1609459200,Gaming,,," in lines[2]
-    assert "3,User3,,unknown,,,,," in lines[3]  # All optional fields are None
+    # Check data rows (RSI fields and org fields should be empty for rows without recheck)
+    assert "1,User1,handle1,main,1609459200,General,,,,," in lines[1]
+    assert "2,User2,handle2,affiliate,1609459200,Gaming,,,,," in lines[2]
+    assert "3,User3,,unknown,,,,,,," in lines[3]  # All optional fields are None
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_write_csv_empty():
     content = content_bytes.decode("utf-8")
     assert (
         content
-        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n"
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs\n"
     )
 
 
@@ -354,18 +354,68 @@ async def test_write_csv_with_rsi_recheck():
     content = content_bytes.decode("utf-8")
     lines = content.strip().split("\n")
 
-    # Check header includes RSI recheck columns with error field
+    # Check header includes RSI recheck columns with error field and org affiliations
     assert (
         lines[0].strip()
-        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error"
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
     )
 
-    # Check data rows include RSI recheck data
-    assert "1,User1,handle1,main,1609459200,General,main,1609459300," in lines[1]
+    # Check data rows include RSI recheck data (org fields empty since not provided in StatusRow)
+    assert "1,User1,handle1,main,1609459200,General,main,1609459300,,," in lines[1]
     assert (
-        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300," in lines[2]
+        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,," in lines[2]
     )
-    assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle" in lines[3]
+    assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle,," in lines[3]
+
+
+@pytest.mark.asyncio
+async def test_write_csv_with_org_data():
+    """Test CSV writing with organization data."""
+    rows = [
+        StatusRow(
+            1,
+            "User1",
+            "handle1",
+            "main",
+            1609459200,
+            "General",
+            "main",
+            1609459300,
+            None,
+            rsi_main_orgs=["TEST Squadron", "Another Org"],
+            rsi_affiliate_orgs=["Affiliate One"],
+        ),
+        StatusRow(
+            2,
+            "User2",
+            "handle2",
+            "affiliate",
+            1609459200,
+            "Gaming",
+            "non_member",
+            1609459300,
+            None,
+            rsi_main_orgs=None,
+            rsi_affiliate_orgs=["Affiliate Two", "Affiliate Three"],
+        ),
+    ]
+
+    _filename, content_bytes = await write_csv(
+        rows, guild_name="TestGuild", invoker_name="TestAdmin"
+    )
+
+    content = content_bytes.decode("utf-8")
+    lines = content.strip().split("\n")
+
+    # Check header includes org columns
+    assert (
+        lines[0].strip()
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
+    )
+
+    # Check data rows include organization data (semicolon-separated)
+    assert "1,User1,handle1,main,1609459200,General,main,1609459300,,TEST Squadron;Another Org,Affiliate One" in lines[1]
+    assert "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,Affiliate Two;Affiliate Three" in lines[2]
 
 
 def test_format_detail_line_without_rsi_recheck():

@@ -56,6 +56,7 @@ intents.voice_states = True  # Required: Voice channel join/leave for voice syst
 initial_extensions = [
     "cogs.verification.commands",
     "cogs.admin.commands",
+    "cogs.admin.check_user",
     "cogs.admin.recheck",
     "cogs.admin.verify_bulk",
     "cogs.voice.commands",

@@ -31,6 +31,8 @@ class RsiStatusResult:
     status: str  # "main" | "affiliate" | "non_member" | "unknown"
     checked_at: int  # Unix timestamp
     error: str | None = None  # Error message if check failed
+    main_orgs: list[str] | None = None  # List of main org SIDs
+    affiliate_orgs: list[str] | None = None  # List of affiliate org SIDs
 
 
 @dataclass
@@ -372,7 +374,7 @@ class VerificationBulkService:
                     pass  # Use defaults
 
             try:
-                verify_value, _, _, _, _ = await is_valid_rsi_handle(
+                verify_value, _, _, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
                     row.rsi_handle, self.bot.http_client, org_name, org_sid
                 )
 
@@ -386,10 +388,16 @@ class VerificationBulkService:
                 else:
                     status = "unknown"
 
-                logger.debug(
-                    f"RSI check for user {row.user_id} ({row.rsi_handle}): verify_value={verify_value}, status={status}"
+                logger.info(
+                    f"RSI check for user {row.user_id} ({row.rsi_handle}): verify_value={verify_value}, status={status}, "
+                    f"main_orgs={main_orgs}, affiliate_orgs={affiliate_orgs}"
                 )
-                return RsiStatusResult(status=status, checked_at=current_time)
+                return RsiStatusResult(
+                    status=status,
+                    checked_at=current_time,
+                    main_orgs=main_orgs if main_orgs else None,
+                    affiliate_orgs=affiliate_orgs if affiliate_orgs else None,
+                )
 
             except NotFoundError:
                 logger.debug(
@@ -439,6 +447,8 @@ class VerificationBulkService:
                 rsi_status=result.status,
                 rsi_checked_at=result.checked_at,
                 rsi_error=result.error,
+                rsi_main_orgs=result.main_orgs,
+                rsi_affiliate_orgs=result.affiliate_orgs,
             )
             updated_rows.append(updated_row)
 

@@ -2,7 +2,6 @@
 Refactored admin cog with service integration and health monitoring.
 """
 
-import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -56,8 +55,6 @@ class AdminCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.logger = get_logger(__name__)
-        # Track in-flight recheck operations to prevent duplicate execution
-        self._recheck_in_flight: set[int] = set()
 
     async def cog_check(self, ctx: commands.Context) -> bool:  # type: ignore[override]
         """Check if user has admin permissions."""
@@ -334,127 +331,6 @@ class AdminCog(commands.Cog):
             await interaction.followup.send(
                 f"❌ Error retrieving logs: {e!s}", ephemeral=True
             )
-
-    @app_commands.command(
-        name="recheck-user",
-        description="Force a verification re-check for a user (Bot Admins & Moderators).",
-    )
-    @app_commands.describe(member="The member to recheck.")
-    @app_commands.guild_only()
-    @require_permission_level(PermissionLevel.MODERATOR)
-    async def recheck_user(
-        self, interaction: discord.Interaction, member: discord.Member
-    ) -> None:
-        """Force a verification re-check for a user."""
-        # Explicit permission guard for testability and runtime safety
-        try:
-            assert interaction.guild is not None  # Required by @app_commands.guild_only()
-            has_perm = False
-            if hasattr(self.bot, "has_admin_permissions"):
-                # Treat moderators and above as authorized
-                has_perm = await self.bot.has_admin_permissions(interaction.user, interaction.guild)
-            if not has_perm:
-                await interaction.response.send_message(
-                    "You don't have permission to run this command.", ephemeral=True
-                )
-                return
-        except Exception:
-            # If permission check fails unexpectedly, deny gracefully
-            await interaction.response.send_message(
-                "You don't have permission to run this command.", ephemeral=True
-            )
-            return
-        # Check if recheck is already in progress for this user
-        if member.id in self._recheck_in_flight:
-            await interaction.response.send_message(
-                f"⏳ Recheck is already in progress for {member.mention}. Please wait.",
-                ephemeral=True,
-            )
-            return
-
-        # Add user to in-flight set
-        self._recheck_in_flight.add(member.id)
-
-        try:
-            from helpers.role_helper import reverify_member
-            from helpers.snapshots import snapshot_member_state
-            from services.db.database import Database
-
-            self.logger.info(
-                f"'recheck-user' command triggered by user {interaction.user.id} for member {member.id}. "
-                f"Guild: {interaction.guild.name} ({interaction.guild_id}), "
-                f"member.guild: {member.guild.name} ({member.guild.id})"
-            )
-
-            await interaction.response.defer(ephemeral=True)
-
-            # Fetch existing verification record
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT rsi_handle FROM verification WHERE user_id = ?",
-                    (member.id,),
-                )
-                row = await cursor.fetchone()
-
-            if not row:
-                await interaction.followup.send(
-                    f"❌ {member.mention} is not verified.", ephemeral=True
-                )
-                return
-
-            rsi_handle = row[0]
-
-            # Snapshot before reverify
-            await snapshot_member_state(self.bot, member)
-
-            # Attempt re-verification - pass the actual bot instance
-            try:
-                result = await reverify_member(member, rsi_handle, self.bot)
-            except Exception as e:
-                self.logger.exception("Error during reverification", exc_info=e)
-                await interaction.followup.send(
-                    f"❌ Error during re-verification: {e!s}", ephemeral=True
-                )
-                return
-
-            success, _role_assignment_result, message = result
-            if not success:
-                # Log the error and try to DM the admin with helpful info
-                error_msg = f"Re-verification failed for {member.mention} (RSI: {rsi_handle}): {message}"
-                self.logger.error(error_msg)
-
-                try:
-                    # Try to send a DM to the admin with more details
-                    dm_msg = (
-                        f"⚠️ **RSI Re-verification Failed**\n\n"
-                        f"**Member:** {member.mention} ({member.display_name})\n"
-                        f"**RSI Handle:** `{rsi_handle}`\n"
-                        f"**Error:** {message}\n"
-                    )
-                    await interaction.user.send(dm_msg)
-                except discord.HTTPException:
-                    pass  # Ignore if we can't send DM
-
-                await interaction.followup.send(
-                    f"❌ Re-verification failed: {message}", ephemeral=True
-                )
-                return
-
-            # Success path: acknowledge completion
-            await interaction.followup.send(
-                "✅ Re-verification completed successfully.", ephemeral=True
-            )
-            return
-        except Exception as e:
-            self.logger.exception("Error in recheck-user command", exc_info=e)
-            with contextlib.suppress(Exception):
-                await interaction.followup.send(
-                    f"❌ Unexpected error during recheck: {e!s}", ephemeral=True
-                )
-        finally:
-            # Always clear in-flight flag
-            if member.id in self._recheck_in_flight:
-                self._recheck_in_flight.discard(member.id)
 
     @app_commands.command(
         name="status", description="Show detailed bot health and status information"

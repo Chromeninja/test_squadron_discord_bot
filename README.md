@@ -121,8 +121,28 @@ The bot includes several administrative commands for configuration and managemen
 | `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |
 | `/reset-user` | Reset verification timer for a specific user | Moderator+ | `/reset-user member:@username` |
 | `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
-| `/recheck-user` | Force a verification re-check for a user | Moderator+ | `/recheck-user member:@username` |
-| `/verify check` | Check verification status for multiple users (read-only) | Staff+ | `/verify check targets:users members_text:"@user1 @user2"` |
+| `/verify check-user` | Check or recheck verification status for a single user | Moderator+ | `/verify check-user member:@user action:check` |
+| `/verify check-members` | Check or recheck verification status for multiple users | Moderator+ | `/verify check-members members:"@user1 @user2" action:check` |
+| `/verify check-channel` | Check or recheck verification status for users in a voice channel | Moderator+ | `/verify check-channel channel:#General-Voice action:check` |
+| `/verify check-voice` | Check or recheck verification status for all users in active voice channels | Moderator+ | `/verify check-voice action:check` |
+
+#### User Verification Lookup Command
+
+| Command         | Description                                                                                                    | Required Role | Usage                        |
+|-----------------|----------------------------------------------------------------------------------------------------------------|---------------|------------------------------|
+| `/check user`   | Show detailed verification info for a user: RSI handle, main org, affiliate orgs, verification/join dates, all with clickable links. Output is a clean, table-style embed for staff review. | Staff+        | `/check user member:@username` |
+
+**Example Output:**
+```
+┌────────────────────┬────────────────────────────────────────────────────────────┐
+│ RSI Handle         │ [HandleName](RSI Profile URL)                              │
+│ Main Org           │ [ORG_TAG](Main Org URL)                                    │
+│ Affiliate Orgs     │ [ORG1](Org1 URL), [ORG2](Org2 URL)                         │
+│ Verified At        │ 2025-12-04 13:00 UTC                                       │
+│ Joined Server      │ 2024-11-01 18:22 UTC                                       │
+└────────────────────┴────────────────────────────────────────────────────────────┘
+```
+All fields are clickable and presented side-by-side for clarity.
 
 #### Voice Admin Commands (`/voice` group)
 
@@ -169,28 +189,57 @@ The bot includes several administrative commands for configuration and managemen
 
 #### Verification Status Check Examples
 
-The `/verify check` command provides read-only verification status checking with multiple targeting modes:
+The `/verify` command group provides verification status checking and forced reverification with four specialized commands:
 
-**Check specific users:**
+##### Single User Check
+Check or recheck a single user:
 ```
-/verify check targets:"specific users" members_text:"@user1 @user2 123456789012345678"
-```
-
-**Check all members in a voice channel:**
-```
-/verify check targets:"voice channel" channel:#General-Voice show_details:true
+/verify check-user member:@user action:check
+/verify check-user member:@user action:recheck
 ```
 
-**Check all members in any active voice channel:**
+##### Multiple Users Check
+Check or recheck multiple users by mentions or IDs:
 ```
-/verify check targets:"all active voice" show_details:true export_csv:true
+/verify check-members members:"@user1 @user2 123456789012345678" action:check
+/verify check-members members:"@user1 @user2" action:recheck
 ```
 
-**Options:**
-- `show_details:true` - Include detailed status, RSI handles, voice channels, and last update times
-- `export_csv:true` - Send a detailed CSV file via DM with full results
+##### Voice Channel Check
+Check or recheck all users in a specific voice channel:
+```
+/verify check-channel channel:#General-Voice action:check
+/verify check-channel channel:#General-Voice action:recheck
+```
 
-The command respects the `auto_recheck.batch.max_users_per_run` configuration limit (default: 50 users per check).
+##### All Active Voice Channels Check
+Check or recheck all users in any active voice channel:
+```
+/verify check-voice action:check
+/verify check-voice action:recheck
+```
+
+**Command Options:**
+- `member` (check-user only) - Single user to check
+- `members` (check-members only) - User mentions or IDs (can specify multiple)
+- `channel` (check-channel only) - Voice channel to check
+- `action` (all commands) - Either `check` (read-only status) or `recheck` (force reverification). Defaults to `check`.
+
+**Behavior:**
+- In **check mode**: Returns verification status with RSI org details. Queues a bulk verification job to check status.
+- In **recheck mode**: Forces user reverification, updating roles and nicknames as needed. Logs changes to leadership chat.
+- All checks automatically include detailed RSI organization verification (main and affiliate orgs).
+- Respects rate limiting for user-initiated rechecks; bypasses for admins with elevated permissions.
+- Respects the `auto_recheck.batch.max_users_per_run` configuration limit (default: 50 users per check).
+
+**CSV Export:**
+Results are exported to CSV with the following columns:
+- `user_id`, `username`, `rsi_handle` - Basic user identification
+- `membership_status` - Derived status: main, affiliate, non_member, unknown
+- `last_updated` - Unix timestamp of last verification
+- `voice_channel` - Current voice channel name (if in voice)
+- `rsi_status`, `rsi_checked_at`, `rsi_error` - RSI verification data (always included)
+- `main_orgs`, `affiliate_orgs` - Semicolon-separated lists of user's organizations
 
 ### Permission System
 
