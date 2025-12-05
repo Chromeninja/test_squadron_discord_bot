@@ -440,7 +440,12 @@ class VoiceService(BaseService):
                 self._lock_last_used.pop(key, None)
 
     async def can_create_voice_channel(
-        self, guild_id: int, jtc_channel_id: int, user_id: int
+        self,
+        guild_id: int,
+        jtc_channel_id: int,
+        user_id: int,
+        *,
+        bypass_cooldown: bool = False,
     ) -> tuple[bool, str | None]:
         """
         Check if a user can create a voice channel.
@@ -466,18 +471,19 @@ class VoiceService(BaseService):
             return False, "CREATING"
 
         # Only check time-based cooldown (removed existing channel check for multi-channel support)
-        cooldown_seconds = await self.config_service.get_guild_setting(
-            guild_id, "voice.cooldown_seconds", 5
-        )
-
-        if await self._is_on_cooldown(
-            guild_id, jtc_channel_id, user_id, cooldown_seconds
-        ):
-            # Return error code with seconds embedded (will be extracted at command layer)
-            return (
-                False,
-                f"COOLDOWN:{cooldown_seconds}",
+        if not bypass_cooldown:
+            cooldown_seconds = await self.config_service.get_guild_setting(
+                guild_id, "voice.cooldown_seconds", 5
             )
+
+            if await self._is_on_cooldown(
+                guild_id, jtc_channel_id, user_id, cooldown_seconds
+            ):
+                # Return error code with seconds embedded (will be extracted at command layer)
+                return (
+                    False,
+                    f"COOLDOWN:{cooldown_seconds}",
+                )
 
         return True, None
 
@@ -546,7 +552,8 @@ class VoiceService(BaseService):
         """
         Handle when a voice channel is deleted externally (e.g., by Discord or manual deletion).
 
-        This cleans up database records and removes the channel from managed tracking.
+        Detects if deleted channel is a JTC channel and removes from config.
+        Also cleans up any managed channels and database records.
 
         Args:
             guild_id: The guild ID where the channel was deleted
@@ -555,24 +562,42 @@ class VoiceService(BaseService):
         self._ensure_initialized()
 
         try:
-            # Check if this was a managed channel
-            if await self._is_managed_channel(channel_id):
+            # Check if this is a JTC channel
+            is_jtc = await self._is_join_to_create_channel(guild_id, channel_id)
+
+            if is_jtc:
+                # This is a JTC channel deletion - remove from config and cleanup
                 self.logger.info(
-                    f"Cleaning up records for deleted managed channel {channel_id}"
+                    f"JTC channel {channel_id} deleted in guild {guild_id}, "
+                    f"removing from config and cleaning up associated data"
                 )
 
-                # Use the existing cleanup method which handles the case when channel is None (deleted)
+                cleanup_result = await self.remove_jtc_channel_from_config(
+                    guild_id, channel_id, cleanup_managed=True
+                )
+
+                if not cleanup_result["success"]:
+                    self.logger.warning(
+                        f"Error removing JTC channel {channel_id} from config: "
+                        f"{cleanup_result['error']}"
+                    )
+                else:
+                    self.logger.info(
+                        f"JTC channel {channel_id} removal complete: "
+                        f"managed_cleanup={cleanup_result['managed_cleanup']}, "
+                        f"db_purge={cleanup_result['db_purge']}"
+                    )
+
+            elif await self._is_managed_channel(channel_id):
+                # This is a managed voice channel - clean up database records
+                self.logger.info(f"Cleaning up records for deleted managed channel {channel_id}")
                 await self._cleanup_empty_channel(channel_id)
             else:
-                self.logger.debug(
-                    f"Channel {channel_id} was not a managed voice channel, no cleanup needed"
-                )
+                # Not a managed channel - log for reference
+                self.logger.debug(f"Channel {channel_id} was not a managed voice channel")
 
         except Exception as e:
-            self.logger.exception(
-                f"Error cleaning up deleted channel {channel_id} in guild {guild_id}",
-                exc_info=e,
-            )
+            self.logger.exception(f"Error handling channel deletion for {channel_id}", exc_info=e)
 
     async def get_user_voice_channel(
         self, guild_id: int, jtc_channel_id: int, user_id: int
@@ -1076,37 +1101,35 @@ class VoiceService(BaseService):
         if before_channel and await self._is_managed_channel(before_channel.id):
             await self._handle_channel_left(before_channel, member)
 
-        # Handle joining a join-to-create channel ONLY for true joins
-        # Ignore reconnects, mute/deafen, and other state changes
+        # Handle joining a join-to-create channel
+        # Treat any move into a JTC (including from another JTC) as a join-to-create
+        # but ignore reconnects to the same channel.
         is_jtc_after = False
-        is_jtc_before = False
         if after_channel:
             is_jtc_after = await self._is_join_to_create_channel(
                 guild_id, after_channel.id
             )
-        if before_channel:
-            is_jtc_before = await self._is_join_to_create_channel(
-                guild_id, before_channel.id
-            )
 
-        # True join = user enters JTC channel from:
-        # 1. No channel (before_channel is None)
-        # 2. A non-JTC channel (moving from managed channel to JTC)
-        # But NOT from another JTC channel (would be a JTC-to-JTC hop)
-        is_true_join = (
-            after_channel is not None
-            and is_jtc_after
-            and (before_channel is None or not is_jtc_before)
+        is_same_channel = (
+            before_channel is not None
+            and after_channel is not None
+            and before_channel.id == after_channel.id
         )
+
+        is_true_join = after_channel is not None and is_jtc_after and not is_same_channel
+
+        # If the user came from a managed channel, allow bypassing cooldown so they can hop back to JTC immediately.
+        bypass_cooldown = False
+        if before_channel and await self._is_managed_channel(before_channel.id):
+            bypass_cooldown = True
 
         if self.debug_logging_enabled:
             self.logger.info(
-                "VS: classification guild=%s member=%s is_true_join=%s is_jtc_after=%s is_jtc_before=%s before_channel=%s",
+                "VS: classification guild=%s member=%s is_true_join=%s is_jtc_after=%s before_channel=%s",
                 guild_id,
                 getattr(member, "id", None),
                 is_true_join,
                 is_jtc_after,
-                is_jtc_before,
                 before_channel.name if before_channel else None,
             )
 
@@ -1117,15 +1140,9 @@ class VoiceService(BaseService):
                         f"Skipping voice state update for {member.display_name} - creation in progress"
                     )
                 return
-            await self._handle_join_to_create(guild, after_channel, member)
-        elif after_channel and is_jtc_after:
-            # User moved between JTC channels (JTC-to-JTC hop)
-            if self.debug_logging_enabled:
-                self.logger.debug(
-                    f"Ignored voice state update for {member.display_name}: JTC-to-JTC hop "
-                    f"(before={before_channel.name if before_channel else None}, "
-                    f"after={after_channel.name})"
-                )
+            await self._handle_join_to_create(
+                guild, after_channel, member, bypass_cooldown=bypass_cooldown
+            )
 
     async def _is_managed_channel(self, channel_id: int) -> bool:
         """Check if a channel is managed by the bot."""
@@ -1280,6 +1297,8 @@ class VoiceService(BaseService):
         guild: discord.Guild,
         jtc_channel: discord.VoiceChannel,
         member: discord.Member,
+        *,
+        bypass_cooldown: bool = False,
     ) -> None:
         """Handle join-to-create channel logic."""
         try:
@@ -1323,7 +1342,10 @@ class VoiceService(BaseService):
 
                 # Double-check cooldown after acquiring lock
                 can_create, error_code = await self.can_create_voice_channel(
-                    guild.id, jtc_channel.id, member.id
+                    guild.id,
+                    jtc_channel.id,
+                    member.id,
+                    bypass_cooldown=bypass_cooldown,
                 )
                 if not can_create:
                     # Check if it's because user is already creating
@@ -2823,6 +2845,180 @@ class VoiceService(BaseService):
         except Exception as e:
             self.logger.exception("Error getting all voice channels", exc_info=e)
             return []
+
+    async def _validate_jtc_permissions(
+        self, category: discord.CategoryChannel
+    ) -> tuple[bool, str | None]:
+        """
+        Validate bot has permissions to create channels in a category.
+
+        Args:
+            category: Discord category channel
+
+        Returns:
+            Tuple of (can_create, error_message)
+        """
+        try:
+            if category is None:
+                return False, "Category does not exist"
+
+            if not self.bot or not self.bot.user:
+                return False, "Bot instance or bot user not available"
+
+            guild = category.guild
+            bot_member = guild.get_member(self.bot.user.id)
+            if bot_member is None:
+                return False, "Bot member not found in guild"
+
+            perms = category.permissions_for(bot_member)
+            if not perms.manage_channels:
+                return (
+                    False,
+                    f"Bot missing 'Manage Channels' permission in category '{category.name}'",
+                )
+
+            return True, None
+
+        except Exception as e:
+            self.logger.exception("Error validating JTC permissions", exc_info=e)
+            return False, str(e)
+
+    async def create_jtc_channel(
+        self, guild_id: int, category: discord.CategoryChannel, channel_name: str
+    ) -> tuple[discord.VoiceChannel | None, str | None]:
+        """
+        Create a single JTC channel in a category.
+
+        Shared method used by both setup and add commands.
+
+        Args:
+            guild_id: Discord guild ID
+            category: Category to create channel in
+            channel_name: Name for the new channel
+
+        Returns:
+            Tuple of (created_channel, error_message). If successful, error_message is None.
+        """
+        try:
+            # Validate permissions first
+            can_create, error = await self._validate_jtc_permissions(category)
+            if not can_create:
+                return None, error
+
+            # Create the channel
+            jtc_channel = await category.create_voice_channel(
+                name=channel_name,
+                reason="JTC channel creation via admin command",
+            )
+
+            self.logger.info(
+                f"Created JTC channel {jtc_channel.id} ({channel_name}) in guild {guild_id}"
+            )
+
+            return jtc_channel, None
+
+        except discord.Forbidden as e:
+            error_msg = f"Permission denied creating JTC channel: {e}"
+            self.logger.exception(error_msg)
+            return None, error_msg
+        except discord.HTTPException as e:
+            error_msg = f"Discord API error creating JTC channel: {e}"
+            self.logger.exception(error_msg)
+            return None, error_msg
+        except Exception as e:
+            self.logger.exception("Error creating JTC channel", exc_info=e)
+            return None, str(e)
+
+    async def add_jtc_channel_to_config(
+        self, guild_id: int, channel_id: int
+    ) -> tuple[bool, str | None]:
+        """
+        Add a JTC channel to guild configuration.
+
+        Args:
+            guild_id: Discord guild ID
+            channel_id: Voice channel ID to add
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Check for duplicates
+            existing_jtc = await self.config_service.get_guild_jtc_channels(guild_id)
+            if channel_id in existing_jtc:
+                return False, f"Channel {channel_id} is already configured as JTC"
+
+            # Add to config
+            await self.config_service.add_guild_jtc_channel(guild_id, channel_id)
+
+            self.logger.info(f"Added JTC channel {channel_id} to guild {guild_id} config")
+            return True, None
+
+        except Exception as e:
+            self.logger.exception("Error adding JTC channel to config", exc_info=e)
+            return False, str(e)
+
+    async def remove_jtc_channel_from_config(
+        self, guild_id: int, channel_id: int, cleanup_managed: bool = True
+    ) -> dict[str, Any]:
+        """
+        Remove a JTC channel from guild configuration and clean up associated data.
+
+        Args:
+            guild_id: Discord guild ID
+            channel_id: Voice channel ID to remove
+            cleanup_managed: Whether to cleanup managed channels belonging to this JTC
+
+        Returns:
+            Dict with results:
+            - success: bool
+            - error: str | None
+            - managed_cleanup: dict from cleanup_stale_jtc_managed_channels
+            - db_purge: dict from Database.purge_stale_jtc_data
+        """
+        result = {
+            "success": False,
+            "error": None,
+            "managed_cleanup": {},
+            "db_purge": {},
+        }
+
+        try:
+            # Check if channel is configured
+            existing_jtc = await self.config_service.get_guild_jtc_channels(guild_id)
+            if channel_id not in existing_jtc:
+                result["error"] = f"Channel {channel_id} is not configured as JTC"
+                return result
+
+            # Remove from config
+            await self.config_service.remove_guild_jtc_channel(guild_id, channel_id)
+            self.logger.info(f"Removed JTC channel {channel_id} from guild {guild_id} config")
+
+            # Clean up managed channels if requested
+            if cleanup_managed:
+                result["managed_cleanup"] = (
+                    await self.cleanup_stale_jtc_managed_channels(guild_id, {channel_id})
+                )
+
+            # Purge database records
+            from services.db.database import Database
+
+            result["db_purge"] = await Database.purge_stale_jtc_data(
+                guild_id, {channel_id}
+            )
+
+            self.logger.info(
+                f"JTC channel {channel_id} removal complete for guild {guild_id}: "
+                f"managed_cleanup={result['managed_cleanup']}, db_purge={result['db_purge']}"
+            )
+
+            result["success"] = True
+            return result
+
+        except Exception as e:
+            self.logger.exception("Error removing JTC channel from config", exc_info=e)
+            result["error"] = str(e)
+            return result
 
     async def setup_voice_system(
         self, guild_id: int, category: discord.CategoryChannel, num_channels: int = 1

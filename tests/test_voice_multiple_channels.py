@@ -220,7 +220,7 @@ class TestMultipleChannelsPerOwner:
                     ):
                         # Call the JTC handler
                         await voice_service._handle_join_to_create(
-                            guild, jtc_channel, member
+                            guild, jtc_channel, member, bypass_cooldown=False
                         )
 
                         # Verify a new channel was created

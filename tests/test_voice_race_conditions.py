@@ -146,7 +146,9 @@ async def test_concurrent_jtc_joins_create_only_one_channel(
 
     # Launch 5 concurrent creation attempts
     tasks = [
-        voice_service._handle_join_to_create(mock_guild, mock_jtc_channel, mock_member)
+        voice_service._handle_join_to_create(
+            mock_guild, mock_jtc_channel, mock_member, bypass_cooldown=False
+        )
         for _ in range(5)
     ]
 
@@ -231,9 +233,15 @@ async def test_concurrent_different_jtc_creates_only_one_channel(
 
     # Launch concurrent attempts from different JTC channels
     tasks = [
-        voice_service._handle_join_to_create(mock_guild, jtc1, mock_member),
-        voice_service._handle_join_to_create(mock_guild, jtc2, mock_member),
-        voice_service._handle_join_to_create(mock_guild, jtc1, mock_member),
+        voice_service._handle_join_to_create(
+            mock_guild, jtc1, mock_member, bypass_cooldown=False
+        ),
+        voice_service._handle_join_to_create(
+            mock_guild, jtc2, mock_member, bypass_cooldown=False
+        ),
+        voice_service._handle_join_to_create(
+            mock_guild, jtc1, mock_member, bypass_cooldown=False
+        ),
     ]
 
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -326,7 +334,7 @@ async def test_mark_prevents_duplicate_creation(
     # Try to handle join while marked - should abort early
     voice_service._create_user_channel = AsyncMock()
     await voice_service._handle_join_to_create(
-        mock_guild, mock_jtc_channel, mock_member
+        mock_guild, mock_jtc_channel, mock_member, bypass_cooldown=False
     )
 
     # Should not call creation

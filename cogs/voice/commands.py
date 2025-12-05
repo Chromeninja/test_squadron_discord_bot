@@ -344,6 +344,77 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             with contextlib.suppress(builtins.BaseException):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
+    @app_commands.command(name="add", description="Add a new Join-to-Create channel")
+    @app_commands.describe(
+        category="Category to create the new voice channel in",
+        channel_name="Name for the new Join-to-Create channel (optional)",
+    )
+    @require_permission_level(PermissionLevel.MODERATOR)
+    async def add_jtc_channel(
+        self,
+        interaction: discord.Interaction,
+        category: discord.CategoryChannel,
+        channel_name: str | None = None,
+    ) -> None:
+        """Create and add a JTC channel without affecting existing ones (Moderator+)."""
+        from helpers.discord_reply import send_user_error, send_user_success
+        from helpers.error_messages import format_user_error
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command must be used in a server.", ephemeral=True
+            )
+            return
+
+        try:
+            await interaction.response.defer(ephemeral=True)
+
+            # Validate category
+            if not isinstance(category, discord.CategoryChannel):
+                await send_user_error(
+                    interaction, "❌ You must select a valid category."
+                )
+                return
+
+            # Use provided name or default
+            final_channel_name = channel_name or "Join to Create"
+
+            # Create the voice channel via the voice service helper
+            jtc_channel, error = await self.voice_service.create_jtc_channel(
+                guild_id=interaction.guild_id,
+                category=category,
+                channel_name=final_channel_name,
+            )
+
+            if jtc_channel is None:
+                await send_user_error(interaction, format_user_error("UNKNOWN", details=error))
+                return
+
+            # Add the newly created channel to config (append, do not replace)
+            success, add_error = await self.voice_service.add_jtc_channel_to_config(
+                interaction.guild_id, jtc_channel.id
+            )
+
+            if success:
+                message = (
+                    f"✅ **{jtc_channel.name}** created and added as a Join-to-Create channel in {category.name}.\n"
+                    "Existing JTC channels remain active."
+                )
+                await send_user_success(interaction, message)
+            else:
+                # If config fails, attempt to delete the channel to avoid orphaning
+                with contextlib.suppress(builtins.BaseException):
+                    await jtc_channel.delete(reason="Rollback due to config failure")
+                error_msg = format_user_error("UNKNOWN", details=add_error)
+                await send_user_error(interaction, error_msg)
+
+        except Exception as e:
+            logger.exception("Error in add_jtc_channel command", exc_info=e)
+            with contextlib.suppress(builtins.BaseException):
+                from helpers.error_messages import format_user_error
+
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
+
     @app_commands.command(
         name="admin_list",
         description="View saved permissions and settings for a user's voice channel",
