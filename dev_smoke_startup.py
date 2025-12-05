@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from discord.ext import commands as dcommands
 from discord.ext import tasks as dctasks
 
-from bot import PREFIX, MyBot, initial_extensions, intents
+from bot import PREFIX, MyBot, initial_extensions, intents  # type: ignore[attr-defined]
 from services.db.database import Database
 from utils.logging import get_logger
 
@@ -31,7 +31,7 @@ def _dry_run_loop_start(self, *args, **kwargs) -> None:
 
 
 # Install the monkeypatch up-front so cogs see it when they import/start
-dctasks.Loop.start = _dry_run_loop_start
+dctasks.Loop.start = _dry_run_loop_start  # type: ignore[method-assign]
 
 
 # --- 2) A fake loop that swallows create_task() calls ------------------------
@@ -43,7 +43,7 @@ class _DryLoop:
         )
         logger.info(f"[DRY-RUN] Suppressed loop.create_task() for '{name}'")
         # Return a dummy object with cancel() to satisfy code that might call it
-        return SimpleNamespace(cancel=lambda: None)
+        return SimpleNamespace(cancel=lambda: None)  # type: ignore[return-value]
 
 
 class DryRunBot(MyBot):

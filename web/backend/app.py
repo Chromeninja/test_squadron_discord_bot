@@ -151,9 +151,9 @@ async def unauthorized_handler(request, exc):
 async def forbidden_handler(request, exc):
     """Return standardized 403 response."""
     # Extract detail from HTTPException if available
-    detail = getattr(exc, 'detail', None)
+    detail = getattr(exc, "detail", None)
     if isinstance(detail, dict):
-        message = detail.get('message', 'Access denied')
+        message = detail.get("message", "Access denied")
     elif isinstance(detail, str):
         message = detail
     else:

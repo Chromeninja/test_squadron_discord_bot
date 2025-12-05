@@ -9,9 +9,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_logs_export_success_admin(
-    client, mock_admin_session, fake_internal_api
-):
+async def test_logs_export_success_admin(client, mock_admin_session, fake_internal_api):
     """Test logs/export endpoint returns file for admin."""
     mock_log_content = b"[2025-11-09 12:00:00] INFO: Bot started\n[2025-11-09 12:01:00] INFO: Command executed\n"
 

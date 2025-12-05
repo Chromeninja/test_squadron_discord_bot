@@ -169,6 +169,10 @@ async def retry_async(
                 await asyncio.sleep(delay)
 
     # All retries exhausted
+    if last_exception is None:
+        last_exception = Exception(
+            f"All {config.max_attempts} attempts failed for {func.__name__}"
+        )
     logger.error(
         f"All {config.max_attempts} attempts failed for {func.__name__}: "
         f"{type(last_exception).__name__}: {last_exception}"

@@ -102,6 +102,7 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
 
 
 @dataclass
+@dataclass
 class MemberSnapshotDiff:
     status_before: str
     status_after: str
@@ -122,20 +123,20 @@ class MemberSnapshotDiff:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def items(self) -> None:  # type: ignore[override]
+    def items(self):
         return self.to_dict().items()
 
-    def get(self, key: str, default=None) -> None:
+    def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
     # Mapping compatibility for existing dict-style usage
-    def __getitem__(self, key: str) -> None:  # pragma: no cover (thin wrapper)
+    def __getitem__(self, key: str) -> Any:  # pragma: no cover (thin wrapper)
         return getattr(self, key)
 
-    def __setitem__(self, key: str, value) -> None:  # pragma: no cover
+    def __setitem__(self, key: str, value: Any) -> None:  # pragma: no cover
         setattr(self, key, value)
 
-    def __contains__(self, key: str) -> None:  # pragma: no cover
+    def __contains__(self, key: str) -> bool:  # pragma: no cover
         return hasattr(self, key)
 
 

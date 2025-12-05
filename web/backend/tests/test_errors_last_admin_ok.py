@@ -2,14 +2,11 @@
 Tests for errors last endpoint with RBAC enforcement.
 """
 
-
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_errors_last_admin_ok(
-    client, mock_admin_session, fake_internal_api
-):
+async def test_errors_last_admin_ok(client, mock_admin_session, fake_internal_api):
     """Test errors last endpoint returns structured errors for admin."""
     mock_errors = {
         "errors": [
@@ -82,9 +79,7 @@ async def test_errors_last_multiple_errors(
 
 
 @pytest.mark.asyncio
-async def test_errors_last_empty_list(
-    client, mock_admin_session, fake_internal_api
-):
+async def test_errors_last_empty_list(client, mock_admin_session, fake_internal_api):
     """Test errors last endpoint handles empty error list."""
     fake_internal_api._last_errors_override = {"errors": []}
 

@@ -90,11 +90,10 @@ async def enqueue_task(task) -> None:
         result = await task()
         if not future.done():
             future.set_result(result)
-        return result
 
     await task_queue.put(wrapped_task)
     logger.debug("Task enqueued.")
-    return future
+    return future  # type: ignore[return-value]
 
 
 async def start_task_workers(num_workers=2) -> None:

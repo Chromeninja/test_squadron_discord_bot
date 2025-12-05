@@ -13,4 +13,3 @@ raise RuntimeError(
     "GuildConfigService has been removed. Switch to ConfigService or "
     "GuildConfigHelper for guild-scoped configuration access."
 )
-

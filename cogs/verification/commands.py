@@ -177,7 +177,7 @@ class VerificationCog(commands.Cog):
         for idx, g in enumerate(self.bot.guilds, 1):
             logger.info(f"  Guild {idx}: {g.name} (ID: {g.id})")
 
-        guild_config = self.bot.services.guild_config
+        guild_config = self.bot.services.guild_config  # type: ignore[attr-defined]
         message_ids = _load_verification_message_ids()
         updated_message_ids = message_ids.copy()
 
@@ -202,7 +202,7 @@ class VerificationCog(commands.Cog):
                     f"Clearing cache for guild {guild.id} to ensure fresh config data"
                 )
                 try:
-                    await self.bot.services.config.clear_guild_cache(guild.id)
+                    await self.bot.services.config.clear_guild_cache(guild.id)  # type: ignore[attr-defined]
                 except Exception as cache_err:
                     logger.warning(
                         f"Failed to clear cache for guild {guild.id}: {cache_err}"
@@ -368,6 +368,14 @@ class VerificationCog(commands.Cog):
                 )
                 return
             rsi_handle = row[0]
+
+        # Ensure member is a Member, not just User
+        if not isinstance(member, discord.Member):
+            embed = create_error_embed(
+                "This command can only be used by server members."
+            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
 
         # Perform unified recheck
         result = await perform_recheck(

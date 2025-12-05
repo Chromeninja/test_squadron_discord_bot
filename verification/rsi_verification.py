@@ -175,7 +175,9 @@ def extract_handle(html_content: str) -> str | None:
 
     if (
         handle_paragraph := soup.find(
-            "p", class_="entry", string=lambda text: text and "Handle name" in text
+            "p",
+            class_="entry",
+            string=lambda text: text and "Handle name" in text,  # type: ignore[arg-type]
         )
     ) and (handle_strong := handle_paragraph.find("strong", class_="value")):
         cased_handle = handle_strong.get_text(strip=True)
@@ -403,9 +405,8 @@ def parse_rsi_org_sids(html_content: str) -> dict:
     main_org_div = soup.select_one(".box-content.org.main")
     if main_org_div:
         # Check if it's a redacted/hidden org (visibility-R or visibility-H class)
-        is_redacted = "visibility-R" in main_org_div.get(
-            "class", []
-        ) or "visibility-H" in main_org_div.get("class", [])
+        classes = main_org_div.get("class") or []
+        is_redacted = "visibility-R" in classes or "visibility-H" in classes
 
         if is_redacted:
             main_orgs.append("REDACTED")
@@ -432,9 +433,8 @@ def parse_rsi_org_sids(html_content: str) -> dict:
     affiliate_divs = soup.select(".box-content.org.affiliation")
     for affiliate_div in affiliate_divs:
         # Check if it's a redacted/hidden org
-        is_redacted = "visibility-R" in affiliate_div.get(
-            "class", []
-        ) or "visibility-H" in affiliate_div.get("class", [])
+        classes = affiliate_div.get("class") or []
+        is_redacted = "visibility-R" in classes or "visibility-H" in classes
 
         if is_redacted:
             affiliate_orgs.append("REDACTED")
@@ -603,12 +603,12 @@ def extract_bio(html_content: str) -> str | None:
     return None
 
 
-def find_token_in_bio(bio_text: str, token: str) -> bool:
+def find_token_in_bio(bio_text: str | None, token: str) -> bool:
     """
     Search for 4-digit token in bio text using regex pattern.
 
     Args:
-        bio_text: The bio text to search in
+        bio_text: The bio text to search in (can be None)
         token: The token to find (will be zero-padded if needed)
 
     Returns:

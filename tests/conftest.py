@@ -20,7 +20,7 @@ from services.voice_service import VoiceService
 
 
 # Ensure pytest-asyncio uses a dedicated loop
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")  # type: ignore[misc]
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
@@ -28,13 +28,13 @@ def event_loop():
 
 
 @pytest.fixture
-def mock_bot() -> None:
+def mock_bot():
     """A minimal bot-like object for cogs/views tests."""
     ns = SimpleNamespace()
     ns.guilds = []
     ns.uptime = "1h"
 
-    def get_cog(name) -> None:
+    def get_cog(name):
         return getattr(ns, f"_cog_{name}", None)
 
     ns.get_cog = get_cog
@@ -50,7 +50,7 @@ async def temp_db(tmp_path):
 
     # Reset and initialize with temp database
     Database._initialized = False
-    Database._db_path = None
+    Database._db_path = None  # type: ignore[assignment]
     db_file = tmp_path / "test.db"
     await Database.initialize(str(db_file))
 
@@ -81,7 +81,7 @@ class FakeResponse:
         self._is_done = False
         self.sent_modal = None
 
-    def is_done(self) -> None:
+    def is_done(self) -> bool:
         return self._is_done
 
     async def send_message(self, *args, **kwargs) -> None:
@@ -97,7 +97,7 @@ class FakeResponse:
 
 class FakeFollowup:
     async def send(self, *args, **kwargs) -> None:
-        return None
+        pass
 
 
 class FakeInteraction:
@@ -108,7 +108,7 @@ class FakeInteraction:
         self.guild = SimpleNamespace(id=123, name="TestGuild")
 
         async def _edit(**kwargs) -> None:
-            return None
+            pass
 
         self.message = SimpleNamespace(edit=_edit)
 
@@ -167,7 +167,7 @@ def mock_db_connection():
 def voice_service(mock_bot):
     """Create a VoiceService instance for testing."""
     config_service = MagicMock(spec=ConfigService)
-    service = VoiceService(config_service, mock_bot)
+    service = VoiceService(config_service, mock_bot, test_mode=True)
     # Skip actual initialization to avoid database/network calls
     service._initialized = True
     return service

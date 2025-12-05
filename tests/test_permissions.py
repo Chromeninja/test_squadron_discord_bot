@@ -77,7 +77,7 @@ async def test_bot_admin_role_allows_access(mock_bot, config_service):
 
     config_service.get_guild_setting.side_effect = side_effect
 
-    result = await perms.is_bot_admin(mock_bot, member)
+    result = await perms.is_bot_admin(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is True
     config_service.get_guild_setting.assert_any_await(123, "roles.bot_admins", [])
@@ -99,7 +99,7 @@ async def test_moderator_role_allows_access(mock_bot, config_service):
 
     config_service.get_guild_setting.side_effect = side_effect
 
-    result = await perms.is_moderator(mock_bot, member)
+    result = await perms.is_moderator(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is True
 
@@ -120,7 +120,7 @@ async def test_moderator_role_allows_access_with_string_ids(mock_bot, config_ser
 
     config_service.get_guild_setting.side_effect = side_effect
 
-    result = await perms.is_moderator(mock_bot, member)
+    result = await perms.is_moderator(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is True
 
@@ -132,7 +132,7 @@ async def test_guild_owner_treated_as_bot_admin(mock_bot, config_service):
 
     config_service.get_guild_setting.return_value = []
 
-    result = await perms.is_bot_admin(mock_bot, member)
+    result = await perms.is_bot_admin(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is True
 
@@ -147,7 +147,7 @@ async def test_permission_denied_without_roles(mock_bot, config_service):
 
     config_service.get_guild_setting.side_effect = side_effect
 
-    result = await perms.is_moderator(mock_bot, member)
+    result = await perms.is_moderator(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is False
 
@@ -168,6 +168,6 @@ async def test_invalid_role_ids_are_ignored(mock_bot, config_service):
 
     config_service.get_guild_setting.side_effect = side_effect
 
-    result = await perms.is_moderator(mock_bot, member)
+    result = await perms.is_moderator(mock_bot, member)  # type: ignore[arg-type]
 
     assert result is False

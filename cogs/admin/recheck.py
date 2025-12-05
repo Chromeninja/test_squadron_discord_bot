@@ -26,7 +26,7 @@ class AutoRecheck(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        cfg = (bot.config or {}).get("auto_recheck", {}) or {}
+        cfg = (bot.config or {}).get("auto_recheck", {}) or {}  # type: ignore[attr-defined]
         batch_cfg = cfg.get("batch") or {}
         self.enabled = bool(cfg.get("enabled", True))
         self.run_every_minutes = int(batch_cfg.get("run_every_minutes", 60))
@@ -41,7 +41,7 @@ class AutoRecheck(commands.Cog):
             self.recheck_loop.change_interval(minutes=max(1, self.run_every_minutes))
             self.recheck_loop.start()
 
-    def cog_unload(self) -> None:
+    async def cog_unload(self) -> None:
         if self.recheck_loop.is_running():
             self.recheck_loop.cancel()
 
@@ -54,8 +54,8 @@ class AutoRecheck(commands.Cog):
         # Check if manual bulk check is running - defer if so
         if (
             hasattr(self.bot, "services")
-            and hasattr(self.bot.services, "verify_bulk")
-            and self.bot.services.verify_bulk.is_running()
+            and hasattr(self.bot.services, "verify_bulk")  # type: ignore[attr-defined]
+            and self.bot.services.verify_bulk.is_running()  # type: ignore[attr-defined]
         ):
             logger.info("Auto-recheck deferred: manual bulk check is running")
             return
@@ -148,17 +148,18 @@ class AutoRecheck(commands.Cog):
             org_name = "test"  # Default fallback
             org_sid = None
             if hasattr(self.bot, "services") and hasattr(
-                self.bot.services, "guild_config"
+                self.bot.services,  # type: ignore[attr-defined]
+                "guild_config",  # type: ignore[attr-defined]
             ):
                 try:
-                    org_name_config = await self.bot.services.guild_config.get_setting(
+                    org_name_config = await self.bot.services.guild_config.get_setting(  # type: ignore[attr-defined]
                         member.guild.id, "organization.name", default="test"
                     )
                     org_name = (
                         org_name_config.strip().lower() if org_name_config else "test"
                     )
 
-                    org_sid_config = await self.bot.services.guild_config.get_setting(
+                    org_sid_config = await self.bot.services.guild_config.get_setting(  # type: ignore[attr-defined]
                         member.guild.id, "organization.sid", default=None
                     )
                     org_sid = org_sid_config.strip().upper() if org_sid_config else None
@@ -175,7 +176,10 @@ class AutoRecheck(commands.Cog):
                 main_orgs,
                 affiliate_orgs,
             ) = await is_valid_rsi_handle(
-                rsi_handle, self.bot.http_client, org_name, org_sid
+                rsi_handle,
+                self.bot.http_client,  # type: ignore[attr-defined]
+                org_name,
+                org_sid,  # type: ignore[attr-defined]
             )
             if verify_value is None or cased_handle is None:  # moniker optional
                 # Transient fetch/parse failure: schedule backoff
@@ -269,7 +273,7 @@ class AutoRecheck(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    if (bot.config or {}).get("auto_recheck", {}).get("enabled", True):
+    if (bot.config or {}).get("auto_recheck", {}).get("enabled", True):  # type: ignore[attr-defined]
         await bot.add_cog(AutoRecheck(bot))
         logger.info("AutoRecheck cog loaded.")
     else:

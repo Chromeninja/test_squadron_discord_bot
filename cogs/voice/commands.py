@@ -34,9 +34,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, "services") or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:  # type: ignore[attr-defined]
             raise RuntimeError("Bot services not initialized")
-        return self.bot.services.voice
+        return self.bot.services.voice  # type: ignore[attr-defined]
 
     @app_commands.command(
         name="list",
@@ -236,6 +236,12 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 )
                 return
 
+            if not interaction.guild:
+                await interaction.followup.send(
+                    "❌ This command can only be used in a guild.", ephemeral=True
+                )
+                return
+
             embed = discord.Embed(
                 title="🎙️ Managed Voice Channels",
                 description=f"All voice channels managed by the bot in **{interaction.guild.name}**",
@@ -250,14 +256,20 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 owner = interaction.guild.get_member(channel_info["owner_id"])
 
                 if channel and owner:
-                    member_count = len(channel.members)
-                    channel_list.append(
-                        f"**{channel.name}** - {owner.mention} ({member_count} members)"
-                    )
+                    if isinstance(channel, discord.VoiceChannel):
+                        member_count = len(channel.members)
+                        channel_list.append(
+                            f"**{channel.name}** - {owner.mention} ({member_count} members)"
+                        )
+                    else:
+                        channel_list.append(f"**{channel.name}** - {owner.mention}")
                 elif channel:
-                    channel_list.append(
-                        f"**{channel.name}** - Unknown owner ({len(channel.members)} members)"
-                    )
+                    if isinstance(channel, discord.VoiceChannel):
+                        channel_list.append(
+                            f"**{channel.name}** - Unknown owner ({len(channel.members)} members)"
+                        )
+                    else:
+                        channel_list.append(f"**{channel.name}** - Unknown owner")
 
             if channel_list:
                 # Split into chunks if too long
@@ -436,7 +448,7 @@ class AdminCommands(app_commands.Group):
         self,
         interaction: discord.Interaction,
         scope: app_commands.Choice[str],
-        member: discord.Member = None,
+        member: discord.Member | None = None,
         confirm: str | None = None,
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
@@ -485,9 +497,19 @@ class AdminCommands(app_commands.Group):
 
         try:
             guild_id = interaction.guild_id
+            if guild_id is None:
+                await interaction.followup.send(
+                    "❌ This command can only be used in a guild.", ephemeral=True
+                )
+                return
 
             if scope.value == "user":
                 # Reset specific user
+                if member is None:
+                    await interaction.followup.send(
+                        "❌ Member is required for user scope.", ephemeral=True
+                    )
+                    return
                 await self._reset_user_data(interaction, guild_id, member)
             else:
                 # Reset all guild data
@@ -599,7 +621,9 @@ class AdminCommands(app_commands.Group):
         for channel_id in managed_channels:
             if self.bot:
                 channel = self.bot.get_channel(channel_id)
-                if channel:
+                if channel and isinstance(
+                    channel, (discord.VoiceChannel, discord.StageChannel)
+                ):
                     try:
                         await channel.delete(
                             reason=f"Admin guild-wide voice reset by {interaction.user}"
@@ -629,9 +653,10 @@ class AdminCommands(app_commands.Group):
         total_rows = sum(deleted_counts.values())
 
         # Log the action with comprehensive details
+        guild_name = interaction.guild.name if interaction.guild else "Unknown Guild"
         logger.info(
             f"Guild reset complete - Admin: {interaction.user.display_name} ({interaction.user.id}), "
-            f"Guild: {interaction.guild.name} ({guild_id}), Total rows deleted: {total_rows}, "
+            f"Guild: {guild_name} ({guild_id}), Total rows deleted: {total_rows}, "
             f"Channels deleted: {len(deleted_channels)}, Channels failed: {len(failed_channels)}"
         )
 
@@ -656,7 +681,7 @@ class AdminCommands(app_commands.Group):
         logger.warning(
             f"MAJOR ADMIN ACTION: Complete guild voice reset performed by "
             f"{interaction.user.display_name} ({interaction.user.id}) on guild "
-            f"{interaction.guild.name} ({guild_id}). All voice data wiped."
+            f"{guild_name} ({guild_id}). All voice data wiped."
         )
 
         embed = discord.Embed(
@@ -707,6 +732,7 @@ async def setup(bot: commands.Bot) -> None:
     voice_cog = VoiceCommands(bot)
 
     # Add the admin subgroup to the main voice group
-    voice_cog.app_command.add_command(AdminCommands(voice_cog))
+    if voice_cog.app_command:
+        voice_cog.app_command.add_command(AdminCommands(voice_cog))
 
     await bot.add_cog(voice_cog)

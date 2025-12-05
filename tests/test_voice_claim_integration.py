@@ -23,7 +23,7 @@ async def voice_service_with_bot(temp_db):
     await config_service.initialize()
 
     mock_bot = MockBot()
-    voice_service = VoiceService(config_service, bot=mock_bot)
+    voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
     await voice_service.initialize()
 
     yield voice_service, mock_bot
@@ -80,7 +80,8 @@ async def test_claim_voice_channel_integration_orphan_channel(voice_service_with
         )
         await db.commit()
 
-    # Patch permissions helper only (avoid external Discord state)
+    # Patch permissions helper only (avoid external Discord state). The voice service lazily imports
+    # update_channel_owner inside the method, so patch the helper module directly.
     with patch(
         "helpers.permissions_helper.update_channel_owner",
         new=AsyncMock(),

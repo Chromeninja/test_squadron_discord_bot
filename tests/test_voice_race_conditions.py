@@ -42,7 +42,7 @@ async def mock_bot():
 @pytest_asyncio.fixture
 async def voice_service(config_service, mock_bot):
     """Create a voice service for testing."""
-    service = VoiceService(config_service, bot=mock_bot)
+    service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
     service.debug_logging_enabled = True  # Enable debug logging for tests
     await service.initialize()
     yield service
@@ -166,7 +166,9 @@ async def test_concurrent_jtc_joins_create_only_one_channel(
             """,
             (mock_guild.id, mock_member.id),
         )
-        count = (await cursor.fetchone())[0]
+        row = await cursor.fetchone()
+        assert row is not None
+        count = row[0]
 
     assert count == 1, f"Expected 1 DB row, but found {count}"
 
@@ -267,7 +269,9 @@ async def test_db_transaction_atomicity(voice_service, mock_guild, mock_member):
             """,
             (mock_guild.id, mock_member.id),
         )
-        count = (await cursor.fetchone())[0]
+        row = await cursor.fetchone()
+        assert row is not None
+        count = row[0]
 
     assert count == 1, (
         f"Expected 1 active DB row due to atomic transaction, but found {count}"
@@ -407,7 +411,9 @@ async def test_db_prevents_duplicate_inserts_same_transaction(
             "SELECT COUNT(*) FROM voice_channels WHERE voice_channel_id = ?",
             (channel_id,),
         )
-        count = (await cursor.fetchone())[0]
+        row = await cursor.fetchone()
+        assert row is not None
+        count = row[0]
 
     assert count == 1, f"Expected 1 row, but found {count}"
 

@@ -7,13 +7,9 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from config.config_loader import ConfigLoader
-from helpers.announcement import BulkAnnouncer
 from helpers.http_helper import HTTPClient
-from helpers.rate_limiter import cleanup_attempts
 from helpers.task_queue import start_task_workers, task_queue
 from helpers.token_manager import cleanup_tokens
-from helpers.views import ChannelSettingsView, VerificationView
-from services.db.database import Database
 from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
 from utils.tasks import spawn
@@ -98,7 +94,9 @@ class MyBot(commands.Bot):
             app_info = await self.application_info()
             if app_info.owner:
                 self.owner_id = app_info.owner.id
-                logger.info(f"Bot owner detected: {app_info.owner.name} (ID: {self.owner_id})")
+                logger.info(
+                    f"Bot owner detected: {app_info.owner.name} (ID: {self.owner_id})"
+                )
             elif app_info.team:
                 # If bot is owned by a team, use team owner
                 self.owner_id = app_info.team.owner_id
@@ -107,10 +105,14 @@ class MyBot(commands.Bot):
                 logger.warning("Could not determine bot owner from application info")
                 self.owner_id = None
         except Exception as e:
-            logger.exception("Failed to fetch application info for owner detection", exc_info=e)
+            logger.exception(
+                "Failed to fetch application info for owner detection", exc_info=e
+            )
             self.owner_id = None
 
         # Initialize the database
+        from services.db.database import Database
+
         await Database.initialize()
 
         # Initialize services container
@@ -140,6 +142,9 @@ class MyBot(commands.Bot):
             logger.exception("Voice data migration failed", exc_info=e)
 
         # Add the BulkAnnouncer cog after DB is initialized
+        # Import here to avoid circular import issues
+        from helpers.announcement import BulkAnnouncer
+
         await self.add_cog(BulkAnnouncer(self))
 
         # Start the task queue workers
@@ -168,6 +173,9 @@ class MyBot(commands.Bot):
         spawn(self.log_cleanup_task())
 
         # Register persistent views (must happen every startup for persistence to work)
+        # Import here to avoid circular import issues
+        from helpers.views import ChannelSettingsView, VerificationView
+
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
 
@@ -185,8 +193,42 @@ class MyBot(commands.Bot):
                 f"- Command: {command.name}, Description: {command.description}"
             )
 
+        # Validate that all required attributes are initialized before cogs access them
+        self._validate_required_attributes()
+
+    def _validate_required_attributes(self) -> None:
+        """Ensure all required bot attributes are initialized and accessible.
+
+        This method is called at the end of setup_hook to catch initialization
+        issues early and provide clear error messages.
+
+        Raises:
+            RuntimeError: If any required attribute is missing or uninitialized.
+        """
+        required_attrs = {
+            "config": self.config,
+            "services": self.services,
+            "http_client": self.http_client,
+        }
+
+        missing = []
+        for attr_name, attr_value in required_attrs.items():
+            if attr_value is None:
+                missing.append(attr_name)
+
+        if missing:
+            raise RuntimeError(
+                f"Bot initialization incomplete: missing {missing}. "
+                "These attributes must be initialized before cogs can access them."
+            )
+
+        logger.info("All required bot attributes validated and initialized.")
+
     async def on_ready(self) -> None:
         """Called when the bot is ready."""
+        if not self.user:
+            logger.warning("Bot user is not initialized")
+            return
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
         for guild in self.guilds:
@@ -324,9 +366,7 @@ class MyBot(commands.Bot):
                     continue
 
                 for guild in list(self.guilds):
-                    refreshed = await self.services.config.maybe_refresh_guild(
-                        guild.id
-                    )
+                    refreshed = await self.services.config.maybe_refresh_guild(guild.id)
                     if refreshed:
                         await self.refresh_guild_roles(guild.id, source="scheduled")
             except asyncio.CancelledError:
@@ -337,18 +377,16 @@ class MyBot(commands.Bot):
 
             await asyncio.sleep(interval_seconds)
 
-    async def _warn_missing_role(
-        self, guild: discord.Guild, role_id: str
-    ) -> None:
+    async def _warn_missing_role(self, guild: discord.Guild, role_id: str) -> None:
+        from services.db.database import Database
+
         try:
             reported = await Database.has_reported_missing_roles(guild.id)
         except Exception:
             reported = False
 
         if not reported and guild.id not in self._missing_role_warned_guilds:
-            logger.warning(
-                f"Role with ID {role_id} not found in guild '{guild.name}'."
-            )
+            logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
             self._missing_role_warned_guilds.add(guild.id)
             try:
                 await Database.mark_reported_missing_roles(guild.id)
@@ -358,9 +396,7 @@ class MyBot(commands.Bot):
                     guild.id,
                 )
         else:
-            logger.info(
-                f"Role {role_id} missing in '{guild.name}' (already reported)."
-            )
+            logger.info(f"Role {role_id} missing in '{guild.name}' (already reported).")
 
     async def token_cleanup_task(self) -> None:
         """
@@ -375,6 +411,9 @@ class MyBot(commands.Bot):
         """
         Periodically cleans up expired rate-limiting data.
         """
+        # Import here to avoid circular import
+        from helpers.rate_limiter import cleanup_attempts
+
         while not self.is_closed():
             await asyncio.sleep(300)  # Run every 5 minutes
             # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings

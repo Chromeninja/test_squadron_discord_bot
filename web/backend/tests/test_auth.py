@@ -226,7 +226,9 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
     # Check authorized_guilds structure
     assert "246486575137947648" in session_data["authorized_guilds"]
     guild_permission = session_data["authorized_guilds"]["246486575137947648"]
-    assert guild_permission["role_level"] == "bot_admin"  # Guild owners get bot_admin level
+    assert (
+        guild_permission["role_level"] == "bot_admin"
+    )  # Guild owners get bot_admin level
     assert guild_permission["source"] == "discord_owner"
 
 

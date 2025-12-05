@@ -1,4 +1,5 @@
 """Test helper classes for bot tests."""
+
 from types import SimpleNamespace
 
 
@@ -18,7 +19,7 @@ class FakeResponse:
         self._is_done = False
         self.sent_modal = None
 
-    def is_done(self) -> None:
+    def is_done(self) -> bool:
         return self._is_done
 
     async def send_message(self, *args, **kwargs) -> None:

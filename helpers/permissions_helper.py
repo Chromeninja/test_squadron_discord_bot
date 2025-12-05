@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import discord
+from aiosqlite import Row
 
 from helpers.discord_api import edit_channel
 from services.db.database import Database
@@ -91,7 +92,7 @@ async def store_permit_reject_in_db(
 
 async def fetch_permit_reject_entries(
     user_id: int, guild_id=None, jtc_channel_id=None
-) -> None:
+) -> Iterable[Row]:
     """
     Fetch all permit/reject entries for a user
 
@@ -196,7 +197,9 @@ async def apply_permissions_changes(
         raise
 
 
-async def reset_channel_permissions(channel: discord.VoiceChannel) -> None:
+async def reset_channel_permissions(
+    channel: discord.VoiceChannel | discord.StageChannel,
+) -> None:
     guild = channel.guild
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(
@@ -209,7 +212,7 @@ async def reset_channel_permissions(channel: discord.VoiceChannel) -> None:
 
 
 async def update_channel_owner(
-    channel: discord.VoiceChannel,
+    channel: discord.VoiceChannel | discord.StageChannel,
     new_owner_id: int,
     previous_owner_id: int,
     guild_id=None,
@@ -265,6 +268,8 @@ async def apply_permit_reject_settings(
     user_id: int, channel: discord.VoiceChannel
 ) -> None:
     entries = await fetch_permit_reject_entries(user_id)
+    if not entries:
+        return
     for target_id, target_type, permission in entries:
         try:
             await apply_permissions_changes(
@@ -323,6 +328,7 @@ from enum import IntEnum
 
 class PermissionLevel(IntEnum):
     """Permission levels in hierarchical order (higher = more privilege)."""
+
     USER = 1
     STAFF = 2
     MODERATOR = 3
@@ -471,7 +477,9 @@ async def get_permission_level(
         return PermissionLevel.BOT_OWNER
 
     # Check guild owner or Discord administrator (bot_admin equivalent)
-    if member.guild_permissions.administrator or (guild.owner_id and member.id == guild.owner_id):
+    if member.guild_permissions.administrator or (
+        guild.owner_id and member.id == guild.owner_id
+    ):
         return PermissionLevel.BOT_ADMIN
 
     # Get user's role IDs
@@ -482,7 +490,9 @@ async def get_permission_level(
     if user_role_ids & bot_admin_ids:
         return PermissionLevel.BOT_ADMIN
 
-    discord_manager_ids = await _get_configured_role_ids(bot, guild.id, "roles.discord_managers")
+    discord_manager_ids = await _get_configured_role_ids(
+        bot, guild.id, "roles.discord_managers"
+    )
     if user_role_ids & discord_manager_ids:
         return PermissionLevel.DISCORD_MANAGER
 
@@ -583,7 +593,7 @@ async def is_privileged_user(
     return await is_moderator(bot, member, guild)
 
 
-def app_command_check_configured_roles(role_ids: Iterable[int]) -> None:
+def app_command_check_configured_roles(role_ids: Iterable[int]) -> Any:
     from discord import app_commands
 
     def predicate(interaction: discord.Interaction) -> bool:

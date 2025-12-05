@@ -8,7 +8,7 @@ class FakeHTTP:
         self.pages = pages
         self.calls = []
 
-    async def fetch_html(self, url) -> None:
+    async def fetch_html(self, url):
         self.calls.append(url)
         return self.pages.get(url)
 
@@ -56,7 +56,11 @@ async def test_is_valid_rsi_handle_returns_moniker(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker == "Test@User#123"
@@ -97,7 +101,11 @@ async def test_is_valid_rsi_handle_missing_moniker(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker is None
@@ -123,7 +131,11 @@ async def test_is_valid_rsi_handle_empty_moniker(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     # Emoji should be stripped by _sanitize_moniker, resulting in "TestUser"
@@ -147,7 +159,11 @@ async def test_is_valid_rsi_handle_malformed_profile(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     # Handle should still be found (CaseHandle) absence due to malformed
     # structure may null it
     assert verify_value == 1
@@ -167,7 +183,11 @@ async def test_is_valid_rsi_handle_invalid_format(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("@@Bad*", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "@@Bad*",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value is None
     assert cased_handle is None
     assert moniker is None
@@ -191,7 +211,11 @@ async def test_is_valid_rsi_handle_profile_fetch_none(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value == 1  # org page still parsed
     assert cased_handle is None
     assert moniker is None
@@ -222,7 +246,11 @@ async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value == 1
     assert cased_handle == "CaseHandle"
     assert moniker is None  # suppressed
@@ -234,13 +262,13 @@ async def test_is_valid_rsi_handle_moniker_same_as_handle_suppressed(
 async def test_is_valid_rsi_handle_org_parse_exception(monkeypatch) -> None:
     """Exception while parsing org HTML => total failure (None triple)."""
 
-    async def fake_fetch(url) -> None:
+    async def fake_fetch(url):
         return "<html>broken"
 
     http = FakeHTTP({})
     http.fetch_html = fake_fetch  # override method
 
-    def boom(html) -> None:
+    def boom(html):
         raise RuntimeError("parse error")
 
     monkeypatch.setattr(rv, "parse_rsi_organizations", boom)
@@ -250,7 +278,11 @@ async def test_is_valid_rsi_handle_org_parse_exception(monkeypatch) -> None:
         moniker,
         main_orgs,
         affiliate_orgs,
-    ) = await rv.is_valid_rsi_handle("TestUser", http, "test squadron - best squardon!")
+    ) = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
     assert verify_value is None
     assert cased_handle is None
     assert moniker is None

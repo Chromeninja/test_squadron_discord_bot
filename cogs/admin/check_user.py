@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -39,6 +40,12 @@ class CheckUserCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=True)
 
         try:
+            if not interaction.guild:
+                await interaction.followup.send(
+                    "❌ This command can only be used in a server.", ephemeral=True
+                )
+                return
+
             verification_row = await self._fetch_verification_row(member.id)
             target_sid = await self._get_guild_org_sid(interaction.guild.id)
             embed = self._build_user_embed(
@@ -55,7 +62,7 @@ class CheckUserCommands(app_commands.Group):
                 ephemeral=True,
             )
 
-    async def _fetch_verification_row(self, user_id: int) -> tuple | None:
+    async def _fetch_verification_row(self, user_id: int) -> tuple[Any, ...] | None:
         """Fetch verification data (handle, timestamps, org lists)."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -66,7 +73,8 @@ class CheckUserCommands(app_commands.Group):
                 """,
                 (user_id,),
             )
-            return await cursor.fetchone()
+            row = await cursor.fetchone()
+            return tuple(row) if row else None
 
     async def _get_guild_org_sid(self, guild_id: int) -> str:
         """Return the guild's configured org SID (default TEST)."""

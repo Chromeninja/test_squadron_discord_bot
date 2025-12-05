@@ -34,15 +34,15 @@ class CustomJsonFormatter(logging.Formatter):
 
         # Include standard extra fields
         if hasattr(record, "user_id"):
-            record_dict["user_id"] = record.user_id
+            record_dict["user_id"] = record.user_id  # type: ignore[attr-defined]
         if hasattr(record, "guild_id"):
-            record_dict["guild_id"] = record.guild_id
+            record_dict["guild_id"] = record.guild_id  # type: ignore[attr-defined]
         if hasattr(record, "channel_id"):
-            record_dict["channel_id"] = record.channel_id
+            record_dict["channel_id"] = record.channel_id  # type: ignore[attr-defined]
         if hasattr(record, "command_name"):
-            record_dict["command_name"] = record.command_name
+            record_dict["command_name"] = record.command_name  # type: ignore[attr-defined]
         if hasattr(record, "rsi_handle"):
-            record_dict["rsi_handle"] = record.rsi_handle
+            record_dict["rsi_handle"] = record.rsi_handle  # type: ignore[attr-defined]
 
         return json.dumps(record_dict, ensure_ascii=False)
 

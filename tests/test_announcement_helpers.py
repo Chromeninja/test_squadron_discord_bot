@@ -37,23 +37,21 @@ class TestAdminRecheckHelpers:
 
         # Test edge cases
         assert canonicalize_status_for_display("") == "Not a Member"
-        assert canonicalize_status_for_display(None) == "Not a Member"
+        assert canonicalize_status_for_display(None) == "Not a Member"  # type: ignore[arg-type]
         assert canonicalize_status_for_display("invalid") == "Not a Member"
 
-    def test_format_admin_recheck_message_no_change(self):
-        """Test admin recheck message formatting with no status change."""
-        message = format_admin_recheck_message(
+    def test_format_admin_recheck_message_no_change_no_tuple(self):
+        """Test admin recheck message formatting with no status change (old API without tuple)."""
+        message, changed = format_admin_recheck_message(
             admin_display_name="TestAdmin",
             user_id=123456789,
             old_status="main",
             new_status="main",
         )
 
-        expected = (
-            "[Admin Check • Admin: TestAdmin] <@123456789> 🔁 No Change\n"
-            "Status: Main → Main"
-        )
+        expected = "[Admin Check • Admin: TestAdmin] <@123456789> 🥺 No changes"
         assert message == expected
+        assert changed is False
 
     def test_format_admin_recheck_message_status_change(self):
         """Test admin recheck message formatting with status change."""
@@ -89,8 +87,8 @@ class TestAdminRecheckHelpers:
             changed is True
         )  # Different internal status values even if display is same
 
-    def test_format_admin_recheck_message_no_change(self):
-        """Test format_admin_recheck_message with no status change."""
+    def test_format_admin_recheck_message_no_change_with_tuple(self):
+        """Test format_admin_recheck_message with no status change (new API with tuple)."""
         message, changed = format_admin_recheck_message(
             admin_display_name="AdminUser",
             user_id=123456789,

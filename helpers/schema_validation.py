@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from jsonschema import Draft7Validator
+    from jsonschema import Draft7Validator  # type: ignore[import-not-found]
 
     JSONSCHEMA_AVAILABLE = True
+    Draft7ValidatorType = Draft7Validator
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
-    Draft7Validator = None  # type: ignore[misc, assignment]
+    Draft7Validator = None  # type: ignore[assignment,misc]
+    Draft7ValidatorType = None  # type: ignore[assignment,misc]
     logging.warning("jsonschema not available - schema validation disabled")
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,7 @@ class SchemaValidator:
     def __init__(self, schema_dir: Path | None = None):
         self.schema_dir = schema_dir or Path("prompts/schemas")
         self._schemas: dict[str, dict[str, Any]] = {}
-        self._validators: dict[str, Draft7Validator] = {}
+        self._validators: dict[str, Any] = {}
 
         if JSONSCHEMA_AVAILABLE:
             self._load_schemas()
@@ -47,7 +49,7 @@ class SchemaValidator:
                 schema_name = schema_file.stem
                 self._schemas[schema_name] = schema
 
-                if JSONSCHEMA_AVAILABLE:
+                if JSONSCHEMA_AVAILABLE and Draft7Validator is not None:
                     self._validators[schema_name] = Draft7Validator(schema)
 
                 logger.debug(f"Loaded schema: {schema_name}")
@@ -87,7 +89,10 @@ class SchemaValidator:
                     return False, [
                         f"Definition '{definition_path}' not found in schema '{schema_name}'"
                     ]
-                validator = Draft7Validator(schema)
+                if Draft7Validator is not None:
+                    validator = Draft7Validator(schema)
+                else:
+                    return False, ["jsonschema not available"]
 
             errors = []
             for error in validator.iter_errors(data):

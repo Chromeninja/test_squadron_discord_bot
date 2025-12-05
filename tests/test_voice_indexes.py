@@ -46,14 +46,17 @@ async def test_pragma_settings_applied(temp_db) -> None:
         # Check foreign keys are enabled
         cursor = await db.execute("PRAGMA foreign_keys")
         result = await cursor.fetchone()
+        assert result is not None
         assert result[0] == 1, "Foreign keys should be enabled"
 
         # Check journal mode is WAL
         cursor = await db.execute("PRAGMA journal_mode")
         result = await cursor.fetchone()
+        assert result is not None
         assert result[0] == "wal", "Journal mode should be WAL"
 
         # Check synchronous is NORMAL
         cursor = await db.execute("PRAGMA synchronous")
         result = await cursor.fetchone()
+        assert result is not None
         assert result[0] == 1, "Synchronous should be NORMAL (1)"

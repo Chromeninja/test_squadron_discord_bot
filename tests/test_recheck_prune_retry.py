@@ -26,14 +26,14 @@ class FlakyGuild:
         self._member_on_retry = member_on_retry
         self._fetch_on_first = fetch_on_first
 
-    def get_member(self, user_id: int) -> None:
+    def get_member(self, user_id: int):
         self._calls["get"] += 1
         # Simulate cache miss on first call
         if self._calls["get"] == 1:
             return None
         return FakeMember(user_id) if self._member_on_retry else None
 
-    async def fetch_member(self, user_id: int) -> None:
+    async def fetch_member(self, user_id: int):
         self._calls["fetch"] += 1
         if self._fetch_on_first and self._calls["fetch"] == 1:
             return FakeMember(user_id)
@@ -65,9 +65,9 @@ async def test_no_prune_on_transient_cache_miss(temp_db) -> None:
     bot_ns.config = {}
     bot_ns.guilds = [FlakyGuild(member_on_retry=True, fetch_on_first=False)]
 
-    cog = AutoRecheck(bot_ns)
+    cog = AutoRecheck(bot_ns)  # type: ignore[arg-type]
 
-    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 123)
+    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 123)  # type: ignore[arg-type]
     assert member is not None
 
     # Ensure rows remain
@@ -101,9 +101,9 @@ async def test_prune_when_member_absent_after_retry(temp_db) -> None:
     # Simulate both get_member and fetch_member failing even on retry
     bot_ns.guilds = [FlakyGuild(member_on_retry=False, fetch_on_first=False)]
 
-    cog = AutoRecheck(bot_ns)
+    cog = AutoRecheck(bot_ns)  # type: ignore[arg-type]
 
-    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 456)
+    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 456)  # type: ignore[arg-type]
     assert member is None
 
     # Ensure rows deleted

@@ -67,6 +67,7 @@ def require_permission_level(min_level: PermissionLevel) -> Callable[[F], F]:
         async def my_command(self, interaction: discord.Interaction):
             ...
     """
+
     def decorator(func: F) -> F:
         @wraps(func)
         async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):

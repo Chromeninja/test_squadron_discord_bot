@@ -2,7 +2,7 @@
 Type definitions and common data structures for the Discord bot.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, NamedTuple
 
@@ -36,14 +36,12 @@ class GuildConfig:
 
     guild_id: int
     voice_category_id: int | None = None
-    jtc_channel_ids: list[int] = None
-    settings: dict[str, Any] = None
+    jtc_channel_ids: list[int] = field(default_factory=list)
+    settings: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.jtc_channel_ids is None:
-            self.jtc_channel_ids = []
-        if self.settings is None:
-            self.settings = {}
+        # Initialization is now handled by field(default_factory=...)
+        pass
 
 
 class ServiceStatus(Enum):

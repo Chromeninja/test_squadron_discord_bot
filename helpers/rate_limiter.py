@@ -73,10 +73,20 @@ async def check_rate_limit(
     else:
         # New pattern: check_rate_limit(guild_config, guild_id, user_id, action)
         guild_config = user_id_or_guild_config
-        guild_id = action_or_guild_id  # type: ignore
-        user_id_val = user_id  # type: ignore
-        action_val = action or "verification"
-        max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
+        guild_id_raw = action_or_guild_id
+        if not isinstance(guild_id_raw, int):
+            # Fallback to default if guild_id is not int
+            max_attempts, window = _get_default_limits(action or "verification")
+            user_id_val = user_id if user_id is not None else 0
+            action_val = action or "verification"
+        else:
+            guild_id = guild_id_raw
+            if user_id is None:
+                # Can't proceed without user_id
+                return False, 0
+            user_id_val = user_id
+            action_val = action or "verification"
+            max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
 
     row = await Database.fetch_rate_limit(user_id_val, action_val)
     now = int(time.time())
@@ -123,10 +133,20 @@ async def get_remaining_attempts(
     else:
         # New pattern
         guild_config = user_id_or_guild_config
-        guild_id = action_or_guild_id  # type: ignore
-        user_id_val = user_id  # type: ignore
-        action_val = action or "verification"
-        max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
+        guild_id_raw = action_or_guild_id
+        if not isinstance(guild_id_raw, int):
+            # Fallback to default if guild_id is not int
+            max_attempts, window = _get_default_limits(action or "verification")
+            user_id_val = user_id if user_id is not None else 0
+            action_val = action or "verification"
+        else:
+            guild_id = guild_id_raw
+            if user_id is None:
+                # Can't proceed without user_id
+                return 0
+            user_id_val = user_id
+            action_val = action or "verification"
+            max_attempts, window = await _get_limits(guild_config, guild_id, action_val)
 
     row = await Database.fetch_rate_limit(user_id_val, action_val)
     now = int(time.time())

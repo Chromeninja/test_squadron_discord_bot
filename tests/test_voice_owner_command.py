@@ -21,6 +21,12 @@ async def test_db():
     if test_db_file.exists():
         test_db_file.unlink()
 
+    # Reset database state so each test gets an isolated path
+    orig_path = Database._db_path
+    orig_initialized = Database._initialized
+    Database._initialized = False
+    Database._db_path = None  # type: ignore[assignment]
+
     # Initialize the database with the test path
     await Database.initialize(test_db_path)
 
@@ -39,19 +45,24 @@ async def test_db():
             """
         )
 
-    yield test_db_path
+    try:
+        yield test_db_path
+    finally:
+        # Restore original database state
+        Database._db_path = orig_path
+        Database._initialized = orig_initialized
 
-    # Cleanup
-    if test_db_file.exists():
-        test_db_file.unlink()
+        # Cleanup
+        if test_db_file.exists():
+            test_db_file.unlink()
 
 
 class TestVoiceOwnerCommand:
     """Test the voice owner command."""
 
     @pytest.mark.asyncio
-    async def test_voice_owner_shows_db_owners(self, test_db):
-        """Test that voice owner command shows current database owners."""
+    async def test_voice_owner_shows_db_owners_basic(self, test_db):
+        """Test that voice owner command shows current database owners (basic version)."""
 
         # Create mock bot with services
         mock_bot = AsyncMock()
@@ -81,6 +92,8 @@ class TestVoiceOwnerCommand:
         mock_interaction.guild_id = mock_guild.id
         mock_interaction.guild = mock_guild
         mock_interaction.followup.send = AsyncMock()
+        mock_interaction.response = AsyncMock()
+        mock_interaction.response.defer = AsyncMock()
         mock_interaction.user = AsyncMock(spec=discord.Member)
         mock_interaction.user.roles = [
             MagicMock(id=111),
@@ -89,7 +102,7 @@ class TestVoiceOwnerCommand:
 
         # Mock admin permissions
         with patch.object(voice_service, "get_admin_role_ids", return_value=[111, 222]):
-            # Set up test data in database
+            # Set up test data in database (voice_channels is the current source of truth)
             async with Database.get_connection() as db:
                 test_data = [
                     (
@@ -105,8 +118,17 @@ class TestVoiceOwnerCommand:
 
                 for guild_id, jtc_id, owner_id, voice_id, created_at in test_data:
                     await db.execute(
-                        "INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                        (guild_id, jtc_id, owner_id, voice_id, created_at),
+                        "INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, previous_owner_id, created_at, last_activity, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            guild_id,
+                            jtc_id,
+                            owner_id,
+                            voice_id,
+                            None,
+                            created_at,
+                            created_at,
+                            1,
+                        ),
                     )
                 await db.commit()
 
@@ -175,8 +197,8 @@ class TestVoiceOwnerCommand:
             assert call_args[1]["ephemeral"] is True
 
     @pytest.mark.asyncio
-    async def test_voice_owner_no_channels(self, test_db):
-        """Test voice owner command when no channels exist."""
+    async def test_voice_owner_no_channels_basic(self, test_db):
+        """Test voice owner command when no channels exist (basic version)."""
 
         # Create mock bot with services
         mock_bot = AsyncMock()
@@ -201,6 +223,8 @@ class TestVoiceOwnerCommand:
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.guild_id = 12345
         mock_interaction.followup.send = AsyncMock()
+        mock_interaction.response = AsyncMock()
+        mock_interaction.response.defer = AsyncMock()
         mock_interaction.user = AsyncMock(spec=discord.Member)
         mock_interaction.user.roles = [MagicMock(id=111)]
 
@@ -216,13 +240,25 @@ class TestVoiceOwnerCommand:
             assert "No managed voice channels found" in call_args[0][0]
             assert call_args[1]["ephemeral"] is True
 
-    @pytest.fixture
-    def temp_db(self, tmp_path):
-        """Create a temporary database for testing."""
+    @pytest_asyncio.fixture
+    async def temp_db(self, tmp_path):
+        """Create a temporary database for testing with isolated state."""
         db_path = tmp_path / "test.db"
 
-        # Store path for later use
-        return str(db_path)
+        # Reset database state so each test uses its own file
+        orig_path = Database._db_path
+        orig_initialized = Database._initialized
+        Database._initialized = False
+        Database._db_path = None  # type: ignore[assignment]
+
+        await Database.initialize(str(db_path))
+
+        try:
+            # Store path for later use
+            yield str(db_path)
+        finally:
+            Database._db_path = orig_path
+            Database._initialized = orig_initialized
 
     async def setup_test_db(self, db_path):
         """Initialize the test database with schema."""
@@ -240,8 +276,8 @@ class TestVoiceOwnerCommand:
         pass
 
     @pytest.fixture
-    def mock_bot(self):
-        """Create a mock bot instance."""
+    def mock_bot_basic(self):
+        """Create a basic mock bot instance."""
         bot = AsyncMock()
         bot.get_channel = MagicMock()
         return bot
@@ -274,7 +310,7 @@ class TestVoiceOwnerCommand:
 
     @pytest.fixture
     def mock_bot(self):
-        """Create a mock bot instance with service container."""
+        """Create a mock bot instance with service container (overrides basic)."""
         bot = AsyncMock()
         bot.get_channel = MagicMock()
 
@@ -314,10 +350,10 @@ class TestVoiceOwnerCommand:
         return VoiceCommands(mock_bot)
 
     @pytest.mark.asyncio
-    async def test_voice_owner_shows_db_owners(
+    async def test_voice_owner_shows_db_owners_with_fixtures(
         self, voice_commands, mock_interaction, mock_guild, voice_service_setup
     ):
-        """Test that voice owner command shows current database owners."""
+        """Test that voice owner command shows current database owners (with fixtures)."""
 
         # Set up voice service
         voice_service, original_db_path = await voice_service_setup()
@@ -428,10 +464,10 @@ class TestVoiceOwnerCommand:
             await self.teardown_test_db(original_db_path)
 
     @pytest.mark.asyncio
-    async def test_voice_owner_no_channels(
+    async def test_voice_owner_no_channels_with_fixtures(
         self, voice_commands, mock_interaction, temp_db
     ):
-        """Test voice owner command when no channels exist."""
+        """Test voice owner command when no channels exist (with fixtures)."""
 
         # Mock admin permissions
         with patch.object(

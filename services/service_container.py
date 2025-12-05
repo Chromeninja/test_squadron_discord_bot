@@ -16,7 +16,7 @@ from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
 
 if TYPE_CHECKING:
-    import discord
+    from discord.ext.commands import Bot
 
 
 class ServiceContainer:
@@ -27,7 +27,7 @@ class ServiceContainer:
     handles initialization order, and manages service dependencies.
     """
 
-    def __init__(self, bot: Optional["discord.Client"] = None) -> None:
+    def __init__(self, bot: Optional["Bot"] = None) -> None:
         self.logger = get_logger("services.container")
         self.bot = bot  # Store bot instance for services that need it
         self._config: ConfigService | None = None
@@ -133,7 +133,7 @@ class ServiceContainer:
 
             # Initialize verification bulk service (depends on bot and config)
             if self.bot:
-                self._verify_bulk = VerificationBulkService(self.bot)
+                self._verify_bulk = VerificationBulkService(self.bot)  # type: ignore[arg-type]
                 await self._verify_bulk.start()
                 self.logger.debug("VerificationBulkService initialized")
 

@@ -150,7 +150,11 @@ def _derive_status_from_orgs(
     return "non_member"
 
 
-@router.get("/search", response_model=UserSearchResponse, dependencies=[Depends(require_fresh_guild_access)])
+@router.get(
+    "/search",
+    response_model=UserSearchResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
 async def search_users(
     query: str = Query(
         "", description="Search by user_id, rsi_handle, or community_moniker"

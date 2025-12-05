@@ -6,6 +6,8 @@ This handles READ-ONLY status checks only (no RSI verification).
 Coordinates with auto-recheck loop to avoid conflicts.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import random
@@ -19,6 +21,8 @@ from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
+
+    from bot import MyBot
 
 
 logger = get_logger(__name__)
@@ -74,7 +78,7 @@ class VerificationBulkService:
     Signals auto-recheck to pause when manual checks are running.
     """
 
-    def __init__(self, bot: "commands.Bot"):
+    def __init__(self, bot: MyBot):
         self.name = "verification_bulk"
         self.bot = bot
         self.queue: asyncio.Queue[BulkVerificationJob] = asyncio.Queue()
@@ -133,9 +137,15 @@ class VerificationBulkService:
         self._job_counter += 1
         job_id = self._job_counter
 
+        guild_id = interaction.guild_id or (
+            interaction.guild.id if interaction.guild else None
+        )
+        if guild_id is None:
+            raise RuntimeError("Guild ID unavailable for bulk verification job")
+
         job = BulkVerificationJob(
             job_id=job_id,
-            guild_id=interaction.guild_id,
+            guild_id=guild_id,
             target_member_ids=[m.id for m in members],
             invoker_id=interaction.user.id,
             interaction=interaction,
@@ -374,7 +384,13 @@ class VerificationBulkService:
                     pass  # Use defaults
 
             try:
-                verify_value, _, _, main_orgs, affiliate_orgs = await is_valid_rsi_handle(
+                (
+                    verify_value,
+                    _,
+                    _,
+                    main_orgs,
+                    affiliate_orgs,
+                ) = await is_valid_rsi_handle(
                     row.rsi_handle, self.bot.http_client, org_name, org_sid
                 )
 
@@ -435,6 +451,10 @@ class VerificationBulkService:
                     checked_at=current_time,
                     error=f"Unexpected error: {result!s}"[:200],
                 )
+
+            # Type guard: result is now definitely RsiStatusResult
+            if not isinstance(result, RsiStatusResult):
+                continue
 
             # Create new StatusRow with RSI data
             updated_row = StatusRow(
@@ -559,6 +579,6 @@ class VerificationBulkService:
                 )
 
 
-async def initialize(bot: "commands.Bot") -> None:
+async def initialize(bot: commands.Bot) -> VerificationBulkService:
     """Initialize the verification bulk service."""
-    return VerificationBulkService(bot)
+    return VerificationBulkService(bot)  # type: ignore[arg-type]

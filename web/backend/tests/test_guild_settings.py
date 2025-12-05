@@ -25,7 +25,11 @@ async def test_get_bot_role_settings_defaults(
             "avatar": None,
             "active_guild_id": "888",
             "authorized_guilds": {
-                "888": {"guild_id": "888", "role_level": "bot_admin", "source": "bot_owner"},
+                "888": {
+                    "guild_id": "888",
+                    "role_level": "bot_admin",
+                    "source": "bot_owner",
+                },
             },
         }
     )
@@ -249,8 +253,16 @@ async def test_list_guild_members_forbidden_without_matching_active_guild(
             "is_moderator": False,
             "active_guild_id": "999",
             "authorized_guilds": {
-                "999": {"guild_id": "999", "role_level": "bot_admin", "source": "bot_admin_role"},
-                "123": {"guild_id": "123", "role_level": "bot_admin", "source": "bot_admin_role"},
+                "999": {
+                    "guild_id": "999",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
             },
         }
     )

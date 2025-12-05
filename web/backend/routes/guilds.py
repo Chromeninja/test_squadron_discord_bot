@@ -232,9 +232,7 @@ async def update_bot_roles_settings(
 
     # Fire-and-forget notification to bot; warn on failure but don't block response
     try:
-        await internal_api.notify_guild_settings_refresh(
-            guild_id, source="bot_roles"
-        )
+        await internal_api.notify_guild_settings_refresh(guild_id, source="bot_roles")
     except Exception as exc:  # pragma: no cover - network errors
         logger.warning(
             "Failed to notify bot about guild %s role change: %s", guild_id, exc

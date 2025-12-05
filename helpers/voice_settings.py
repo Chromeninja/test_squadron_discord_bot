@@ -50,8 +50,8 @@ async def fetch_channel_settings(
     }
 
     try:
-        # Check if user is in a voice channel
-        if user.voice and user.voice.channel:
+        # Check if user is in a voice channel (only Members have voice state)
+        if isinstance(user, discord.Member) and user.voice and user.voice.channel:
             result["active_channel"] = user.voice.channel
             result["is_active"] = True
 
@@ -72,48 +72,66 @@ async def fetch_channel_settings(
                     result["jtc_channel_id"] = jtc_channel_id
 
                     # Get settings for this active channel
-                    settings = await _get_all_user_settings(
-                        guild_id, jtc_channel_id, user.id
-                    )
-                    if settings:
-                        result["settings"] = settings
-                        embed = await _create_settings_embed(
-                            user,
-                            settings,
-                            interaction.guild,
-                            result["active_channel"],
-                            is_active=True,
+                    if guild_id is not None:
+                        settings = await _get_all_user_settings(
+                            guild_id, jtc_channel_id, user.id
                         )
-                        result["embeds"].append(embed)
+                        if settings:
+                            result["settings"] = settings
+                            if interaction.guild and isinstance(user, discord.Member):
+                                # Type narrow active_channel to VoiceChannel
+                                active_chan = result["active_channel"]
+                                voice_chan = (
+                                    active_chan
+                                    if isinstance(active_chan, discord.VoiceChannel)
+                                    else None
+                                )
+                                embed = await _create_settings_embed(
+                                    user,
+                                    settings,
+                                    interaction.guild,
+                                    voice_chan,
+                                    is_active=True,
+                                )
+                                result["embeds"].append(embed)
 
         # If not active or allow_inactive is True, also check for saved settings
         if not result["is_active"] or allow_inactive:
             if target_user:
                 # For admin_list: get all JTC channels for this user
-                all_settings = await _get_all_user_jtc_settings(guild_id, user.id)
-                for jtc_channel_id, settings in all_settings.items():
-                    if settings:
-                        embed = await _create_settings_embed(
-                            user,
-                            settings,
-                            interaction.guild,
-                            None,
-                            is_active=False,
-                            jtc_channel_id=jtc_channel_id,
-                        )
-                        result["embeds"].append(embed)
-                        if not result["settings"]:  # Set the first one as primary
-                            result["settings"] = settings
-                            result["jtc_channel_id"] = jtc_channel_id
-            else:
-                # For user list: get saved settings using last used JTC for deterministic behavior
+                if guild_id is not None:
+                    all_settings = await _get_all_user_jtc_settings(guild_id, user.id)
+                    for jtc_channel_id, settings in all_settings.items():
+                        if (
+                            settings
+                            and interaction.guild
+                            and isinstance(user, discord.Member)
+                        ):
+                            embed = await _create_settings_embed(
+                                user,
+                                settings,
+                                interaction.guild,
+                                None,
+                                is_active=False,
+                                jtc_channel_id=jtc_channel_id,
+                            )
+                            result["embeds"].append(embed)
+                            if not result["settings"]:  # Set the first one as primary
+                                result["settings"] = settings
+                                result["jtc_channel_id"] = jtc_channel_id
+            # For user list: get saved settings using last used JTC for deterministic behavior
+            elif guild_id is not None:
                 last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
                 if last_used_jtc:
                     # Load settings for last used JTC
                     settings = await _get_all_user_settings(
                         guild_id, last_used_jtc, user.id
                     )
-                    if settings:
+                    if (
+                        settings
+                        and interaction.guild
+                        and isinstance(user, discord.Member)
+                    ):
                         result["settings"] = settings
                         result["jtc_channel_id"] = last_used_jtc
 
@@ -131,24 +149,24 @@ async def fetch_channel_settings(
                     available_jtcs = await _get_available_jtc_channels(
                         guild_id, user.id
                     )
-                    if available_jtcs:
-                        # Create an informative embed prompting user to select a JTC
-                        embed = discord.Embed(
-                            title="🎙️ Multiple JTC Channels Found",
-                            description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
-                            color=discord.Color.orange(),
-                        )
+                if available_jtcs:
+                    # Create an informative embed prompting user to select a JTC
+                    embed = discord.Embed(
+                        title="🎙️ Multiple JTC Channels Found",
+                        description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
+                        color=discord.Color.orange(),
+                    )
 
-                        jtc_list = []
-                        for jtc_id in available_jtcs:
-                            jtc_list.append(f"• JTC Channel ID: {jtc_id}")
+                    jtc_list = []
+                    for jtc_id in available_jtcs:
+                        jtc_list.append(f"• JTC Channel ID: {jtc_id}")
 
-                        embed.add_field(
-                            name="Available JTC Channels",
-                            value="\n".join(jtc_list),
-                            inline=False,
-                        )
-                        result["embeds"].append(embed)
+                    embed.add_field(
+                        name="Available JTC Channels",
+                        value="\n".join(jtc_list),
+                        inline=False,
+                    )
+                    result["embeds"].append(embed)
                     # If no available JTCs, result stays empty (no settings)
 
         return result

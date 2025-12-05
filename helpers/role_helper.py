@@ -52,7 +52,7 @@ async def assign_roles(
     community_moniker: str | None = None,
     main_orgs: list[str] | None = None,
     affiliate_orgs: list[str] | None = None,
-) -> None:
+) -> tuple[str, str]:
     """Assign roles based on verification status.
 
     Args:
@@ -120,14 +120,18 @@ async def assign_roles(
             )
 
             # Get first role ID from each list
-            bot_verified_role_id = bot_verified_role_ids[0] if bot_verified_role_ids else None
+            bot_verified_role_id = (
+                bot_verified_role_ids[0] if bot_verified_role_ids else None
+            )
             main_role_id = main_role_ids[0] if main_role_ids else None
             affiliate_role_id = affiliate_role_ids[0] if affiliate_role_ids else None
             non_member_role_id = nonmember_role_ids[0] if nonmember_role_ids else None
 
             # Get role objects from cache or guild
             bot_verified_role = (
-                bot.role_cache.get(bot_verified_role_id) if bot_verified_role_id else None
+                bot.role_cache.get(bot_verified_role_id)
+                if bot_verified_role_id
+                else None
             )
             main_role = bot.role_cache.get(main_role_id) if main_role_id else None
             affiliate_role = (
@@ -138,8 +142,12 @@ async def assign_roles(
             )
 
             # Debug logging for role fetching
-            logger.debug(f"Role IDs fetched - bot_verified: {bot_verified_role_id}, main: {main_role_id}, affiliate: {affiliate_role_id}, nonmember: {non_member_role_id}")
-            logger.debug(f"Role objects - bot_verified: {bot_verified_role}, main: {main_role}, affiliate: {affiliate_role}, nonmember: {non_member_role}")
+            logger.debug(
+                f"Role IDs fetched - bot_verified: {bot_verified_role_id}, main: {main_role_id}, affiliate: {affiliate_role_id}, nonmember: {non_member_role_id}"
+            )
+            logger.debug(
+                f"Role objects - bot_verified: {bot_verified_role}, main: {main_role}, affiliate: {affiliate_role}, nonmember: {non_member_role}"
+            )
         except Exception as e:
             logger.exception(f"Error fetching role configuration from database: {e}")
             bot_verified_role = main_role = affiliate_role = non_member_role = None
@@ -157,7 +165,9 @@ async def assign_roles(
         roles_to_add.append(bot_verified_role)
         logger.info(f"Adding base verified role: {bot_verified_role.name}")
     else:
-        logger.warning(f"Bot verified role not configured or not found for guild {member.guild.id}")
+        logger.warning(
+            f"Bot verified role not configured or not found for guild {member.guild.id}"
+        )
 
     if verify_value == 1 and main_role:
         roles_to_add.append(main_role)
@@ -325,11 +335,11 @@ async def assign_roles(
         nick_final = _truncate_nickname(preferred_nick)
         # Persist preferred nick regardless of change for logging heuristics
         with contextlib.suppress(Exception):
-            member._preferred_verification_nick = nick_final
+            member._preferred_verification_nick = nick_final  # type: ignore[attr-defined]
         current_nick = getattr(member, "nick", None)
         if current_nick != nick_final:
             with contextlib.suppress(Exception):
-                member._nickname_changed_flag = True
+                member._nickname_changed_flag = True  # type: ignore[attr-defined]
 
             async def nickname_task() -> None:
                 try:
@@ -352,7 +362,7 @@ async def assign_roles(
             await enqueue_task(nickname_task)
         else:
             with contextlib.suppress(Exception):
-                member._nickname_changed_flag = False
+                member._nickname_changed_flag = False  # type: ignore[attr-defined]
     else:
         logger.warning(
             "Cannot change nickname due to role hierarchy.",

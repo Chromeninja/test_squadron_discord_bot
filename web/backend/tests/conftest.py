@@ -132,9 +132,21 @@ def mock_admin_session():
             "avatar": None,
             "active_guild_id": "123",  # Default test guild
             "authorized_guilds": {
-                "123": {"guild_id": "123", "role_level": "bot_admin", "source": "bot_admin_role"},
-                "1": {"guild_id": "1", "role_level": "bot_admin", "source": "bot_admin_role"},
-                "2": {"guild_id": "2", "role_level": "bot_admin", "source": "bot_admin_role"},
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
+                "1": {
+                    "guild_id": "1",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
+                "2": {
+                    "guild_id": "2",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
             },
         }
     )
@@ -153,7 +165,11 @@ def mock_moderator_session():
             "avatar": None,
             "active_guild_id": "123",  # Default test guild
             "authorized_guilds": {
-                "123": {"guild_id": "123", "role_level": "moderator", "source": "moderator_role"},
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "moderator",
+                    "source": "moderator_role",
+                },
             },
         }
     )
@@ -246,12 +262,16 @@ class FakeInternalAPIClient:
             # Add the appropriate validation role ID based on user_id
             if user_id == 1428084144860303511:
                 # Moderator user - ensure moderator role ID is present
-                if "role_ids" not in member or "999111223" not in member.get("role_ids", []):
+                if "role_ids" not in member or "999111223" not in member.get(
+                    "role_ids", []
+                ):
                     if "role_ids" not in member:
                         member["role_ids"] = []
                     member["role_ids"].append("999111223")
             # All other users - ensure bot_admin role ID is present
-            elif "role_ids" not in member or "999111222" not in str(member.get("role_ids", [])):
+            elif "role_ids" not in member or "999111222" not in str(
+                member.get("role_ids", [])
+            ):
                 if "role_ids" not in member:
                     member["role_ids"] = []
                 member["role_ids"].append("999111222")
@@ -337,6 +357,7 @@ class FakeInternalAPIClient:
             "message": "User rechecked successfully",
             "roles_updated": True,
         }
+
 
 @pytest.fixture(autouse=True)
 def fake_internal_api(monkeypatch):

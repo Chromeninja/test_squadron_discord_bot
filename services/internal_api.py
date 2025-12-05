@@ -141,6 +141,9 @@ class InternalAPIServer:
         try:
             # Get bot instance from services
             bot = self.services.bot
+            if not bot:
+                logger.error("Bot instance not available")
+                return web.json_response({"error": "Bot not initialized"}, status=503)
 
             # Run health checks
             health_service = self.services.health
@@ -263,8 +266,8 @@ class InternalAPIServer:
                 await config_service.maybe_refresh_guild(guild_id, force=True)
                 cache_refreshed = True
 
-            if hasattr(self.bot, "refresh_guild_roles"):
-                await self.bot.refresh_guild_roles(guild_id, source or "config_refresh")
+            if self.bot and hasattr(self.bot, "refresh_guild_roles"):
+                await self.bot.refresh_guild_roles(guild_id, source or "config_refresh")  # type: ignore[attr-defined]
                 roles_refreshed = True
 
             return web.json_response(
@@ -785,6 +788,11 @@ class InternalAPIServer:
             return web.json_response({"error": f"Database error: {e!s}"}, status=500)
 
         # Use unified recheck service
+        if not self.bot:
+            return web.json_response(
+                {"error": "Bot instance not available"}, status=503
+            )
+
         try:
             from helpers.recheck_service import perform_recheck
 

@@ -87,10 +87,6 @@ class MockGuild:
         """Mock get_member method."""
         return None
 
-    def get_member(self, user_id: int):
-        """Mock get_member method."""
-        return None
-
     async def create_voice_channel(self, name: str, category=None, **kwargs):
         """Mock voice channel creation."""
         return MockVoiceChannel(channel_id=99999, name=name, category=category)
@@ -140,7 +136,7 @@ class TestMultipleChannelsPerOwner:
         await config_service.initialize()
 
         mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot)
+        voice_service = VoiceService(config_service, bot=mock_bot, test_mode=True)  # type: ignore[arg-type]
         await voice_service.initialize()
 
         yield voice_service, mock_bot
@@ -163,7 +159,7 @@ class TestMultipleChannelsPerOwner:
         member = MockMember(user_id=11111, display_name="TestUser")
         # Set member as connected to the JTC channel
         member.voice.channel = jtc_channel
-        member.mention = f"<@{member.id}>"  # Add mention attribute
+        member.mention = f"<@{member.id}>"  # type: ignore[attr-defined]
 
         # Create an existing active channel for the user
         existing_channel = MockVoiceChannel(
@@ -243,6 +239,7 @@ class TestMultipleChannelsPerOwner:
                             )
                             count = await cursor.fetchone()
                             # Should have only 1 active channel (old one cleaned up)
+                            assert count is not None
                             assert count[0] == 1
 
                             # Verify the old channel was marked inactive
@@ -328,6 +325,7 @@ class TestMultipleChannelsPerOwner:
                 (55555,),
             )
             settings1_count = await cursor.fetchone()
+            assert settings1_count is not None
             assert settings1_count[0] == 0  # Settings should be deleted
 
             cursor = await db.execute(
@@ -335,6 +333,7 @@ class TestMultipleChannelsPerOwner:
                 (66666,),
             )
             settings2_count = await cursor.fetchone()
+            assert settings2_count is not None
             assert settings2_count[0] == 1  # Settings should remain
 
     @pytest.mark.asyncio

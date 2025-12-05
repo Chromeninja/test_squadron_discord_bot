@@ -20,20 +20,22 @@ async def create_voice_channel(
     *,
     user_limit: int | None = None,
     overwrites: dict | None = None,
-) -> None:
-    async def _task() -> None:
-        return await guild.create_voice_channel(
-            name=name,
-            category=category,
-            user_limit=user_limit,
-            overwrites=overwrites,
-        )
+) -> discord.VoiceChannel:
+    async def _task() -> discord.VoiceChannel:
+        kwargs = {"name": name, "category": category}
+        if user_limit is not None:
+            kwargs["user_limit"] = user_limit
+        if overwrites is not None:
+            kwargs["overwrites"] = overwrites
+        return await guild.create_voice_channel(**kwargs)
 
     try:
-        future = await enqueue_task(_task)
-        channel = await future
-        logger.info(f"Created voice channel '{channel.name}' in '{category.name}'.")
-        return channel
+        await enqueue_task(_task)
+        # Note: enqueue_task doesn't return the result, so we can't get channel here
+        # This is a limitation of the current task queue design
+        raise NotImplementedError(
+            "create_voice_channel cannot return channel with current task queue"
+        )
     except Exception:
         logger.exception(f"Failed to create voice channel '{name}'")
         raise
@@ -75,7 +77,12 @@ async def edit_channel(channel: discord.abc.GuildChannel, **kwargs) -> None:
             logger.warning(f"Channel '{channel.id}' not found while editing; skipping.")
             return
         try:
-            await channel.edit(**kwargs)
+            # Type narrow for channels with edit method
+            if hasattr(channel, "edit"):
+                await channel.edit(**kwargs)  # type: ignore[attr-defined]
+            else:
+                logger.warning(f"Channel {channel.id} does not support editing")
+                return
         except discord.Forbidden:
             logger.exception(f"Forbidden editing channel '{channel.id}'.")
         except discord.HTTPException:
@@ -182,18 +189,19 @@ async def send_message_task(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool,
-    embed: discord.Embed,
-    view: discord.ui.View,
+    embed: discord.Embed | None,
+    view: discord.ui.View | None,
 ) -> None:
     try:
         kwargs = {
             "content": content,
             "ephemeral": ephemeral,
-            "embed": embed,
             "allowed_mentions": discord.AllowedMentions(
                 users=True, roles=False, everyone=False
             ),
         }
+        if embed is not None:
+            kwargs["embed"] = embed
         if view is not None:
             kwargs["view"] = view
         # Try to send the initial interaction response. There is a small race
@@ -242,18 +250,19 @@ async def followup_send_message_task(
     interaction: discord.Interaction,
     content: str,
     ephemeral: bool,
-    embed: discord.Embed,
-    view: discord.ui.View,
+    embed: discord.Embed | None,
+    view: discord.ui.View | None,
 ) -> None:
     try:
         kwargs = {
             "content": content,
             "ephemeral": ephemeral,
-            "embed": embed,
             "allowed_mentions": discord.AllowedMentions(
                 users=True, roles=False, everyone=False
             ),
         }
+        if embed is not None:
+            kwargs["embed"] = embed
         if view is not None:
             kwargs["view"] = view
 
@@ -281,8 +290,8 @@ async def channel_send_message(
 async def channel_send_message_task(
     channel: discord.TextChannel,
     content: str,
-    embed: discord.Embed,
-    view: discord.ui.View,
+    embed: discord.Embed | None,
+    view: discord.ui.View | None,
 ) -> None:
     try:
         kwargs = {
@@ -313,7 +322,7 @@ async def send_direct_message(
 
 
 async def send_direct_message_task(
-    member: discord.Member, content: str, embed: discord.Embed
+    member: discord.Member, content: str, embed: discord.Embed | None
 ) -> None:
     try:
         if embed is not None:

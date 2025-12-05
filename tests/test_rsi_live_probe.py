@@ -17,7 +17,11 @@ import pytest
 tools_dir = Path(__file__).parent.parent / "tools"
 sys.path.insert(0, str(tools_dir))
 
-from rsi_probe import create_session, probe_handle, warmup
+from rsi_probe import (  # type: ignore[import-not-found] # type: ignore[import-not-found]
+    create_session,
+    probe_handle,
+    warmup,
+)
 
 # Mark entire module as integration tests
 pytestmark = pytest.mark.integration

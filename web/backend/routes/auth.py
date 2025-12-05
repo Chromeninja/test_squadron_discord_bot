@@ -186,7 +186,9 @@ async def callback(code: str, state: str | None = None):
             is_bot_owner = BOT_OWNER_ID and str(user_id_from_data) == str(BOT_OWNER_ID)
 
             if is_bot_owner:
-                logger.info(f"User {user_id_from_data} identified as BOT OWNER - granting global access")
+                logger.info(
+                    f"User {user_id_from_data} identified as BOT OWNER - granting global access"
+                )
 
             # Track per-guild permissions using new GuildPermission model
             from core.schemas import GuildPermission
@@ -210,7 +212,7 @@ async def callback(code: str, state: str | None = None):
                         authorized_guilds[guild_id_str] = GuildPermission(
                             guild_id=guild_id_str,
                             role_level="bot_owner",
-                            source="bot_owner"
+                            source="bot_owner",
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         continue
@@ -232,7 +234,7 @@ async def callback(code: str, state: str | None = None):
                         authorized_guilds[guild_id_str] = GuildPermission(
                             guild_id=guild_id_str,
                             role_level="bot_admin",
-                            source="discord_owner"
+                            source="discord_owner",
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         logger.info(
@@ -246,7 +248,7 @@ async def callback(code: str, state: str | None = None):
                         authorized_guilds[guild_id_str] = GuildPermission(
                             guild_id=guild_id_str,
                             role_level="bot_admin",
-                            source="discord_administrator"
+                            source="discord_administrator",
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         logger.info(
@@ -282,10 +284,19 @@ async def callback(code: str, state: str | None = None):
                     # Fetch role configuration from database
                     async with Database.get_connection() as db:
                         role_settings = await get_bot_role_settings(db, int(guild_id))
-                        bot_admin_role_ids = [int(rid) for rid in role_settings.get("bot_admins", [])]
-                        discord_manager_role_ids = [int(rid) for rid in role_settings.get("discord_managers", [])]
-                        moderator_role_ids = [int(rid) for rid in role_settings.get("moderators", [])]
-                        staff_role_ids = [int(rid) for rid in role_settings.get("staff", [])]
+                        bot_admin_role_ids = [
+                            int(rid) for rid in role_settings.get("bot_admins", [])
+                        ]
+                        discord_manager_role_ids = [
+                            int(rid)
+                            for rid in role_settings.get("discord_managers", [])
+                        ]
+                        moderator_role_ids = [
+                            int(rid) for rid in role_settings.get("moderators", [])
+                        ]
+                        staff_role_ids = [
+                            int(rid) for rid in role_settings.get("staff", [])
+                        ]
 
                     # Convert user_role_ids to integers
                     user_role_ids_int = [int(rid) for rid in user_role_ids]
@@ -297,7 +308,9 @@ async def callback(code: str, state: str | None = None):
                     if any(rid in bot_admin_role_ids for rid in user_role_ids_int):
                         role_level = "bot_admin"
                         source = "bot_admin_role"
-                    elif any(rid in discord_manager_role_ids for rid in user_role_ids_int):
+                    elif any(
+                        rid in discord_manager_role_ids for rid in user_role_ids_int
+                    ):
                         role_level = "discord_manager"
                         source = "discord_manager_role"
                     elif any(rid in moderator_role_ids for rid in user_role_ids_int):
@@ -310,9 +323,7 @@ async def callback(code: str, state: str | None = None):
                     if role_level and source:
                         guild_id_str = str(guild_id)
                         authorized_guilds[guild_id_str] = GuildPermission(
-                            guild_id=guild_id_str,
-                            role_level=role_level,
-                            source=source
+                            guild_id=guild_id_str, role_level=role_level, source=source
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         logger.info(
@@ -333,13 +344,11 @@ async def callback(code: str, state: str | None = None):
             raise HTTPException(status_code=400, detail="Invalid user data")
 
         # Debug logging
-        logger.info(
-            f"User {user_id} authorized for {len(authorized_guilds)} guild(s)"
-        )
+        logger.info(f"User {user_id} authorized for {len(authorized_guilds)} guild(s)")
+        logger.debug(f"Authorized guild IDs: {sorted(authorized_guild_id_set)}")
         logger.debug(
-            f"Authorized guild IDs: {sorted(authorized_guild_id_set)}"
+            f"Per-guild permissions: {[(g, p.role_level) for g, p in authorized_guilds.items()]}"
         )
-        logger.debug(f"Per-guild permissions: {[(g, p.role_level) for g, p in authorized_guilds.items()]}")
 
         # Require at least one authorized guild
         if not authorized_guilds:
@@ -365,7 +374,7 @@ async def callback(code: str, state: str | None = None):
             guild_id: {
                 "guild_id": perm.guild_id,
                 "role_level": perm.role_level,
-                "source": perm.source
+                "source": perm.source,
             }
             for guild_id, perm in authorized_guilds.items()
         }
@@ -510,6 +519,7 @@ async def select_active_guild(
     session_payload["active_guild_id"] = payload.guild_id
     roles_validated_at = session_payload.get("roles_validated_at") or {}
     import time as _t
+
     roles_validated_at[payload.guild_id] = int(_t.time())
     session_payload["roles_validated_at"] = roles_validated_at
     set_session_cookie(response, session_payload)

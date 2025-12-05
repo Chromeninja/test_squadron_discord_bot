@@ -19,7 +19,9 @@ class GuildPermission(BaseModel):
     """
 
     guild_id: str
-    role_level: str  # One of: bot_owner, bot_admin, discord_manager, moderator, staff, user
+    role_level: (
+        str  # One of: bot_owner, bot_admin, discord_manager, moderator, staff, user
+    )
     source: str  # How permission was granted: bot_owner, discord_owner, discord_administrator, bot_admin_role, discord_manager_role, moderator_role, staff_role
 
 

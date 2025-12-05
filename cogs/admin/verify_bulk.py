@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,13 +11,16 @@ from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
 from utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from bot import MyBot
+
 logger = get_logger(__name__)
 
 
 class VerifyCommands(app_commands.Group):
     """Verification-related admin commands."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: MyBot):
         super().__init__(name="verify", description="Verification management commands")
         self.bot = bot
 
@@ -85,6 +92,11 @@ class VerifyCommands(app_commands.Group):
 
             # Collect target members
             try:
+                if not interaction.guild:
+                    await interaction.followup.send(
+                        "❌ This command can only be used in a server.", ephemeral=True
+                    )
+                    return
                 members_list = await collect_targets(
                     "users", interaction.guild, members, None
                 )
@@ -140,6 +152,11 @@ class VerifyCommands(app_commands.Group):
         try:
             # Collect target members from channel
             try:
+                if not interaction.guild:
+                    await interaction.followup.send(
+                        "❌ This command can only be used in a server.", ephemeral=True
+                    )
+                    return
                 members_list = await collect_targets(
                     "voice_channel", interaction.guild, None, channel
                 )
@@ -189,6 +206,11 @@ class VerifyCommands(app_commands.Group):
         try:
             # Collect target members from all active voice channels
             try:
+                if not interaction.guild:
+                    await interaction.followup.send(
+                        "❌ This command can only be used in a server.", ephemeral=True
+                    )
+                    return
                 members_list = await collect_targets(
                     "active_voice", interaction.guild, None, None
                 )
@@ -277,26 +299,24 @@ class VerifyCommands(app_commands.Group):
             )
 
 
-
-
 class VerifyBulkCog(commands.Cog):
     """Cog for bulk verification status checking."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: MyBot):
         self.bot = bot
         self.verify_commands = VerifyCommands(bot)
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
         """Add the command group when the cog loads."""
         self.bot.tree.add_command(self.verify_commands)
         logger.info("Verify bulk commands loaded")
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Remove the command group when the cog unloads."""
         self.bot.tree.remove_command(self.verify_commands.name)
         logger.info("Verify bulk commands unloaded")
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     """Setup function for the cog."""
-    await bot.add_cog(VerifyBulkCog(bot))
+    await bot.add_cog(VerifyBulkCog(bot))  # type: ignore

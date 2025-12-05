@@ -46,7 +46,7 @@ logger = get_logger(__name__)
 
 async def _get_guild_and_jtc_for_user_channel(
     user: discord.abc.User, channel: discord.abc.GuildChannel
-) -> None:
+) -> tuple[int | None, int | None]:
     """
     Helper: return (guild_id, jtc_channel_id) for a user's owned voice channel mapping.
     Returns (guild_id, jtc_channel_id) where jtc_channel_id may be None if not stored.
@@ -414,6 +414,11 @@ class ChannelSettingsView(View):
 
         Depending on the selection, open the appropriate modal or display current settings.
         """
+        if not interaction.guild:
+            await send_message(
+                interaction, "This command must be used in a server.", ephemeral=True
+            )
+            return
         guild_id = interaction.guild.id
         channel = await get_user_channel(self.bot, interaction.user, guild_id)
         if not channel:
@@ -439,6 +444,13 @@ class ChannelSettingsView(View):
                 modal = LimitModal(self.bot, guild_id, jtc_channel_id)
                 await interaction.response.send_modal(modal)
             elif selected == "game":
+                if not interaction.guild:
+                    await send_message(
+                        interaction,
+                        "This command must be used in a server.",
+                        ephemeral=True,
+                    )
+                    return
                 member = interaction.guild.get_member(interaction.user.id)
                 if not member:
                     await send_message(
@@ -508,7 +520,8 @@ class ChannelSettingsView(View):
                 )
 
                 # Update the original message to preserve the view.
-            await interaction.message.edit(view=self)
+            if interaction.message:
+                await interaction.message.edit(view=self)
         except Exception as e:
             logger.exception("Error in channel_settings_callback", exc_info=e)
             await send_message(interaction, "An error occurred.", ephemeral=True)
@@ -530,9 +543,11 @@ class ChannelSettingsView(View):
                 values = interaction.data.get("values") or []
                 if values:
                     selected = values[0]
-            if selected is None and getattr(interaction, "component", None):
+            if selected is None:
                 # Fallback for some discord.py versions
-                selected = (getattr(interaction.component, "values", []) or [None])[0]
+                comp = getattr(interaction, "component", None)
+                if comp:
+                    selected = (getattr(comp, "values", []) or [None])[0]
             if selected is None:
                 await send_message(interaction, "No option selected.", ephemeral=True)
                 return
@@ -598,8 +613,9 @@ class ChannelSettingsView(View):
         else:
             await send_message(interaction, "Unknown option.", ephemeral=True)
 
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=self)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=self)
 
 
 class KickUserSelectView(View):
@@ -658,6 +674,10 @@ class KickUserSelectView(View):
             )
             return
 
+        if not isinstance(target_user, discord.Member):
+            await send_message(interaction, "Cannot kick this user.", ephemeral=True)
+            return
+
         try:
             await target_user.move_to(None)
             await send_message(
@@ -685,6 +705,9 @@ class KickUserSelectView(View):
             return
 
         target_user = self.user_select.values[0]
+        if not isinstance(target_user, discord.Member):
+            await send_message(interaction, "Cannot kick this user.", ephemeral=True)
+            return
         try:
             await target_user.move_to(None)
         except Exception as e:
@@ -856,8 +879,9 @@ class FeatureTargetView(View):
                 ephemeral=True,
                 view=view,
             )
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=None)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=None)
 
 
 class FeatureUserSelectView(View):
@@ -918,8 +942,9 @@ class FeatureUserSelectView(View):
 
         msg = f"{self.feature_name.title()} {'enabled' if self.enable else 'disabled'} for selected user(s)."
         await send_message(interaction, msg, ephemeral=True)
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=None)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=None)
 
 
 class FeatureRoleSelectView(View):
@@ -1041,11 +1066,12 @@ class FeatureRoleSelectView(View):
                 )
 
             # Apply the actual permission change to the channel
-            for target in targets:
-                if role := interaction.guild.get_role(target["id"]):
-                    await apply_voice_feature_toggle(
-                        channel, self.feature_name, role, self.enable
-                    )
+            if interaction.guild:
+                for target in targets:
+                    if role := interaction.guild.get_role(target["id"]):
+                        await apply_voice_feature_toggle(
+                            channel, self.feature_name, role, self.enable
+                        )
 
             msg = (
                 f"{self.feature_name.replace('_', ' ').title()} has been "
@@ -1054,8 +1080,9 @@ class FeatureRoleSelectView(View):
             await send_message(interaction, msg, ephemeral=True)
 
             # Remove the selection UI after it's done
-            with contextlib.suppress(discord.errors.NotFound):
-                await interaction.message.edit(view=None)
+            if interaction.message:
+                with contextlib.suppress(discord.errors.NotFound):
+                    await interaction.message.edit(view=None)
         except Exception as e:
             logger.exception(
                 f"Error in FeatureRoleSelectView callback: {e}",
@@ -1130,8 +1157,9 @@ class TargetTypeSelectView(View):
                 ephemeral=True,
                 view=view,
             )
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=None)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=None)
 
 
 class SelectUserView(View):
@@ -1192,8 +1220,9 @@ class SelectUserView(View):
             f"Selected user(s) have been {self.action}ed.",
             ephemeral=True,
         )
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=None)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=None)
 
 
 class SelectRoleView(View):
@@ -1273,6 +1302,8 @@ class SelectRoleView(View):
                 except Exception as e:
                     logger.warning(f"Failed to load selectable_roles: {e}")
 
+        if not interaction.guild:
+            return False
         self.role_select.refresh_options(interaction.guild)
         return True
 
@@ -1312,5 +1343,6 @@ class SelectRoleView(View):
             f"Selected role(s) have been {self.action}ed.",
             ephemeral=True,
         )
-        with contextlib.suppress(discord.errors.NotFound):
-            await interaction.message.edit(view=None)
+        if interaction.message:
+            with contextlib.suppress(discord.errors.NotFound):
+                await interaction.message.edit(view=None)

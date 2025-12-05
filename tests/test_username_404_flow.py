@@ -34,13 +34,13 @@ class FakeGuild:
         self._member = member
         self.id = 123  # Add guild ID for config service
 
-    def get_member(self, uid) -> None:
+    def get_member(self, uid):
         return self._member if self._member.id == uid else None
 
-    async def fetch_member(self, uid) -> None:
+    async def fetch_member(self, uid):
         return self.get_member(uid)
 
-    def get_channel(self, cid) -> None:
+    def get_channel(self, cid):
         return SimpleNamespace(id=cid, send=AsyncMock())
 
 
@@ -49,7 +49,7 @@ class FakeMember:
         self.id = uid
         self.display_name = display_name
         self.mention = f"@{display_name}"
-        self.guild = None  # will be set
+        self.guild: FakeGuild | None = None  # will be set
         self.roles = []
 
     async def remove_roles(self, *roles, reason=None) -> None:
@@ -109,6 +109,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     # Mock config service for get_guild_setting (used by _gather_managed_roles)
     # Return the actual role IDs so roles can be found and removed
     mock_config = AsyncMock()
+
     async def mock_get_guild_setting(guild_id, key, default=None):
         role_map = {
             "roles.bot_verified_role": [1],
@@ -117,6 +118,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
             "roles.nonmember_role": [4],
         }
         return role_map.get(key, default or [])
+
     mock_config.get_guild_setting = mock_get_guild_setting
     bot.services.config = mock_config
 
@@ -130,7 +132,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
 
     # First call should flag + remove roles + unschedule
-    changed = await handle_username_404(bot, member, "OldHandle")
+    changed = await handle_username_404(bot, member, "OldHandle")  # type: ignore[arg-type]
     assert changed is True
     # Roles removed
     assert member.roles == []  # Removed synchronously via patched enqueue_task
@@ -140,6 +142,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
             "SELECT needs_reverify FROM verification WHERE user_id=?", (101,)
         )
         val = await cur.fetchone()
+        assert val is not None
         assert val[0] == 1
         cur = await db.execute(
             "SELECT 1 FROM auto_recheck_state WHERE user_id=?", (101,)
@@ -206,7 +209,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
 
     # First 404
-    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
     assert changed1 is True
     # Simulate successful re-verification clearing the flag & storing a new handle
     async with Database.get_connection() as db:
@@ -216,7 +219,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
         )
         await db.commit()
     await Database.clear_needs_reverify(111)
-    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    changed2 = await handle_username_404(bot, member, "SecondHandle")  # type: ignore[arg-type]
     assert changed2 is True  # distinct handle should not dedupe
     # Two spam alerts
     assert send_mock.await_count == 2
@@ -239,7 +242,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     verification_chan = SimpleNamespace(id=555, send=AsyncMock())
     leader_chan = SimpleNamespace(id=999, send=AsyncMock())
 
-    def get_channel(cid) -> None:
+    def get_channel(cid):
         if cid == 999:
             return leader_chan
         elif cid == 777:
@@ -295,7 +298,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
     # Run 404 handler (simulating admin path already catching NotFound)
 
-    await handle_username_404(bot, member, "GoneHandle")
+    await handle_username_404(bot, member, "GoneHandle")  # type: ignore[arg-type]
     # Leadership message posted (header only, no explicit 404 text per current renderer)
     assert leader_chan.send.await_count == 1
     leadership_msg = leader_chan.send.await_args_list[0][0][0]
@@ -341,7 +344,7 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     )
 
     # Call reverify_member and expect it to return failure result (not raise)
-    result = await reverify_member(member, "HandleX", bot)
+    result = await reverify_member(member, "HandleX", bot)  # type: ignore[arg-type]
     success, status_info, _message = result
 
     # Should return failure due to NotFoundError
@@ -402,7 +405,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     member.guild = guild
     bot.guilds = [guild]
 
-    def get_channel(cid) -> None:
+    def get_channel(cid):
         return leader_chan if cid == 888 else (spam_chan if cid == 777 else None)
 
     bot.get_channel = get_channel
@@ -428,7 +431,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
 
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
 
-    await handle_username_404(bot, member, "LostOne")
+    await handle_username_404(bot, member, "LostOne")  # type: ignore[arg-type]
 
     # Leadership log should have one post containing header with
     # RECHECK and 404 note suppressed to header only
@@ -471,9 +474,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
     captured_http_client = None
 
     # Return successful verification
-    async def fake_is_valid(
-        handle: str, http_client, org_name: str, org_sid=None
-    ) -> None:
+    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None):
         nonlocal captured_http_client
         captured_http_client = http_client
         return 1, "NewHandle", None, [], []
@@ -482,7 +483,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
         "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
     )
 
-    ok, _role_type, _err = await reverify_member(member, "OldOne", bot)
+    ok, _role_type, _err = await reverify_member(member, "OldOne", bot)  # type: ignore[arg-type]
     assert ok is True
 
     # Verify that the correct HTTP client was passed
@@ -502,6 +503,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
             "SELECT needs_reverify FROM verification WHERE user_id=?", (303,)
         )
         val = await cur.fetchone()
+        assert val is not None
         assert val[0] == 0
 
 
@@ -551,9 +553,8 @@ async def test_handle_username_404_new_handle_triggers_again(
         await task_func()
 
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
-
     # First 404 (FirstHandle)
-    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
     assert changed1 is True
     assert send_mock.await_count == 1
 
@@ -569,6 +570,6 @@ async def test_handle_username_404_new_handle_triggers_again(
         await db.commit()
 
     # Second 404 with different handle
-    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    changed2 = await handle_username_404(bot, member, "SecondHandle")  # type: ignore[arg-type]
     assert changed2 is True  # should process again
     assert send_mock.await_count == 2  # second notification

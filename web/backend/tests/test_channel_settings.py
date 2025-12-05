@@ -26,7 +26,7 @@ def admin_user_token():
             "123": {
                 "guild_id": "123",
                 "role_level": "bot_admin",
-                "source": "bot_admin_role"
+                "source": "bot_admin_role",
             }
         },
         "active_guild_id": "123",

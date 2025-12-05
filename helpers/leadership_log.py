@@ -97,11 +97,13 @@ async def _managed_role_names(bot, guild_id: int) -> list[str]:
             "roles.bot_verified_role",
             "roles.main_role",
             "roles.affiliate_role",
-            "roles.nonmember_role"
+            "roles.nonmember_role",
         ]
 
         for role_key in role_keys:
-            role_ids = await bot.services.config.get_guild_setting(guild_id, role_key, [])
+            role_ids = await bot.services.config.get_guild_setting(
+                guild_id, role_key, []
+            )
             if role_ids:
                 role_id = role_ids[0]  # Get first role from list
                 role = bot.role_cache.get(role_id)

@@ -2,15 +2,12 @@
 Tests for error monitoring endpoints.
 """
 
-
 import httpx
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_errors_last_success_admin(
-    client, mock_admin_session, fake_internal_api
-):
+async def test_errors_last_success_admin(client, mock_admin_session, fake_internal_api):
     """Test errors/last endpoint returns data for admin."""
     mock_errors_data = {
         "errors": [

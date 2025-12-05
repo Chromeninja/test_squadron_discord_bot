@@ -66,7 +66,7 @@ class TestVoiceCleanup:
         await config_service.initialize()
 
         mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot)
+        voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
         await voice_service.initialize()
 
         yield voice_service, mock_bot
@@ -118,6 +118,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -166,6 +167,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 1
 
     @pytest.mark.asyncio
@@ -209,6 +211,7 @@ class TestVoiceCleanup:
                 missing_channel_ids,
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -252,6 +255,7 @@ class TestVoiceCleanup:
                 [ch.id for ch in active_channels],
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 3
 
     @pytest.mark.asyncio
@@ -441,6 +445,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -518,6 +523,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -565,6 +571,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -598,4 +605,5 @@ class TestVoiceCleanup:
                 (channel_id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0

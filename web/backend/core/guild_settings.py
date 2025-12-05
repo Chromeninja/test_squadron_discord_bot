@@ -186,9 +186,7 @@ async def set_bot_role_settings(
         """,
         [(guild_id, key, value) for key, value in payloads],
     )
-    await _touch_settings_version(
-        db, guild_id, source=SETTINGS_VERSION_ROLES_SOURCE
-    )
+    await _touch_settings_version(db, guild_id, source=SETTINGS_VERSION_ROLES_SOURCE)
     await db.commit()
 
 

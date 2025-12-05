@@ -74,7 +74,9 @@ class TestAdminListCommand:
         # Mock get_permission_level to return USER level (insufficient for MODERATOR requirement)
         from helpers.permissions_helper import PermissionLevel
 
-        with patch("helpers.decorators.get_permission_level", return_value=PermissionLevel.USER):
+        with patch(
+            "helpers.decorators.get_permission_level", return_value=PermissionLevel.USER
+        ):
             await voice_commands.admin_list.callback(
                 voice_commands, mock_interaction, mock_target_user
             )

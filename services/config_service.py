@@ -285,16 +285,24 @@ class ConfigService(BaseService):
         for role_key in role_keys:
             # bot_verified_role is stored as list in DB, handle specially
             if role_key == "bot_verified_role_id":
-                role_ids = await self.get_guild_setting(guild_id, "roles.bot_verified_role", [])
+                role_ids = await self.get_guild_setting(
+                    guild_id, "roles.bot_verified_role", []
+                )
                 if role_ids:
-                    roles[role_key] = role_ids[0] if isinstance(role_ids, list) else role_ids
+                    roles[role_key] = (
+                        role_ids[0] if isinstance(role_ids, list) else role_ids
+                    )
             else:
                 # Other roles stored directly or as lists
                 setting_key = role_key.replace("_id", "")
-                role_ids = await self.get_guild_setting(guild_id, f"roles.{setting_key}", [])
+                role_ids = await self.get_guild_setting(
+                    guild_id, f"roles.{setting_key}", []
+                )
                 if role_ids:
                     # Handle both list and single values
-                    roles[role_key] = role_ids[0] if isinstance(role_ids, list) else role_ids
+                    roles[role_key] = (
+                        role_ids[0] if isinstance(role_ids, list) else role_ids
+                    )
 
         # Admin roles (list) - already normalized to list[int]
         admin_roles = await self.get_guild_setting(guild_id, "roles.bot_admins", [])
@@ -381,7 +389,6 @@ class ConfigService(BaseService):
             channel_id: Voice channel ID to add as JTC
         """
         self._ensure_initialized()
-
 
         existing = await self.get_guild_setting(guild_id, "voice.jtc_channels", [])
         if not isinstance(existing, list):

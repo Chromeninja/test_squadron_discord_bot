@@ -305,7 +305,7 @@ def _build_description_lines(
 
 def _format_detail_line(row: StatusRow) -> str:
     """Format a single row into a detail line for the embed."""
-    status = _format_status_display(row.membership_status)
+    status = _format_status_display(row.membership_status or "unknown")
     rsi_display = _truncate_text(row.rsi_handle or "—")
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
@@ -452,7 +452,9 @@ async def write_csv(
     for row in rows:
         # Format org lists as semicolon-separated strings
         main_orgs_str = ";".join(row.rsi_main_orgs) if row.rsi_main_orgs else ""
-        affiliate_orgs_str = ";".join(row.rsi_affiliate_orgs) if row.rsi_affiliate_orgs else ""
+        affiliate_orgs_str = (
+            ";".join(row.rsi_affiliate_orgs) if row.rsi_affiliate_orgs else ""
+        )
 
         writer.writerow(
             [

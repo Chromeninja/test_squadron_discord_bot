@@ -2,6 +2,7 @@ import contextlib
 import datetime
 import io
 import time
+from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import commands, tasks
@@ -9,6 +10,9 @@ from discord.ext import commands, tasks
 from helpers.discord_api import channel_send_message
 from services.db.database import Database
 from utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from bot import MyBot
 
 logger = get_logger(__name__)
 
@@ -83,7 +87,7 @@ def format_admin_recheck_message(
 
 
 async def send_admin_recheck_notification(
-    bot,
+    bot: "MyBot",
     admin_display_name: str,
     member: discord.Member,
     old_status: str,
@@ -143,7 +147,7 @@ async def send_admin_recheck_notification(
 
 
 async def send_verification_announcements(
-    bot,
+    bot: "MyBot",
     member: discord.Member,
     old_status: str,
     new_status: str,
@@ -215,7 +219,7 @@ async def send_verification_announcements(
 
 
 async def send_admin_bulk_check_summary(
-    bot: commands.Bot,
+    bot: "MyBot",
     *,
     guild: discord.Guild,
     invoker: discord.Member,
@@ -535,7 +539,7 @@ class BulkAnnouncer(commands.Cog):
             logger.exception(f"Failed to load BulkAnnouncer config: {e}")
             self._config_loaded = True  # Prevent infinite retries
 
-    def cog_unload(self):
+    def cog_unload(self) -> None:
         self.daily_flush.cancel()
         self.threshold_watch.cancel()
 

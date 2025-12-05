@@ -170,7 +170,7 @@ def test_build_summary_embed():
 
     embed = build_summary_embed(
         invoker=invoker,
-        members=members,
+        members=members,  # type: ignore[arg-type]
         rows=rows,
         truncated_count=0,
         scope_label="specific users",
@@ -178,13 +178,14 @@ def test_build_summary_embed():
     )
 
     assert embed.title == "Bulk Verification Check"
-    assert "**Requested by:** <@12345> (Admin)" in embed.description
-    assert "**Scope:** specific users" in embed.description
-    assert "**Channel:** #test-channel" in embed.description
-    assert "**Checked:** 3 users" in embed.description
-    assert "**Verified/Main:** 1" in embed.description
-    assert "**Affiliate:** 1" in embed.description
-    assert "**Unverified:** 1" in embed.description
+    desc = embed.description or ""
+    assert "**Requested by:** <@12345> (Admin)" in desc
+    assert "**Scope:** specific users" in desc
+    assert "**Channel:** #test-channel" in desc
+    assert "**Checked:** 3 users" in desc
+    assert "**Verified/Main:** 1" in desc
+    assert "**Affiliate:** 1" in desc
+    assert "**Unverified:** 1" in desc
 
 
 @pytest.mark.asyncio
@@ -289,7 +290,7 @@ def test_build_summary_embed_with_rsi_recheck():
 
     embed = build_summary_embed(
         invoker=invoker,
-        members=members,
+        members=members,  # type: ignore[arg-type]
         rows=rows,
         truncated_count=0,
         scope_label="specific users",
@@ -297,10 +298,11 @@ def test_build_summary_embed_with_rsi_recheck():
     )
 
     assert embed.title == "Bulk Verification Check"
-    assert "**Requested by:** <@12345> (Admin)" in embed.description
-    assert "**Scope:** specific users" in embed.description
-    assert "**Channel:** #test-channel" in embed.description
-    assert "**Checked:** 3 users" in embed.description
+    desc = embed.description or ""
+    assert "**Requested by:** <@12345> (Admin)" in desc
+    assert "**Scope:** specific users" in desc
+    assert "**Channel:** #test-channel" in desc
+    assert "**Checked:** 3 users" in desc
 
 
 @pytest.mark.asyncio
@@ -363,7 +365,8 @@ async def test_write_csv_with_rsi_recheck():
     # Check data rows include RSI recheck data (org fields empty since not provided in StatusRow)
     assert "1,User1,handle1,main,1609459200,General,main,1609459300,,," in lines[1]
     assert (
-        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,," in lines[2]
+        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,"
+        in lines[2]
     )
     assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle,," in lines[3]
 
@@ -414,8 +417,14 @@ async def test_write_csv_with_org_data():
     )
 
     # Check data rows include organization data (semicolon-separated)
-    assert "1,User1,handle1,main,1609459200,General,main,1609459300,,TEST Squadron;Another Org,Affiliate One" in lines[1]
-    assert "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,Affiliate Two;Affiliate Three" in lines[2]
+    assert (
+        "1,User1,handle1,main,1609459200,General,main,1609459300,,TEST Squadron;Another Org,Affiliate One"
+        in lines[1]
+    )
+    assert (
+        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,Affiliate Two;Affiliate Three"
+        in lines[2]
+    )
 
 
 def test_format_detail_line_without_rsi_recheck():

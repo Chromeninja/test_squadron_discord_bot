@@ -290,13 +290,20 @@ class Database:
             yield db
 
     @classmethod
-    async def fetch_rate_limit(cls, user_id: int, action: str) -> None:
+    async def fetch_rate_limit(
+        cls, user_id: int, action: str
+    ) -> tuple[int, int] | None:
+        """Fetch rate limit counters for a user/action pair."""
         async with cls.get_connection() as db:
             cursor = await db.execute(
                 "SELECT attempt_count, first_attempt FROM rate_limits WHERE user_id = ? AND action = ?",
                 (user_id, action),
             )
-            return await cursor.fetchone()
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            # aiosqlite.Row supports both index and key access
+            return int(row[0]), int(row[1])
 
     @classmethod
     async def has_reported_missing_roles(cls, guild_id: int) -> bool:
@@ -479,7 +486,7 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def get_due_auto_rechecks(cls, now: int, limit: int) -> None:
+    async def get_due_auto_rechecks(cls, now: int, limit: int) -> list[tuple[int, str]]:
         """
         Returns list of (user_id, rsi_handle) that are due for auto recheck.
         If a user has no row in auto_recheck_state, treat as due (bootstrap on first touch).
@@ -497,7 +504,9 @@ class Database:
             """,
                 (now, limit),
             )
-            return await cursor.fetchall()
+            rows = await cursor.fetchall()
+            # Normalize to a list of simple tuples for typing clarity
+            return [(int(r[0]), str(r[1])) for r in rows]
 
     # 404 handle change helpers (legacy 'username_404' module name retained for backward compatibility)
     @classmethod

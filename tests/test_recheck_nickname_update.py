@@ -18,7 +18,7 @@ class FakeGuild:
         self._me = me_member
 
     @property
-    def me(self) -> None:  # bot member
+    def me(self):  # bot member
         return self._me
 
     def get_role(self, rid) -> None:
@@ -79,12 +79,24 @@ async def test_assign_roles_updates_nickname_with_moniker(monkeypatch, temp_db) 
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
     # Initial assignment with moniker1
-    await assign_roles(member, 1, "CaseHandle", bot, community_moniker="Moniker One")
+    await assign_roles(
+        member,  # type: ignore[arg-type]
+        1,
+        "CaseHandle",
+        bot,
+        community_moniker="Moniker One",
+    )
     # Policy: nickname always handle
     assert edits.get("nick") == "CaseHandle"
 
     # Second assignment with changed moniker
-    await assign_roles(member, 1, "CaseHandle", bot, community_moniker="Moniker Two")
+    await assign_roles(
+        member,  # type: ignore[arg-type]
+        1,
+        "CaseHandle",
+        bot,
+        community_moniker="Moniker Two",
+    )
     assert edits.get("nick") == "CaseHandle"
 
 
@@ -120,7 +132,13 @@ async def test_assign_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
 
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
-    await assign_roles(member, 1, "HandleCase", bot, community_moniker=None)
+    await assign_roles(
+        member,  # type: ignore[arg-type]
+        1,
+        "HandleCase",
+        bot,
+        community_moniker=None,
+    )
     assert edits.get("nick") == "HandleCase"
 
 
@@ -160,12 +178,20 @@ async def test_assign_roles_nickname_always_handle_even_if_moniker_present(
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
     await assign_roles(
-        member, 1, "SuperHandle", bot, community_moniker="Different Moniker"
+        member,  # type: ignore[arg-type]
+        1,
+        "SuperHandle",
+        bot,
+        community_moniker="Different Moniker",  # type: ignore[arg-type]
     )
     assert edits.get("nick") == "SuperHandle"
     # Re-run with different moniker to ensure it stays handle
     await assign_roles(
-        member, 1, "SuperHandle", bot, community_moniker="Another Moniker"
+        member,  # type: ignore[arg-type]
+        1,
+        "SuperHandle",
+        bot,
+        community_moniker="Another Moniker",  # type: ignore[arg-type]
     )
     assert edits.get("nick") == "SuperHandle"
     # Ensure calls captured both times with handle set

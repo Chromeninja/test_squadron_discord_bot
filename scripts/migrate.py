@@ -169,7 +169,8 @@ async def migrate_voice_tables() -> None:
 
             # Count migrated records
             async with db.execute("SELECT COUNT(*) FROM voice_channels") as cursor:
-                count = (await cursor.fetchone())[0]
+                result = await cursor.fetchone()
+                count = result[0] if result else 0
 
             logger.info(f"Migrated {count} voice channel records")
 

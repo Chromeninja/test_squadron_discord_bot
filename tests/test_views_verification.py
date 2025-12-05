@@ -37,7 +37,7 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
     ix.response.defer = fake_defer
     ix.followup.send = fake_followup_send
 
-    await view.get_token_button_callback(ix)
+    await view.get_token_button_callback(ix)  # type: ignore[arg-type]
     assert defer_called is True
     assert followup_called is True
 
@@ -50,7 +50,7 @@ async def test_verify_button_opens_modal_when_not_rate_limited(
     # No longer need to patch check_rate_limit - it's been removed from button callback
 
     ix = FakeInteraction(FakeUser(8, "VerifUser"))
-    await view.verify_button_callback(ix)
+    await view.verify_button_callback(ix)  # type: ignore[arg-type]
     # The FakeResponse stores the modal
     assert ix.response.sent_modal is not None
 
@@ -71,5 +71,5 @@ async def test_recheck_button_forwards_to_cog(monkeypatch, mock_bot) -> None:
     mock_bot._cog_VerificationCog = fake_cog
 
     ix = FakeInteraction(FakeUser(9, "Recheck"))
-    await view.recheck_button_callback(ix)
+    await view.recheck_button_callback(ix)  # type: ignore[arg-type]
     assert fake_cog.called is True

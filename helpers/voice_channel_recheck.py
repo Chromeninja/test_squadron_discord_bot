@@ -53,7 +53,7 @@ async def recheck_voice_channel(
             )
             results.append(row)
     # Write CSV
-    filename, csv_content = write_csv(
+    filename, csv_content = await write_csv(
         results, guild_name=channel.guild.name, invoker_name=initiator_kind
     )
     # Build summary

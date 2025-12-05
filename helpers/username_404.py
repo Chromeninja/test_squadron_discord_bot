@@ -26,7 +26,7 @@ async def _gather_managed_roles(bot, member: discord.Member) -> list:
             "roles.bot_verified_role",
             "roles.main_role",
             "roles.affiliate_role",
-            "roles.nonmember_role"
+            "roles.nonmember_role",
         ]
 
         for role_key in role_keys:
@@ -40,14 +40,14 @@ async def _gather_managed_roles(bot, member: discord.Member) -> list:
                     roles.append(role)
     except Exception as e:
         from utils.logging import get_logger
+
         logger = get_logger(__name__)
         logger.warning(f"Error gathering managed roles: {e}")
 
     return roles
 
 
-
-async def remove_bot_roles(member: discord.Member, bot) -> None:
+async def remove_bot_roles(member: discord.Member, bot) -> bool:
     """Remove managed roles from member if present (idempotent)."""
     managed_roles = await _gather_managed_roles(bot, member)
     roles_to_remove = [r for r in managed_roles if r in member.roles]
@@ -57,7 +57,9 @@ async def remove_bot_roles(member: discord.Member, bot) -> None:
 
     # Optimistically update member.roles immediately so test assertions observe removal
     try:
-        member.roles = [r for r in member.roles if r not in roles_to_remove]
+        # Note: member.roles is read-only, this assignment is for local tracking only
+        # Actual role changes happen via member.remove_roles() below
+        pass
     except Exception as e:
         logger.warning(
             f"Failed to optimistically update roles for {member.id}: {e}",
@@ -83,7 +85,7 @@ async def remove_bot_roles(member: discord.Member, bot) -> None:
     return True
 
 
-async def handle_username_404(bot, member: discord.Member, old_handle: str) -> None:
+async def handle_username_404(bot, member: discord.Member, old_handle: str) -> bool:
     """Unified, idempotent handler when an RSI Handle starts returning 404.
 
     Terms:

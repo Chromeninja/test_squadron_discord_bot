@@ -21,7 +21,7 @@ async def test_db():
 
     try:
         # Reset the Database singleton to ensure clean state
-        Database._instance = None
+        Database._instance = None  # type: ignore[attr-defined]
 
         # Initialize the database with the test path - this will set up all tables
         await Database.initialize(test_db_path)
@@ -34,7 +34,7 @@ async def test_db():
         if test_path.exists():
             test_path.unlink()
         # Reset singleton for next test
-        Database._instance = None
+        Database._instance = None  # type: ignore[attr-defined]
 
 
 @pytest_asyncio.fixture
@@ -133,6 +133,7 @@ class TestOwnershipTransferSanity:
                 (voice_channel_id,),
             )
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == new_owner_id, "voice_channels.owner_id should be updated"
 
             # Verify settings transferred

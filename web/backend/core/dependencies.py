@@ -254,10 +254,7 @@ def require_guild_permission(min_role: str):
 
         # User must have selected a guild
         if not current_user.active_guild_id:
-            raise HTTPException(
-                status_code=400,
-                detail="No active guild selected"
-            )
+            raise HTTPException(status_code=400, detail="No active guild selected")
 
         # Get user's permission for active guild
         guild_perm = current_user.authorized_guilds.get(current_user.active_guild_id)
@@ -265,14 +262,14 @@ def require_guild_permission(min_role: str):
         if not guild_perm:
             raise HTTPException(
                 status_code=403,
-                detail=f"Not authorized for guild {current_user.active_guild_id}"
+                detail=f"Not authorized for guild {current_user.active_guild_id}",
             )
 
         # Check if user's role meets minimum requirement
         if not _has_minimum_role(guild_perm.role_level, min_role):
             raise HTTPException(
                 status_code=403,
-                detail=f"Requires {min_role} role (you have: {guild_perm.role_level})"
+                detail=f"Requires {min_role} role (you have: {guild_perm.role_level})",
             )
 
         return current_user
@@ -349,7 +346,11 @@ async def _validate_guild_membership(
         # Other HTTP errors
         logger.warning(
             "role validation failed - internal API HTTP error",
-            extra={**log_context, "cause": "internal_api_http_error", "status": exc.response.status_code},
+            extra={
+                **log_context,
+                "cause": "internal_api_http_error",
+                "status": exc.response.status_code,
+            },
         )
         return None
     except Exception as exc:  # pragma: no cover - transport errors
@@ -359,7 +360,9 @@ async def _validate_guild_membership(
         )
         return None
 
-    role_ids = member.get("role_ids") or [r.get("id") for r in (member.get("roles") or [])]
+    role_ids = member.get("role_ids") or [
+        r.get("id") for r in (member.get("roles") or [])
+    ]
     if not isinstance(role_ids, list):
         logger.warning(
             "role validation failed - invalid payload",
@@ -403,7 +406,11 @@ async def _validate_guild_membership(
 
     logger.info(
         "role validation refreshed",
-        extra={**log_context, "new_role": computed_level, "source": member.get("source")},
+        extra={
+            **log_context,
+            "new_role": computed_level,
+            "source": member.get("source"),
+        },
     )
     return computed_level
 
@@ -445,7 +452,10 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
             clear_session_cookie(response)
             raise HTTPException(
                 status_code=401,
-                detail={"code": "role_revoked", "message": "Your Discord permissions changed. Please sign in again."},
+                detail={
+                    "code": "role_revoked",
+                    "message": "Your Discord permissions changed. Please sign in again.",
+                },
             )
 
     removed: set[str] = set()
@@ -462,7 +472,11 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
         # Skip validation for Discord-native permissions (bot_owner, discord_owner, discord_administrator)
         if existing_source in ("bot_owner", "discord_owner", "discord_administrator"):
             # Just update the timestamp to show we checked
-            if force_refresh or not last_ts or (now_ts - last_ts) >= ROLE_VALIDATION_TTL:
+            if (
+                force_refresh
+                or not last_ts
+                or (now_ts - last_ts) >= ROLE_VALIDATION_TTL
+            ):
                 roles_validated_at[guild_id_str] = now_ts
                 session_mutated = True
             continue
@@ -511,14 +525,20 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
         clear_session_cookie(response)
         raise HTTPException(
             status_code=401,
-            detail={"code": "role_revoked", "message": "Your Discord permissions changed. Please sign in again."},
+            detail={
+                "code": "role_revoked",
+                "message": "Your Discord permissions changed. Please sign in again.",
+            },
         )
 
     if not authorized_map:
         clear_session_cookie(response)
         raise HTTPException(
             status_code=401,
-            detail={"code": "role_revoked", "message": "You no longer have access to any guilds."},
+            detail={
+                "code": "role_revoked",
+                "message": "You no longer have access to any guilds.",
+            },
         )
 
     return removed
@@ -592,10 +612,7 @@ async def require_any_guild_access(
     )
 
     if not current_user.authorized_guilds:
-        raise HTTPException(
-            status_code=403,
-            detail="No authorized guilds found"
-        )
+        raise HTTPException(status_code=403, detail="No authorized guilds found")
 
     return current_user
 
@@ -822,4 +839,3 @@ class InternalAPIClient:
         )
         response.raise_for_status()
         return response.json()
-

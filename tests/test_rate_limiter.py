@@ -8,7 +8,7 @@ from helpers import rate_limiter as rl
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def patch_db(monkeypatch) -> None:
+async def patch_db(monkeypatch):  # type: ignore[misc]
     # Patch Database methods used by rate limiter
     fetch = AsyncMock(return_value=None)
     incr = AsyncMock()
@@ -102,13 +102,13 @@ async def test_cleanup_attempts(monkeypatch) -> None:
             return None
 
     class Ctx:
-        async def __aenter__(self) -> None:
+        async def __aenter__(self):
             return FakeCursor()
 
-        async def __aexit__(self, *args) -> None:
+        async def __aexit__(self, *args) -> bool:
             return False
 
-    def fake_conn() -> None:
+    def fake_conn(self):
         return Ctx()
 
     monkeypatch.setattr("helpers.rate_limiter.Database.get_connection", fake_conn)

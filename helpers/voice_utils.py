@@ -305,12 +305,12 @@ def create_voice_settings_embed(
     return embed
 
 
-def format_channel_settings(settings, interaction) -> None:
+def format_channel_settings(settings, interaction) -> dict[str, list[str]]:
     """
     Formats channel settings into text lines for embedding.
     """
 
-    def format_target(tid, ttype) -> None:
+    def format_target(tid, ttype) -> str:
         if ttype == "user":
             user = interaction.guild.get_member(tid)
             return user.mention if user else f"User ID: {tid}"

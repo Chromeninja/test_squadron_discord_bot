@@ -2,13 +2,14 @@
 Tests for health monitoring endpoints.
 """
 
-
 import httpx
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_health_overview_success_admin(client, mock_admin_session, fake_internal_api):
+async def test_health_overview_success_admin(
+    client, mock_admin_session, fake_internal_api
+):
     """Test health overview endpoint returns data for admin."""
     mock_health_data = {
         "status": "healthy",
