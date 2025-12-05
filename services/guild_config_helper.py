@@ -200,50 +200,6 @@ class GuildConfigHelper:
 
         return roles
 
-    async def get_lead_moderator_roles(
-        self, guild_id: int, guild: discord.Guild | None = None
-    ) -> list[discord.Role]:
-        """
-        Get all configured lead moderator roles.
-
-        Args:
-            guild_id: Discord guild ID
-            guild: Optional guild object (fetched if not provided)
-
-        Returns:
-            List of Role objects (empty if none configured or found)
-        """
-        role_ids = await self.config.get(guild_id, "roles.lead_moderators", default=[])
-        if not role_ids:
-            logger.debug(f"No lead moderator roles configured for guild {guild_id}")
-            return []
-
-        if guild is None:
-            guild = self.bot.get_guild(guild_id)
-            if guild is None:
-                logger.warning(
-                    f"Guild {guild_id} not found when fetching lead moderator roles"
-                )
-                return []
-
-        roles = []
-        for role_id in role_ids:
-            try:
-                rid = int(role_id)
-                role = guild.get_role(rid)
-                if role:
-                    roles.append(role)
-                else:
-                    logger.warning(
-                        f"Lead moderator role {rid} not found in guild {guild_id}"
-                    )
-            except (ValueError, TypeError):
-                logger.warning(
-                    f"Invalid lead moderator role ID: {role_id} in guild {guild_id}"
-                )
-
-        return roles
-
     async def get_verified_role(
         self, guild_id: int, guild: discord.Guild | None = None
     ) -> discord.Role | None:

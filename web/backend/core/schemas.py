@@ -33,7 +33,6 @@ class UserProfile(BaseModel):
     authorized_guilds: dict[str, GuildPermission] = Field(
         default_factory=dict
     )  # guild_id -> GuildPermission mapping
-    authorized_guild_ids: list[int] = Field(default_factory=list)  # For backward compatibility
     active_guild_id: str | None = None
 
 

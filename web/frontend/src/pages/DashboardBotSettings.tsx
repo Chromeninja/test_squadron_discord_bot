@@ -91,7 +91,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setChannels(channelsResponse.channels);
         setBotAdmins(settingsResponse.bot_admins);
         setDiscordManagers(settingsResponse.discord_managers || []);
-        setModerators(settingsResponse.moderators || settingsResponse.lead_moderators || []);
+        setModerators(settingsResponse.moderators || []);
         setStaff(settingsResponse.staff || []);
         setBotVerifiedRole(settingsResponse.bot_verified_role || []);
         setMainRole(settingsResponse.main_role || []);

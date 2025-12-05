@@ -197,13 +197,6 @@ class MyBot(commands.Bot):
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
 
-        # Run legacy settings migration after bot is ready and guilds are loaded
-        if hasattr(self, "services") and self.services.config:
-            try:
-                await self.services.config.maybe_migrate_legacy_settings(self)
-            except Exception as e:
-                logger.exception("Legacy settings migration failed", exc_info=e)
-
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
         required_permissions = [
@@ -466,15 +459,18 @@ class MyBot(commands.Bot):
             guild: Optional guild context (provided by slash-command decorators)
 
         Returns:
-            bool: True if user has bot admin, lead moderator roles, is bot owner, or has Discord admin
+            bool: True if user has moderator-level access, is bot owner, or has Discord admin
         """
         if not isinstance(user, discord.Member):
             return False
 
-        # Use the privileged user check which includes all fallbacks
-        from helpers.permissions_helper import is_privileged_user
+        from helpers.permissions_helper import (
+            PermissionLevel,
+            get_permission_level,
+        )
 
-        return await is_privileged_user(self, user)
+        level = await get_permission_level(self, user, guild)
+        return level >= PermissionLevel.MODERATOR
 
     async def get_guild_config(self, guild_id: int) -> dict:
         """

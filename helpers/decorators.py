@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import TypeVar, cast
+from typing import TypeVar
 
 import discord
 
@@ -12,10 +13,9 @@ from helpers.permissions_helper import (
     PERMISSION_DENIED_MESSAGE,
     PermissionLevel,
     get_permission_level,
-    # Legacy imports for backward compatibility
-    is_bot_admin_only,
-    is_lead_moderator_or_higher,
 )
+
+logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Awaitable])
 
@@ -44,100 +44,6 @@ def _resolve_bot(self) -> discord.Client | None:
     return None
 
 
-async def _call_bot_admin(
-    bot: discord.Client,
-    member: discord.Member,
-    guild: discord.Guild,
-) -> bool:
-    """Check bot admin permissions (legacy wrapper for backward compatibility)."""
-    checker = getattr(bot, "has_bot_admin_permissions", None)
-    if callable(checker):
-        checker_callable = cast(
-            "Callable[[discord.Member, discord.Guild | None], Awaitable[bool]]",
-            checker,
-        )
-        return await checker_callable(member, guild)
-
-    return await is_bot_admin_only(bot, member, guild)
-
-
-async def _call_admin_or_higher(
-    bot: discord.Client,
-    member: discord.Member,
-    guild: discord.Guild,
-) -> bool:
-    """Check moderator+ permissions (legacy wrapper for backward compatibility)."""
-    checker = getattr(bot, "has_admin_permissions", None)
-    if callable(checker):
-        checker_callable = cast(
-            "Callable[[discord.Member, discord.Guild | None], Awaitable[bool]]",
-            checker,
-        )
-        return await checker_callable(member, guild)
-
-    return await is_lead_moderator_or_higher(bot, member, guild)
-
-
-async def _check_permission_level(
-    bot: discord.Client,
-    member: discord.Member,
-    guild: discord.Guild,
-    min_level: PermissionLevel,
-) -> bool:
-    """Check if member has minimum permission level using new hierarchy system."""
-    level = await get_permission_level(bot, member, guild)
-    return level >= min_level
-
-
-def _permission_wrapper(
-    predicate: Callable[
-        [discord.Client, discord.Member, discord.Guild],
-        Awaitable[bool],
-    ],
-) -> Callable[[F], F]:
-    def decorator(func: F) -> F:
-        @wraps(func)
-        async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
-            bot = _resolve_bot(self)
-            if not bot or not isinstance(interaction.user, discord.Member):
-                await _send_permission_denied(interaction)
-                return None
-
-            guild = interaction.guild
-            if guild is None:
-                await _send_permission_denied(interaction)
-                return None
-
-            has_permission = await predicate(bot, interaction.user, guild)
-            if not has_permission:
-                await _send_permission_denied(interaction)
-                return None
-
-            return await func(self, interaction, *args, **kwargs)
-
-        return wrapper  # type: ignore[misc]
-
-    return decorator
-
-
-def require_bot_admin() -> Callable[[F], F]:
-    """Decorator that limits a command to configured bot admins.
-
-    DEPRECATED: Use require_permission_level(PermissionLevel.BOT_ADMIN) instead.
-    Kept for backward compatibility with existing commands.
-    """
-    return _permission_wrapper(_call_bot_admin)
-
-
-def require_admin() -> Callable[[F], F]:
-    """Decorator that limits a command to moderators or higher.
-
-    DEPRECATED: Use require_permission_level(PermissionLevel.MODERATOR) instead.
-    Kept for backward compatibility with existing commands.
-    """
-    return _permission_wrapper(_call_admin_or_higher)
-
-
 def require_permission_level(min_level: PermissionLevel) -> Callable[[F], F]:
     """Decorator factory that limits commands to users with minimum permission level.
 
@@ -161,14 +67,71 @@ def require_permission_level(min_level: PermissionLevel) -> Callable[[F], F]:
         async def my_command(self, interaction: discord.Interaction):
             ...
     """
-    async def predicate(
-        bot: discord.Client,
-        member: discord.Member,
-        guild: discord.Guild,
-    ) -> bool:
-        return await _check_permission_level(bot, member, guild, min_level)
+    def decorator(func: F) -> F:
+        @wraps(func)
+        async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
+            bot = _resolve_bot(self)
+            if not bot or not isinstance(interaction.user, discord.Member):
+                logger.warning(
+                    "Permission check failed for %s: unable to resolve bot/member",
+                    func.__qualname__,
+                )
+                await _send_permission_denied(interaction)
+                return None
 
-    return _permission_wrapper(predicate)
+            guild = interaction.guild
+            if guild is None:
+                logger.warning(
+                    "Permission check failed for %s: interaction without guild",
+                    func.__qualname__,
+                )
+                await _send_permission_denied(interaction)
+                return None
+
+            level = await get_permission_level(bot, interaction.user, guild)
+            if level < min_level:
+                logger.warning(
+                    (
+                        "Permission denied for %s: user_id=%s level=%s required=%s "
+                        "guild_id=%s"
+                    ),
+                    func.__qualname__,
+                    interaction.user.id,
+                    level.name,
+                    min_level.name,
+                    guild.id,
+                )
+                await _send_permission_denied(interaction)
+                return None
+
+            logger.debug(
+                "Permission granted for %s: user_id=%s level=%s guild_id=%s",
+                func.__qualname__,
+                interaction.user.id,
+                level.name,
+                guild.id,
+            )
+
+            return await func(self, interaction, *args, **kwargs)
+
+        return wrapper  # type: ignore[misc]
+
+    return decorator
+
+
+def require_bot_admin() -> Callable[[F], F]:
+    """Decorator that limits a command to configured bot admins or higher."""
+
+    return require_permission_level(PermissionLevel.BOT_ADMIN)
+
+
+def require_admin() -> Callable[[F], F]:
+    """Decorator that limits a command to moderators or higher.
+
+    Deprecated alias retained for backward compatibility with legacy cogs.
+    """
+
+    return require_permission_level(PermissionLevel.MODERATOR)
 
 
 def require_bot_owner() -> Callable[[F], F]:
@@ -192,13 +155,11 @@ def require_staff() -> Callable[[F], F]:
 
 
 __all__ = [
-    # Legacy decorators (deprecated, use new ones above)
     "require_admin",
     "require_bot_admin",
     "require_bot_owner",
     "require_discord_manager",
     "require_moderator",
-    # New hierarchy decorators (preferred)
     "require_permission_level",
     "require_staff",
 ]

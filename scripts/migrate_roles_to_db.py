@@ -47,7 +47,7 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
 
     print("\n📋 Found role configuration:")
     print(f"   Bot Admins: {roles.get('bot_admins', [])}")
-    print(f"   Lead Moderators: {roles.get('lead_moderators', [])}")
+    print(f"   Moderators: {roles.get('moderators', [])}")
     print(f"   Main Role: {roles.get('main_role', [])}")
     print(f"   Affiliate Role: {roles.get('affiliate_role', [])}")
     print(f"   Non-Member Role: {roles.get('nonmember_role', [])}")
@@ -58,10 +58,8 @@ async def migrate_roles(guild_id: int, config_path: str, dry_run: bool = False):
     if roles.get("bot_admins"):
         migrations.append(("roles.bot_admins", json.dumps(roles["bot_admins"])))
 
-    if roles.get("lead_moderators"):
-        migrations.append(
-            ("roles.lead_moderators", json.dumps(roles["lead_moderators"]))
-        )
+    if roles.get("moderators"):
+        migrations.append(("roles.moderators", json.dumps(roles["moderators"])))
 
     if roles.get("main_role"):
         # Convert single role to list format for consistency

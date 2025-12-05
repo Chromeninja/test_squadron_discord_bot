@@ -193,8 +193,6 @@ roles:
   discord_managers: [111111111111111111]  # Discord Manager role IDs (full access)
   moderators: [222222222222222222]  # Moderator role IDs (full access)
   staff: [333333333333333333]  # Staff role IDs (read-only access)
-  # Legacy support for backward compatibility:
-  lead_moderators: [1428084144860303511]  # Fallback to moderators if not set
 ```
 
 The dashboard enforces role-based access control on every request:

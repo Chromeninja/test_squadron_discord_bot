@@ -949,13 +949,13 @@ class VoiceService(BaseService):
         return discord.ui.View()
 
     async def get_admin_role_ids(self, guild_id: int) -> list[int]:
-        """Get admin role IDs from configuration for a specific guild.
+        """Get privileged role IDs (admins + moderators) for a specific guild.
 
         Args:
             guild_id: The Discord guild ID to get admin roles for
 
         Returns:
-            List of role IDs that have admin permissions
+            List of role IDs that have admin or moderator permissions
         """
         try:
             bot_admin_roles = await self.config_service.get_guild_setting(
@@ -963,12 +963,12 @@ class VoiceService(BaseService):
                 key="roles.bot_admins",
                 default=[],
             )
-            lead_mod_roles = await self.config_service.get_guild_setting(
+            moderator_roles = await self.config_service.get_guild_setting(
                 guild_id=guild_id,
-                key="roles.lead_moderators",
+                key="roles.moderators",
                 default=[],
             )
-            return (bot_admin_roles or []) + (lead_mod_roles or [])
+            return (bot_admin_roles or []) + (moderator_roles or [])
         except Exception as e:
             self.logger.exception(
                 f"Error getting admin role IDs for guild {guild_id}", exc_info=e

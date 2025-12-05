@@ -68,7 +68,7 @@ class ConfigService(BaseService):
             roles = config["roles"]
 
             # Convert list-based role configs
-            for key in ["bot_admins", "lead_moderators"]:
+            for key in ["bot_admins"]:
                 if key in roles and isinstance(roles[key], list):
                     roles[key] = [int(role_id) for role_id in roles[key] if role_id]
 
@@ -301,13 +301,6 @@ class ConfigService(BaseService):
         if admin_roles:
             roles["bot_admin_role_ids"] = admin_roles
 
-        # Lead moderator roles (list) - already normalized to list[int]
-        lead_mod_roles = await self.get_guild_setting(
-            guild_id, "roles.lead_moderators", []
-        )
-        if lead_mod_roles:
-            roles["lead_moderator_role_ids"] = lead_mod_roles
-
         selectable_roles = await self.get_guild_setting(
             guild_id, "selectable_roles", []
         )
@@ -379,15 +372,6 @@ class ConfigService(BaseService):
             "cached_guilds": len(self._guild_cache),
         }
 
-    async def maybe_migrate_legacy_settings(self, bot) -> None:
-        """
-        Placeholder for legacy settings migration.
-
-        This method is called during bot startup to migrate any legacy
-        configuration formats to the new service-based structure.
-        """
-        self.logger.info("Legacy settings migration - no migration needed")
-
     async def add_guild_jtc_channel(self, guild_id: int, channel_id: int) -> None:
         """
         Add a join-to-create channel for a guild.
@@ -398,7 +382,7 @@ class ConfigService(BaseService):
         """
         self._ensure_initialized()
 
-        # Get existing JTC channels
+
         existing = await self.get_guild_setting(guild_id, "voice.jtc_channels", [])
         if not isinstance(existing, list):
             existing = []

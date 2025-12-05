@@ -52,7 +52,7 @@ export interface DiscordChannel {
 export interface BotRoleSettingsPayload {
   bot_admins: string[];  // Bot admin roles
   discord_managers: string[];  // Discord manager roles (new)
-  moderators: string[];  // Moderator roles (replaces lead_moderators)
+  moderators: string[];  // Moderator roles
   staff: string[];  // Staff roles (new)
   bot_verified_role: string[];  // Base verification role (all verified users)
   main_role: string[];  // Verification role: full members

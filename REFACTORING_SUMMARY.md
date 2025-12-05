@@ -52,7 +52,7 @@ This document summarizes the comprehensive refactoring and security hardening ch
 
 **Changes**:
 - Added `_coerce_role_types()` method in ConfigService
-- Normalizes `bot_admins` and `lead_moderators` to `list[int]`
+- Normalizes `bot_admins` to `list[int]`
 - Normalizes single role IDs to `int`
 - Removed int() conversions from:
   - `bot.py`
@@ -117,6 +117,19 @@ This document summarizes the comprehensive refactoring and security hardening ch
 - **coverage**: 44% minimum coverage threshold
 
 **Impact**: Code quality gates in place, ready for CI integration.
+
+---
+
+### 8. ✅ Permission Cleanup
+**Objective**: Remove the deprecated `lead_moderators` fallback and align every permission check with the modern hierarchy.
+
+**Changes**:
+- Deleted all legacy helpers and decorators that referenced `lead_moderators`.
+- Updated service- and API-layer dependencies to require explicit `roles.moderators` entries.
+- Added migration 015 to purge `roles.lead_moderators` from `guild_settings` and refreshed rollback guidance.
+- Updated documentation and tests to reflect the streamlined role model.
+
+**Impact**: Single source of truth for moderator permissions, simplified RBAC, lower risk of misconfigured legacy roles.
 
 ---
 

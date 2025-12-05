@@ -15,6 +15,7 @@ Behavior and signatures preserved for existing call sites.
 
 import logging
 from collections.abc import Iterable
+from typing import Any, cast
 
 import discord
 
@@ -290,15 +291,22 @@ async def apply_permit_reject_settings(
 
 
 def resolve_role_ids_for_guild(
-    guild: discord.Guild, role_ids: Iterable[int]
+    guild: discord.Guild, role_ids: Iterable[int | str]
 ) -> tuple[list[discord.Role], list[int]]:
+    normalized_ids = cast(
+        "list[int]",
+        _normalize_role_ids(
+            role_ids,
+            guild_id=getattr(guild, "id", None),
+            key="resolve_role_ids_for_guild",
+            preserve_order=True,
+        ),
+    )
+
     resolved: list[discord.Role] = []
     missing: list[int] = []
-    for rid in role_ids:
-        try:
-            role = guild.get_role(int(rid)) if rid is not None else None
-        except Exception:
-            role = None
+    for rid in normalized_ids:
+        role = guild.get_role(rid) if rid is not None else None
         if role:
             resolved.append(role)
         else:
@@ -345,16 +353,80 @@ def _has_owner_or_discord_admin(
     return bool(guild.owner_id and member.id == guild.owner_id)
 
 
-async def _get_configured_role_ids(bot, guild_id: int, key: str) -> list[int]:
+def _normalize_role_ids(
+    values: Any,
+    *,
+    guild_id: int | None = None,
+    key: str | None = None,
+    preserve_order: bool = False,
+) -> list[int] | set[int]:
+    """Coerce role identifiers into ints, dropping invalid entries.
+
+    Args:
+        values: Raw value(s) returned from configuration or runtime.
+        guild_id: Guild identifier for logging context.
+        key: Config key for logging context.
+        preserve_order: When True, returns a list preserving first-seen order.
+
+    Returns:
+        Either a list (if preserve_order) or set of normalized ints.
+    """
+
+    def _iter_values(item: Any) -> Iterable[Any]:
+        if item is None:
+            return []
+        if isinstance(item, (str, bytes)):
+            return [item]
+        if isinstance(item, Iterable):
+            flattened: list[Any] = []
+            for value in item:
+                flattened.extend(_iter_values(value))
+            return flattened
+        return [item]
+
+    normalized_list: list[int] = []
+    seen: set[int] = set()
+
+    for raw in _iter_values(values):
+        try:
+            role_id = int(str(raw))
+        except (TypeError, ValueError):
+            if key:
+                logger.warning(
+                    "Invalid role id '%s' for %s in guild %s", raw, key, guild_id
+                )
+            continue
+        if role_id < 0:
+            if key:
+                logger.warning(
+                    "Ignoring negative role id '%s' for %s in guild %s",
+                    raw,
+                    key,
+                    guild_id,
+                )
+            continue
+        if role_id not in seen:
+            seen.add(role_id)
+            normalized_list.append(role_id)
+
+    if preserve_order:
+        return normalized_list
+    return set(normalized_list)
+
+
+async def _get_configured_role_ids(bot, guild_id: int, key: str) -> set[int]:
     config_service = getattr(getattr(bot, "services", None), "config", None)
     if not config_service:
-        return []
+        return set()
     try:
         roles = await config_service.get_guild_setting(guild_id, key, [])
-        return roles or []
+        return cast(
+            "set[int]",
+            _normalize_role_ids(roles or [], guild_id=guild_id, key=key),
+        )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("Error fetching %s for guild %s: %s", key, guild_id, exc)
-        return []
+        return set()
 
 
 def _member_role_ids(member: discord.Member) -> set[int]:
@@ -407,23 +479,24 @@ async def get_permission_level(
 
     # Check configured role lists in hierarchy order
     bot_admin_ids = await _get_configured_role_ids(bot, guild.id, "roles.bot_admins")
-    if user_role_ids & set(bot_admin_ids):
+    if user_role_ids & bot_admin_ids:
         return PermissionLevel.BOT_ADMIN
 
     discord_manager_ids = await _get_configured_role_ids(bot, guild.id, "roles.discord_managers")
-    if user_role_ids & set(discord_manager_ids):
+    if user_role_ids & discord_manager_ids:
         return PermissionLevel.DISCORD_MANAGER
 
-    # Check moderators (includes legacy lead_moderators for backward compatibility)
+    # Check moderators
     moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.moderators")
     if not moderator_ids:
-        # Fallback to legacy lead_moderators if moderators not set
-        moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.lead_moderators")
-    if user_role_ids & set(moderator_ids):
+        moderator_ids = await _get_configured_role_ids(
+            bot, guild.id, "roles.lead_moderators"
+        )
+    if user_role_ids & moderator_ids:
         return PermissionLevel.MODERATOR
 
     staff_ids = await _get_configured_role_ids(bot, guild.id, "roles.staff")
-    if user_role_ids & set(staff_ids):
+    if user_role_ids & staff_ids:
         return PermissionLevel.STAFF
 
     return PermissionLevel.USER
@@ -485,11 +558,8 @@ async def is_bot_admin_only(
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """DEPRECATED: Use is_bot_admin() instead.
+    """DEPRECATED: Use is_bot_admin() instead."""
 
-    Check if a user has bot-admin privileges.
-    Now includes discord_manager inheritance via hierarchy.
-    """
     return await is_bot_admin(bot, member, guild)
 
 
@@ -498,10 +568,8 @@ async def is_lead_moderator_or_higher(
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """DEPRECATED: Use is_moderator() instead.
+    """DEPRECATED: Use is_moderator() instead."""
 
-    Check if a user has moderator or higher permissions.
-    """
     return await is_moderator(bot, member, guild)
 
 
@@ -510,10 +578,8 @@ async def is_privileged_user(
     member: discord.Member,
     guild: discord.Guild | None = None,
 ) -> bool:
-    """DEPRECATED: Use is_moderator() instead.
+    """DEPRECATED: Use is_moderator() instead."""
 
-    Backward compatible alias for moderator or higher checks.
-    """
     return await is_moderator(bot, member, guild)
 
 
@@ -544,7 +610,6 @@ __all__ = [
     "fetch_permit_reject_entries",
     "get_permission_level",
     "is_bot_admin",
-    # Legacy functions (deprecated, use new hierarchy functions above)
     "is_bot_admin_only",
     "is_bot_owner",
     "is_discord_manager",

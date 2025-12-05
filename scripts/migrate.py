@@ -201,7 +201,7 @@ async def create_sample_guild_config(guild_id: int) -> None:
         "roles.affiliate_role_id": 1313551109373165671,
         "roles.non_member_role_id": 1313551221625192458,
         "roles.bot_admins": ["246604397155581954"],
-        "roles.lead_moderators": ["1174838659065847859"],
+        "roles.moderators": ["1174838659065847859"],
         "channels.verification_channel_id": 1313551608491282543,
         "channels.bot_spam_channel_id": 1395475681512652999,
         "channels.public_announcement_channel_id": 1395475641805176952,

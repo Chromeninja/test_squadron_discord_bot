@@ -181,15 +181,15 @@ async def get_current_user(
 
 
 def get_user_authorized_guilds(user: UserProfile) -> list[int]:
-    """Get list of guild IDs the user is authorized to access.
+    """Get guild IDs where the user has elevated permissions."""
 
-    Args:
-        user: Authenticated user profile
-
-    Returns:
-        List of guild IDs user has admin/mod access to
-    """
-    return user.authorized_guild_ids
+    guild_ids: list[int] = []
+    for guild_id in user.authorized_guilds:
+        try:
+            guild_ids.append(int(guild_id))
+        except (TypeError, ValueError):
+            continue
+    return guild_ids
 
 
 # Role hierarchy for permission checking
@@ -408,7 +408,7 @@ async def _validate_guild_membership(
     return computed_level
 
 
-async def _refresh_authorized_guilds(
+async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes session refresh flow
     request: Request,
     response: Response,
     raw_session: str | None,
@@ -496,14 +496,6 @@ async def _refresh_authorized_guilds(
         for gid in removed:
             authorized_map.pop(gid, None)
             current_user.authorized_guilds.pop(gid, None)
-
-        updated_ids = [
-            int(gid)
-            for gid in authorized_map
-            if isinstance(gid, str) and gid.isdigit()
-        ]
-        user_data["authorized_guild_ids"] = updated_ids
-        current_user.authorized_guild_ids = updated_ids
 
         if user_data.get("active_guild_id") in removed:
             user_data["active_guild_id"] = None
@@ -603,49 +595,6 @@ async def require_any_guild_access(
         raise HTTPException(
             status_code=403,
             detail="No authorized guilds found"
-        )
-
-    return current_user
-
-
-# Legacy function - kept for backward compatibility during migration
-async def require_admin_or_moderator(
-    request: Request,
-    response: Response,
-    raw_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
-    current_user: UserProfile = Depends(get_current_user),
-    internal_api: InternalAPIClient = Depends(get_internal_api_client),
-) -> UserProfile:
-    """
-    DEPRECATED: Use require_guild_permission() instead.
-
-    Legacy dependency for backward compatibility.
-    Checks if user has at least moderator level in active guild.
-    """
-    await _ensure_fresh_guild_access(
-        request,
-        response,
-        raw_session,
-        current_user,
-        internal_api,
-    )
-
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
-
-    guild_perm = current_user.authorized_guilds.get(current_user.active_guild_id)
-
-    if not guild_perm:
-        raise HTTPException(
-            status_code=403,
-            detail="Not authorized for this guild"
-        )
-
-    # Allow moderator or higher
-    if not _has_minimum_role(guild_perm.role_level, "moderator"):
-        raise HTTPException(
-            status_code=403,
-            detail="Requires moderator role or higher"
         )
 
     return current_user

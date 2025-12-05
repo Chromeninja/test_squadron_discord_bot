@@ -192,7 +192,7 @@ async def callback(code: str, state: str | None = None):
             from core.schemas import GuildPermission
 
             authorized_guilds: dict[str, GuildPermission] = {}
-            authorized_guild_ids = []
+            authorized_guild_id_set: set[str] = set()
 
             # Build a map of guild data for efficient lookup
             guild_data_map = {g["id"]: g for g in user_guilds}
@@ -206,13 +206,13 @@ async def callback(code: str, state: str | None = None):
 
                     # Bot owner gets full access to ALL guilds
                     if is_bot_owner:
-                        authorized_guilds[str(guild_id)] = GuildPermission(
-                            guild_id=str(guild_id),
+                        guild_id_str = str(guild_id)
+                        authorized_guilds[guild_id_str] = GuildPermission(
+                            guild_id=guild_id_str,
                             role_level="bot_owner",
                             source="bot_owner"
                         )
-                        if int(guild_id) not in authorized_guild_ids:
-                            authorized_guild_ids.append(int(guild_id))
+                        authorized_guild_id_set.add(guild_id_str)
                         continue
 
                     # Check Discord-native permissions (owner or administrator)
@@ -228,13 +228,13 @@ async def callback(code: str, state: str | None = None):
 
                     # Guild owner gets bot_admin level
                     if is_owner:
-                        authorized_guilds[str(guild_id)] = GuildPermission(
-                            guild_id=str(guild_id),
+                        guild_id_str = str(guild_id)
+                        authorized_guilds[guild_id_str] = GuildPermission(
+                            guild_id=guild_id_str,
                             role_level="bot_admin",
                             source="discord_owner"
                         )
-                        if int(guild_id) not in authorized_guild_ids:
-                            authorized_guild_ids.append(int(guild_id))
+                        authorized_guild_id_set.add(guild_id_str)
                         logger.info(
                             f"User granted bot_admin access to guild {guild_id} via discord_owner"
                         )
@@ -242,13 +242,13 @@ async def callback(code: str, state: str | None = None):
 
                     # Discord administrator permission gets bot_admin level
                     if has_admin_permission:
-                        authorized_guilds[str(guild_id)] = GuildPermission(
-                            guild_id=str(guild_id),
+                        guild_id_str = str(guild_id)
+                        authorized_guilds[guild_id_str] = GuildPermission(
+                            guild_id=guild_id_str,
                             role_level="bot_admin",
                             source="discord_administrator"
                         )
-                        if int(guild_id) not in authorized_guild_ids:
-                            authorized_guild_ids.append(int(guild_id))
+                        authorized_guild_id_set.add(guild_id_str)
                         logger.info(
                             f"User granted bot_admin access to guild {guild_id} via discord_administrator"
                         )
@@ -308,13 +308,13 @@ async def callback(code: str, state: str | None = None):
                         source = "staff_role"
 
                     if role_level and source:
-                        authorized_guilds[str(guild_id)] = GuildPermission(
-                            guild_id=str(guild_id),
+                        guild_id_str = str(guild_id)
+                        authorized_guilds[guild_id_str] = GuildPermission(
+                            guild_id=guild_id_str,
                             role_level=role_level,
                             source=source
                         )
-                        if int(guild_id) not in authorized_guild_ids:
-                            authorized_guild_ids.append(int(guild_id))
+                        authorized_guild_id_set.add(guild_id_str)
                         logger.info(
                             f"User granted {role_level} access to guild {guild_id} via {source}"
                         )
@@ -334,13 +334,15 @@ async def callback(code: str, state: str | None = None):
 
         # Debug logging
         logger.info(
-            f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s)"
+            f"User {user_id} authorized for {len(authorized_guilds)} guild(s)"
         )
-        logger.debug(f"Authorized guild IDs: {authorized_guild_ids}")
+        logger.debug(
+            f"Authorized guild IDs: {sorted(authorized_guild_id_set)}"
+        )
         logger.debug(f"Per-guild permissions: {[(g, p.role_level) for g, p in authorized_guilds.items()]}")
 
         # Require at least one authorized guild
-        if not authorized_guild_ids:
+        if not authorized_guilds:
             # Return unauthorized page
             return Response(
                 content="""
@@ -370,7 +372,7 @@ async def callback(code: str, state: str | None = None):
 
         # Do NOT auto-select guild - force user to choose from SelectServer screen
         logger.info(
-            f"User {user_id} authorized for {len(authorized_guild_ids)} guild(s), redirecting to guild selection"
+            f"User {user_id} authorized for {len(authorized_guilds)} guild(s), redirecting to guild selection"
         )
 
         session_data = {
@@ -379,7 +381,6 @@ async def callback(code: str, state: str | None = None):
             "discriminator": discriminator,
             "avatar": avatar,
             "authorized_guilds": authorized_guilds_dict,
-            "authorized_guild_ids": authorized_guild_ids,  # For backward compatibility
             "active_guild_id": None,  # Null to trigger SelectServer screen
             "roles_validated_at": {},  # Per-guild validation timestamps
         }
@@ -438,9 +439,7 @@ async def get_available_guilds(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
-    Return guilds where:
-    1. The bot is currently installed (from internal API)
-    2. The user has admin/moderator permissions (from authorized_guild_ids)
+    Return guilds where the bot is installed and the user has permission.
 
     This ensures users only see guilds they can manage and where the bot is active.
     """
@@ -449,10 +448,8 @@ async def get_available_guilds(
     except Exception as exc:  # pragma: no cover - transport errors
         raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
 
-    # Get user's authorized guild IDs from session - convert to strings for comparison
-    authorized_guild_ids = {
-        str(gid) for gid in (current_user.authorized_guild_ids or [])
-    }
+    # Build set of authorized guild IDs (string form) sourced from the session payload
+    authorized_guild_ids = set(current_user.authorized_guilds.keys())
 
     logger.debug(f"Bot guilds from internal API: {[g.get('guild_id') for g in guilds]}")
     logger.debug(f"User authorized guild IDs: {authorized_guild_ids}")

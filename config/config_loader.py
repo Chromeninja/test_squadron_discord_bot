@@ -39,9 +39,6 @@ class ConfigLoader:
                     )
                     cls._config = {}
 
-                # Convert role IDs to integers
-                cls._convert_role_ids_to_int()
-
                 # Validate logging level
                 cls._validate_logging_level()
 
@@ -77,16 +74,6 @@ class ConfigLoader:
             logging_cfg["level"] = "INFO"
 
     @classmethod
-    def _convert_role_ids_to_int(cls) -> None:
-        """
-        Convert role IDs in config to integers (DEPRECATED - roles now managed in database).
-
-        Kept for backward compatibility but no longer processes roles section.
-        """
-        # Roles are now managed per-guild in the database
-        # This method is kept as a no-op for backward compatibility
-        pass
-
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
         """

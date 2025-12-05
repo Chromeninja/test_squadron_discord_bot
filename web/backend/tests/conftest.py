@@ -131,7 +131,6 @@ def mock_admin_session():
             "discriminator": "0001",
             "avatar": None,
             "active_guild_id": "123",  # Default test guild
-            "authorized_guild_ids": [1, 2],  # Include authorized guilds for filtering
             "authorized_guilds": {
                 "123": {"guild_id": "123", "role_level": "bot_admin", "source": "bot_admin_role"},
                 "1": {"guild_id": "1", "role_level": "bot_admin", "source": "bot_admin_role"},

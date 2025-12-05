@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers.decorators import require_admin, require_permission_level
+from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
@@ -108,7 +108,7 @@ class AdminCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         """
-        Reset a specific user's verification timer. Bot Admins and Lead Moderators.
+        Reset a specific user's verification timer. Bot Admins and Moderators.
         """
         from helpers.rate_limiter import reset_attempts
         from helpers.token_manager import clear_token
@@ -460,7 +460,7 @@ class AdminCog(commands.Cog):
         name="status", description="Show detailed bot health and status information"
     )
     @app_commands.describe(detailed="Show detailed service information")
-    @require_admin()
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def status(
         self, interaction: discord.Interaction, detailed: bool = False
     ) -> None:

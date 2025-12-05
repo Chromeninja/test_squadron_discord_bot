@@ -154,31 +154,6 @@ class GuildService(BaseService):
             guild_roles = self._role_cache.get(guild_id, {})
             return guild_roles.get(role_id)
 
-    async def has_admin_role(self, member: discord.Member) -> bool:
-        """
-        Check if a member has admin privileges in their guild.
-
-        Args:
-            member: Discord member to check
-
-        Returns:
-            True if member has admin role
-        """
-        self._ensure_initialized()
-
-        # Get admin role IDs for this guild
-        admin_roles = await self.config_service.get_guild_setting(
-            member.guild.id, "roles.bot_admins", []
-        )
-        lead_mod_roles = await self.config_service.get_guild_setting(
-            member.guild.id, "roles.lead_moderators", []
-        )
-
-        all_admin_roles = set(admin_roles + lead_mod_roles)
-        member_role_ids = {role.id for role in member.roles}
-
-        return bool(all_admin_roles & member_role_ids)
-
     async def check_guild_permissions(self, guild: discord.Guild) -> dict[str, bool]:
         """
         Check bot permissions in a guild.

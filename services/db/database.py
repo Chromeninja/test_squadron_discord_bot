@@ -7,6 +7,7 @@ Handles connection pooling, initialization, and migrations.
 
 import asyncio
 import json
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 
@@ -273,10 +274,18 @@ class Database:
             await cls.initialize()
         async with aiosqlite.connect(cls._db_path) as db:
             # Optimize database performance and reliability
-            await db.execute("PRAGMA foreign_keys=ON")
-            await db.execute("PRAGMA journal_mode=WAL")
-            await db.execute("PRAGMA synchronous=NORMAL")
             await db.execute("PRAGMA busy_timeout=5000")
+            await db.execute("PRAGMA foreign_keys=ON")
+            try:
+                await db.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError as exc:
+                # WAL transition can fail briefly if another writer holds a lock; retry once
+                if "database is locked" in str(exc).lower():
+                    await asyncio.sleep(0.05)
+                    await db.execute("PRAGMA journal_mode=WAL")
+                else:
+                    raise
+            await db.execute("PRAGMA synchronous=NORMAL")
             db.row_factory = aiosqlite.Row
             yield db
 

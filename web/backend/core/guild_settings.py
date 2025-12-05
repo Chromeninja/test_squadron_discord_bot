@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from aiosqlite import Connection
 
 BOT_ADMINS_KEY = "roles.bot_admins"
-LEAD_MODS_KEY = "roles.lead_moderators"  # Legacy - use MODERATORS_KEY for new code
 MODERATORS_KEY = "roles.moderators"
 DISCORD_MANAGERS_KEY = "roles.discord_managers"
 STAFF_KEY = "roles.staff"
@@ -66,21 +65,17 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
 
     Returns dict with keys: bot_admins, discord_managers, moderators, staff,
     main_role, affiliate_role, nonmember_role.
-
-    Backward compatibility: If moderators is empty but lead_moderators exists,
-    returns lead_moderators under 'moderators' key for seamless migration.
     """
     query = """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = await db.execute(
         query,
         (
             guild_id,
             BOT_ADMINS_KEY,
-            LEAD_MODS_KEY,
             MODERATORS_KEY,
             DISCORD_MANAGERS_KEY,
             STAFF_KEY,
@@ -102,9 +97,6 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
         "affiliate_role": [],
         "nonmember_role": [],
     }
-
-    legacy_lead_mods = []
-
     for key, value in rows:
         if key == BOT_ADMINS_KEY:
             result["bot_admins"] = _coerce_role_list(value)
@@ -116,18 +108,12 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
             result["staff"] = _coerce_role_list(value)
         elif key == BOT_VERIFIED_ROLE_KEY:
             result["bot_verified_role"] = _coerce_role_list(value)
-        elif key == LEAD_MODS_KEY:
-            legacy_lead_mods = _coerce_role_list(value)
         elif key == MAIN_ROLE_KEY:
             result["main_role"] = _coerce_role_list(value)
         elif key == AFFILIATE_ROLE_KEY:
             result["affiliate_role"] = _coerce_role_list(value)
         elif key == NONMEMBER_ROLE_KEY:
             result["nonmember_role"] = _coerce_role_list(value)
-
-    # Backward compatibility: Use lead_moderators if moderators is empty
-    if not result["moderators"] and legacy_lead_mods:
-        result["moderators"] = legacy_lead_mods
 
     return result
 
@@ -166,11 +152,7 @@ async def set_bot_role_settings(
     affiliate_role: list[str],
     nonmember_role: list[str],
 ) -> None:
-    """Persist bot role settings for a guild.
-
-    Note: This function writes to the new role keys (moderators, discord_managers, staff, bot_verified_role).
-    Legacy lead_moderators is preserved in DB but not updated by this function.
-    """
+    """Persist bot role settings for a guild."""
 
     def _normalize_role_ids(values: list[str]) -> list[str]:
         normalized: list[str] = []

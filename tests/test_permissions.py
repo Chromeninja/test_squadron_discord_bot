@@ -66,32 +66,73 @@ async def test_bot_admin_role_allows_access(mock_bot, config_service):
     guild = DummyGuild(123, owner_id=456)
     member = DummyMember(guild, role_ids=[999], member_id=200)
 
-    config_service.get_guild_setting.side_effect = [[999], []]
+    async def side_effect(guild_id, key, default):
+        mapping = {
+            "roles.bot_admins": [999],
+            "roles.discord_managers": [],
+            "roles.moderators": [],
+            "roles.staff": [],
+        }
+        return mapping.get(key, [])
 
-    result = await perms.is_bot_admin_only(mock_bot, member)
+    config_service.get_guild_setting.side_effect = side_effect
+
+    result = await perms.is_bot_admin(mock_bot, member)
 
     assert result is True
     config_service.get_guild_setting.assert_any_await(123, "roles.bot_admins", [])
 
 
 @pytest.mark.asyncio
-async def test_lead_mod_role_allows_access(mock_bot, config_service):
+async def test_moderator_role_allows_access(mock_bot, config_service):
     guild = DummyGuild(123, owner_id=456)
     member = DummyMember(guild, role_ids=[555], member_id=200)
 
-    config_service.get_guild_setting.side_effect = [[], [555]]
+    async def side_effect(guild_id, key, default):
+        mapping = {
+            "roles.bot_admins": [],
+            "roles.discord_managers": [],
+            "roles.moderators": [555],
+            "roles.staff": [],
+        }
+        return mapping.get(key, [])
 
-    result = await perms.is_lead_moderator_or_higher(mock_bot, member)
+    config_service.get_guild_setting.side_effect = side_effect
+
+    result = await perms.is_moderator(mock_bot, member)
 
     assert result is True
 
 
 @pytest.mark.asyncio
-async def test_guild_owner_fallback(mock_bot, config_service):
+async def test_moderator_role_allows_access_with_string_ids(mock_bot, config_service):
+    guild = DummyGuild(123, owner_id=456)
+    member = DummyMember(guild, role_ids=[555], member_id=200)
+
+    async def side_effect(guild_id, key, default):
+        mapping = {
+            "roles.bot_admins": [],
+            "roles.discord_managers": [],
+            "roles.moderators": ["555", "666"],
+            "roles.staff": [],
+        }
+        return mapping.get(key, [])
+
+    config_service.get_guild_setting.side_effect = side_effect
+
+    result = await perms.is_moderator(mock_bot, member)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_guild_owner_treated_as_bot_admin(mock_bot, config_service):
     guild = DummyGuild(123, owner_id=200)
     member = DummyMember(guild, role_ids=[], member_id=200)
 
-    result = await perms.is_lead_moderator_or_higher(mock_bot, member)
+    config_service.get_guild_setting.return_value = []
+
+    result = await perms.is_bot_admin(mock_bot, member)
 
     assert result is True
 
@@ -101,8 +142,32 @@ async def test_permission_denied_without_roles(mock_bot, config_service):
     guild = DummyGuild(123, owner_id=456)
     member = DummyMember(guild, role_ids=[1], member_id=300)
 
-    config_service.get_guild_setting.side_effect = [[], []]
+    async def side_effect(guild_id, key, default):
+        return []
 
-    result = await perms.is_bot_admin_only(mock_bot, member)
+    config_service.get_guild_setting.side_effect = side_effect
+
+    result = await perms.is_moderator(mock_bot, member)
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_invalid_role_ids_are_ignored(mock_bot, config_service):
+    guild = DummyGuild(123, owner_id=456)
+    member = DummyMember(guild, role_ids=[444], member_id=300)
+
+    async def side_effect(guild_id, key, default):
+        mapping = {
+            "roles.bot_admins": "not-a-role",
+            "roles.discord_managers": None,
+            "roles.moderators": ["not-int", 0, -1],
+            "roles.staff": [],
+        }
+        return mapping.get(key, [])
+
+    config_service.get_guild_setting.side_effect = side_effect
+
+    result = await perms.is_moderator(mock_bot, member)
 
     assert result is False

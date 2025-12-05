@@ -13,9 +13,9 @@ from core.dependencies import (
     get_config_loader,
     get_db,
     get_internal_api_client,
-    require_admin_or_moderator,
     require_bot_admin,
     require_fresh_guild_access,
+    require_moderator,
     require_staff,
     translate_internal_api_error,
 )
@@ -250,7 +250,7 @@ async def update_bot_roles_settings(
 async def get_bot_channels_settings(
     guild_id: int,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
 ):
     """Fetch stored bot channel assignments for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -267,7 +267,7 @@ async def update_bot_channels_settings(
     guild_id: int,
     payload: BotChannelSettings,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
 ):
     """Persist bot channel assignments for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -308,7 +308,7 @@ async def update_voice_selectable_roles_settings(
     guild_id: int,
     payload: VoiceSelectableRoles,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
 ):
     """Persist selectable voice role IDs for a guild."""
     _ensure_active_guild(current_user, guild_id)
@@ -450,7 +450,7 @@ async def update_organization_settings_endpoint(
     guild_id: int,
     payload: OrganizationSettings,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_admin_or_moderator),
+    current_user: UserProfile = Depends(require_moderator()),
 ):
     """Update organization settings for a guild."""
     _ensure_active_guild(current_user, guild_id)
