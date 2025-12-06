@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient
-from helpers.task_queue import start_task_workers, task_queue
+from helpers.task_queue import start_task_workers, stop_task_workers
 from helpers.token_manager import cleanup_tokens
 from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
@@ -86,6 +86,26 @@ class MyBot(commands.Bot):
         self.role_cache = {}
         self._missing_role_warned_guilds = set()
         self._guild_role_expectations: dict[int, set[str]] = {}
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
+        """Track a background task for clean shutdown and log exceptions."""
+
+        name = label or task.get_name()
+        self._background_tasks.add(task)
+
+        def _cleanup(done: asyncio.Task) -> None:
+            self._background_tasks.discard(done)
+            try:
+                exc = done.exception()
+                if exc:
+                    logger.exception("Background task %s failed", name, exc_info=exc)
+            except asyncio.CancelledError:
+                logger.debug("Background task %s cancelled", name)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Error inspecting background task %s: %s", name, exc)
+
+        task.add_done_callback(_cleanup)
 
     async def setup_hook(self) -> None:
         """Load cogs, initialize services, and sync commands."""
@@ -164,13 +184,13 @@ class MyBot(commands.Bot):
                 logger.exception(f"Failed to load extension {extension}", exc_info=e)
 
         # Cache roles after bot is ready
-        spawn(self.cache_roles())
-        spawn(self.role_refresh_task())
+        self._track_task(spawn(self.cache_roles()), "cache_roles")
+        self._track_task(spawn(self.role_refresh_task()), "role_refresh")
 
         # Start cleanup tasks
-        spawn(self.token_cleanup_task())
-        spawn(self.attempts_cleanup_task())
-        spawn(self.log_cleanup_task())
+        self._track_task(spawn(self.token_cleanup_task()), "token_cleanup")
+        self._track_task(spawn(self.attempts_cleanup_task()), "attempts_cleanup")
+        self._track_task(spawn(self.log_cleanup_task()), "log_cleanup")
 
         # Register persistent views (must happen every startup for persistence to work)
         # Import here to avoid circular import issues
@@ -569,11 +589,15 @@ class MyBot(commands.Bot):
             except Exception as e:
                 logger.exception("Error cleaning up services", exc_info=e)
 
-        # Enqueue shutdown signals for task workers
-        for _ in range(2):  # Number of workers started
-            await task_queue.put(None)
+        # Stop task queue workers
+        await stop_task_workers()
 
-        await task_queue.join()  # Wait until all tasks are processed
+        # Cancel and await tracked background tasks
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
         # Close the HTTP client
         await self.http_client.close()

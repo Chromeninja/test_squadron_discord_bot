@@ -210,7 +210,7 @@ class TestAdminListCommand:
 
             mock_send_error.assert_called_once()
             error_args = mock_send_error.call_args
-            assert "❌" in error_args.args[1]
+            # send_user_error adds ❌ automatically, so raw message won't have it
             assert "Something went wrong" in error_args.args[1]
 
     @pytest.mark.asyncio

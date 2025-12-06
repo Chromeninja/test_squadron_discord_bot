@@ -95,7 +95,9 @@ class VoiceSettingsSnapshot:
     # Settings lists with resolved names
     permissions: list[PermissionOverride] = field(default_factory=list)
     ptt_settings: list[PTTSetting] = field(default_factory=list)
-    priority_speaker_settings: list[PrioritySpeakerSetting] = field(default_factory=list)
+    priority_speaker_settings: list[PrioritySpeakerSetting] = field(
+        default_factory=list
+    )
     soundboard_settings: list[SoundboardSetting] = field(default_factory=list)
 
 

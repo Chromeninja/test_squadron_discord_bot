@@ -319,6 +319,31 @@ def resolve_role_ids_for_guild(
     return resolved, missing
 
 
+def get_role_display_name(
+    guild: discord.Guild | None, role_id: int | str | None
+) -> str:
+    """Return a user-friendly role label, falling back to ID when missing."""
+
+    if guild is None or role_id is None:
+        return "Unknown role"
+
+    normalized = _normalize_role_ids(
+        [role_id],
+        guild_id=getattr(guild, "id", None),
+        key="get_role_display_name",
+        preserve_order=True,
+    )
+    rid = normalized[0] if normalized else None
+
+    if rid is None:
+        return "Unknown role"
+
+    role = guild.get_role(rid)
+    if role:
+        return f"@{role.name}"
+    return f"Unknown role ({rid})"
+
+
 PERMISSION_DENIED_MESSAGE = "You don't have permission to use this command."
 
 
@@ -619,6 +644,7 @@ __all__ = [
     "apply_permit_reject_settings",
     "fetch_permit_reject_entries",
     "get_permission_level",
+    "get_role_display_name",
     "is_bot_admin",
     "is_bot_admin_only",
     "is_bot_owner",

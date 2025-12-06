@@ -48,7 +48,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         try:
             await interaction.response.defer(ephemeral=True)
 
-            if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            if not interaction.guild or not isinstance(
+                interaction.user, discord.Member
+            ):
                 await interaction.followup.send(
                     "❌ This command must be used in a server.", ephemeral=True
                 )
@@ -116,7 +118,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             embed = build_voice_settings_ui(
                 snapshot=snapshot,
                 user=user,
-                active_channel=active_channel if isinstance(active_channel, discord.VoiceChannel) else None,
+                active_channel=active_channel
+                if isinstance(active_channel, discord.VoiceChannel)
+                else None,
             )
 
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -420,7 +424,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
 
             if jtc_channel is None:
-                await send_user_error(interaction, format_user_error("UNKNOWN", details=error))
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN", details=error)
+                )
                 return
 
             # Add the newly created channel to config (append, do not replace)
@@ -460,7 +466,6 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         self, interaction: discord.Interaction, user: discord.Member
     ) -> None:
         """View saved permissions and settings for a user's voice channel (Admin only)."""
-        from helpers.error_messages import format_user_error
 
         if not interaction.guild:
             await interaction.response.send_message(
@@ -470,88 +475,51 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         try:
             await interaction.response.defer(ephemeral=True)
+            from helpers.voice_settings import fetch_channel_settings
 
-            guild = interaction.guild
+            # Use unified fetch helper so behavior matches user-facing list command
+            result = await fetch_channel_settings(
+                self.bot, interaction, target_user=user, allow_inactive=True
+            )
 
-            # Get all JTC channels where this user has settings
-            from helpers.voice_settings import _get_all_user_jtc_settings
-
-            all_jtc_settings = await _get_all_user_jtc_settings(guild.id, user.id)
-
-            if not all_jtc_settings:
+            # Nothing to show
+            if not result["settings"] and not result["embeds"]:
                 await interaction.followup.send(
                     f"📭 No saved voice channel settings found for {user.mention}.",
                     ephemeral=True,
                 )
                 return
 
-            # Build embeds for each JTC using the unified system
-            from helpers.embeds import build_voice_settings_ui
-
-            embeds_sent = 0
-            for jtc_channel_id in all_jtc_settings:
-                # Check if user is currently in an active channel for this JTC
-                voice_channel_id = None
-                active_channel = None
-
-                if user.voice and user.voice.channel:
-                    # Check if active channel belongs to this JTC
-                    async with Database.get_connection() as db:
-                        cursor = await db.execute(
-                            """
-                            SELECT voice_channel_id FROM voice_channels
-                            WHERE voice_channel_id = ? AND owner_id = ? AND jtc_channel_id = ? AND is_active = 1
-                        """,
-                            (user.voice.channel.id, user.id, jtc_channel_id),
-                        )
-                        row = await cursor.fetchone()
-                        if row:
-                            voice_channel_id = row[0]
-                            active_channel = user.voice.channel
-
-                # Get snapshot using unified method
-                snapshot = await self.voice_service.get_voice_settings_snapshot(
-                    guild_id=guild.id,
-                    jtc_channel_id=jtc_channel_id,
-                    owner_id=user.id,
-                    voice_channel_id=voice_channel_id,
-                    guild=guild,
-                )
-
-                if snapshot:
-                    embed = build_voice_settings_ui(
-                        snapshot=snapshot,
-                        user=user,
-                        active_channel=active_channel if isinstance(active_channel, discord.VoiceChannel) else None,
-                    )
-                    # Update embed title/color for admin view
+            if result["embeds"]:
+                for embed in result["embeds"]:
+                    # Make clear this is an admin view
                     embed.title = f"🔧 Voice Settings for {user.display_name}"
                     embed.color = discord.Color.orange()
-
                     await interaction.followup.send(embed=embed, ephemeral=True)
-                    embeds_sent += 1
+                return
 
-            if embeds_sent == 0:
-                # Fallback if snapshots couldn't be built
-                embed = discord.Embed(
-                    title=f"🔧 Voice Settings for {user.display_name}",
-                    description=f"Administrative view of voice channel settings for {user.mention}",
-                    color=discord.Color.orange(),
-                )
-                embed.add_field(
-                    name="Settings Found",
-                    value="Settings exist but could not be formatted properly.",
-                    inline=False,
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+            # Fallback when settings exist but no embeds were generated
+            embed = discord.Embed(
+                title=f"🔧 Voice Settings for {user.display_name}",
+                description=f"Administrative view of voice channel settings for {user.mention}",
+                color=discord.Color.orange(),
+            )
+            embed.add_field(
+                name="Settings Found",
+                value="Settings exist but could not be formatted properly.",
+                inline=False,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             logger.exception("Error in admin_list command", exc_info=e)
             from helpers.discord_reply import send_user_error
-            from helpers.error_messages import format_user_error
 
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(interaction, format_user_error("UNKNOWN"))
+                await send_user_error(
+                    interaction,
+                    "Something went wrong while fetching settings. Please try again.",
+                )
 
 
 class AdminCommands(app_commands.Group):

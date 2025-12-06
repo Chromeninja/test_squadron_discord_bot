@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
+from helpers.permissions_helper import get_role_display_name
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -256,7 +257,9 @@ def build_voice_settings_ui(
         limit_text = str(snapshot.user_limit) if snapshot.user_limit > 0 else "No limit"
         basic_settings.append(f"**User Limit:** {limit_text}")
     if snapshot.is_locked:
-        basic_settings.append(f"**Lock:** {'🔒 Locked' if snapshot.is_locked else '🔓 Unlocked'}")
+        basic_settings.append(
+            f"**Lock:** {'🔒 Locked' if snapshot.is_locked else '🔓 Unlocked'}"
+        )
 
     if basic_settings:
         embed.add_field(
@@ -270,7 +273,11 @@ def build_voice_settings_ui(
         perm_text = []
         for perm in snapshot.permissions[:10]:  # Limit to prevent embed overflow
             emoji = "✅" if perm.permission == "permit" else "❌"
-            target_display = perm.target_name or f"Unknown ({perm.target_id})"
+            target_display = perm.target_name
+            if not target_display and perm.target_type == "role":
+                target_display = get_role_display_name(user.guild, perm.target_id)
+            if not target_display:
+                target_display = f"Unknown ({perm.target_id})"
             perm_text.append(f"{emoji} **{target_display}:** {perm.permission}")
 
         if perm_text:
@@ -285,7 +292,11 @@ def build_voice_settings_ui(
         ptt_text = []
         for ptt in snapshot.ptt_settings[:10]:
             status = "🔇 Required" if ptt.ptt_enabled else "🔊 Disabled"
-            target_display = ptt.target_name or f"Unknown ({ptt.target_id})"
+            target_display = ptt.target_name
+            if not target_display and ptt.target_type == "role":
+                target_display = get_role_display_name(user.guild, ptt.target_id)
+            if not target_display:
+                target_display = f"Unknown ({ptt.target_id})"
             ptt_text.append(f"{status} for **{target_display}**")
 
         if ptt_text:
@@ -300,7 +311,11 @@ def build_voice_settings_ui(
         priority_text = []
         for priority in snapshot.priority_speaker_settings[:10]:
             status = "✅ Enabled" if priority.priority_enabled else "❌ Disabled"
-            target_display = priority.target_name or f"Unknown ({priority.target_id})"
+            target_display = priority.target_name
+            if not target_display and priority.target_type == "role":
+                target_display = get_role_display_name(user.guild, priority.target_id)
+            if not target_display:
+                target_display = f"Unknown ({priority.target_id})"
             priority_text.append(f"{status} for **{target_display}**")
 
         if priority_text:
@@ -315,7 +330,11 @@ def build_voice_settings_ui(
         soundboard_text = []
         for soundboard in snapshot.soundboard_settings[:10]:
             status = "✅ Enabled" if soundboard.soundboard_enabled else "❌ Disabled"
-            target_display = soundboard.target_name or f"Unknown ({soundboard.target_id})"
+            target_display = soundboard.target_name
+            if not target_display and soundboard.target_type == "role":
+                target_display = get_role_display_name(user.guild, soundboard.target_id)
+            if not target_display:
+                target_display = f"Unknown ({soundboard.target_id})"
             soundboard_text.append(f"{status} for **{target_display}**")
 
         if soundboard_text:

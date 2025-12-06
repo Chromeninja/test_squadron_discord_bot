@@ -118,6 +118,17 @@ This document summarizes the comprehensive refactoring and security hardening ch
 
 **Impact**: Code quality gates in place, ready for CI integration.
 
+### 8. ℹ️ Legacy Voice `_new` Tables
+**Context**: Historical migrations (`006`, `009`) created transitional tables:
+- `channel_settings_new`, `channel_permissions_new`, `channel_ptt_settings_new`, `channel_priority_speaker_settings_new`, `channel_soundboard_settings_new`, `voice_channel_settings_new`.
+
+**Current State**:
+- No active code paths reference these `_new` tables; production uses canonical tables.
+- Migrations are left intact for history; no destructive changes applied in code.
+
+**TODO**:
+- Plan a dedicated migration to drop the `_new` tables after confirming production data parity.
+
 ---
 
 ### 8. ✅ Permission Cleanup

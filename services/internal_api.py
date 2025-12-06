@@ -457,7 +457,9 @@ class InternalAPIServer:
         for channel in guild.channels:
             # Get category name if channel is in a category
             category_name = (
-                channel.category.name if hasattr(channel, "category") and channel.category else "Uncategorized"
+                channel.category.name
+                if hasattr(channel, "category") and channel.category
+                else "Uncategorized"
             )
 
             # Get channel type

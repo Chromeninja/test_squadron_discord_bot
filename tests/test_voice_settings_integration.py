@@ -393,10 +393,7 @@ class TestVoiceServiceChannelCreation:
             create_args = mock_guild.create_voice_channel.call_args
 
             # Should use default name format
-            assert (
-                create_args.kwargs["name"]
-                == f"{mock_member.display_name}'s Channel"
-            )
+            assert create_args.kwargs["name"] == f"{mock_member.display_name}'s Channel"
             # Should use JTC channel's user_limit
             assert create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
 
@@ -555,4 +552,3 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
 
         # 4. Settings view is sent to the voice channel via send()
         fake_created_channel.send.assert_called_once()
-

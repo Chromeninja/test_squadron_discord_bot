@@ -210,7 +210,15 @@ class TestJTCManagement:
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-                (guild_id, jtc_channel_id, 11111, managed_channel_id, 1234567890, 1234567890, 1),
+                (
+                    guild_id,
+                    jtc_channel_id,
+                    11111,
+                    managed_channel_id,
+                    1234567890,
+                    1234567890,
+                    1,
+                ),
             )
             await db.commit()
 
@@ -228,7 +236,9 @@ class TestJTCManagement:
         # The managed channel cleanup happens via cleanup_stale_jtc_managed_channels which marks as inactive
 
     @pytest.mark.asyncio
-    async def test_managed_channel_deletion_no_jtc_removal(self, voice_service_with_bot):
+    async def test_managed_channel_deletion_no_jtc_removal(
+        self, voice_service_with_bot
+    ):
         """Test that managed channel deletion doesn't affect JTC config."""
         voice_service, _mock_bot = voice_service_with_bot
 
@@ -250,7 +260,15 @@ class TestJTCManagement:
                 (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-                (guild_id, jtc_channel_id, 11111, managed_channel_id, 1234567890, 1234567890, 1),
+                (
+                    guild_id,
+                    jtc_channel_id,
+                    11111,
+                    managed_channel_id,
+                    1234567890,
+                    1234567890,
+                    1,
+                ),
             )
             await db.commit()
 
@@ -418,7 +436,15 @@ class TestJTCManagement:
                     (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (guild_id, jtc_id, 11111 + i, channel_id, 1234567890, 1234567890, 1),
+                    (
+                        guild_id,
+                        jtc_id,
+                        11111 + i,
+                        channel_id,
+                        1234567890,
+                        1234567890,
+                        1,
+                    ),
                 )
             await db.commit()
 

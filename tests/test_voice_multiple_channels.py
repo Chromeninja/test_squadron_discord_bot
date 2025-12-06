@@ -384,16 +384,31 @@ class TestMultipleChannelsPerOwner:
         new_channel_id = 77777
 
         previous_owner_member = MagicMock()
+        member_in_channel = MagicMock()
+        member_in_channel.id = 99999  # Some other user in the channel
         existing_channel = MockVoiceChannel(
             channel_id=old_channel_id,
             name="Existing",
-            members=[MagicMock()],
+            members=[member_in_channel],
         )
         existing_channel.guild.get_member = MagicMock(
             return_value=previous_owner_member
         )
         existing_channel.overwrites = {previous_owner_member: MagicMock()}
         mock_bot.add_channel(existing_channel)
+
+        # Populate voice service cache so member count detection works
+        voice_service._voice_channel_members[old_channel_id] = {member_in_channel.id}
+
+        # Spy on _remove_owner_overwrites to verify it's called
+        original_remove = voice_service._remove_owner_overwrites
+        remove_called = []
+
+        async def spy_remove(*args, **kwargs):
+            remove_called.append((args, kwargs))
+            return await original_remove(*args, **kwargs)
+
+        voice_service._remove_owner_overwrites = spy_remove
 
         async with Database.get_connection() as db:
             await db.execute(
@@ -432,6 +447,13 @@ class TestMultipleChannelsPerOwner:
         await voice_service._store_user_channel(
             guild_id, jtc_channel_id, owner_id, new_channel_id
         )
+
+        # Give a moment for async permission updates to complete
+        await asyncio.sleep(0.05)
+
+        # Verify _remove_owner_overwrites was called
+        assert len(remove_called) == 1, f"Expected 1 call to _remove_owner_overwrites, got {len(remove_called)}"
+        assert remove_called[0][0][1] == owner_id, "Should be called with owner_id"
 
         async with Database.get_connection() as db:
             cursor = await db.execute(

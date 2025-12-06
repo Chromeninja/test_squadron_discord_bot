@@ -38,7 +38,9 @@ async def resolve_target_names(
         snapshot: VoiceSettingsSnapshot to annotate in-place
     """
 
-    def resolve_single_target(target_id: str, target_type: str) -> tuple[str | None, bool, bool]:
+    def resolve_single_target(
+        target_id: str, target_type: str
+    ) -> tuple[str | None, bool, bool]:
         """Resolve a single target to (name, is_everyone, unknown_role)."""
         if target_type == "user":
             # Check for @everyone (target_id == guild_id as string)
@@ -82,13 +84,13 @@ async def resolve_target_names(
         )
 
     for priority in snapshot.priority_speaker_settings:
-        priority.target_name, priority.is_everyone, priority.unknown_role = resolve_single_target(
-            priority.target_id, priority.target_type
+        priority.target_name, priority.is_everyone, priority.unknown_role = (
+            resolve_single_target(priority.target_id, priority.target_type)
         )
 
     for soundboard in snapshot.soundboard_settings:
-        soundboard.target_name, soundboard.is_everyone, soundboard.unknown_role = resolve_single_target(
-            soundboard.target_id, soundboard.target_type
+        soundboard.target_name, soundboard.is_everyone, soundboard.unknown_role = (
+            resolve_single_target(soundboard.target_id, soundboard.target_type)
         )
 
 
