@@ -4,6 +4,7 @@ Voice channel search endpoints.
 
 import json
 import os
+from typing import TYPE_CHECKING
 
 import httpx
 from core.dependencies import (
@@ -32,11 +33,11 @@ from core.schemas import (
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from helpers.audit import log_admin_action
-from helpers.voice_settings import (
-    _get_all_user_jtc_settings,
-    _get_last_used_jtc_channel,
-)
+from helpers.voice_settings import _get_last_used_jtc_channel
 from utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from utils.types import VoiceSettingsSnapshot
 
 logger = get_logger(__name__)
 
@@ -52,6 +53,83 @@ INTERNAL_API_URL = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
 INTERNAL_API_KEY = os.getenv(
     "INTERNAL_API_KEY", "dev_internal_api_key_change_in_production"
 )
+
+
+def snapshot_to_jtc_settings(snapshot: "VoiceSettingsSnapshot") -> JTCChannelSettings:
+    """
+    Convert a VoiceSettingsSnapshot to JTCChannelSettings API response model.
+
+    This ensures consistency between Discord commands and API responses.
+
+    Args:
+        snapshot: VoiceSettingsSnapshot with resolved target names
+
+    Returns:
+        JTCChannelSettings API model
+    """
+
+    # Convert permissions
+    permissions = [
+        PermissionEntry(
+            target_id=perm.target_id,
+            target_type=perm.target_type,
+            permission=perm.permission,
+            target_name=perm.target_name,
+            is_everyone=perm.is_everyone,
+            unknown_role=perm.unknown_role,
+        )
+        for perm in snapshot.permissions
+    ]
+
+    # Convert PTT settings
+    ptt_settings = [
+        PTTSettingEntry(
+            target_id=ptt.target_id,
+            target_type=ptt.target_type,
+            ptt_enabled=ptt.ptt_enabled,
+            target_name=ptt.target_name,
+            is_everyone=ptt.is_everyone,
+            unknown_role=ptt.unknown_role,
+        )
+        for ptt in snapshot.ptt_settings
+    ]
+
+    # Convert priority speaker settings
+    priority_settings = [
+        PrioritySpeakerEntry(
+            target_id=priority.target_id,
+            target_type=priority.target_type,
+            priority_enabled=priority.priority_enabled,
+            target_name=priority.target_name,
+            is_everyone=priority.is_everyone,
+            unknown_role=priority.unknown_role,
+        )
+        for priority in snapshot.priority_speaker_settings
+    ]
+
+    # Convert soundboard settings
+    soundboard_settings = [
+        SoundboardEntry(
+            target_id=soundboard.target_id,
+            target_type=soundboard.target_type,
+            soundboard_enabled=soundboard.soundboard_enabled,
+            target_name=soundboard.target_name,
+            is_everyone=soundboard.is_everyone,
+            unknown_role=soundboard.unknown_role,
+        )
+        for soundboard in snapshot.soundboard_settings
+    ]
+
+    return JTCChannelSettings(
+        jtc_channel_id=str(snapshot.jtc_channel_id),
+        channel_name=snapshot.channel_name,
+        user_limit=snapshot.user_limit,
+        lock=snapshot.is_locked,
+        permissions=permissions,
+        ptt_settings=ptt_settings,
+        priority_settings=priority_settings,
+        soundboard_settings=soundboard_settings,
+    )
 
 
 @router.get("/integrity")
@@ -400,7 +478,7 @@ async def search_user_voice_settings(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
-    Search for users and their saved JTC voice settings.
+    Search for users and their saved JTC voice settings using unified snapshot system.
 
     Search by:
     - Discord user ID (exact match if numeric)
@@ -432,10 +510,9 @@ async def search_user_voice_settings(
     guild_id = int(current_user.active_guild_id)
     offset = (page - 1) * page_size
 
-    # Fetch guild roles and members for enrichment
+    # Fetch guild roles and members for name resolution (similar to resolve_target_names)
     try:
         guild_roles = await internal_api.get_guild_roles(guild_id)
-        # Use string keys for role IDs
         roles_map = {str(role["id"]): role["name"] for role in guild_roles}
     except Exception as e:
         import traceback
@@ -453,7 +530,6 @@ async def search_user_voice_settings(
             return members_cache[user_id]
         try:
             member = await internal_api.get_guild_member(guild_id, user_id)
-            # Prefer nick > global_name > username
             name = (
                 member.get("nick")
                 or member.get("global_name")
@@ -464,6 +540,21 @@ async def search_user_voice_settings(
         except Exception:
             members_cache[user_id] = None
             return None
+
+    def resolve_target(
+        target_id: str, target_type: str, guild_id_str: str
+    ) -> tuple[str | None, bool, bool]:
+        """Resolve target name and flags (mirrors resolve_target_names helper)."""
+        if target_id in ("0", guild_id_str):
+            return ("@everyone", True, False)
+        if target_type == "role":
+            name = roles_map.get(target_id)
+            if name:
+                return (f"@{name}", False, False)
+            else:
+                return (None, False, True)  # Unknown role
+        # User type
+        return (None, False, False)  # Will be resolved async
 
     # Resolve users from verification table
     # Try exact user_id match first if query is numeric
@@ -510,47 +601,80 @@ async def search_user_voice_settings(
         )
         rows = await cursor.fetchall()
 
-    # Build response items with JTC settings for each user
+    # Build response items with JTC settings using direct DB queries (snapshot-like structure)
     items = []
+    guild_id_str = str(guild_id)
+
+    # Fetch all JTC channels for the guild to get their names
+    # This uses the internal API to get channel information from the bot's cache
+    jtc_channels_map = {}  # Map of jtc_channel_id -> channel_name
+    try:
+        all_channels = await internal_api.get_guild_channels(guild_id)
+        jtc_channels_map = {
+            str(ch["id"]): ch.get("name", f"Channel {ch['id']}")
+            for ch in all_channels
+            if ch.get("type") in (2, 13)  # Voice channels (2) and Stage channels (13)
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch guild channels for JTC name resolution: {e}")
+
     for row in rows:
         user_id = row[0]
         rsi_handle = row[1]
         community_moniker = row[2]
 
-        # Fetch all JTC settings for this user in the current guild
-        all_jtc_settings = await _get_all_user_jtc_settings(guild_id, user_id)
+        # Get all JTC channels where this user has settings
+        cursor = await db.execute(
+            """
+            SELECT DISTINCT jtc_channel_id
+            FROM channel_settings
+            WHERE guild_id = ? AND user_id = ?
+            """,
+            (guild_id, user_id),
+        )
+        jtc_rows = await cursor.fetchall()
+
         primary_jtc_id = await _get_last_used_jtc_channel(guild_id, user_id)
 
-        # Convert settings to response models with enriched names
+        # For each JTC, build settings using snapshot-like queries
         jtc_list = []
-        for jtc_channel_id, settings in all_jtc_settings.items():
-            # Helper to resolve target name and detect "everyone"
-            def resolve_target(
-                target_id: str, target_type: str
-            ) -> tuple[str | None, bool, bool]:
-                """Return (target_name, is_everyone, unknown_role)."""
-                if target_id == "0":
-                    return ("@everyone", True, False)
-                if target_type == "role":
-                    name = roles_map.get(target_id)
-                    if name:
-                        return (f"@{name}", False, False)
-                    else:
-                        return (None, False, True)  # Unknown role
-                # User type
-                return (None, False, False)  # Will be resolved async below
+        for (jtc_channel_id,) in jtc_rows:
+            # Get basic settings
+            cursor = await db.execute(
+                """
+                SELECT channel_name, user_limit, lock
+                FROM channel_settings
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            """,
+                (guild_id, jtc_channel_id, user_id),
+            )
+            settings_row = await cursor.fetchone()
 
-            # Normalize settings to ensure lists are present (not missing)
+            if not settings_row:
+                continue
+
+            channel_name, user_limit, lock = settings_row
+
+            # Get permissions
+            cursor = await db.execute(
+                """
+                SELECT target_id, target_type, permission
+                FROM channel_permissions
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            """,
+                (guild_id, jtc_channel_id, user_id),
+            )
+            perm_rows = await cursor.fetchall()
+
             permissions = []
-            for p in settings.get("permissions", []):
+            for p in perm_rows:
                 target_id = str(p[0])
                 target_type = p[1]
                 target_name, is_everyone, unknown_role = resolve_target(
-                    target_id, target_type
+                    target_id, target_type, guild_id_str
                 )
-                # For users, fetch name asynchronously
                 if target_type == "user" and not is_everyone:
-                    target_name = await get_member_name(target_id)
+                    target_name = await get_member_name(int(target_id))
                 permissions.append(
                     PermissionEntry(
                         target_id=target_id,
@@ -562,15 +686,26 @@ async def search_user_voice_settings(
                     )
                 )
 
+            # Get PTT settings
+            cursor = await db.execute(
+                """
+                SELECT target_id, target_type, ptt_enabled
+                FROM channel_ptt_settings
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            """,
+                (guild_id, jtc_channel_id, user_id),
+            )
+            ptt_rows = await cursor.fetchall()
+
             ptt_settings = []
-            for p in settings.get("ptt_settings", []):
+            for p in ptt_rows:
                 target_id = str(p[0])
                 target_type = p[1]
                 target_name, is_everyone, unknown_role = resolve_target(
-                    target_id, target_type
+                    target_id, target_type, guild_id_str
                 )
                 if target_type == "user" and not is_everyone:
-                    target_name = await get_member_name(target_id)
+                    target_name = await get_member_name(int(target_id))
                 ptt_settings.append(
                     PTTSettingEntry(
                         target_id=target_id,
@@ -582,15 +717,26 @@ async def search_user_voice_settings(
                     )
                 )
 
+            # Get priority speaker settings
+            cursor = await db.execute(
+                """
+                SELECT target_id, target_type, priority_enabled
+                FROM channel_priority_speaker_settings
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            """,
+                (guild_id, jtc_channel_id, user_id),
+            )
+            priority_rows = await cursor.fetchall()
+
             priority_settings = []
-            for p in settings.get("priority_settings", []):
+            for p in priority_rows:
                 target_id = str(p[0])
                 target_type = p[1]
                 target_name, is_everyone, unknown_role = resolve_target(
-                    target_id, target_type
+                    target_id, target_type, guild_id_str
                 )
                 if target_type == "user" and not is_everyone:
-                    target_name = await get_member_name(target_id)
+                    target_name = await get_member_name(int(target_id))
                 priority_settings.append(
                     PrioritySpeakerEntry(
                         target_id=target_id,
@@ -602,15 +748,26 @@ async def search_user_voice_settings(
                     )
                 )
 
+            # Get soundboard settings
+            cursor = await db.execute(
+                """
+                SELECT target_id, target_type, soundboard_enabled
+                FROM channel_soundboard_settings
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            """,
+                (guild_id, jtc_channel_id, user_id),
+            )
+            soundboard_rows = await cursor.fetchall()
+
             soundboard_settings = []
-            for p in settings.get("soundboard_settings", []):
+            for p in soundboard_rows:
                 target_id = str(p[0])
                 target_type = p[1]
                 target_name, is_everyone, unknown_role = resolve_target(
-                    target_id, target_type
+                    target_id, target_type, guild_id_str
                 )
                 if target_type == "user" and not is_everyone:
-                    target_name = await get_member_name(target_id)
+                    target_name = await get_member_name(int(target_id))
                 soundboard_settings.append(
                     SoundboardEntry(
                         target_id=target_id,
@@ -624,12 +781,13 @@ async def search_user_voice_settings(
 
             jtc_list.append(
                 JTCChannelSettings(
-                    jtc_channel_id=str(
-                        jtc_channel_id
-                    ),  # Convert to string to preserve precision in JSON/JS
-                    channel_name=settings.get("channel_name"),
-                    user_limit=settings.get("user_limit"),
-                    lock=settings.get("lock", False),
+                    jtc_channel_id=str(jtc_channel_id),
+                    jtc_channel_name=jtc_channels_map.get(
+                        str(jtc_channel_id), f"JTC {jtc_channel_id}"
+                    ),
+                    channel_name=channel_name,
+                    user_limit=user_limit,
+                    lock=lock if lock is not None else False,
                     permissions=permissions,
                     ptt_settings=ptt_settings,
                     priority_settings=priority_settings,
@@ -640,14 +798,10 @@ async def search_user_voice_settings(
         # Add user settings record (even if jtcs is empty)
         items.append(
             UserJTCSettings(
-                user_id=str(
-                    user_id
-                ),  # Convert to string to preserve precision in JSON/JS
+                user_id=str(user_id),
                 rsi_handle=rsi_handle,
                 community_moniker=community_moniker,
-                primary_jtc_id=str(primary_jtc_id)
-                if primary_jtc_id
-                else None,  # Convert to string to preserve precision in JSON/JS
+                primary_jtc_id=str(primary_jtc_id) if primary_jtc_id else None,
                 jtcs=jtc_list,
             )
         )

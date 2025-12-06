@@ -244,12 +244,24 @@ function Voice() {
         {/* JTC Header */}
         <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-700">
           <div className="flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-500">JTC Channel</span>
-              <span className="font-mono text-sm text-indigo-400">{jtc.jtc_channel_id}</span>
+              {jtc.jtc_channel_name && !jtc.jtc_channel_name.match(/^(JTC \d+|Channel \d+)$/) ? (
+                <>
+                  <span className="font-medium text-indigo-300">{jtc.jtc_channel_name}</span>
+                  <span className="font-mono text-xs text-gray-500">ID: {jtc.jtc_channel_id}</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-mono text-sm text-indigo-400">{jtc.jtc_channel_id}</span>
+                  <span className="px-2 py-0.5 text-xs rounded bg-yellow-900/30 text-yellow-300 border border-yellow-700" title="Channel name could not be resolved">
+                    Channel Not Found
+                  </span>
+                </>
+              )}
               {isPrimary && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-indigo-900/50 text-indigo-200 border border-indigo-700">
-                  Primary
+                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-indigo-900/50 text-indigo-200 border border-indigo-700" title="Most recently used JTC channel">
+                  Last Used
                 </span>
               )}
             </div>

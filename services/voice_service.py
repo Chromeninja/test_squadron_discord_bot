@@ -5,20 +5,20 @@ Voice service for managing voice channels and related functionality.
 import asyncio
 import time
 from collections.abc import Collection, Iterable
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import discord
 
-from helpers.discord_api import (
-    channel_send_message,
-    delete_channel,
-)
+from helpers.discord_api import delete_channel
 from helpers.voice_permissions import enforce_permission_changes
 from services.db.database import Database
 from utils.types import VoiceChannelInfo, VoiceChannelResult
 
 from .base import BaseService
 from .config_service import ConfigService
+
+if TYPE_CHECKING:
+    from utils.types import VoiceSettingsSnapshot
 
 
 # Function alias for test patching - avoids circular import
@@ -872,6 +872,187 @@ class VoiceService(BaseService):
             "creation_locks": len(self._creation_locks),
         }
 
+    async def get_voice_settings_snapshot(
+        self,
+        guild_id: int,
+        jtc_channel_id: int,
+        owner_id: int,
+        voice_channel_id: int | None = None,
+        guild: discord.Guild | None = None,
+    ) -> "VoiceSettingsSnapshot | None":
+        """
+        Get a complete snapshot of voice channel settings.
+
+        This is the unified method for retrieving voice settings used by:
+        - Discord commands (/voice list, /voice admin_list)
+        - Backend API endpoints (/api/voice/search, /api/voice/active, /api/voice/user-settings)
+
+        Args:
+            guild_id: Discord guild ID
+            jtc_channel_id: Join-to-create channel ID
+            owner_id: Channel owner user ID
+            voice_channel_id: Optional voice channel ID if currently active
+            guild: Optional Discord guild object for name resolution
+
+        Returns:
+            VoiceSettingsSnapshot or None if no settings found
+        """
+        from utils.types import (
+            PermissionOverride,
+            PrioritySpeakerSetting,
+            PTTSetting,
+            SoundboardSetting,
+            VoiceSettingsSnapshot,
+        )
+
+        try:
+            async with Database.get_connection() as db:
+                # Get basic channel settings
+                cursor = await db.execute(
+                    """
+                    SELECT channel_name, user_limit, lock
+                    FROM channel_settings
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+                """,
+                    (guild_id, jtc_channel_id, owner_id),
+                )
+                row = await cursor.fetchone()
+
+                if not row:
+                    # No settings found
+                    return None
+
+                channel_name, user_limit, lock = row
+
+                # Get channel metadata if voice_channel_id provided
+                created_at = None
+                last_activity = None
+                is_active = False
+
+                if voice_channel_id:
+                    cursor = await db.execute(
+                        """
+                        SELECT created_at, last_activity, is_active
+                        FROM voice_channels
+                        WHERE voice_channel_id = ? AND owner_id = ?
+                    """,
+                        (voice_channel_id, owner_id),
+                    )
+                    vc_row = await cursor.fetchone()
+                    if vc_row:
+                        created_at, last_activity, is_active = vc_row
+                        is_active = bool(is_active)
+
+                # Get permissions
+                cursor = await db.execute(
+                    """
+                    SELECT target_id, target_type, permission
+                    FROM channel_permissions
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+                """,
+                    (guild_id, jtc_channel_id, owner_id),
+                )
+                perm_rows = await cursor.fetchall()
+
+                # Get PTT settings
+                cursor = await db.execute(
+                    """
+                    SELECT target_id, target_type, ptt_enabled
+                    FROM channel_ptt_settings
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+                """,
+                    (guild_id, jtc_channel_id, owner_id),
+                )
+                ptt_rows = await cursor.fetchall()
+
+                # Get priority speaker settings
+                cursor = await db.execute(
+                    """
+                    SELECT target_id, target_type, priority_enabled
+                    FROM channel_priority_speaker_settings
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+                """,
+                    (guild_id, jtc_channel_id, owner_id),
+                )
+                priority_rows = await cursor.fetchall()
+
+                # Get soundboard settings
+                cursor = await db.execute(
+                    """
+                    SELECT target_id, target_type, soundboard_enabled
+                    FROM channel_soundboard_settings
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+                """,
+                    (guild_id, jtc_channel_id, owner_id),
+                )
+                soundboard_rows = await cursor.fetchall()
+
+                # Build snapshot with unresolved names (resolution happens separately)
+                permissions = [
+                    PermissionOverride(
+                        target_id=str(target_id),
+                        target_type=target_type,
+                        permission=permission,
+                    )
+                    for target_id, target_type, permission in perm_rows
+                ]
+
+                ptt_settings = [
+                    PTTSetting(
+                        target_id=str(target_id),
+                        target_type=target_type,
+                        ptt_enabled=bool(ptt_enabled),
+                    )
+                    for target_id, target_type, ptt_enabled in ptt_rows
+                ]
+
+                priority_settings = [
+                    PrioritySpeakerSetting(
+                        target_id=str(target_id),
+                        target_type=target_type,
+                        priority_enabled=bool(priority_enabled),
+                    )
+                    for target_id, target_type, priority_enabled in priority_rows
+                ]
+
+                soundboard_settings = [
+                    SoundboardSetting(
+                        target_id=str(target_id),
+                        target_type=target_type,
+                        soundboard_enabled=bool(soundboard_enabled),
+                    )
+                    for target_id, target_type, soundboard_enabled in soundboard_rows
+                ]
+
+                snapshot = VoiceSettingsSnapshot(
+                    guild_id=guild_id,
+                    jtc_channel_id=jtc_channel_id,
+                    owner_id=owner_id,
+                    voice_channel_id=voice_channel_id,
+                    channel_name=channel_name,
+                    user_limit=user_limit,
+                    is_locked=bool(lock),
+                    created_at=created_at,
+                    last_activity=last_activity,
+                    is_active=is_active,
+                    permissions=permissions,
+                    ptt_settings=ptt_settings,
+                    priority_speaker_settings=priority_settings,
+                    soundboard_settings=soundboard_settings,
+                )
+
+                # Resolve names if guild provided
+                if guild:
+                    from helpers.voice_settings import resolve_target_names
+
+                    await resolve_target_names(guild, snapshot)
+
+                return snapshot
+
+        except Exception as e:
+            self.logger.exception("Error getting voice settings snapshot", exc_info=e)
+            return None
+
     # Additional methods for cog integration
 
     async def create_user_voice_channel(
@@ -1210,6 +1391,45 @@ class VoiceService(BaseService):
                     )
         except Exception as e:
             self.logger.warning(f"Failed to send bot spam channel notification: {e}")
+
+    async def _send_settings_message_to_vc(
+        self,
+        voice_channel: discord.VoiceChannel,
+        member: discord.Member,
+        view: discord.ui.View,
+    ) -> None:
+        """Send the settings message to the voice channel via its send() method."""
+
+        if self.debug_logging_enabled:
+            self.logger.debug(
+                "Sending settings message to VC %s for member %s",
+                voice_channel.id,
+                member.id,
+            )
+
+        try:
+            await voice_channel.send(
+                f"{member.mention}, configure your channel settings:",
+                view=view,
+            )
+
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    "Successfully sent settings message to VC %s",
+                    voice_channel.id,
+                )
+        except discord.Forbidden:
+            self.logger.warning(
+                f"Missing permissions to send settings message in VC {voice_channel.id}"
+            )
+        except discord.HTTPException as e:
+            self.logger.warning(
+                f"HTTP error sending settings message to VC {voice_channel.id}: {e}"
+            )
+        except Exception as e:
+            self.logger.exception(
+                f"Error sending VC settings message to {voice_channel.id}: {e}"
+            )
 
     async def _cleanup_empty_channel(
         self, channel_or_id: discord.VoiceChannel | int
@@ -1655,20 +1875,10 @@ class VoiceService(BaseService):
                 # (views imports voice utilities which depend on voice_service)
                 from helpers.views import ChannelSettingsView
 
-                # Send settings view to channel (requires bot instance)
-                if self.bot and isinstance(channel, discord.TextChannel):
-                    await channel_send_message(
-                        channel,
-                        "Configure your channel settings:",
-                        view=ChannelSettingsView(self.bot),
-                    )
-                else:
-                    self.logger.debug(
-                        "Skipping settings message; channel is not a text channel or bot missing"
-                    )
-            except discord.Forbidden:
-                self.logger.warning(
-                    f"Cannot send message to '{channel.name}' - missing permissions."
+                await self._send_settings_message_to_vc(
+                    voice_channel=channel,
+                    member=member,
+                    view=ChannelSettingsView(self.bot),
                 )
             except Exception as e:
                 self.logger.exception(

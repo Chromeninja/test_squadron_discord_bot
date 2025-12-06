@@ -436,7 +436,7 @@ class InternalAPIServer:
         return web.json_response({"roles": roles_payload})
 
     async def get_guild_channels(self, request: web.Request) -> web.Response:
-        """Return text channels for a guild."""
+        """Return all channels (text, voice, stage) for a guild."""
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -453,18 +453,23 @@ class InternalAPIServer:
             return web.json_response({"error": "Guild not found"}, status=404)
 
         channels_payload = []
-        for channel in guild.text_channels:
+        # Include all channel types: text (0), voice (2), stage (13), category (4), forum (15), etc.
+        for channel in guild.channels:
             # Get category name if channel is in a category
             category_name = (
-                channel.category.name if channel.category else "Uncategorized"
+                channel.category.name if hasattr(channel, "category") and channel.category else "Uncategorized"
             )
+
+            # Get channel type
+            channel_type = channel.type.value if hasattr(channel, "type") else None
 
             channels_payload.append(
                 {
                     "id": str(channel.id),  # Send as string to preserve precision
                     "name": channel.name,
+                    "type": channel_type,  # 0=text, 2=voice, 4=category, 13=stage, 15=forum
                     "category": category_name,
-                    "position": channel.position,
+                    "position": channel.position if hasattr(channel, "position") else 0,
                 }
             )
 

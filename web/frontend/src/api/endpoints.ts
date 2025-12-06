@@ -199,6 +199,7 @@ export interface SoundboardEntry {
 
 export interface JTCChannelSettings {
   jtc_channel_id: string;  // Changed to string to preserve Discord snowflake precision
+  jtc_channel_name: string | null;  // Friendly name of the JTC channel
   channel_name: string | null;
   user_limit: number | null;
   lock: boolean;

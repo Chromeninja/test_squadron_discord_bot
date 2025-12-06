@@ -15,6 +15,7 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
+from services.db.database import Database
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -47,46 +48,78 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         try:
             await interaction.response.defer(ephemeral=True)
 
-            # Use the new helper to fetch settings
-            from helpers.voice_settings import fetch_channel_settings
-
-            result = await fetch_channel_settings(
-                bot=self.bot,
-                interaction=interaction,
-                target_user=None,  # Use interaction user
-                allow_inactive=True,
-            )
-
-            if not result["settings"] and not result["embeds"]:
-                if result["is_active"]:
-                    await interaction.followup.send(
-                        "❌ You're in a voice channel, but it's not managed by the bot or has no saved settings.",
-                        ephemeral=True,
-                    )
-                else:
-                    await interaction.followup.send(
-                        "❌ You don't have an active voice channel or saved settings. Join a voice channel or configure settings first.",
-                        ephemeral=True,
-                    )
+            if not interaction.guild or not isinstance(interaction.user, discord.Member):
+                await interaction.followup.send(
+                    "❌ This command must be used in a server.", ephemeral=True
+                )
                 return
 
-            # Send the appropriate embed
-            if result["embeds"]:
-                embed = result["embeds"][
-                    0
-                ]  # Use the first (and usually only) embed for user list
-                await interaction.followup.send(embed=embed, ephemeral=True)
-            else:
-                # Fallback if no embeds but we have settings
-                embed = discord.Embed(
-                    title="🎙️ Your Voice Channel Settings", color=discord.Color.blue()
+            guild = interaction.guild
+            user = interaction.user
+
+            # Check if user is in an active voice channel
+            active_channel = None
+            voice_channel_id = None
+            if user.voice and user.voice.channel:
+                active_channel = user.voice.channel
+                voice_channel_id = active_channel.id
+
+            # Determine JTC channel - use active channel's JTC if available, otherwise last used
+            jtc_channel_id = None
+
+            if voice_channel_id:
+                # Check if this is a managed voice channel
+                async with Database.get_connection() as db:
+                    cursor = await db.execute(
+                        """
+                        SELECT jtc_channel_id FROM voice_channels
+                        WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1
+                    """,
+                        (voice_channel_id, user.id),
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        jtc_channel_id = row[0]
+
+            # If no active channel or not managed, check for last used JTC
+            if not jtc_channel_id:
+                from helpers.voice_settings import _get_last_used_jtc_channel
+
+                jtc_channel_id = await _get_last_used_jtc_channel(guild.id, user.id)
+
+            if not jtc_channel_id:
+                await interaction.followup.send(
+                    "❌ You don't have an active voice channel or saved settings. Join a voice channel or configure settings first.",
+                    ephemeral=True,
                 )
-                embed.add_field(
-                    name="Settings Found",
-                    value="You have saved settings, but they could not be displayed properly.",
-                    inline=False,
+                return
+
+            # Get snapshot using the new unified method
+            snapshot = await self.voice_service.get_voice_settings_snapshot(
+                guild_id=guild.id,
+                jtc_channel_id=jtc_channel_id,
+                owner_id=user.id,
+                voice_channel_id=voice_channel_id,
+                guild=guild,
+            )
+
+            if not snapshot:
+                await interaction.followup.send(
+                    "❌ You don't have any saved settings for this voice channel.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Build embed using unified renderer
+            from helpers.embeds import build_voice_settings_ui
+
+            embed = build_voice_settings_ui(
+                snapshot=snapshot,
+                user=user,
+                active_channel=active_channel if isinstance(active_channel, discord.VoiceChannel) else None,
+            )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             logger.exception("Error in list_permissions command", exc_info=e)
@@ -438,29 +471,68 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         try:
             await interaction.response.defer(ephemeral=True)
 
-            # Use the new helper to fetch settings
-            from helpers.voice_settings import fetch_channel_settings
+            guild = interaction.guild
 
-            result = await fetch_channel_settings(
-                bot=self.bot,
-                interaction=interaction,
-                target_user=user,
-                allow_inactive=True,
-            )
+            # Get all JTC channels where this user has settings
+            from helpers.voice_settings import _get_all_user_jtc_settings
 
-            if not result["settings"] and not result["embeds"]:
+            all_jtc_settings = await _get_all_user_jtc_settings(guild.id, user.id)
+
+            if not all_jtc_settings:
                 await interaction.followup.send(
                     f"📭 No saved voice channel settings found for {user.mention}.",
                     ephemeral=True,
                 )
                 return
 
-            # Send all embeds (one per JTC channel with settings)
-            if result["embeds"]:
-                for embed in result["embeds"]:
+            # Build embeds for each JTC using the unified system
+            from helpers.embeds import build_voice_settings_ui
+
+            embeds_sent = 0
+            for jtc_channel_id in all_jtc_settings:
+                # Check if user is currently in an active channel for this JTC
+                voice_channel_id = None
+                active_channel = None
+
+                if user.voice and user.voice.channel:
+                    # Check if active channel belongs to this JTC
+                    async with Database.get_connection() as db:
+                        cursor = await db.execute(
+                            """
+                            SELECT voice_channel_id FROM voice_channels
+                            WHERE voice_channel_id = ? AND owner_id = ? AND jtc_channel_id = ? AND is_active = 1
+                        """,
+                            (user.voice.channel.id, user.id, jtc_channel_id),
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            voice_channel_id = row[0]
+                            active_channel = user.voice.channel
+
+                # Get snapshot using unified method
+                snapshot = await self.voice_service.get_voice_settings_snapshot(
+                    guild_id=guild.id,
+                    jtc_channel_id=jtc_channel_id,
+                    owner_id=user.id,
+                    voice_channel_id=voice_channel_id,
+                    guild=guild,
+                )
+
+                if snapshot:
+                    embed = build_voice_settings_ui(
+                        snapshot=snapshot,
+                        user=user,
+                        active_channel=active_channel if isinstance(active_channel, discord.VoiceChannel) else None,
+                    )
+                    # Update embed title/color for admin view
+                    embed.title = f"🔧 Voice Settings for {user.display_name}"
+                    embed.color = discord.Color.orange()
+
                     await interaction.followup.send(embed=embed, ephemeral=True)
-            else:
-                # Fallback if no embeds but we have settings
+                    embeds_sent += 1
+
+            if embeds_sent == 0:
+                # Fallback if snapshots couldn't be built
                 embed = discord.Embed(
                     title=f"🔧 Voice Settings for {user.display_name}",
                     description=f"Administrative view of voice channel settings for {user.mention}",

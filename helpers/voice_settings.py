@@ -5,14 +5,91 @@ This module provides utilities for fetching voice channel settings that can be
 shared between different voice commands.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 
 from services.db.database import Database
 from utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from utils.types import VoiceSettingsSnapshot
+
 logger = get_logger(__name__)
+
+
+async def resolve_target_names(
+    guild: discord.Guild,
+    snapshot: "VoiceSettingsSnapshot",
+) -> None:
+    """
+    Resolve target names in a VoiceSettingsSnapshot.
+
+    Annotates all TargetEntry objects (permissions, PTT, priority, soundboard)
+    with resolved names and metadata flags:
+    - target_name: Display name for the target
+    - is_everyone: True if target is @everyone
+    - unknown_role: True if target is a role that no longer exists
+
+    This replaces all duplicated name resolution logic across commands and API.
+
+    Args:
+        guild: Discord guild for name resolution
+        snapshot: VoiceSettingsSnapshot to annotate in-place
+    """
+
+    def resolve_single_target(target_id: str, target_type: str) -> tuple[str | None, bool, bool]:
+        """Resolve a single target to (name, is_everyone, unknown_role)."""
+        if target_type == "user":
+            # Check for @everyone (target_id == guild_id as string)
+            if target_id == str(guild.id) or target_id == "0":
+                return ("@everyone", True, False)
+
+            # Regular user
+            try:
+                member = guild.get_member(int(target_id))
+                if member:
+                    return (member.display_name, False, False)
+            except (ValueError, AttributeError):
+                pass
+            return (f"Unknown User ({target_id})", False, False)
+
+        elif target_type == "role":
+            # Check for @everyone (target_id == guild_id)
+            if target_id == str(guild.id):
+                return ("@everyone", True, False)
+
+            # Regular role
+            try:
+                role = guild.get_role(int(target_id))
+                if role:
+                    return (f"@{role.name}", False, False)
+            except (ValueError, AttributeError):
+                pass
+            return (None, False, True)  # Unknown role
+
+        return (str(target_id), False, False)
+
+    # Resolve all target entries
+    for perm in snapshot.permissions:
+        perm.target_name, perm.is_everyone, perm.unknown_role = resolve_single_target(
+            perm.target_id, perm.target_type
+        )
+
+    for ptt in snapshot.ptt_settings:
+        ptt.target_name, ptt.is_everyone, ptt.unknown_role = resolve_single_target(
+            ptt.target_id, ptt.target_type
+        )
+
+    for priority in snapshot.priority_speaker_settings:
+        priority.target_name, priority.is_everyone, priority.unknown_role = resolve_single_target(
+            priority.target_id, priority.target_type
+        )
+
+    for soundboard in snapshot.soundboard_settings:
+        soundboard.target_name, soundboard.is_everyone, soundboard.unknown_role = resolve_single_target(
+            soundboard.target_id, soundboard.target_type
+        )
 
 
 async def fetch_channel_settings(

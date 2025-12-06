@@ -243,13 +243,10 @@ class TestVoiceServiceChannelCreation:
         mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
         mock_guild.get_member.return_value = mock_bot_member
 
-        # Mock enforce_permission_changes and channel_send_message
-        with (
-            patch("services.voice_service.enforce_permission_changes") as mock_enforce,
-            patch("services.voice_service.channel_send_message") as mock_send,
-        ):
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
-            mock_send.return_value = None
 
             await voice_service._create_user_channel(
                 mock_guild, mock_jtc_channel, mock_member
@@ -297,13 +294,10 @@ class TestVoiceServiceChannelCreation:
         mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
         mock_guild.get_member.return_value = mock_bot_member
 
-        # Mock enforce_permission_changes and channel_send_message
-        with (
-            patch("services.voice_service.enforce_permission_changes") as mock_enforce,
-            patch("services.voice_service.channel_send_message") as mock_send,
-        ):
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
-            mock_send.return_value = None
 
             await voice_service._create_user_channel(
                 mock_guild, mock_jtc_channel, mock_member
@@ -343,30 +337,26 @@ class TestVoiceServiceChannelCreation:
         mock_member.move_to = AsyncMock()
 
         # Mock enforce_permission_changes
+        created_channel.send = AsyncMock()
         with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
 
-            # Mock channel_send_message
-            with patch("services.voice_service.channel_send_message") as mock_send:
-                mock_send.return_value = None
+            await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
 
-                await voice_service._create_user_channel(
-                    mock_guild, mock_jtc_channel, mock_member
-                )
+            # Verify channel was created with saved settings
+            mock_guild.create_voice_channel.assert_called_once()
+            create_args = mock_guild.create_voice_channel.call_args
 
-                # Verify channel was created with saved settings
-                mock_guild.create_voice_channel.assert_called_once()
-                create_args = mock_guild.create_voice_channel.call_args
+            assert create_args.kwargs["name"] == "My Custom Channel"
+            assert create_args.kwargs["user_limit"] == 5
 
-                assert create_args.kwargs["name"] == "My Custom Channel"
-                assert create_args.kwargs["user_limit"] == 5
+            # Verify settings were applied
+            mock_enforce.assert_called_once()
 
-                # Verify settings were applied
-                mock_enforce.assert_called_once()
-
-                # Note: channel_send_message is NOT called because the created channel is a VoiceChannel,
-                # not a TextChannel. The code checks isinstance(channel, discord.TextChannel) and skips the message.
-                # This is correct behavior - settings views are sent to text channels, not voice channels.
+            # Verify the settings message was sent via voice_channel.send()
+            created_channel.send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_user_channel_uses_defaults_no_saved_settings(
@@ -391,25 +381,24 @@ class TestVoiceServiceChannelCreation:
         # Mock member move
         mock_member.move_to = AsyncMock()
 
-        # Mock enforce_permission_changes
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
         with patch("services.voice_service.enforce_permission_changes"):
-            # Mock channel_send_message
-            with patch("services.voice_service.channel_send_message"):
-                await voice_service._create_user_channel(
-                    mock_guild, mock_jtc_channel, mock_member
-                )
+            await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
 
-                # Verify channel was created with default settings
-                mock_guild.create_voice_channel.assert_called_once()
-                create_args = mock_guild.create_voice_channel.call_args
+            # Verify channel was created with default settings
+            mock_guild.create_voice_channel.assert_called_once()
+            create_args = mock_guild.create_voice_channel.call_args
 
-                # Should use default name format
-                assert (
-                    create_args.kwargs["name"]
-                    == f"{mock_member.display_name}'s Channel"
-                )
-                # Should use JTC channel's user_limit
-                assert create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
+            # Should use default name format
+            assert (
+                create_args.kwargs["name"]
+                == f"{mock_member.display_name}'s Channel"
+            )
+            # Should use JTC channel's user_limit
+            assert create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
 
     @pytest.mark.parametrize(
         "channel_name,user_limit,lock,expected_name,expected_limit,expected_lock",
@@ -540,13 +529,10 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
     # Set up database mock - no saved settings for this test
     mock_db_connection.set_fetchone_result(None)
 
-    # Mock permission enforcement and messaging
-    with (
-        patch("services.voice_service.enforce_permission_changes") as mock_enforce,
-        patch("services.voice_service.channel_send_message") as mock_send,
-    ):
+    # Mock permission enforcement and messaging (voice_channel.send() instead of channel_send_message)
+    fake_created_channel.send = AsyncMock()
+    with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
         mock_enforce.return_value = None
-        mock_send.return_value = None
 
         # Execute the voice service flow: join-to-create → create channel → move member
         await voice_service._create_user_channel(
@@ -567,7 +553,6 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
         # 3. Permissions were enforced
         mock_enforce.assert_called_once()
 
-        # 4. Settings view is NOT sent to a voice channel. The code only sends when the created
-        #    channel is a text channel (discord.TextChannel). This created channel is a voice channel,
-        #    so the send is skipped. This matches production behavior.
-        mock_send.assert_not_called()
+        # 4. Settings view is sent to the voice channel via send()
+        fake_created_channel.send.assert_called_once()
+

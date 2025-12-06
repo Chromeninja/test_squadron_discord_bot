@@ -269,6 +269,7 @@ class JTCChannelSettings(BaseModel):
     """Settings for a single JTC channel."""
 
     jtc_channel_id: str  # Changed to str to preserve 64-bit Discord snowflake precision
+    jtc_channel_name: str | None = None  # Display name of the JTC channel
     channel_name: str | None = None
     user_limit: int | None = None
     lock: bool = False
