@@ -26,6 +26,7 @@ from helpers.permissions_helper import (
     store_permit_reject_in_db,
 )
 from helpers.rate_limiter import check_rate_limit, log_attempt
+from helpers.role_select_utils import load_selectable_roles, refresh_role_select
 from helpers.token_manager import generate_token, token_store
 from helpers.voice_settings import fetch_channel_settings
 from helpers.voice_utils import (
@@ -976,53 +977,15 @@ class FeatureRoleSelectView(View):
 
     async def initialize(self, guild: discord.Guild) -> None:
         """Load allowed roles from DB and refresh options before sending view."""
-        allowed_roles = await self._resolve_allowed_roles(guild)
-        self.role_select.allowed_roles = allowed_roles if allowed_roles else []
-        logger.debug(
-            f"FeatureRoleSelectView.initialize: Set allowed_roles to {self.role_select.allowed_roles}"
-        )
-        self.role_select.refresh_options(guild)
+        allowed_roles = await load_selectable_roles(self.bot, guild)
+        refresh_role_select(self.role_select, guild, allowed_roles)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         # Roles should already be loaded from initialize(), but refresh to be safe
         if interaction.guild:
-            allowed_roles = await self._resolve_allowed_roles(interaction.guild)
-            self.role_select.allowed_roles = allowed_roles if allowed_roles else []
-            self.role_select.refresh_options(interaction.guild)
+            allowed_roles = await load_selectable_roles(self.bot, interaction.guild)
+            refresh_role_select(self.role_select, interaction.guild, allowed_roles)
         return True
-
-    async def _resolve_allowed_roles(
-        self, guild: discord.Guild | None
-    ) -> list[int] | None:
-        """Fetch selectable roles for this guild via ConfigService, falling back to static config."""
-        if guild and getattr(self.bot, "services", None):
-            config_service = getattr(self.bot.services, "config", None)
-            if config_service:
-                try:
-                    roles = await config_service.get_guild_setting(
-                        guild.id, "selectable_roles", []
-                    )
-                    logger.debug(
-                        f"FeatureRoleSelectView: Loaded selectable_roles for guild {guild.id}: {roles}"
-                    )
-                    if roles:
-                        converted = [int(role_id) for role_id in roles]
-                        logger.debug(
-                            f"FeatureRoleSelectView: Converted to int list: {converted}"
-                        )
-                        return converted
-                    else:
-                        logger.warning(
-                            f"FeatureRoleSelectView: No selectable_roles configured for guild {guild.id}"
-                        )
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    logger.warning(
-                        "Failed to load selectable_roles from DB for guild %s: %s",
-                        guild.id,
-                        exc,
-                    )
-        # Do not fall back to YAML or any defaults; if none configured, return empty
-        return []
 
     async def role_select_callback(self, interaction: Interaction) -> None:
         """
@@ -1253,58 +1216,17 @@ class SelectRoleView(View):
 
     async def initialize(self, guild: discord.Guild) -> None:
         """Load allowed roles from DB and refresh options before sending view."""
-        if hasattr(self.bot, "services"):
-            config_service = getattr(self.bot.services, "config", None)
-            if config_service:
-                try:
-                    allowed_roles = await config_service.get_guild_setting(
-                        guild.id, "selectable_roles", []
-                    )
-                    logger.debug(
-                        f"SelectRoleView.initialize: Loaded selectable_roles for guild {guild.id}: {allowed_roles}"
-                    )
-                    if allowed_roles:
-                        self.role_select.allowed_roles = [int(r) for r in allowed_roles]
-                        logger.debug(
-                            f"SelectRoleView.initialize: Set allowed_roles to {self.role_select.allowed_roles}"
-                        )
-                    else:
-                        logger.warning(
-                            f"SelectRoleView.initialize: No selectable_roles configured for guild {guild.id}"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"SelectRoleView.initialize: Failed to load selectable_roles: {e}"
-                    )
-        self.role_select.refresh_options(guild)
+        allowed_roles = await load_selectable_roles(self.bot, guild)
+        refresh_role_select(self.role_select, guild, allowed_roles)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         # Load allowed roles from config service on first interaction
-        if interaction.guild and hasattr(self.bot, "services"):
-            config_service = getattr(self.bot.services, "config", None)
-            if config_service:
-                try:
-                    allowed_roles = await config_service.get_guild_setting(
-                        interaction.guild.id, "selectable_roles", []
-                    )
-                    logger.debug(
-                        f"SelectRoleView: Loaded selectable_roles for guild {interaction.guild.id}: {allowed_roles}"
-                    )
-                    if allowed_roles:
-                        self.role_select.allowed_roles = [int(r) for r in allowed_roles]
-                        logger.debug(
-                            f"SelectRoleView: Set allowed_roles to {self.role_select.allowed_roles}"
-                        )
-                    else:
-                        logger.warning(
-                            f"SelectRoleView: No selectable_roles configured for guild {interaction.guild.id}"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to load selectable_roles: {e}")
+        if interaction.guild:
+            allowed_roles = await load_selectable_roles(self.bot, interaction.guild)
+            refresh_role_select(self.role_select, interaction.guild, allowed_roles)
 
         if not interaction.guild:
             return False
-        self.role_select.refresh_options(interaction.guild)
         return True
 
     async def role_select_callback(self, interaction: Interaction) -> None:

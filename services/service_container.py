@@ -12,6 +12,7 @@ from .config_service import ConfigService
 from .guild_config_helper import GuildConfigHelper
 from .guild_service import GuildService
 from .health_service import HealthService
+from .role_delegation_service import RoleDelegationService
 from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
 
@@ -35,6 +36,7 @@ class ServiceContainer:
         self._guild: GuildService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
+        self._role_delegation: RoleDelegationService | None = None
         self._verify_bulk: VerificationBulkService | None = None
         self._initialized = False
 
@@ -74,6 +76,13 @@ class ServiceContainer:
         return self._health
 
     @property
+    def role_delegation(self) -> RoleDelegationService:
+        """Get the role delegation service."""
+        if self._role_delegation is None:
+            raise RuntimeError("RoleDelegationService not initialized")
+        return self._role_delegation
+
+    @property
     def verify_bulk(self) -> VerificationBulkService:
         """Get the verification bulk service."""
         if self._verify_bulk is None:
@@ -92,6 +101,8 @@ class ServiceContainer:
             services.append(self._voice)
         if self._health:
             services.append(self._health)
+        if self._role_delegation:
+            services.append(self._role_delegation)
         if self._verify_bulk:
             services.append(self._verify_bulk)
         return services
@@ -125,6 +136,11 @@ class ServiceContainer:
             self._voice = VoiceService(self._config, self.bot)
             await self._voice.initialize()
             self.logger.debug("VoiceService initialized")
+
+            # Initialize role delegation service (depends on config and bot)
+            self._role_delegation = RoleDelegationService(self._config, self.bot)
+            await self._role_delegation.initialize()
+            self.logger.debug("RoleDelegationService initialized")
 
             # Initialize health service (no dependencies)
             self._health = HealthService()
@@ -163,6 +179,10 @@ class ServiceContainer:
         if self._voice:
             await self._voice.shutdown()
             self._voice = None
+
+        if self._role_delegation:
+            await self._role_delegation.shutdown()
+            self._role_delegation = None
 
         if self._guild:
             await self._guild.shutdown()

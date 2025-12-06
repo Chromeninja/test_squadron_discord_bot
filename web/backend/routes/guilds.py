@@ -227,6 +227,7 @@ async def update_bot_roles_settings(
         payload.main_role,
         payload.affiliate_role,
         payload.nonmember_role,
+        payload.delegation_policies,
     )
     updated = await get_bot_role_settings(db, guild_id)
 

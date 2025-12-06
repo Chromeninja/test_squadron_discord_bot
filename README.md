@@ -20,7 +20,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 
 - **`bot.py`**: The main bot script initializing the bot, loading environment variables, configuration, and setting up logging.
 - **`config/`**: Configuration management with type-safe loading
-  - **`config.yaml`**: Stores bot configurations such as command prefix, rate limits, and organization name.
+  - **`config.yaml`**: Stores core runtime settings (prefixes, rate limits, org metadata). Role mappings now live in the database and are managed via the Web Dashboard.
 - **`cogs/`**: Discord.py command modules
   - **`verification.py`**: Handles user verification process
   - **`voice.py`**: Voice channel management system
@@ -90,15 +90,7 @@ The bot requires specific Discord permissions to function properly. **Do not gra
 5. For voice categories: Right-click the voice category → Edit Category → Permissions → Add bot role with "Manage Channels" permission
 
 #### Role Configuration:
-Configure role access levels in `config/config.yaml`:
-```yaml
-roles:
-  bot_owner: 123456789012345678  # Bot owner user ID (full system access)
-  bot_admins: [123456789012345678, 987654321098765432]  # Bot Admin role IDs
-  discord_managers: [111111111111111111]  # Discord Manager role IDs
-  moderators: [222222222222222222]  # Moderator role IDs
-  staff: [333333333333333333]  # Staff role IDs (read-only access)
-```
+Configure role access levels in the **Web Dashboard → Guild Settings → Roles**. Role lists are stored in the database (per guild) and kept in sync with Discord role IDs.
 
 **Web Dashboard Access:**
 - **Bot Admin & Moderator**: Full access (user recheck, reset voice, manage settings)
@@ -107,7 +99,7 @@ roles:
 
 ### Admin Commands
 
-The bot includes several administrative commands for configuration and management. All admin commands require users to have the appropriate role level configured in `config/config.yaml` (see [Permission System](#permission-system) for details).
+The bot includes several administrative commands for configuration and management. All admin commands require users to have the appropriate role level configured via the Web Dashboard (DB-backed roles; see [Permission System](#permission-system)).
 
 > **💡 Live Command Discovery**: For the most up-to-date list of available commands, use `/help` in Discord or `/status` for detailed bot information. Commands listed below represent the core functionality but may not reflect the latest additions or changes.
 
@@ -244,6 +236,9 @@ Results are exported to CSV with the following columns:
 ### Permission System
 
 Both the Discord bot and web dashboard use a **hierarchical role-based permission system** rather than Discord's built-in Administrator permission for security:
+
+- Role lists are **stored in the database per guild** and edited through the Web Dashboard (Guild Settings → Roles). Changes stay aligned with actual Discord role IDs.
+- Delegation policies (for controlled role grants) will live under the `roles.delegation_policies` key in guild settings.
 
 #### Role Hierarchy (Highest to Lowest Privilege):
 1. **Bot Owner** - Full system access (user must be bot owner in config)

@@ -42,6 +42,11 @@ DISCORD_TOKEN=your_discord_bot_token_here
   - Navigate to the verification channel.
   - You should see the verification message with the "Get Token" and "Verify" buttons.
 
+## 🔐 Configure Roles
+- Role mappings are stored in the database per guild and managed via the **Web Dashboard → Guild Settings → Roles**.
+- The permission hierarchy is: bot_owner > bot_admin > discord_manager > moderator > staff > user.
+- Future delegated role policies will be stored under `roles.delegation_policies` in guild settings.
+
 ## 🎉 You're All Set!
 
 The bot should now be running locally.

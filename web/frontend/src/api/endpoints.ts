@@ -49,6 +49,17 @@ export interface DiscordChannel {
   position: number;
 }
 
+export interface RoleDelegationPolicyPayload {
+  grantor_role_ids: string[];
+  target_role_id: string;
+  prerequisite_role_ids_all: string[];
+  prerequisite_role_ids_any: string[];
+  // Legacy fallback; when present treat as prerequisite_role_ids_all
+  prerequisite_role_ids?: string[];
+  enabled: boolean;
+  note?: string | null;
+}
+
 export interface BotRoleSettingsPayload {
   bot_admins: string[];  // Bot admin roles
   discord_managers: string[];  // Discord manager roles (new)
@@ -58,6 +69,8 @@ export interface BotRoleSettingsPayload {
   main_role: string[];  // Verification role: full members
   affiliate_role: string[];  // Verification role: affiliate members
   nonmember_role: string[];  // Verification role: non-members
+
+  delegation_policies?: RoleDelegationPolicyPayload[];  // DB-backed delegation policies
 }
 
 export interface BotChannelSettingsPayload {

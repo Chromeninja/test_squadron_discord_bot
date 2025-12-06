@@ -523,10 +523,6 @@ async def get_permission_level(
 
     # Check moderators
     moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.moderators")
-    if not moderator_ids:
-        moderator_ids = await _get_configured_role_ids(
-            bot, guild.id, "roles.lead_moderators"
-        )
     if user_role_ids & moderator_ids:
         return PermissionLevel.MODERATOR
 
@@ -585,39 +581,6 @@ async def is_staff(
     """Check if user has staff privileges or higher."""
     level = await get_permission_level(bot, member, guild)
     return level >= PermissionLevel.STAFF
-
-
-# Legacy functions - kept for backward compatibility
-async def is_bot_admin_only(
-    bot,
-    member: discord.Member,
-    guild: discord.Guild | None = None,
-) -> bool:
-    """DEPRECATED: Use is_bot_admin() instead."""
-
-    return await is_bot_admin(bot, member, guild)
-
-
-async def is_lead_moderator_or_higher(
-    bot,
-    member: discord.Member,
-    guild: discord.Guild | None = None,
-) -> bool:
-    """DEPRECATED: Use is_moderator() instead."""
-
-    return await is_moderator(bot, member, guild)
-
-
-async def is_privileged_user(
-    bot,
-    member: discord.Member,
-    guild: discord.Guild | None = None,
-) -> bool:
-    """DEPRECATED: Use is_moderator() instead."""
-
-    return await is_moderator(bot, member, guild)
-
-
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> Any:
     from discord import app_commands
 
@@ -646,12 +609,9 @@ __all__ = [
     "get_permission_level",
     "get_role_display_name",
     "is_bot_admin",
-    "is_bot_admin_only",
     "is_bot_owner",
     "is_discord_manager",
-    "is_lead_moderator_or_higher",
     "is_moderator",
-    "is_privileged_user",
     "is_staff",
     "reset_channel_permissions",
     "resolve_role_ids_for_guild",

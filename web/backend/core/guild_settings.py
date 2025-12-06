@@ -18,9 +18,13 @@ MAIN_ROLE_KEY = "roles.main_role"
 AFFILIATE_ROLE_KEY = "roles.affiliate_role"
 NONMEMBER_ROLE_KEY = "roles.nonmember_role"
 SELECTABLE_ROLES_KEY = "selectable_roles"
+DELEGATION_POLICIES_KEY = "roles.delegation_policies"
+# Legacy alias retained for compatibility until callers are migrated.
+ROLE_DELEGATION_POLICIES_KEY = DELEGATION_POLICIES_KEY
 
 SETTINGS_VERSION_KEY = "meta.settings_version"
 SETTINGS_VERSION_ROLES_SOURCE = "bot_roles"
+SETTINGS_VERSION_DELEGATION_SOURCE = "role_delegation"
 
 VERIFICATION_CHANNEL_KEY = "channels.verification_channel_id"
 BOT_SPAM_CHANNEL_KEY = "channels.bot_spam_channel_id"
@@ -60,6 +64,91 @@ def _coerce_role_list(value: Any) -> list[str]:
     return cleaned
 
 
+def _normalize_policy_roles(raw_roles: Any) -> list[str]:
+    """Normalize a role list to unique string IDs preserving numeric validity."""
+    if raw_roles is None:
+        return []
+    normalized: list[str] = []
+    seen = set()
+    items = raw_roles if isinstance(raw_roles, list) else [raw_roles]
+    for item in items:
+        try:
+            rid = str(int(item))
+        except (TypeError, ValueError):
+            continue
+        if rid not in seen:
+            seen.add(rid)
+            normalized.append(rid)
+    return normalized
+
+
+def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
+    """Normalize delegation policies to the new schema shape with string snowflakes.
+
+    Supports legacy keys (grantor_roles/granted_role/requirements.required_roles)
+    and new keys (grantor_role_ids/target_role_id/prerequisite_role_ids_all/
+    prerequisite_role_ids_any).
+    """
+    if not value:
+        return []
+
+    normalized: list[dict] = []
+    for policy in value:
+        if hasattr(policy, "model_dump"):
+            policy = policy.model_dump()
+        if not isinstance(policy, dict):
+            continue
+
+        grantor_roles = policy.get("grantor_role_ids") or policy.get("grantor_roles")
+        target_role_raw = policy.get("target_role_id") or policy.get("granted_role")
+
+        requirements = policy.get("requirements") or {}
+        prereq_all = (
+            policy.get("prerequisite_role_ids_all")
+            or policy.get("prerequisite_role_ids")
+            or requirements.get("required_roles")
+        )
+        prereq_any = policy.get("prerequisite_role_ids_any")
+
+        try:
+            target_role_id = str(int(target_role_raw)) if target_role_raw is not None else None
+        except (TypeError, ValueError):
+            target_role_id = None
+
+        if target_role_id is None:
+            # Skip invalid policies instead of storing partial data
+            continue
+
+        normalized.append(
+            {
+                "grantor_role_ids": _normalize_policy_roles(grantor_roles),
+                "target_role_id": target_role_id,
+                "prerequisite_role_ids_all": _normalize_policy_roles(prereq_all),
+                "prerequisite_role_ids": _normalize_policy_roles(prereq_all),
+                "prerequisite_role_ids_any": _normalize_policy_roles(prereq_any),
+                "enabled": bool(policy.get("enabled", True)),
+                "note": policy.get("note") or policy.get("notes"),
+            }
+        )
+    return normalized
+
+
+def _coerce_policy_list(value: Any) -> list[dict]:
+    """Deserialize delegation policy JSON into normalized list of dicts."""
+    if value is None:
+        return []
+
+    try:
+        data = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    return _normalize_delegation_policies(data)
+
+
 async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
     """Fetch bot role settings for a guild with sensible defaults.
 
@@ -69,7 +158,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
     query = """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = await db.execute(
         query,
@@ -83,6 +172,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
             MAIN_ROLE_KEY,
             AFFILIATE_ROLE_KEY,
             NONMEMBER_ROLE_KEY,
+            DELEGATION_POLICIES_KEY,
         ),
     )
     rows = await cursor.fetchall()
@@ -96,6 +186,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
         "main_role": [],
         "affiliate_role": [],
         "nonmember_role": [],
+        "delegation_policies": [],
     }
     for key, value in rows:
         if key == BOT_ADMINS_KEY:
@@ -114,8 +205,27 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
             result["affiliate_role"] = _coerce_role_list(value)
         elif key == NONMEMBER_ROLE_KEY:
             result["nonmember_role"] = _coerce_role_list(value)
+        elif key == DELEGATION_POLICIES_KEY:
+            result["delegation_policies"] = _coerce_policy_list(value)
 
     return result
+
+
+async def get_role_delegation_policies(
+    db: Connection, guild_id: int
+) -> list[dict]:
+    """Fetch delegation policies for a guild, normalized."""
+    cursor = await db.execute(
+        """
+        SELECT value FROM guild_settings
+        WHERE guild_id = ? AND key = ?
+        """,
+        (guild_id, DELEGATION_POLICIES_KEY),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return []
+    return _coerce_policy_list(row[0])
 
 
 def _make_version_payload(source: str | None = None) -> str:
@@ -151,6 +261,7 @@ async def set_bot_role_settings(
     main_role: list[str],
     affiliate_role: list[str],
     nonmember_role: list[str],
+    delegation_policies: list[dict] | None = None,
 ) -> None:
     """Persist bot role settings for a guild."""
 
@@ -179,6 +290,14 @@ async def set_bot_role_settings(
         (NONMEMBER_ROLE_KEY, json.dumps(_normalize_role_ids(nonmember_role))),
     ]
 
+    if delegation_policies is not None:
+        payloads.append(
+            (
+                DELEGATION_POLICIES_KEY,
+                json.dumps(_normalize_delegation_policies(delegation_policies)),
+            )
+        )
+
     await db.executemany(
         """
         INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
@@ -186,8 +305,30 @@ async def set_bot_role_settings(
         """,
         [(guild_id, key, value) for key, value in payloads],
     )
+    if delegation_policies is not None:
+        await _touch_settings_version(
+            db, guild_id, source=SETTINGS_VERSION_DELEGATION_SOURCE
+        )
     await _touch_settings_version(db, guild_id, source=SETTINGS_VERSION_ROLES_SOURCE)
     await db.commit()
+
+
+async def set_role_delegation_policies(
+    db: Connection, guild_id: int, policies: list[dict]
+) -> list[dict]:
+    """Persist delegation policies for a guild and return normalized payload."""
+    normalized = _normalize_delegation_policies(policies)
+
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        (guild_id, DELEGATION_POLICIES_KEY, json.dumps(normalized)),
+    )
+    await _touch_settings_version(db, guild_id, source=SETTINGS_VERSION_DELEGATION_SOURCE)
+    await db.commit()
+    return normalized
 
 
 async def get_bot_channel_settings(

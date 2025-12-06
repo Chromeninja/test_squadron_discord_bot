@@ -372,8 +372,21 @@ class GuildMemberResponse(BaseModel):
     member: GuildMember
 
 
+class RoleDelegationPolicy(BaseModel):
+    """Delegation policy describing who can grant which role under prerequisites."""
+
+    grantor_role_ids: list[str] = Field(default_factory=list)
+    target_role_id: str
+    prerequisite_role_ids_all: list[str] = Field(default_factory=list)
+    prerequisite_role_ids_any: list[str] = Field(default_factory=list)
+    # Legacy compatibility field; populated from *_all for old clients when present.
+    prerequisite_role_ids: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    note: str | None = None
+
+
 class BotRoleSettings(BaseModel):
-    """Bot permission role assignments and member category roles.
+    """Bot permission role assignments, member category roles, and delegation policies.
 
     Permission roles (managed via web admin):
     - bot_admins: Full bot administration access
@@ -398,12 +411,27 @@ class BotRoleSettings(BaseModel):
     affiliate_role: list[str] = Field(default_factory=list)
     nonmember_role: list[str] = Field(default_factory=list)
 
+    delegation_policies: list[RoleDelegationPolicy] = Field(default_factory=list)
+
 
 class VoiceSelectableRoles(BaseModel):
     """Selectable voice role configuration for channel automation."""
 
     # Role IDs are strings to preserve 64-bit Discord snowflake precision
     selectable_roles: list[str] = Field(default_factory=list)
+
+
+class RoleDelegationConfig(BaseModel):
+    """Collection of delegation policies for a guild (legacy endpoint wrapper)."""
+
+    policies: list[RoleDelegationPolicy] = Field(default_factory=list)
+
+
+class RoleDelegationConfigResponse(BaseModel):
+    """Response wrapper for delegation policy config."""
+
+    success: bool = True
+    data: RoleDelegationConfig
 
 
 class DiscordChannel(BaseModel):

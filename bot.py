@@ -54,6 +54,7 @@ initial_extensions = [
     "cogs.admin.commands",
     "cogs.admin.check_user",
     "cogs.admin.recheck",
+    "cogs.admin.role_delegation",
     "cogs.admin.verify_bulk",
     "cogs.voice.commands",
     "cogs.voice.events",

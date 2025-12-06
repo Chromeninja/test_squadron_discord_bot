@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent, type FocusEvent } from 'react';
 
 export interface MultiSelectOption {
   id: string;  // Changed from number to string to preserve 64-bit Discord snowflake precision
@@ -21,6 +21,9 @@ const SearchableMultiSelect = ({
   componentId = 'default',
 }: SearchableMultiSelectProps) => {
   const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -38,6 +41,7 @@ const SearchableMultiSelect = ({
     } else {
       onChange([...selected, optionId]);
     }
+    setIsOpen(true);
   };
 
   const removeSelection = (optionId: string) => {
@@ -49,11 +53,55 @@ const SearchableMultiSelect = ({
       event.preventDefault();
       const last = selected[selected.length - 1];
       removeSelection(last);
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      setIsOpen(false);
+      setHighlightedIndex(-1);
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => {
+        const next = prev + 1;
+        return next >= filteredOptions.length ? 0 : next;
+      });
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => {
+        if (prev <= 0) {
+          return filteredOptions.length - 1;
+        }
+        return prev - 1;
+      });
+      return;
+    }
+
+    if (event.key === 'Enter' && highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+      event.preventDefault();
+      const option = filteredOptions[highlightedIndex];
+      toggleSelection(option.id);
     }
   };
 
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget as Node | null;
+    if (containerRef.current && next && containerRef.current.contains(next)) {
+      return;
+    }
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  };
+
   return (
-    <div className="space-y-2">
+    <div className="relative space-y-2" ref={containerRef} onBlur={handleBlur}>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-600 bg-slate-800 p-2 focus-within:border-indigo-400">
         {selected.map((id) => {
           const selectedOption = options.find((opt) => opt.id === id);
@@ -79,30 +127,35 @@ const SearchableMultiSelect = ({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleInputKeyDown}
+          onFocus={() => setIsOpen(true)}
           placeholder={placeholder}
           className="flex-1 bg-transparent text-sm focus:outline-none"
         />
       </div>
 
-      <div className="max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900">
-        {filteredOptions.length === 0 ? (
-          <div className="p-3 text-sm text-gray-400">No roles match your search.</div>
-        ) : (
-          <ul>
-            {filteredOptions.map((option) => (
-              <li
-                key={`${componentId}-${option.id}`}
-                className={`cursor-pointer px-3 py-2 text-sm transition hover:bg-slate-800 ${
-                  selectedSet.has(option.id) ? 'bg-slate-800 text-indigo-300' : 'text-gray-200'
-                }`}
-                onClick={() => toggleSelection(option.id)}
-              >
-                {option.name}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {isOpen && (
+        <div className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg">
+          {filteredOptions.length === 0 ? (
+            <div className="p-3 text-sm text-gray-400">No roles match your search.</div>
+          ) : (
+            <ul>
+              {filteredOptions.map((option, index) => (
+                <li
+                  key={`${componentId}-${option.id}`}
+                  className={`cursor-pointer px-3 py-2 text-sm transition hover:bg-slate-800 ${
+                    highlightedIndex === index ? 'bg-slate-800 text-indigo-300' : ''
+                  } ${selectedSet.has(option.id) ? 'text-indigo-300' : 'text-gray-200'}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => toggleSelection(option.id)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                >
+                  {option.name}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 };

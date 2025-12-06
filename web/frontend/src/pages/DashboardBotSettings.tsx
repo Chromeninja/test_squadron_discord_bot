@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig } from '../api/endpoints';
+import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, RoleDelegationPolicyPayload } from '../api/endpoints';
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
 import AccordionSection from '../components/AccordionSection';
@@ -20,6 +20,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [mainRole, setMainRole] = useState<string[]>([]);
   const [affiliateRole, setAffiliateRole] = useState<string[]>([]);
   const [nonmemberRole, setNonmemberRole] = useState<string[]>([]);
+  const [delegationPolicies, setDelegationPolicies] = useState<RoleDelegationPolicyPayload[]>([]);
   const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<string[]>([]);
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
@@ -64,6 +65,33 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     [channels]
   );
 
+  const addDelegationPolicy = () =>
+    setDelegationPolicies((prev) => [
+      ...prev,
+      {
+        grantor_role_ids: [],
+        target_role_id: '',
+        prerequisite_role_ids_all: [],
+        prerequisite_role_ids_any: [],
+        prerequisite_role_ids: [],
+        enabled: true,
+        note: '',
+      },
+    ]);
+
+  const updateDelegationPolicy = (
+    index: number,
+    changes: Partial<RoleDelegationPolicyPayload>
+  ) => {
+    setDelegationPolicies((prev) =>
+      prev.map((policy, i) => (i === index ? { ...policy, ...changes } : policy))
+    );
+  };
+
+  const removeDelegationPolicy = (index: number) => {
+    setDelegationPolicies((prev) => prev.filter((_, i) => i !== index));
+  };
+
   useEffect(() => {
     const loadData = async () => {
       if (!guildId) {
@@ -97,6 +125,14 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setMainRole(settingsResponse.main_role || []);
         setAffiliateRole(settingsResponse.affiliate_role || []);
         setNonmemberRole(settingsResponse.nonmember_role || []);
+        const normalizedPolicies = (settingsResponse.delegation_policies || []).map((p) => ({
+          ...p,
+          prerequisite_role_ids_all:
+            p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+          prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
+          prerequisite_role_ids: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+        }));
+        setDelegationPolicies(normalizedPolicies);
         setVoiceSelectableRoles(voiceSelectableResponse.selectable_roles || []);
         setVerificationChannelId(channelSettingsResponse.verification_channel_id);
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
@@ -122,29 +158,41 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setError(null);
 
     try {
-      const patch = {
-        roles: {
-          bot_admins: botAdmins,
-          discord_managers: discordManagers,
-          moderators: moderators,
-          staff: staff,
-          bot_verified_role: botVerifiedRole,
-          main_role: mainRole,
-          affiliate_role: affiliateRole,
-          nonmember_role: nonmemberRole,
-        },
+      const cleanedPolicies = delegationPolicies
+        .filter((p) => p.target_role_id)
+        .map((p) => ({
+          ...p,
+          prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+          prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
+        }));
+      const payload = {
+        bot_admins: botAdmins,
+        discord_managers: discordManagers,
+        moderators: moderators,
+        staff: staff,
+        bot_verified_role: botVerifiedRole,
+        main_role: mainRole,
+        affiliate_role: affiliateRole,
+        nonmember_role: nonmemberRole,
+        delegation_policies: cleanedPolicies,
       };
-      const response = await guildApi.patchGuildConfig(guildId, patch);
-      const updated = response.data.roles;
+      const updated = await guildApi.updateBotRoleSettings(guildId, payload);
       setBotAdmins(updated.bot_admins);
       setDiscordManagers(updated.discord_managers || []);
       setModerators(updated.moderators || []);
       setStaff(updated.staff || []);
       setBotVerifiedRole(updated.bot_verified_role || []);
       setMainRole(updated.main_role || []);
-      setMainRole(updated.main_role || []);
       setAffiliateRole(updated.affiliate_role || []);
       setNonmemberRole(updated.nonmember_role || []);
+      const normalizedUpdated = (updated.delegation_policies || []).map((p) => ({
+        ...p,
+        prerequisite_role_ids_all:
+          p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+        prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
+        prerequisite_role_ids: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+      }));
+      setDelegationPolicies(normalizedUpdated);
       setStatusMessage('Settings saved successfully.');
     } catch (err) {
       console.error(err);
@@ -539,6 +587,114 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   componentId="nonmember-role"
                 />
               </div>
+            </div>
+          </AccordionSection>
+
+          <AccordionSection title="🤝 Delegated Role Grants" level={2}>
+            <div className="space-y-4">
+              <p className="text-xs text-gray-300">
+                Define which roles can grant a target role and what prerequisites the target must already have.
+                Disabled policies are ignored. Policies with no target role are not saved.
+              </p>
+
+              {delegationPolicies.map((policy, index) => (
+                <div key={index} className="rounded-lg border border-slate-700 bg-slate-800/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-sm font-semibold text-white">Policy #{index + 1}</h5>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs text-gray-200">
+                        <input
+                          type="checkbox"
+                          checked={policy.enabled}
+                          onChange={(e) => updateDelegationPolicy(index, { enabled: e.target.checked })}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Enabled
+                      </label>
+                      <button
+                        onClick={() => removeDelegationPolicy(index)}
+                        className="text-xs text-red-300 hover:text-red-200"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h6 className="text-xs font-semibold text-white mb-1">Grantor Roles</h6>
+                    <p className="text-[11px] text-gray-400 mb-2">Members must have at least one of these roles to grant the target role.</p>
+                    <SearchableMultiSelect
+                      options={roleOptions}
+                      selected={policy.grantor_role_ids}
+                      onChange={(val) => updateDelegationPolicy(index, { grantor_role_ids: val })}
+                      placeholder="Select grantor roles"
+                      componentId={`grantor-${index}`}
+                    />
+                  </div>
+
+                  <div>
+                    <h6 className="text-xs font-semibold text-white mb-1">Target Role</h6>
+                    <p className="text-[11px] text-gray-400 mb-2">Role that will be granted when the policy passes.</p>
+                    <SearchableSelect
+                      options={roleOptions}
+                      selected={policy.target_role_id || null}
+                      onChange={(val) => updateDelegationPolicy(index, { target_role_id: val || '' })}
+                      placeholder="Select target role"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <h6 className="text-xs font-semibold text-white mb-1">Must Have ALL</h6>
+                      <p className="text-[11px] text-gray-400 mb-2">Target must already have every role listed here.</p>
+                      <SearchableMultiSelect
+                        options={roleOptions}
+                        selected={policy.prerequisite_role_ids_all}
+                        onChange={(val) =>
+                          updateDelegationPolicy(index, {
+                            prerequisite_role_ids_all: val,
+                            prerequisite_role_ids: val,
+                          })
+                        }
+                        placeholder="Select required roles (all)"
+                        componentId={`prereq-all-${index}`}
+                      />
+                    </div>
+
+                    <div>
+                      <h6 className="text-xs font-semibold text-white mb-1">Must Have ANY</h6>
+                      <p className="text-[11px] text-gray-400 mb-2">Target must have at least one of these roles.</p>
+                      <SearchableMultiSelect
+                        options={roleOptions}
+                        selected={policy.prerequisite_role_ids_any}
+                        onChange={(val) =>
+                          updateDelegationPolicy(index, { prerequisite_role_ids_any: val })
+                        }
+                        placeholder="Select optional prerequisites (any)"
+                        componentId={`prereq-any-${index}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h6 className="text-xs font-semibold text-white mb-1">Note</h6>
+                    <input
+                      type="text"
+                      value={policy.note ?? ''}
+                      onChange={(e) => updateDelegationPolicy(index, { note: e.target.value })}
+                      placeholder="Optional note"
+                      className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={addDelegationPolicy}
+                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
+              >
+                Add Delegation Policy
+              </button>
             </div>
           </AccordionSection>
 
