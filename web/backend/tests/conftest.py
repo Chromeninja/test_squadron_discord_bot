@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -115,7 +115,9 @@ async def client(temp_db):
     # Import app after database is initialized
     from app import app
 
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 

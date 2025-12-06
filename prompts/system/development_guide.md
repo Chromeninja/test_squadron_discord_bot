@@ -72,19 +72,20 @@ async def risky_discord_operation(member: discord.Member) -> bool:
 ### Database Access Pattern
 
 ```python
+import json
 from helpers.database import Database
 
 async def update_verification_status(
     user_id: int, 
     rsi_handle: str, 
-    status: str
+    payload: dict
 ) -> bool:
-    """Update verification status with proper error handling."""
+    """Update verification payload with proper error handling (status derived from org lists)."""
     try:
         async with Database.get_connection() as db:
             await db.execute(
-                "UPDATE verification SET membership_status = ?, last_updated = ? WHERE user_id = ?",
-                (status, int(time.time()), user_id)
+                "UPDATE verification SET verification_payload = ?, last_updated = ? WHERE user_id = ?",
+                (json.dumps(payload), int(time.time()), user_id)
             )
             await db.commit()
         return True
@@ -148,11 +149,12 @@ async def test_verification_success(temp_db, monkeypatch) -> None:
     # Verify database state
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT membership_status FROM verification WHERE user_id = ?",
+            "SELECT main_orgs FROM verification WHERE user_id = ?",
             (12345,)
         )
         row = await cursor.fetchone()
-        assert row[0] == "main"
+        main_orgs = json.loads(row[0]) if row and row[0] else []
+        assert main_orgs  # User was marked as a member of at least one org
 ```
 
 ### Mock Discord Objects

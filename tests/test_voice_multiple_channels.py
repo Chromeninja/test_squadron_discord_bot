@@ -452,7 +452,9 @@ class TestMultipleChannelsPerOwner:
         await asyncio.sleep(0.05)
 
         # Verify _remove_owner_overwrites was called
-        assert len(remove_called) == 1, f"Expected 1 call to _remove_owner_overwrites, got {len(remove_called)}"
+        assert len(remove_called) == 1, (
+            f"Expected 1 call to _remove_owner_overwrites, got {len(remove_called)}"
+        )
         assert remove_called[0][0][1] == owner_id, "Should be called with owner_id"
 
         async with Database.get_connection() as db:

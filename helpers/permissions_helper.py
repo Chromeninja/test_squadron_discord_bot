@@ -581,6 +581,8 @@ async def is_staff(
     """Check if user has staff privileges or higher."""
     level = await get_permission_level(bot, member, guild)
     return level >= PermissionLevel.STAFF
+
+
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> Any:
     from discord import app_commands
 

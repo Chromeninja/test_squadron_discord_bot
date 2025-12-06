@@ -6,7 +6,7 @@ without hitting Discord API rate limits.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from aiohttp import web
@@ -716,7 +716,7 @@ class InternalAPIServer:
                 else None,
                 "roles": roles_data,
                 "role_ids": role_ids,
-                "last_synced_at": datetime.utcnow().isoformat() + "Z",
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
                 "source": source,
             }
         )

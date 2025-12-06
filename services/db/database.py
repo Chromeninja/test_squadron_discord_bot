@@ -2,7 +2,7 @@
 Database Helper Module
 
 Provides a centralized database interface for the Discord bot using aiosqlite.
-Handles connection pooling, initialization, and migrations.
+Handles connection pooling and schema initialization.
 """
 
 import asyncio
@@ -165,13 +165,6 @@ class Database:
                 await db.execute("PRAGMA foreign_keys=ON")
                 # Initialize schema using the centralized schema module
                 await init_schema(db)
-                # Run compatibility migrations on fresh DB path
-                # _create_tables is safe to call multiple times and also used by tests
-                try:
-                    await cls._create_tables(db)
-                except Exception:
-                    # If migration logic not applicable, ignore; tests may call _create_tables directly
-                    pass
             cls._initialized = True
             logger.info("Database initialized.")
 
@@ -198,68 +191,6 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def _create_tables(cls, db: aiosqlite.Connection) -> None:
-        """Compatibility/migration helper used by tests.
-
-        Ensures rate_limits exists and migrates legacy verification.last_recheck into rate_limits
-        (this mirrors migrations/004_create_rate_limits.sql behavior).
-        """
-        # Ensure rate_limits table exists
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS rate_limits (
-                user_id INTEGER NOT NULL,
-                action TEXT NOT NULL,
-                attempt_count INTEGER DEFAULT 0,
-                first_attempt INTEGER DEFAULT 0,
-                PRIMARY KEY (user_id, action)
-            )
-            """
-        )
-        # If verification has last_recheck column, migrate values
-        try:
-            cursor = await db.execute("PRAGMA table_info(verification)")
-            rows = await cursor.fetchall()
-            cols = [r[1] for r in rows]
-            if "last_recheck" in cols:
-                # Migrate last_recheck values into rate_limits
-                await db.execute(
-                    "INSERT OR IGNORE INTO rate_limits(user_id, action, attempt_count, first_attempt) "
-                    "SELECT user_id, 'recheck', 1, last_recheck FROM verification WHERE last_recheck > 0"
-                )
-
-                # Recreate verification table without last_recheck while preserving other columns and types
-                # Build column definitions from PRAGMA table_info
-                new_cols = []
-                select_cols = []
-                for r in rows:
-                    _cid, name, col_type, notnull, dflt_value, pk = r
-                    if name == "last_recheck":
-                        continue
-                    col_def = f"{name} {col_type or 'TEXT'}"
-                    if pk:
-                        col_def += " PRIMARY KEY"
-                    if notnull:
-                        col_def += " NOT NULL"
-                    if dflt_value is not None:
-                        col_def += f" DEFAULT {dflt_value}"
-                    new_cols.append(col_def)
-                    select_cols.append(name)
-
-                await db.execute("PRAGMA foreign_keys=OFF")
-                await db.execute(
-                    f"CREATE TABLE IF NOT EXISTS _verification_new ({', '.join(new_cols)})"
-                )
-                await db.execute(
-                    f"INSERT INTO _verification_new({', '.join(select_cols)}) SELECT {', '.join(select_cols)} FROM verification"
-                )
-                await db.execute("DROP TABLE verification")
-                await db.execute("ALTER TABLE _verification_new RENAME TO verification")
-                await db.execute("PRAGMA foreign_keys=ON")
-            await db.commit()
-        except Exception:
-            await db.rollback()
-
     @classmethod
     @asynccontextmanager
     async def get_connection(cls):

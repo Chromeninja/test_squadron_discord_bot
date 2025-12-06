@@ -154,14 +154,6 @@ class MyBot(commands.Bot):
             # Don't fail bot startup if internal API fails
             self.internal_api = None
 
-        # Run application-driven voice data migration (safe, idempotent)
-        try:
-            from helpers.voice_migration import run_voice_data_migration
-
-            await run_voice_data_migration(self)
-        except Exception as e:
-            logger.exception("Voice data migration failed", exc_info=e)
-
         # Add the BulkAnnouncer cog after DB is initialized
         # Import here to avoid circular import issues
         from helpers.announcement import BulkAnnouncer

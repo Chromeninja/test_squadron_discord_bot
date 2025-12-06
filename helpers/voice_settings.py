@@ -94,6 +94,102 @@ async def resolve_target_names(
         )
 
 
+async def get_voice_settings_snapshots(
+    guild_id: int, user_id: int
+) -> list["VoiceSettingsSnapshot"]:
+    """Build VoiceSettingsSnapshot objects for all JTC channels a user has settings in.
+
+    Returns snapshots with unresolved target names (IDs only). Name resolution can be
+    applied by callers (e.g., Discord bot using resolve_target_names or API layer
+    using guild role/member lookups).
+    """
+
+    from utils.types import (
+        PermissionOverride,
+        PrioritySpeakerSetting,
+        PTTSetting,
+        SoundboardSetting,
+        VoiceSettingsSnapshot,
+    )
+
+    snapshots: list[VoiceSettingsSnapshot] = []
+
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT DISTINCT jtc_channel_id
+            FROM channel_settings
+            WHERE guild_id = ? AND user_id = ?
+            ORDER BY jtc_channel_id
+            """,
+            (guild_id, user_id),
+        )
+        jtc_rows = await cursor.fetchall()
+
+    for (jtc_channel_id,) in jtc_rows:
+        settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
+        if not settings:
+            continue
+
+        permissions = [
+            PermissionOverride(
+                target_id=str(target_id),
+                target_type=target_type,
+                permission=permission,
+            )
+            for target_id, target_type, permission in settings.get("permissions", [])
+        ]
+
+        ptt_settings = [
+            PTTSetting(
+                target_id=str(target_id),
+                target_type=target_type,
+                ptt_enabled=bool(ptt_enabled),
+            )
+            for target_id, target_type, ptt_enabled in settings.get("ptt_settings", [])
+        ]
+
+        priority_settings = [
+            PrioritySpeakerSetting(
+                target_id=str(target_id),
+                target_type=target_type,
+                priority_enabled=bool(priority_enabled),
+            )
+            for target_id, target_type, priority_enabled in settings.get(
+                "priority_settings", []
+            )
+        ]
+
+        soundboard_settings = [
+            SoundboardSetting(
+                target_id=str(target_id),
+                target_type=target_type,
+                soundboard_enabled=bool(soundboard_enabled),
+            )
+            for target_id, target_type, soundboard_enabled in settings.get(
+                "soundboard_settings", []
+            )
+        ]
+
+        snapshots.append(
+            VoiceSettingsSnapshot(
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
+                owner_id=user_id,
+                voice_channel_id=None,
+                channel_name=settings.get("channel_name"),
+                user_limit=settings.get("user_limit"),
+                is_locked=bool(settings.get("lock", False)),
+                permissions=permissions,
+                ptt_settings=ptt_settings,
+                priority_speaker_settings=priority_settings,
+                soundboard_settings=soundboard_settings,
+            )
+        )
+
+    return snapshots
+
+
 async def fetch_channel_settings(
     bot: discord.Client,
     interaction: discord.Interaction,

@@ -2020,7 +2020,9 @@ class VoiceService(BaseService):
         )
         # Support both real discord channels and mock objects with voice channel interface
         old_channel: discord.VoiceChannel | discord.StageChannel | None = None
-        if isinstance(old_channel_candidate, (discord.VoiceChannel, discord.StageChannel)):
+        if isinstance(
+            old_channel_candidate, (discord.VoiceChannel, discord.StageChannel)
+        ):
             old_channel = old_channel_candidate
         elif (
             old_channel_candidate

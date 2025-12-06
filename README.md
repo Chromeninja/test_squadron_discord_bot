@@ -227,7 +227,7 @@ Check or recheck all users in any active voice channel:
 **CSV Export:**
 Results are exported to CSV with the following columns:
 - `user_id`, `username`, `rsi_handle` - Basic user identification
-- `membership_status` - Derived status: main, affiliate, non_member, unknown
+- `membership_status` - Derived at query time (not stored as a column): main, affiliate, non_member, unknown
 - `last_updated` - Unix timestamp of last verification
 - `voice_channel` - Current voice channel name (if in voice)
 - `rsi_status`, `rsi_checked_at`, `rsi_error` - RSI verification data (always included)

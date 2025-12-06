@@ -29,7 +29,9 @@ def _normalize_role_ids(raw_roles: Any, guild_id: int | None, key: str) -> list[
         try:
             role_id = int(raw)
         except (TypeError, ValueError):
-            logger.warning("Invalid role id '%s' for %s in guild %s", raw, key, guild_id)
+            logger.warning(
+                "Invalid role id '%s' for %s in guild %s", raw, key, guild_id
+            )
             continue
         if role_id < 0 or role_id in seen:
             continue

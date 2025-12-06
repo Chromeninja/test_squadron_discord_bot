@@ -32,7 +32,9 @@ class RoleDelegationCog(commands.Cog):
             raise RuntimeError("RoleDelegationService not initialized")
         return svc
 
-    @app_commands.command(name="role-grant", description="Grant a role under delegation policy")
+    @app_commands.command(
+        name="role-grant", description="Grant a role under delegation policy"
+    )
     @app_commands.describe(member="Member to grant the role to", role="Role to grant")
     @app_commands.guild_only()
     @require_permission_level(PermissionLevel.DISCORD_MANAGER)
@@ -46,19 +48,25 @@ class RoleDelegationCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         if interaction.guild is None:
-            await interaction.followup.send("This command can only be used in a guild.", ephemeral=True)
+            await interaction.followup.send(
+                "This command can only be used in a guild.", ephemeral=True
+            )
             return
 
         grantor = interaction.user
         if not isinstance(grantor, discord.Member):
-            await interaction.followup.send("This command can only be used by guild members.", ephemeral=True)
+            await interaction.followup.send(
+                "This command can only be used by guild members.", ephemeral=True
+            )
             return
 
         try:
             svc = await self._get_service()
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("RoleDelegationService unavailable", exc_info=exc)
-            await interaction.followup.send("Delegation service unavailable.", ephemeral=True)
+            await interaction.followup.send(
+                "Delegation service unavailable.", ephemeral=True
+            )
             return
 
         allowed, reason = await svc.can_grant(
@@ -95,6 +103,7 @@ class RoleDelegationCog(commands.Cog):
                 "granted_role_id": role.id,
             },
         )
+
 
 async def setup(bot):
     await bot.add_cog(RoleDelegationCog(bot))

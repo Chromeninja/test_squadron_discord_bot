@@ -7,7 +7,7 @@ import io
 import json
 import time
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.dependencies import (
     InternalAPIClient,
@@ -529,7 +529,7 @@ async def export_users(
             iter([csv_content]),
             media_type="text/csv",
             headers={
-                "Content-Disposition": f"attachment; filename=members_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+                "Content-Disposition": f"attachment; filename=members_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
             },
         )
 
@@ -663,6 +663,6 @@ async def export_users(
         iter([csv_content]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=members_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+            "Content-Disposition": f"attachment; filename=members_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         },
     )

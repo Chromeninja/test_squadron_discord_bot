@@ -100,7 +100,9 @@ class RoleDelegationService(BaseService):
         reason: str | None = None,
     ) -> tuple[bool, str]:
         """Validate delegation policy and apply the role to the target member."""
-        allowed, message = await self.can_grant(guild, grantor_member, target_member, role_id)
+        allowed, message = await self.can_grant(
+            guild, grantor_member, target_member, role_id
+        )
         if not allowed:
             return False, message
 
@@ -139,7 +141,9 @@ class RoleDelegationService(BaseService):
         )
         return True, ""
 
-    def _format_reason(self, guild: discord.Guild, code: str, role_ids: set[int] | list[int]) -> str:
+    def _format_reason(
+        self, guild: discord.Guild, code: str, role_ids: set[int] | list[int]
+    ) -> str:
         if not role_ids:
             return ""
 
@@ -153,7 +157,9 @@ class RoleDelegationService(BaseService):
             return f"Member has a role that blocks this grant: {role_list}"
         return "Delegation policy check failed"
 
-    def _format_role_list(self, guild: discord.Guild, role_ids: set[int] | list[int]) -> str:
+    def _format_role_list(
+        self, guild: discord.Guild, role_ids: set[int] | list[int]
+    ) -> str:
         formatted: list[str] = []
         for rid in sorted(role_ids):
             role_obj = guild.get_role(rid) if hasattr(guild, "get_role") else None
@@ -189,8 +195,7 @@ class RoleDelegationService(BaseService):
                 or requirements.get("required_roles")
             )
             any_roles = _role_id_list(
-                policy.get("prerequisite_role_ids_any")
-                or requirements.get("any_roles")
+                policy.get("prerequisite_role_ids_any") or requirements.get("any_roles")
             )
             forbidden_roles = _role_id_list(requirements.get("forbidden_roles"))
 

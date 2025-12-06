@@ -111,7 +111,9 @@ def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
         prereq_any = policy.get("prerequisite_role_ids_any")
 
         try:
-            target_role_id = str(int(target_role_raw)) if target_role_raw is not None else None
+            target_role_id = (
+                str(int(target_role_raw)) if target_role_raw is not None else None
+            )
         except (TypeError, ValueError):
             target_role_id = None
 
@@ -211,9 +213,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list
     return result
 
 
-async def get_role_delegation_policies(
-    db: Connection, guild_id: int
-) -> list[dict]:
+async def get_role_delegation_policies(db: Connection, guild_id: int) -> list[dict]:
     """Fetch delegation policies for a guild, normalized."""
     cursor = await db.execute(
         """
@@ -326,7 +326,9 @@ async def set_role_delegation_policies(
         """,
         (guild_id, DELEGATION_POLICIES_KEY, json.dumps(normalized)),
     )
-    await _touch_settings_version(db, guild_id, source=SETTINGS_VERSION_DELEGATION_SOURCE)
+    await _touch_settings_version(
+        db, guild_id, source=SETTINGS_VERSION_DELEGATION_SOURCE
+    )
     await db.commit()
     return normalized
 
