@@ -67,11 +67,12 @@ async def recheck_user(
     if not current_user.active_guild_id:
         raise HTTPException(status_code=400, detail="No active guild selected")
 
-    # Convert user_id to int for internal API
+    # Convert identifiers to ints for downstream calls
     try:
         user_id_int = int(user_id)
+        guild_id_int = int(current_user.active_guild_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user ID format")
+        raise HTTPException(status_code=400, detail="Invalid user or guild ID format")
 
     # Get user's current verification status before recheck
     cursor = await db.execute(
@@ -86,7 +87,7 @@ async def recheck_user(
 
     from core.guild_settings import get_organization_settings
 
-    org_settings = await get_organization_settings(db, current_user.active_guild_id)
+    org_settings = await get_organization_settings(db, guild_id_int)
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 
     def _derive_status(main_orgs_json, affiliate_orgs_json, sid):
@@ -117,7 +118,7 @@ async def recheck_user(
     # Call internal API to trigger recheck
     try:
         result = await internal_api.recheck_user(
-            guild_id=current_user.active_guild_id,
+            guild_id=guild_id_int,
             user_id=user_id_int,
             admin_user_id=current_user.user_id,
         )

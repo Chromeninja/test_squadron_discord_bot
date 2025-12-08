@@ -131,7 +131,7 @@ ignore = [
 "**/migration*.py" = []  # Migration files are fine
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "web/backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

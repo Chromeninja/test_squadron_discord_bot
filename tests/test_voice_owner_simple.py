@@ -115,7 +115,7 @@ async def test_voice_owner_command_shows_db_owners():
             )
 
             # Call the command
-            await voice_commands.list_owners.callback(voice_commands, mock_interaction)
+            await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
 
             # Verify the interaction was handled properly
             mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
@@ -209,7 +209,7 @@ async def test_voice_owner_command_no_channels():
             await db.commit()
 
         # Call the command
-        await voice_commands.list_owners.callback(voice_commands, mock_interaction)
+        await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
 
         # Verify empty message was sent
         mock_interaction.response.defer.assert_called_once_with(ephemeral=True)
@@ -255,7 +255,7 @@ async def test_voice_owner_command_accessible_to_all():
 
     # Mock no admin permissions (different role ID)
     with patch.object(voice_service, "get_admin_role_ids", return_value=[999999]):
-        await voice_commands.list_owners.callback(voice_commands, mock_interaction)
+        await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
 
         # Verify the command was allowed to proceed (defer was called)
         mock_interaction.response.defer.assert_called_once_with(ephemeral=True)

@@ -62,6 +62,8 @@ from core.schemas import (
     OrganizationSettings,
     OrganizationValidationRequest,
     OrganizationValidationResponse,
+    ReadOnlyYamlConfig,
+    RoleDelegationPolicy,
     UserProfile,
     VoiceSelectableRoles,
 )
@@ -199,7 +201,21 @@ async def get_bot_roles_settings(
     """Fetch stored bot role assignments for a guild."""
     _ensure_active_guild(current_user, guild_id)
     settings = await get_bot_role_settings(db, guild_id)
-    return BotRoleSettings(**settings)
+    policies = [
+        RoleDelegationPolicy(**policy)
+        for policy in settings.get("delegation_policies", [])
+    ]
+    return BotRoleSettings(
+        bot_admins=settings.get("bot_admins", []),  # type: ignore[arg-type]
+        discord_managers=settings.get("discord_managers", []),  # type: ignore[arg-type]
+        moderators=settings.get("moderators", []),  # type: ignore[arg-type]
+        staff=settings.get("staff", []),  # type: ignore[arg-type]
+        bot_verified_role=settings.get("bot_verified_role", []),  # type: ignore[arg-type]
+        main_role=settings.get("main_role", []),  # type: ignore[arg-type]
+        affiliate_role=settings.get("affiliate_role", []),  # type: ignore[arg-type]
+        nonmember_role=settings.get("nonmember_role", []),  # type: ignore[arg-type]
+        delegation_policies=policies,
+    )
 
 
 @router.put(
@@ -227,7 +243,7 @@ async def update_bot_roles_settings(
         payload.main_role,
         payload.affiliate_role,
         payload.nonmember_role,
-        payload.delegation_policies,
+        [policy.model_dump() for policy in payload.delegation_policies],
     )
     updated = await get_bot_role_settings(db, guild_id)
 
@@ -238,7 +254,22 @@ async def update_bot_roles_settings(
         logger.warning(
             "Failed to notify bot about guild %s role change: %s", guild_id, exc
         )
-    return BotRoleSettings(**updated)
+
+    updated_policies = [
+        RoleDelegationPolicy(**policy)
+        for policy in updated.get("delegation_policies", [])
+    ]
+    return BotRoleSettings(
+        bot_admins=updated.get("bot_admins", []),  # type: ignore[arg-type]
+        discord_managers=updated.get("discord_managers", []),  # type: ignore[arg-type]
+        moderators=updated.get("moderators", []),  # type: ignore[arg-type]
+        staff=updated.get("staff", []),  # type: ignore[arg-type]
+        bot_verified_role=updated.get("bot_verified_role", []),  # type: ignore[arg-type]
+        main_role=updated.get("main_role", []),  # type: ignore[arg-type]
+        affiliate_role=updated.get("affiliate_role", []),  # type: ignore[arg-type]
+        nonmember_role=updated.get("nonmember_role", []),  # type: ignore[arg-type]
+        delegation_policies=updated_policies,
+    )
 
 
 @router.get(
@@ -568,12 +599,26 @@ async def get_guild_config(
 
     ro = _read_only_yaml_snapshot(config_loader)
 
+    hydrated_policies = [
+        RoleDelegationPolicy(**policy) for policy in roles.get("delegation_policies", [])
+    ]
+
     data = GuildConfigData(
-        roles=BotRoleSettings(**roles),
+        roles=BotRoleSettings(
+            bot_admins=roles.get("bot_admins", []),  # type: ignore[arg-type]
+            discord_managers=roles.get("discord_managers", []),  # type: ignore[arg-type]
+            moderators=roles.get("moderators", []),  # type: ignore[arg-type]
+            staff=roles.get("staff", []),  # type: ignore[arg-type]
+            bot_verified_role=roles.get("bot_verified_role", []),  # type: ignore[arg-type]
+            main_role=roles.get("main_role", []),  # type: ignore[arg-type]
+            affiliate_role=roles.get("affiliate_role", []),  # type: ignore[arg-type]
+            nonmember_role=roles.get("nonmember_role", []),  # type: ignore[arg-type]
+            delegation_policies=hydrated_policies,
+        ),
         channels=BotChannelSettings(**channels),
         voice=VoiceSelectableRoles(selectable_roles=voice_roles),
         organization=OrganizationSettings(**org),
-        read_only=ro,  # Pydantic will coerce dict to model when field names match
+        read_only=ReadOnlyYamlConfig(**ro),
     )
 
     return GuildConfigResponse(data=data)
@@ -613,6 +658,11 @@ async def patch_guild_config(
     """Update DB-backed guild settings. YAML-only fields remain read-only."""
     _ensure_active_guild(current_user, guild_id)
 
+    try:
+        actor_user_id = int(current_user.user_id)
+    except (TypeError, ValueError):
+        actor_user_id = None
+
     # Fetch current values for auditing
     current_roles = await get_bot_role_settings(db, guild_id)
     current_channels = await get_bot_channel_settings(db, guild_id)
@@ -642,7 +692,7 @@ async def patch_guild_config(
                 BOT_ADMINS_KEY,
                 current_roles.get("bot_admins"),
                 payload.roles.bot_admins,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("discord_managers") != payload.roles.discord_managers:
             await _audit_change(
@@ -651,7 +701,7 @@ async def patch_guild_config(
                 DISCORD_MANAGERS_KEY,
                 current_roles.get("discord_managers"),
                 payload.roles.discord_managers,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("moderators") != payload.roles.moderators:
             await _audit_change(
@@ -660,7 +710,7 @@ async def patch_guild_config(
                 MODERATORS_KEY,
                 current_roles.get("moderators"),
                 payload.roles.moderators,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("staff") != payload.roles.staff:
             await _audit_change(
@@ -669,7 +719,7 @@ async def patch_guild_config(
                 STAFF_KEY,
                 current_roles.get("staff"),
                 payload.roles.staff,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("bot_verified_role") != payload.roles.bot_verified_role:
             await _audit_change(
@@ -678,7 +728,7 @@ async def patch_guild_config(
                 BOT_VERIFIED_ROLE_KEY,
                 current_roles.get("bot_verified_role"),
                 payload.roles.bot_verified_role,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("main_role") != payload.roles.main_role:
             await _audit_change(
@@ -687,7 +737,7 @@ async def patch_guild_config(
                 MAIN_ROLE_KEY,
                 current_roles.get("main_role"),
                 payload.roles.main_role,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("affiliate_role") != payload.roles.affiliate_role:
             await _audit_change(
@@ -696,7 +746,7 @@ async def patch_guild_config(
                 AFFILIATE_ROLE_KEY,
                 current_roles.get("affiliate_role"),
                 payload.roles.affiliate_role,
-                current_user.user_id,
+                actor_user_id,
             )
         if current_roles.get("nonmember_role") != payload.roles.nonmember_role:
             await _audit_change(
@@ -705,7 +755,7 @@ async def patch_guild_config(
                 NONMEMBER_ROLE_KEY,
                 current_roles.get("nonmember_role"),
                 payload.roles.nonmember_role,
-                current_user.user_id,
+                actor_user_id,
             )
 
     if payload.channels is not None:
@@ -728,7 +778,7 @@ async def patch_guild_config(
                 VERIFICATION_CHANNEL_KEY,
                 current_channels.get("verification_channel_id"),
                 payload.channels.verification_channel_id,
-                current_user.user_id,
+                actor_user_id,
             )
         if (
             current_channels.get("bot_spam_channel_id")
@@ -740,7 +790,7 @@ async def patch_guild_config(
                 BOT_SPAM_CHANNEL_KEY,
                 current_channels.get("bot_spam_channel_id"),
                 payload.channels.bot_spam_channel_id,
-                current_user.user_id,
+                actor_user_id,
             )
         if (
             current_channels.get("public_announcement_channel_id")
@@ -752,7 +802,7 @@ async def patch_guild_config(
                 PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
                 current_channels.get("public_announcement_channel_id"),
                 payload.channels.public_announcement_channel_id,
-                current_user.user_id,
+                actor_user_id,
             )
         if (
             current_channels.get("leadership_announcement_channel_id")
@@ -764,7 +814,7 @@ async def patch_guild_config(
                 LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
                 current_channels.get("leadership_announcement_channel_id"),
                 payload.channels.leadership_announcement_channel_id,
-                current_user.user_id,
+                actor_user_id,
             )
 
     if payload.voice is not None:
@@ -776,7 +826,7 @@ async def patch_guild_config(
                 SELECTABLE_ROLES_KEY,
                 current_voice,
                 payload.voice.selectable_roles,
-                current_user.user_id,
+                actor_user_id,
             )
 
     if payload.organization is not None:
@@ -794,7 +844,7 @@ async def patch_guild_config(
                 ORGANIZATION_SID_KEY,
                 current_org.get("organization_sid"),
                 payload.organization.organization_sid,
-                current_user.user_id,
+                actor_user_id,
             )
         if (
             current_org.get("organization_name")
@@ -806,7 +856,7 @@ async def patch_guild_config(
                 ORGANIZATION_NAME_KEY,
                 current_org.get("organization_name"),
                 payload.organization.organization_name,
-                current_user.user_id,
+                actor_user_id,
             )
 
     # Commit any pending audit inserts

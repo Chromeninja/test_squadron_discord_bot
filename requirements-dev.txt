@@ -9,3 +9,4 @@ jsonschema>=4.20.0
 types-PyYAML
 types-beautifulsoup4
 coverage
+debugpy>=1.8,<2.0

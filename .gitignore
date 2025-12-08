@@ -113,8 +113,7 @@ dmypy.json
 pyrightconfig.json
 
 # IDE
-.vscode/settings.json
-.vscode/launch.json
+# .vscode/settings.json and launch.json are committed for team consistency
 # Keep .vscode/extensions.json for project setup
 
 # Logs

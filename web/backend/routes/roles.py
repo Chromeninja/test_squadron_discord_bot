@@ -10,7 +10,12 @@ from core.guild_settings import (
     get_role_delegation_policies,
     set_role_delegation_policies,
 )
-from core.schemas import RoleDelegationConfig, RoleDelegationConfigResponse, UserProfile
+from core.schemas import (
+    RoleDelegationConfig,
+    RoleDelegationConfigResponse,
+    RoleDelegationPolicy,
+    UserProfile,
+)
 from fastapi import APIRouter, Depends, HTTPException
 
 router = APIRouter(tags=["roles"])
@@ -30,7 +35,10 @@ async def get_role_delegation_config(
 
     guild_id = int(current_user.active_guild_id)
     policies = await get_role_delegation_policies(db, guild_id)
-    return RoleDelegationConfigResponse(data=RoleDelegationConfig(policies=policies))
+    hydrated = [RoleDelegationPolicy(**policy) for policy in policies]
+    return RoleDelegationConfigResponse(
+        data=RoleDelegationConfig(policies=hydrated)
+    )
 
 
 @router.post(
@@ -47,5 +55,10 @@ async def upsert_role_delegation_config(
         raise HTTPException(status_code=400, detail="Active guild not set")
 
     guild_id = int(current_user.active_guild_id)
-    normalized = await set_role_delegation_policies(db, guild_id, payload.policies)
-    return RoleDelegationConfigResponse(data=RoleDelegationConfig(policies=normalized))
+    normalized = await set_role_delegation_policies(
+        db, guild_id, [policy.model_dump() for policy in payload.policies]
+    )
+    hydrated = [RoleDelegationPolicy(**policy) for policy in normalized]
+    return RoleDelegationConfigResponse(
+        data=RoleDelegationConfig(policies=hydrated)
+    )

@@ -74,33 +74,6 @@ async def get_voice_service() -> VoiceService:
     return _voice_service
 
 
-def translate_internal_api_error(exc: Exception, default_msg: str) -> HTTPException:
-    """Translate Internal API client errors to HTTP exceptions.
-
-    Args:
-        exc: Exception from Internal API call
-        default_msg: Default error message if exception doesn't have specific details
-
-    Returns:
-        HTTPException with appropriate status code and message
-    """
-    if isinstance(exc, httpx.ConnectError):
-        return HTTPException(
-            status_code=503,
-            detail="Bot is unavailable - cannot connect to internal API",
-        )
-    if isinstance(exc, httpx.HTTPStatusError):
-        if exc.response.status_code == 404:
-            return HTTPException(status_code=404, detail="Resource not found")
-        if exc.response.status_code >= 500:
-            return HTTPException(status_code=502, detail="Bot internal error")
-        return HTTPException(status_code=exc.response.status_code, detail=default_msg)
-    if isinstance(exc, httpx.TimeoutException):
-        return HTTPException(status_code=504, detail="Bot request timed out")
-    # Generic fallback
-    return HTTPException(status_code=502, detail=default_msg)
-
-
 async def initialize_services():
     """Initialize services on application startup."""
     global _config_service, _config_loader

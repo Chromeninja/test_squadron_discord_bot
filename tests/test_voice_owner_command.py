@@ -147,7 +147,7 @@ class TestVoiceOwnerCommand:
             )
 
             # Call the command
-            await voice_commands.list_owners.callback(voice_commands, mock_interaction)
+            await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
 
             # Verify the interaction was handled
             mock_interaction.followup.send.assert_called_once()
@@ -216,7 +216,7 @@ class TestVoiceOwnerCommand:
         # Mock admin permissions
         with patch.object(voice_service, "get_admin_role_ids", return_value=[111]):
             # Call the command with empty database
-            await voice_commands.list_owners.callback(voice_commands, mock_interaction)
+            await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
 
             # Verify empty message was sent
             mock_interaction.followup.send.assert_called_once()

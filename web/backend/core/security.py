@@ -7,6 +7,7 @@ Handles Discord OAuth2 flow, session tokens, and access control.
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Literal, cast
 
 from fastapi import Response
 from itsdangerous import BadSignature, SignatureExpired
@@ -19,7 +20,11 @@ SESSION_MAX_AGE = 86400 * 7  # 7 days
 COOKIE_SECURE = (
     os.getenv("COOKIE_SECURE", "false").lower() == "true"
 )  # Set true in production
-COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")  # lax or strict
+_COOKIE_SAMESITE_RAW = os.getenv("COOKIE_SAMESITE", "lax").lower()
+COOKIE_SAMESITE: Literal["lax", "strict", "none"] | None = cast(
+    "Literal['lax', 'strict', 'none'] | None",
+    _COOKIE_SAMESITE_RAW if _COOKIE_SAMESITE_RAW in {"lax", "strict", "none"} else None,
+)
 
 # JWT configuration for session tokens
 JWT_ALGORITHM = "HS256"

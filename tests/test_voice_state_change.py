@@ -9,12 +9,15 @@ from services.voice_service import VoiceService
 class DummyChannel:
     def __init__(self, channel_id: int):
         self.id = channel_id
+        self.name = ""
+        self.members = []
 
 
 class DummyMember:
     def __init__(self, guild_id: int):
         self.id = 999
         self.guild = types.SimpleNamespace(id=guild_id)
+        self.display_name = ""
 
 
 @pytest.fixture

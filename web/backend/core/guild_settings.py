@@ -94,21 +94,23 @@ def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
 
     normalized: list[dict] = []
     for policy in value:
-        if hasattr(policy, "model_dump"):
-            policy = policy.model_dump()
-        if not isinstance(policy, dict):
+        if isinstance(policy, dict):
+            data = policy
+        elif hasattr(policy, "model_dump"):
+            data = policy.model_dump()
+        else:
             continue
 
-        grantor_roles = policy.get("grantor_role_ids") or policy.get("grantor_roles")
-        target_role_raw = policy.get("target_role_id") or policy.get("granted_role")
+        grantor_roles = data.get("grantor_role_ids") or data.get("grantor_roles")
+        target_role_raw = data.get("target_role_id") or data.get("granted_role")
 
-        requirements = policy.get("requirements") or {}
+        requirements = data.get("requirements") or {}
         prereq_all = (
-            policy.get("prerequisite_role_ids_all")
-            or policy.get("prerequisite_role_ids")
+            data.get("prerequisite_role_ids_all")
+            or data.get("prerequisite_role_ids")
             or requirements.get("required_roles")
         )
-        prereq_any = policy.get("prerequisite_role_ids_any")
+        prereq_any = data.get("prerequisite_role_ids_any")
 
         try:
             target_role_id = (
@@ -128,8 +130,8 @@ def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
                 "prerequisite_role_ids_all": _normalize_policy_roles(prereq_all),
                 "prerequisite_role_ids": _normalize_policy_roles(prereq_all),
                 "prerequisite_role_ids_any": _normalize_policy_roles(prereq_any),
-                "enabled": bool(policy.get("enabled", True)),
-                "note": policy.get("note") or policy.get("notes"),
+                "enabled": bool(data.get("enabled", True)),
+                "note": data.get("note") or data.get("notes"),
             }
         )
     return normalized
@@ -151,11 +153,12 @@ def _coerce_policy_list(value: Any) -> list[dict]:
     return _normalize_delegation_policies(data)
 
 
-async def get_bot_role_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
+async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
     """Fetch bot role settings for a guild with sensible defaults.
 
     Returns dict with keys: bot_admins, discord_managers, moderators, staff,
-    main_role, affiliate_role, nonmember_role.
+    main_role, affiliate_role, nonmember_role (all list[str]), and 
+    delegation_policies (list[dict]).
     """
     query = """
         SELECT key, value
