@@ -13,7 +13,7 @@ from services.voice_service import VoiceService
 
 @pytest.mark.asyncio
 async def test_voice_owner_command_shows_db_owners():
-    """Test that voice owner command shows current database owners from user_voice_channels table."""
+    """Test that voice owner command shows current database owners from voice_channels table."""
 
     # Reset database for test
     import tempfile
@@ -56,13 +56,6 @@ async def test_voice_owner_command_shows_db_owners():
 
     # Mock admin permissions (allow access)
     with patch.object(voice_service, "get_admin_role_ids", return_value=[999999]):
-        # Clean up any existing test data first
-        async with Database.get_connection() as db:
-            await db.execute(
-                "DELETE FROM user_voice_channels WHERE guild_id = ?", (12345,)
-            )
-            await db.commit()
-
         # Set up test data in database - insert test voice channels
         async with Database.get_connection() as db:
             test_data = [
@@ -211,7 +204,7 @@ async def test_voice_owner_command_no_channels():
         # Ensure no channels exist for this guild
         async with Database.get_connection() as db:
             await db.execute(
-                "DELETE FROM user_voice_channels WHERE guild_id = ?", (54321,)
+                "DELETE FROM voice_channels WHERE guild_id = ?", (54321,)
             )
             await db.commit()
 

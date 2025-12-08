@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { voiceApi, authApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile } from '../api/endpoints';
 import { hasPermission } from '../utils/permissions';
+import { handleApiError } from '../utils/toast';
 
 function Voice() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -49,7 +50,7 @@ function Voice() {
         const response = await authApi.getMe();
         setUserProfile(response.user);
       } catch (err) {
-        console.error('Failed to load user profile:', err);
+        handleApiError(err, 'Failed to load user profile.');
       }
     };
     loadUserProfile();
@@ -221,7 +222,6 @@ function Voice() {
       return (
         <span className="flex items-center gap-1.5">
           <span className="font-medium">Everyone</span>
-          <span className="px-1.5 py-0.5 text-xs rounded bg-blue-900/50 text-blue-200 border border-blue-700">@everyone</span>
         </span>
       );
     }

@@ -4,7 +4,13 @@ import time
 import discord
 
 from helpers.discord_api import channel_send_message
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.leadership_log import (
+    ChangeSet,
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+    post_if_changed,
+)
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import enqueue_task, flush_tasks
 from services.db.database import Database
@@ -162,7 +168,8 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> b
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.RECHECK,
-            initiator_kind="Auto",
+            initiator_kind=InitiatorKind.AUTO,
+            initiator_source=InitiatorSource.AUTO,
             initiator_name=None,
             notes="RSI 404",
             guild_id=member.guild.id if member.guild else None,

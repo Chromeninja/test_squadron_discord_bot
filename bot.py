@@ -36,17 +36,12 @@ PREFIX = (
     raw_prefix if raw_prefix else commands.when_mentioned
 )  # empty list, empty string, None -> default
 
-# Roles and channels are now managed per-guild via the database.
-# These legacy constants have been removed; access via bot.services.config at runtime.
 
 # Configure intents - start from none and enable only what's required
 intents = discord.Intents.none()
 intents.guilds = True  # Required: Guild events, channels, roles
 intents.members = True  # Required: Member join/leave, role updates for verification
 intents.voice_states = True  # Required: Voice channel join/leave for voice system
-# Privileged intents disabled (not required for current features):
-# - message_content: Bot uses slash commands, not message commands
-# - presences: Not used for core functionality (optional activity display only)
 
 # List of initial extensions to load
 initial_extensions = [
@@ -71,8 +66,6 @@ class MyBot(commands.Bot):
         # Assign the entire config to the bot instance
         self.config = config
 
-        # Role and channel configuration now accessed via services.config per guild
-        # No more bot-level attributes for roles/channels
 
         # Initialize uptime tracking
         self.start_time = time.monotonic()
@@ -154,8 +147,6 @@ class MyBot(commands.Bot):
             # Don't fail bot startup if internal API fails
             self.internal_api = None
 
-        # Add the BulkAnnouncer cog after DB is initialized
-        # Import here to avoid circular import issues
         from helpers.announcement import BulkAnnouncer
 
         await self.add_cog(BulkAnnouncer(self))
@@ -599,7 +590,6 @@ class MyBot(commands.Bot):
         await super().close()
 
         # Initialize the bot
-
 
 bot = MyBot(command_prefix=PREFIX, intents=intents)
 

@@ -89,6 +89,18 @@ async def enqueue_task(task) -> None:
     loop = asyncio.get_event_loop()
     future = loop.create_future()
 
+    # If no workers are running (e.g., during isolated tests), run immediately
+    # to avoid hanging on an unresolved future.
+    if not _worker_tasks:
+        try:
+            result = await task()
+            if not future.done():
+                future.set_result(result)
+        except Exception as exc:  # pragma: no cover - defensive safety
+            if not future.done():
+                future.set_exception(exc)
+        return future  # type: ignore[return-value]
+
     async def wrapped_task() -> None:
         result = await task()
         if not future.done():

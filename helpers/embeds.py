@@ -7,7 +7,7 @@ consistent styling and branding for the TEST Squadron Discord bot.
 
 from typing import TYPE_CHECKING
 
-import discord
+import discord  # type: ignore[import-not-found]
 
 from helpers.permissions_helper import get_role_display_name
 from utils.logging import get_logger

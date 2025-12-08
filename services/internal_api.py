@@ -6,11 +6,12 @@ without hitting Discord API rate limits.
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from helpers.leadership_log import InitiatorKind, InitiatorSource
 from services.db.database import Database
 from utils.logging import get_logger
 
@@ -716,7 +717,7 @@ class InternalAPIServer:
                 else None,
                 "roles": roles_data,
                 "role_ids": role_ids,
-                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": datetime.now(UTC).isoformat(),
                 "source": source,
             }
         )
@@ -807,7 +808,8 @@ class InternalAPIServer:
                 member=member,
                 rsi_handle=rsi_handle,
                 bot=self.bot,
-                initiator_kind="Admin",
+                initiator_kind=InitiatorKind.ADMIN,
+                initiator_source=InitiatorSource.WEB,
                 admin_user_id=admin_user_id,
                 enforce_rate_limit=False,  # Admin actions bypass rate limits
                 log_leadership=True,  # Always log leadership changes

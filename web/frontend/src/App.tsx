@@ -72,9 +72,9 @@ function App() {
   }
 
   // Check if user has any permissions
-  // Legacy support: if authorized_guilds doesn't exist, fall back to is_admin/is_moderator
+  // Fallback: if authorized_guilds doesn't exist, fall back to is_admin/is_moderator
   const hasAnyPermissions = (() => {
-    // Check for legacy session format
+    // Check for older session format
     if (user.is_admin || user.is_moderator) {
       return true;
     }
@@ -169,15 +169,15 @@ function App() {
                   {getRoleDisplayName(user.authorized_guilds[user.active_guild_id].role_level).toUpperCase()}
                 </span>
               )}
-              {/* Legacy format support */}
+              {/* Fallback for sessions without authorized_guilds */}
               {(!user.authorized_guilds || !user.active_guild_id) && user.is_admin && (
                 <span className="px-2 py-1 text-xs font-semibold bg-red-900 text-red-200 rounded">
-                  ADMIN (LEGACY)
+                  ADMIN (FALLBACK)
                 </span>
               )}
               {(!user.authorized_guilds || !user.active_guild_id) && user.is_moderator && !user.is_admin && (
                 <span className="px-2 py-1 text-xs font-semibold bg-blue-900 text-blue-200 rounded">
-                  MOD (LEGACY)
+                  MOD (FALLBACK)
                 </span>
               )}
             </div>

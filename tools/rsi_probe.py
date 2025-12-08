@@ -30,6 +30,10 @@ from typing import Any
 
 import requests
 
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def create_session(
     user_agent: str = "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)",
@@ -87,23 +91,23 @@ def warmup(session: requests.Session) -> bool:
         True if warmup was successful, False otherwise
     """
     try:
-        print("🔥 Warming up with RSI homepage...")
+        logger.info("🔥 Warming up with RSI homepage...")
         result = fetch(session, "https://robertsspaceindustries.com/")
 
-        print(f"   Status: {result['status']}")
-        print(f"   Response size: {len(result['body'])} bytes")
-        print(f"   Redirected: {result['redirected']}")
-        print(f"   Final URL: {result['final_url']}")
+        logger.info(f"   Status: {result['status']}")
+        logger.info(f"   Response size: {len(result['body'])} bytes")
+        logger.info(f"   Redirected: {result['redirected']}")
+        logger.info(f"   Final URL: {result['final_url']}")
 
         if result["status"] == 200:
-            print("✅ Warmup successful")
+            logger.info("✅ Warmup successful")
             return True
         else:
-            print(f"⚠️  Warmup returned status {result['status']}")
+            logger.warning(f"⚠️  Warmup returned status {result['status']}")
             return False
 
     except Exception as e:
-        print(f"❌ Warmup failed: {e}")
+        logger.exception("❌ Warmup failed", exc_info=e)
         return False
 
 
@@ -187,9 +191,12 @@ def save_body_if_needed(
         filepath = save_dir / filename
         try:
             filepath.write_bytes(result["body"])
-            print(f"   💾 Saved body to {filepath}")
+            logger.info(f"   💾 Saved body to {filepath}")
         except Exception as e:
-            print(f"   ❌ Failed to save body to {filepath}: {e}")
+            logger.exception(
+                f"   ❌ Failed to save body to {filepath}",
+                exc_info=e,
+            )
 
 
 def test_403_scenarios(
@@ -199,7 +206,7 @@ def test_403_scenarios(
     Run comprehensive 403 detection tests using various bot-detection triggers.
     This includes different User-Agents, missing headers, and rapid requests.
     """
-    print("🚨 Running comprehensive 403 detection tests...")
+    logger.info("🚨 Running comprehensive 403 detection tests...")
 
     test_scenarios = [
         ("Python-requests/2.28.1", "Bot-like User-Agent"),
@@ -216,8 +223,8 @@ def test_403_scenarios(
     all_results = []
 
     for user_agent, description in test_scenarios:
-        print(f"\n🧪 Testing scenario: {description}")
-        print(f"   User-Agent: '{user_agent}'")
+        logger.info(f"\n🧪 Testing scenario: {description}")
+        logger.info(f"   User-Agent: '{user_agent}'")
 
         session = create_session(user_agent)
 
@@ -225,7 +232,7 @@ def test_403_scenarios(
         test_handles = handles[:3] if len(handles) > 3 else handles
 
         for handle in test_handles:
-            print(f"\n🔍 Testing handle: {handle} ({description})")
+            logger.info(f"\n🔍 Testing handle: {handle} ({description})")
             result = probe_handle(session, handle, False, save_bodies_dir)
             result["test_scenario"] = description
             result["test_user_agent"] = user_agent
@@ -233,7 +240,7 @@ def test_403_scenarios(
 
             # Check if this scenario triggered 403s
             if result["summary"]["has_403"]:
-                print(f"🚨 403 DETECTED with {description}!")
+                logger.warning(f"🚨 403 DETECTED with {description}!")
                 break  # Found the trigger, move to next scenario
 
         session.close()
@@ -247,7 +254,7 @@ def rapid_fire_test(
     """
     Test rapid-fire requests to trigger rate limiting and potential 403s.
     """
-    print(f"🔫 Running rapid-fire test ({num_requests} requests per handle)...")
+    logger.info(f"🔫 Running rapid-fire test ({num_requests} requests per handle)...")
 
     session = create_session(
         "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
@@ -255,17 +262,17 @@ def rapid_fire_test(
     all_results = []
 
     for handle in handles[:2]:  # Limit to 2 handles for rapid testing
-        print(f"\n🎯 Rapid-fire testing handle: {handle}")
+        logger.info(f"\n🎯 Rapid-fire testing handle: {handle}")
 
         for i in range(num_requests):
-            print(f"   Request {i + 1}/{num_requests}...")
+            logger.info(f"   Request {i + 1}/{num_requests}...")
             result = probe_handle(session, handle, False, save_bodies_dir)
             result["rapid_fire_attempt"] = i + 1
             all_results.append(result)
 
             # Check if we triggered 403s
             if result["summary"]["has_403"]:
-                print(f"🚨 403 DETECTED after {i + 1} requests!")
+                logger.warning(f"🚨 403 DETECTED after {i + 1} requests!")
                 break
 
             # Small delay between requests (but still rapid)
@@ -311,7 +318,7 @@ def probe_handle(
 
     # Probe each endpoint
     for endpoint_name, url in urls.items():
-        print(f"📍 Probing {endpoint_name}: {url}")
+        logger.info(f"📍 Probing {endpoint_name}: {url}")
 
         result = fetch(session, url)
         warnings = analyze_response(result, endpoint_name, handle)
@@ -377,39 +384,39 @@ def probe_handle(
 
 def print_report(results: list[dict[str, Any]]) -> None:
     """Print a detailed report for all probed handles."""
-    print("\n" + "=" * 80)
-    print("RSI PROBE REPORT")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("RSI PROBE REPORT")
+    logger.info("=" * 80)
 
     for result in results:
         handle = result["handle"]
         endpoints = result["endpoints"]
         result["summary"]
 
-        print(f"\n🎯 Handle: {handle}")
-        print("-" * 40)
+        logger.info(f"\n🎯 Handle: {handle}")
+        logger.info("-" * 40)
 
         # Print each endpoint
         for endpoint_name, endpoint_data in endpoints.items():
             emoji = "📄" if "citizen" in endpoint_name else "🏢"
             label = endpoint_name.replace("_", " ").title()
 
-            print(f"{emoji} {label}:")
-            print(f"   Status: {endpoint_data['status'] or 'N/A'}")
-            print(f"   Bytes: {endpoint_data['size']:,}")
-            print(f"   Content-Type: {endpoint_data['content_type'] or 'N/A'}")
-            print(f"   Final URL: {endpoint_data['final_url']}")
-            print(f"   Redirected: {endpoint_data['redirected']}")
+            logger.info(f"{emoji} {label}:")
+            logger.info(f"   Status: {endpoint_data['status'] or 'N/A'}")
+            logger.info(f"   Bytes: {endpoint_data['size']:,}")
+            logger.info(f"   Content-Type: {endpoint_data['content_type'] or 'N/A'}")
+            logger.info(f"   Final URL: {endpoint_data['final_url']}")
+            logger.info(f"   Redirected: {endpoint_data['redirected']}")
 
             if endpoint_data["warnings"]:
                 for warning in endpoint_data["warnings"]:
-                    print(f"   ⚠️  {warning}")
+                    logger.warning(f"   ⚠️  {warning}")
             else:
-                print("   ✅ No issues detected")
-            print()
+                logger.info("   ✅ No issues detected")
+            logger.info("")
 
     # Summary
-    print("📊 Summary:")
+    logger.info("📊 Summary:")
     total_handles = len(results)
     handles_with_403 = sum(1 for r in results if r["summary"]["has_403"])
     handles_with_5xx = sum(1 for r in results if r["summary"]["has_5xx"])
@@ -417,15 +424,15 @@ def print_report(results: list[dict[str, Any]]) -> None:
     handles_with_captcha = sum(1 for r in results if r["summary"]["has_captcha"])
     handles_with_issues = sum(1 for r in results if r["summary"]["total_warnings"] > 0)
 
-    print(f"   Total handles tested: {total_handles}")
-    print(f"   Handles with 403 errors: {handles_with_403}")
-    print(f"   Handles with 5xx errors: {handles_with_5xx}")
-    print(f"   Handles with tiny responses: {handles_with_tiny}")
-    print(f"   Handles with captcha detection: {handles_with_captcha}")
-    print(f"   Handles with any issues: {handles_with_issues}")
+    logger.info(f"   Total handles tested: {total_handles}")
+    logger.info(f"   Handles with 403 errors: {handles_with_403}")
+    logger.info(f"   Handles with 5xx errors: {handles_with_5xx}")
+    logger.info(f"   Handles with tiny responses: {handles_with_tiny}")
+    logger.info(f"   Handles with captcha detection: {handles_with_captcha}")
+    logger.info(f"   Handles with any issues: {handles_with_issues}")
 
     if handles_with_issues > 0:
-        print("   🚨 Handles with issues:")
+        logger.warning("   🚨 Handles with issues:")
         for result in results:
             if result["summary"]["total_warnings"] > 0:
                 handle = result["handle"]
@@ -441,16 +448,18 @@ def print_report(results: list[dict[str, Any]]) -> None:
                     flags.append("captcha")
 
                 flag_str = ",".join(flags) if flags else "other"
-                print(f"     - {handle}: {warnings} warning(s) [{flag_str}]")
+                logger.warning(
+                    f"     - {handle}: {warnings} warning(s) [{flag_str}]"
+                )
     else:
-        print("   ✅ All handles appear healthy")
+        logger.info("   ✅ All handles appear healthy")
 
 
 def print_403_test_report(results: list[dict[str, Any]]) -> None:
     """Print report for 403 testing scenarios."""
-    print("\n" + "=" * 80)
-    print("RSI 403 DETECTION TEST REPORT")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("RSI 403 DETECTION TEST REPORT")
+    logger.info("=" * 80)
 
     scenarios = {}
     for result in results:
@@ -461,34 +470,34 @@ def print_403_test_report(results: list[dict[str, Any]]) -> None:
 
     total_403s = sum(1 for r in results if r["summary"]["has_403"])
 
-    print("\n📊 403 Test Summary:")
-    print(f"   Total tests run: {len(results)}")
-    print(f"   403 errors detected: {total_403s}")
+    logger.info("\n📊 403 Test Summary:")
+    logger.info(f"   Total tests run: {len(results)}")
+    logger.info(f"   403 errors detected: {total_403s}")
 
     for scenario, scenario_results in scenarios.items():
         scenario_403s = sum(1 for r in scenario_results if r["summary"]["has_403"])
         user_agent = scenario_results[0].get("test_user_agent", "Unknown")
 
-        print(f"\n🧪 Scenario: {scenario}")
-        print(f"   User-Agent: '{user_agent}'")
-        print(f"   Tests: {len(scenario_results)}")
-        print(f"   403s: {scenario_403s}")
+        logger.info(f"\n🧪 Scenario: {scenario}")
+        logger.info(f"   User-Agent: '{user_agent}'")
+        logger.info(f"   Tests: {len(scenario_results)}")
+        logger.info(f"   403s: {scenario_403s}")
 
         if scenario_403s > 0:
-            print("   🚨 TRIGGERS 403 ERRORS!")
+            logger.warning("   🚨 TRIGGERS 403 ERRORS!")
             for result in scenario_results:
                 if result["summary"]["has_403"]:
                     handle = result["handle"]
-                    print(f"     - {handle}: 403 detected")
+                    logger.warning(f"     - {handle}: 403 detected")
         else:
-            print("   ✅ No 403s detected")
+            logger.info("   ✅ No 403s detected")
 
 
 def print_rapid_fire_report(results: list[dict[str, Any]]) -> None:
     """Print report for rapid-fire testing."""
-    print("\n" + "=" * 80)
-    print("RSI RAPID-FIRE TEST REPORT")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("RSI RAPID-FIRE TEST REPORT")
+    logger.info("=" * 80)
 
     handles = {}
     for result in results:
@@ -499,19 +508,19 @@ def print_rapid_fire_report(results: list[dict[str, Any]]) -> None:
 
     total_403s = sum(1 for r in results if r["summary"]["has_403"])
 
-    print("\n📊 Rapid-Fire Summary:")
-    print(f"   Total requests: {len(results)}")
-    print(f"   403 errors detected: {total_403s}")
+    logger.info("\n📊 Rapid-Fire Summary:")
+    logger.info(f"   Total requests: {len(results)}")
+    logger.info(f"   403 errors detected: {total_403s}")
 
     for handle, handle_results in handles.items():
         handle_403s = sum(1 for r in handle_results if r["summary"]["has_403"])
 
-        print(f"\n🎯 Handle: {handle}")
-        print(f"   Requests made: {len(handle_results)}")
-        print(f"   403s detected: {handle_403s}")
+        logger.info(f"\n🎯 Handle: {handle}")
+        logger.info(f"   Requests made: {len(handle_results)}")
+        logger.info(f"   403s detected: {handle_403s}")
 
         if handle_403s > 0:
-            print("   🚨 RATE LIMITING DETECTED!")
+            logger.warning("   🚨 RATE LIMITING DETECTED!")
             first_403 = next(
                 (
                     i + 1
@@ -521,9 +530,9 @@ def print_rapid_fire_report(results: list[dict[str, Any]]) -> None:
                 None,
             )
             if first_403:
-                print(f"     First 403 after request #{first_403}")
+                logger.warning(f"     First 403 after request #{first_403}")
         else:
-            print("   ✅ No rate limiting detected")
+            logger.info("   ✅ No rate limiting detected")
 
 
 def main():
@@ -583,21 +592,23 @@ Examples:
     else:
         handles_input = input("Enter comma-separated RSI handles to probe: ").strip()
         if not handles_input:
-            print("No handles provided. Exiting.")
+            logger.error("No handles provided. Exiting.")
             sys.exit(1)
         handles = [h.strip() for h in handles_input.split(",") if h.strip()]
 
     if not handles:
-        print("No valid handles provided. Exiting.")
+        logger.error("No valid handles provided. Exiting.")
         sys.exit(1)
 
-    print(f"🚀 Starting RSI probe for {len(handles)} handle(s): {', '.join(handles)}")
-    print(f"   User-Agent: {args.user_agent}")
-    print(f"   Warmup: {'Disabled' if args.no_warmup else 'Enabled'}")
-    print(f"   Try /en/ paths: {'Yes' if args.try_en else 'No'}")
-    print(f"   Save bodies: {args.save_bodies or 'Disabled'}")
-    print(f"   403 testing: {'Yes' if args.test_403 else 'No'}")
-    print(f"   Rapid-fire: {args.rapid_fire or 'No'}")
+    logger.info(
+        f"🚀 Starting RSI probe for {len(handles)} handle(s): {', '.join(handles)}"
+    )
+    logger.info(f"   User-Agent: {args.user_agent}")
+    logger.info(f"   Warmup: {'Disabled' if args.no_warmup else 'Enabled'}")
+    logger.info(f"   Try /en/ paths: {'Yes' if args.try_en else 'No'}")
+    logger.info(f"   Save bodies: {args.save_bodies or 'Disabled'}")
+    logger.info(f"   403 testing: {'Yes' if args.test_403 else 'No'}")
+    logger.info(f"   Rapid-fire: {args.rapid_fire or 'No'}")
 
     # Handle special test modes
     if args.test_403:
@@ -616,12 +627,14 @@ Examples:
 
     # Warmup if not disabled
     if not args.no_warmup and not warmup(session):
-        print("❌ Warmup failed. Continuing anyway, but results may be unreliable.")
+        logger.warning(
+            "❌ Warmup failed. Continuing anyway, but results may be unreliable."
+        )
 
     # Probe each handle
     results = []
     for handle in handles:
-        print(f"\n🔍 Probing handle: {handle}")
+        logger.info(f"\n🔍 Probing handle: {handle}")
         result = probe_handle(session, handle, args.try_en, args.save_bodies)
         results.append(result)
 

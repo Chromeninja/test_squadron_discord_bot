@@ -41,7 +41,7 @@ async def get_user_channel(
                 (user.id, guild_id),
             )
         else:
-            # Legacy query - all channels, ordered by created_at to ensure
+            # Unscoped query across all channels, ordered by created_at to ensure
             # consistent behavior - get the most recent active channel
             cursor = await db.execute(
                 "SELECT voice_channel_id FROM voice_channels "

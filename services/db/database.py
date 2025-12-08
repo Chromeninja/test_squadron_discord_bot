@@ -439,7 +439,7 @@ class Database:
             # Normalize to a list of simple tuples for typing clarity
             return [(int(r[0]), str(r[1])) for r in rows]
 
-    # 404 handle change helpers (legacy 'username_404' module name retained for backward compatibility)
+    # 404 handle change helpers (older 'username_404' module name retained for backward compatibility)
     @classmethod
     async def flag_needs_reverify(cls, user_id: int, now: int) -> bool:
         """Set needs_reverify flag. Returns True if row updated (was newly flagged)."""
@@ -488,7 +488,8 @@ class Database:
         # Define all voice-related tables to purge with their user column names
         # Using a mapping for security validation
         voice_tables_config = {
-            "user_voice_channels": "owner_id",  # Uses owner_id instead of user_id
+            "voice_channels": "owner_id",
+            "voice_channel_settings": "owner_id",
             "voice_cooldowns": "user_id",
             "channel_settings": "user_id",
             "channel_permissions": "user_id",
@@ -548,7 +549,9 @@ class Database:
 
         # Define validated whitelist of tables that reference jtc_channel_id
         jtc_tables = {
-            "user_voice_channels",
+            "voice_channels",
+            "voice_channel_settings",
+            "voice_cooldowns",
             "channel_settings",
             "channel_permissions",
             "channel_ptt_settings",
@@ -613,7 +616,9 @@ class Database:
 
         # Define validated whitelist of tables that reference jtc_channel_id
         jtc_tables = {
-            "user_voice_channels",
+            "voice_channels",
+            "voice_channel_settings",
+            "voice_cooldowns",
             "channel_settings",
             "channel_permissions",
             "channel_ptt_settings",

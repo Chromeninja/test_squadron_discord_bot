@@ -3,6 +3,7 @@ import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, Rol
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
 import AccordionSection from '../components/AccordionSection';
+import { handleApiError } from '../utils/toast';
 
 interface DashboardBotSettingsProps {
   guildId: string;
@@ -142,7 +143,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setOrganizationName(orgSettingsResponse.organization_name || '');
         setOrgSidInput(orgSettingsResponse.organization_sid || '');
       } catch (err) {
-        console.error(err);
+        handleApiError(err, 'Failed to load bot settings.');
         setError('Failed to load bot settings.');
       } finally {
         setLoading(false);
@@ -195,7 +196,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setDelegationPolicies(normalizedUpdated);
       setStatusMessage('Settings saved successfully.');
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to save settings.');
       setError('Failed to save settings.');
     } finally {
       setSaving(false);
@@ -215,7 +216,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setVoiceSelectableRoles(updated.selectable_roles || []);
       setVoiceStatusMessage('Selectable roles updated successfully.');
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to save selectable roles.');
       setVoiceError('Failed to save selectable roles.');
     } finally {
       setVoiceSaving(false);
@@ -243,7 +244,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setLeadershipAnnouncementChannelId(updated.leadership_announcement_channel_id);
       setChannelStatusMessage('Channel settings saved successfully.');
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to save channel settings.');
       setChannelError('Failed to save channel settings.');
     } finally {
       setChannelSaving(false);
@@ -271,7 +272,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setOrganizationName('');
       }
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to validate organization SID. Please try again.');
       setOrgError('Failed to validate organization SID. Please try again.');
     } finally {
       setOrgValidating(false);
@@ -301,7 +302,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setOrgSidInput(updated.organization_sid || '');
       setOrgStatusMessage('Organization settings saved successfully!');
     } catch (err) {
-      console.error(err);
+      handleApiError(err, 'Failed to save organization settings.');
       setOrgError('Failed to save organization settings.');
     } finally {
       setOrgSaving(false);

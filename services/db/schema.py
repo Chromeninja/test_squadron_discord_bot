@@ -1,7 +1,8 @@
 """
-Schema definitions for the Discord bot's database.
+Canonical schema definition (version=1).
 
-This module centralizes all table creation logic to ensure consistency and avoid duplication.
+Schema definitions for the Discord bot's database. This module centralizes
+all table creation logic to ensure consistency and avoid duplication.
 """
 
 import aiosqlite
@@ -31,7 +32,15 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
-    # Verification table (final structure; no legacy membership_status column)
+    # Seed canonical version row (idempotent)
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+        VALUES (1, strftime('%s','now'))
+        """
+    )
+
+    # Verification table (final structure; membership_status column removed)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS verification (
@@ -86,7 +95,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
-    # Voice channels (new table replacing user_voice_channels)
+    # Voice channels (authoritative table)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS voice_channels (
@@ -110,27 +119,6 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_voice_channels_voice_channel_id ON voice_channels(voice_channel_id)"
-    )
-
-    # User voice channels (legacy table - keeping for backward compatibility)
-    await db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_voice_channels (
-            guild_id INTEGER NOT NULL,
-            jtc_channel_id INTEGER NOT NULL,
-            owner_id INTEGER NOT NULL,
-            voice_channel_id INTEGER NOT NULL,
-            created_at INTEGER DEFAULT (strftime('%s','now')),
-            PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
-        )
-        """
-    )
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_voice_channels_voice_channel_id ON user_voice_channels(voice_channel_id)"
-    )
-    # Add composite indexes for better query performance
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_uvc_owner_scope ON user_voice_channels(owner_id, guild_id, jtc_channel_id)"
     )
 
     # Voice cooldowns
@@ -200,6 +188,24 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_ptt_scope_user_target ON channel_ptt_settings(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
 
+    # Per-channel settings keyed by voice channel id for multi-channel support
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS voice_channel_settings (
+            guild_id INTEGER NOT NULL,
+            jtc_channel_id INTEGER NOT NULL,
+            owner_id INTEGER NOT NULL,
+            voice_channel_id INTEGER NOT NULL,
+            setting_key TEXT NOT NULL,
+            setting_value TEXT,
+            PRIMARY KEY (guild_id, jtc_channel_id, owner_id, voice_channel_id, setting_key),
+            FOREIGN KEY (voice_channel_id)
+                REFERENCES voice_channels(voice_channel_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+
     # Channel priority speaker settings
     await db.execute(
         """
@@ -256,7 +262,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
 
-    # Rate limits table (primary key on user_id+action as expected by legacy code)
+    # Rate limits table (primary key on user_id+action)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS rate_limits (
@@ -354,7 +360,9 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
 
     # Record that the canonical schema has been applied
-    await db.execute("INSERT OR IGNORE INTO schema_migrations (version) VALUES (0)")
+    await db.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"
+    )
 
     # Commit all schema changes
     await db.commit()

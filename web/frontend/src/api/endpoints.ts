@@ -19,7 +19,7 @@ export interface UserProfile {
   avatar: string | null;
   authorized_guilds: Record<string, GuildPermission>;
   active_guild_id?: string | null;
-  // Legacy fields (deprecated, use authorized_guilds instead)
+  // Deprecated fields (use authorized_guilds instead)
   is_admin?: boolean;
   is_moderator?: boolean;
 }
@@ -54,7 +54,7 @@ export interface RoleDelegationPolicyPayload {
   target_role_id: string;
   prerequisite_role_ids_all: string[];
   prerequisite_role_ids_any: string[];
-  // Legacy fallback; when present treat as prerequisite_role_ids_all
+  // Deprecated fallback; when present treat as prerequisite_role_ids_all
   prerequisite_role_ids?: string[];
   enabled: boolean;
   note?: string | null;

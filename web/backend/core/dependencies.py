@@ -26,6 +26,7 @@ sys.path.insert(0, str(project_root))
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
+from services.voice_service import VoiceService
 
 from .request_id import get_request_id
 from .schemas import UserProfile
@@ -44,6 +45,7 @@ _config_loader: ConfigLoader | None = None
 
 # Internal API client singleton
 _internal_api_client: InternalAPIClient | None = None
+_voice_service: VoiceService | None = None
 
 
 def get_internal_api_client() -> InternalAPIClient:
@@ -52,6 +54,24 @@ def get_internal_api_client() -> InternalAPIClient:
     if _internal_api_client is None:
         _internal_api_client = InternalAPIClient()
     return _internal_api_client
+
+
+async def get_voice_service() -> VoiceService:
+    """Lazily initialize and return a VoiceService instance for backend use.
+
+    The backend does not operate a Discord bot; voice_service is constructed with
+    bot=None and test_mode=True to avoid background tasks while still providing
+    snapshot/query helpers.
+    """
+
+    global _voice_service
+
+    if _voice_service is None:
+        config_service = get_config_service()
+        _voice_service = VoiceService(config_service=config_service, bot=None, test_mode=True)
+        await _voice_service.initialize()
+
+    return _voice_service
 
 
 def translate_internal_api_error(exc: Exception, default_msg: str) -> HTTPException:
@@ -109,6 +129,9 @@ async def shutdown_services():
     """Cleanup services on application shutdown."""
     if _config_service:
         await _config_service.shutdown()
+
+    if _voice_service:
+        await _voice_service.shutdown()
 
     # Close internal API client
     if _internal_api_client:

@@ -32,7 +32,7 @@ function Dashboard() {
       // Check if user has bot_admin level or higher (includes bot_owner)
       let userIsBotAdmin = false;
       if (user) {
-        // Legacy check
+        // Fallback for sessions without authorized_guilds
         if (user.is_admin) {
           userIsBotAdmin = true;
         }

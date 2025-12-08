@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   usersApi,
-  guildApi,
   authApi,
   adminApi,
   EnrichedUser,
   ExportUsersRequest,
-  GuildRole,
   BulkRecheckResponse,
   UserProfile,
 } from '../api/endpoints';
@@ -19,7 +17,7 @@ function Users() {
   const [users, setUsers] = useState<EnrichedUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeGuildId, setActiveGuildId] = useState<number | null>(null);
+  const [activeGuildId, setActiveGuildId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   // Pagination
@@ -170,8 +168,11 @@ function Users() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(user => {
-        // Search by username (discord_username)
-        if (user.discord_username?.toLowerCase().includes(query)) {
+        // Search by username/global name
+        if (user.username?.toLowerCase().includes(query)) {
+          return true;
+        }
+        if (user.global_name?.toLowerCase().includes(query)) {
           return true;
         }
         // Search by RSI handle

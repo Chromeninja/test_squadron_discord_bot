@@ -1,6 +1,6 @@
 from functools import partial
 
-import discord
+import discord  # type: ignore[import-not-found]
 
 from helpers.task_queue import enqueue_task
 from utils.logging import get_logger
@@ -11,34 +11,6 @@ logger = get_logger(__name__)
 Centralized module for all Discord API calls.
 Enqueues each call so they're rate-limited via task_queue.py.
 """
-
-
-async def create_voice_channel(
-    guild: discord.Guild,
-    name: str,
-    category: discord.CategoryChannel,
-    *,
-    user_limit: int | None = None,
-    overwrites: dict | None = None,
-) -> discord.VoiceChannel:
-    async def _task() -> discord.VoiceChannel:
-        kwargs = {"name": name, "category": category}
-        if user_limit is not None:
-            kwargs["user_limit"] = user_limit
-        if overwrites is not None:
-            kwargs["overwrites"] = overwrites
-        return await guild.create_voice_channel(**kwargs)
-
-    try:
-        await enqueue_task(_task)
-        # Note: enqueue_task doesn't return the result, so we can't get channel here
-        # This is a limitation of the current task queue design
-        raise NotImplementedError(
-            "create_voice_channel cannot return channel with current task queue"
-        )
-    except Exception:
-        logger.exception(f"Failed to create voice channel '{name}'")
-        raise
 
 
 async def delete_channel(channel: discord.abc.GuildChannel) -> None:

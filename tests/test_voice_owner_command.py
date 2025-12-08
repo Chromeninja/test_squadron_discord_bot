@@ -30,21 +30,6 @@ async def test_db():
     # Initialize the database with the test path
     await Database.initialize(test_db_path)
 
-    # Set up the user_voice_channels table
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_voice_channels (
-                guild_id INTEGER NOT NULL,
-                jtc_channel_id INTEGER NOT NULL,
-                owner_id INTEGER NOT NULL,
-                voice_channel_id INTEGER NOT NULL,
-                created_at INTEGER DEFAULT (strftime('%s','now')),
-                PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
-            )
-            """
-        )
-
     try:
         yield test_db_path
     finally:
@@ -555,12 +540,13 @@ class TestVoiceOwnerCommand:
             # Set up test data in database
             async with Database.get_connection() as db:
                 await db.execute(
-                    "INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)",
                     (
                         54321,
                         9000,
                         8000,
                         7000,
+                        1640000000,
                         1640000000,
                     ),  # Completely unique IDs to avoid any constraint
                 )
@@ -615,12 +601,13 @@ class TestVoiceOwnerCommand:
             # Set up test data in database
             async with Database.get_connection() as db:
                 await db.execute(
-                    "INSERT INTO user_voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO voice_channels (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)",
                     (
                         67890,
                         400,
                         1006,
                         2006,
+                        1640000000,
                         1640000000,
                     ),  # Unique IDs to avoid constraint
                 )

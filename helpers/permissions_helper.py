@@ -17,7 +17,7 @@ import logging
 from collections.abc import Iterable
 from typing import Any, cast
 
-import discord
+import discord  # type: ignore[import-not-found]
 from aiosqlite import Row
 
 from helpers.discord_api import edit_channel
@@ -78,7 +78,7 @@ async def store_permit_reject_in_db(
             )
             await db.commit()
     else:
-        # Legacy mode for backward compatibility
+        # Fallback for records without guild/JTC scoping
         async with Database.get_connection() as db:
             await db.execute(
                 """
@@ -113,7 +113,7 @@ async def fetch_permit_reject_entries(
             )
             return await cursor.fetchall()
     else:
-        # Legacy mode for backward compatibility
+        # Fallback for records without guild/JTC scoping
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
@@ -245,22 +245,14 @@ async def update_channel_owner(
 
     # Update database record
     async with Database.get_connection() as db:
-        if guild_id and jtc_channel_id:
-            # Update with guild and JTC channel context
-            await db.execute(
-                """
-                UPDATE voice_channels
-                SET owner_id = ?
-                WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
-                """,
-                (new_owner_id, channel.id, guild_id, jtc_channel_id),
-            )
-        else:
-            # Legacy update for backward compatibility
-            await db.execute(
-                "UPDATE user_voice_channels SET owner_id = ? WHERE voice_channel_id = ?",
-                (new_owner_id, channel.id),
-            )
+        await db.execute(
+            """
+            UPDATE voice_channels
+            SET owner_id = ?
+            WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
+            """,
+            (new_owner_id, channel.id, guild_id, jtc_channel_id),
+        )
         await db.commit()
 
 
@@ -333,7 +325,8 @@ def get_role_display_name(
         key="get_role_display_name",
         preserve_order=True,
     )
-    rid = normalized[0] if normalized else None
+    # normalize_role_ids with preserve_order=True returns list[int]
+    rid = normalized[0] if normalized and isinstance(normalized, list) else None
 
     if rid is None:
         return "Unknown role"
@@ -460,6 +453,35 @@ async def _get_configured_role_ids(bot, guild_id: int, key: str) -> set[int]:
         return set()
 
 
+async def get_configured_privileged_role_ids(
+    bot,
+    guild_id: int,
+    *,
+    include_staff: bool = False,
+) -> list[int]:
+    """Return configured privileged role IDs in canonical order.
+
+    Combines bot admins, Discord managers, and moderators (optionally staff) using
+    the same resolution as permission-level checks, preserving config order while
+    deduplicating IDs.
+    """
+
+    role_keys = ["roles.bot_admins", "roles.discord_managers", "roles.moderators"]
+    if include_staff:
+        role_keys.append("roles.staff")
+
+    ordered_ids: list[int] = []
+    seen: set[int] = set()
+
+    for key in role_keys:
+        for rid in await _get_configured_role_ids(bot, guild_id, key):
+            if rid not in seen:
+                seen.add(rid)
+                ordered_ids.append(rid)
+
+    return ordered_ids
+
+
 def _member_role_ids(member: discord.Member) -> set[int]:
     if not isinstance(member, discord.Member):
         return set()
@@ -584,7 +606,7 @@ async def is_staff(
 
 
 def app_command_check_configured_roles(role_ids: Iterable[int]) -> Any:
-    from discord import app_commands
+    from discord import app_commands  # type: ignore[import-not-found]
 
     def predicate(interaction: discord.Interaction) -> bool:
         guild = interaction.guild

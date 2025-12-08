@@ -1,3 +1,5 @@
+import { showError } from '../utils/toast';
+
 /**
  * Bulk Recheck Results Modal
  * 
@@ -40,7 +42,7 @@ export function BulkRecheckResultsModal({ open, onClose, results }: BulkRecheckR
 
   const downloadCSV = () => {
     if (!results.csv_content || !results.csv_filename) {
-      console.error('No CSV data available');
+      showError('CSV data is not available yet.');
       return;
     }
 
@@ -63,7 +65,7 @@ export function BulkRecheckResultsModal({ open, onClose, results }: BulkRecheckR
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Failed to download CSV:', error);
+      showError('Failed to download CSV.');
     }
   };
 

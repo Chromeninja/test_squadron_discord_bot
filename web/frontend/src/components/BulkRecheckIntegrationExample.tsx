@@ -5,9 +5,10 @@
  * your admin users page. Add this code to your existing admin page.
  */
 
-import React, { useState } from 'react';
-import { BulkRecheckResultsModal } from '@/components/BulkRecheckResultsModal';
-import { api } from '@/api/client'; // Your API client
+import { useState } from 'react';
+import { BulkRecheckResultsModal } from './BulkRecheckResultsModal';
+import { apiClient } from '../api/client';
+import { handleApiError, showError } from '../utils/toast';
 
 // Example: In your AdminUsersPage component
 export function AdminUsersPageExample() {
@@ -18,7 +19,7 @@ export function AdminUsersPageExample() {
 
   const handleBulkRecheck = async () => {
     if (selectedUsers.length === 0) {
-      alert('Please select at least one user to recheck');
+      showError('Please select at least one user to recheck.');
       return;
     }
 
@@ -26,7 +27,7 @@ export function AdminUsersPageExample() {
 
     try {
       // Call the bulk recheck endpoint
-      const response = await api.post('/api/admin/users/bulk-recheck', {
+      const response = await apiClient.post('/api/admin/users/bulk-recheck', {
         user_ids: selectedUsers,
       });
 
@@ -38,8 +39,7 @@ export function AdminUsersPageExample() {
       // await refetchUsers();
 
     } catch (error) {
-      console.error('Bulk recheck failed:', error);
-      alert('Failed to perform bulk recheck. Please try again.');
+      handleApiError(error, 'Failed to perform bulk recheck. Please try again.');
     } finally {
       setIsRechecking(false);
     }
@@ -95,15 +95,14 @@ export function UserRowWithRecheckExample({ userId }: { userId: string }) {
 
   const handleSingleRecheck = async () => {
     try {
-      const response = await api.post('/api/admin/users/bulk-recheck', {
+      const response = await apiClient.post('/api/admin/users/bulk-recheck', {
         user_ids: [userId],
       });
 
       setRecheckResults(response.data);
       setShowResultsModal(true);
     } catch (error) {
-      console.error('Recheck failed:', error);
-      alert('Failed to recheck user. Please try again.');
+      handleApiError(error, 'Failed to recheck user. Please try again.');
     }
   };
 

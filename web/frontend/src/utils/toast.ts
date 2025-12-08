@@ -57,3 +57,16 @@ export function handleApiError(error: any, fallbackMessage: string = 'An error o
   const message = error?.response?.data?.error?.message || error?.message || fallbackMessage;
   showError(message);
 }
+
+/**
+ * Handle non-Axios response errors with consistent toast messaging.
+ */
+export function handleResponseError(response: any, fallbackMessage: string = 'An error occurred') {
+  const message =
+    response?.data?.error?.message ||
+    response?.error?.message ||
+    response?.statusText ||
+    response?.message ||
+    fallbackMessage;
+  showError(message);
+}

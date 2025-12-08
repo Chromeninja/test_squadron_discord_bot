@@ -11,6 +11,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_db,
     get_internal_api_client,
+    get_voice_service,
     require_moderator,
     require_staff,
 )
@@ -33,10 +34,8 @@ from core.schemas import (
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from helpers.audit import log_admin_action
-from helpers.voice_settings import (
-    _get_last_used_jtc_channel,
-    get_voice_settings_snapshots,
-)
+from helpers.voice_settings import _get_last_used_jtc_channel
+from services.voice_service import VoiceService
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -56,6 +55,44 @@ INTERNAL_API_URL = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
 INTERNAL_API_KEY = os.getenv(
     "INTERNAL_API_KEY", "dev_internal_api_key_change_in_production"
 )
+
+
+async def _resolve_snapshot_targets_internal(
+    snapshot: "VoiceSettingsSnapshot",
+    guild_id: int,
+    roles_map: dict[str, str],
+    member_name_loader,
+):
+    """Resolve target names using cached roles and an async member name loader."""
+
+    guild_id_str = str(guild_id)
+
+    async def _resolve(entry) -> None:
+        target_id = entry.target_id
+        entry.is_everyone = target_id in ("0", guild_id_str)
+        if entry.is_everyone:
+            entry.target_name = "@everyone"
+            entry.unknown_role = False
+            return
+
+        if entry.target_type == "role":
+            name = roles_map.get(target_id)
+            entry.target_name = f"@{name}" if name else None
+            entry.unknown_role = name is None
+            return
+
+        try:
+            entry.target_name = await member_name_loader(int(target_id))
+        except (TypeError, ValueError):
+            entry.target_name = None
+
+    for entry in (
+        list(snapshot.permissions)
+        + list(snapshot.ptt_settings)
+        + list(snapshot.priority_speaker_settings)
+        + list(snapshot.soundboard_settings)
+    ):
+        await _resolve(entry)
 
 
 def snapshot_to_jtc_settings(
@@ -195,6 +232,7 @@ async def voice_integrity_audit(
 async def list_active_voice_channels(
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_staff()),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     """
     List all active voice channels with owner information and current members.
@@ -285,6 +323,16 @@ async def list_active_voice_channels(
                 if channel_response.status_code == 200:
                     channel_data = channel_response.json()
                     channel_name = channel_data.get("name", channel_name)
+
+                # Prefer saved channel settings name if available via snapshot logic
+                snapshot = await voice_service.get_voice_settings_snapshot(
+                    guild_id=guild_id,
+                    jtc_channel_id=row[2],
+                    owner_id=owner_id,
+                    voice_channel_id=voice_channel_id,
+                )
+                if snapshot and snapshot.channel_name:
+                    channel_name = snapshot.channel_name
 
                 # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
                 member_ids = []
@@ -422,6 +470,7 @@ async def search_voice_channels(
     user_id: int = Query(..., description="Discord user ID to search for"),
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_staff()),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     """
     Search voice channels by owner user ID.
@@ -454,6 +503,14 @@ async def search_voice_channels(
     # Convert to VoiceChannelRecord objects
     items = []
     for row in rows:
+        snapshot = await voice_service.get_voice_settings_snapshot(
+            guild_id=row[1],
+            jtc_channel_id=row[2],
+            owner_id=row[3],
+            voice_channel_id=row[4],
+        )
+        created_at_val = snapshot.created_at if snapshot else row[5]
+        last_activity_val = snapshot.last_activity if snapshot else row[6]
         items.append(
             VoiceChannelRecord(
                 id=row[0],
@@ -461,9 +518,9 @@ async def search_voice_channels(
                 jtc_channel_id=row[2],
                 owner_id=row[3],
                 voice_channel_id=row[4],
-                created_at=row[5],
-                last_activity=row[6],
-                is_active=bool(row[7]),
+                created_at=int(created_at_val or 0),
+                last_activity=int(last_activity_val or 0),
+                is_active=bool(snapshot.is_active) if snapshot else bool(row[7]),
             )
         )
 
@@ -482,6 +539,7 @@ async def search_user_voice_settings(
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     """
     Search for users and their saved JTC voice settings using unified snapshot system.
@@ -516,10 +574,14 @@ async def search_user_voice_settings(
     guild_id = int(current_user.active_guild_id)
     offset = (page - 1) * page_size
 
-    # Fetch guild roles and members for name resolution (similar to resolve_target_names)
+    # Fetch guild roles for name resolution (per snapshot helper)
     try:
         guild_roles = await internal_api.get_guild_roles(guild_id)
-        roles_map = {str(role["id"]): role["name"] for role in guild_roles}
+        roles_map = {
+            str(role["id"]): role_name
+            for role in guild_roles
+            if (role_name := role.get("name")) is not None
+        }
     except Exception as e:
         import traceback
 
@@ -531,7 +593,6 @@ async def search_user_voice_settings(
     members_cache: dict[int, str | None] = {}
 
     async def get_member_name(user_id: int) -> str | None:
-        """Get member nickname or username from cache or API."""
         if user_id in members_cache:
             return members_cache[user_id]
         try:
@@ -547,60 +608,60 @@ async def search_user_voice_settings(
             members_cache[user_id] = None
             return None
 
-    async def resolve_snapshot_targets(snapshot: "VoiceSettingsSnapshot") -> None:
-        guild_id_str = str(guild_id)
-
-        async def _resolve(entry) -> None:
-            target_id = entry.target_id
-            entry.is_everyone = target_id in ("0", guild_id_str)
-            if entry.is_everyone:
-                entry.target_name = "@everyone"
-                entry.unknown_role = False
-                return
-
-            if entry.target_type == "role":
-                name = roles_map.get(target_id)
-                entry.target_name = f"@{name}" if name else None
-                entry.unknown_role = name is None
-                return
-
-            try:
-                entry.target_name = await get_member_name(int(target_id))
-            except (TypeError, ValueError):
-                entry.target_name = None
-
-        for entry in (
-            list(snapshot.permissions)
-            + list(snapshot.ptt_settings)
-            + list(snapshot.priority_speaker_settings)
-            + list(snapshot.soundboard_settings)
-        ):
-            await _resolve(entry)
-
     # Resolve users from verification table
     # Try exact user_id match first if query is numeric
     try:
         user_id_int = int(query)
-        # Exact Discord ID match
-        count_cursor = await db.execute(
-            "SELECT COUNT(*) FROM verification WHERE user_id = ?",
-            (user_id_int,),
-        )
-        count_row = await count_cursor.fetchone()
-        total = count_row[0] if count_row else 0
 
-        cursor = await db.execute(
+        candidate_user_ids: set[int] = set()
+        verification_map: dict[int, tuple[str | None, str | None]] = {}
+
+        # Exact Discord ID match from verification (existing behavior)
+        verification_cursor = await db.execute(
             """
             SELECT user_id, rsi_handle, community_moniker
             FROM verification
             WHERE user_id = ?
-            LIMIT ? OFFSET ?
             """,
-            (user_id_int, page_size, offset),
+            (user_id_int,),
         )
-        rows = await cursor.fetchall()
+        verification_row = await verification_cursor.fetchone()
+        if verification_row:
+            candidate_user_ids.add(user_id_int)
+            verification_map[user_id_int] = (
+                verification_row[1],
+                verification_row[2],
+            )
+
+        # Also include users that have voice settings but are not verified (single-row lookup)
+        voice_row_cursor = await db.execute(
+            """
+            SELECT 1 FROM channel_settings
+            WHERE guild_id = ? AND user_id = ?
+            LIMIT 1
+            """,
+            (guild_id, user_id_int),
+        )
+        voice_row = await voice_row_cursor.fetchone()
+        if voice_row:
+            candidate_user_ids.add(user_id_int)
+
+        total = len(candidate_user_ids)
+
+        candidate_user_ids_sorted = sorted(candidate_user_ids)
+        paged_user_ids = candidate_user_ids_sorted[offset : offset + page_size]
+
+        # Build rows list to align with existing processing loop
+        rows = [
+            (
+                uid,
+                verification_map.get(uid, (None, None))[0],
+                verification_map.get(uid, (None, None))[1],
+            )
+            for uid in paged_user_ids
+        ]
     except ValueError:
-        # Not a valid integer, search by RSI handle with LIKE
+        # Not a valid integer, search by RSI handle with LIKE (verification-only)
         search_pattern = f"%{query}%"
 
         count_cursor = await db.execute(
@@ -641,12 +702,14 @@ async def search_user_voice_settings(
         rsi_handle = row[1]
         community_moniker = row[2]
 
-        snapshots = await get_voice_settings_snapshots(guild_id, user_id)
+        snapshots = await voice_service.get_user_settings_snapshots(guild_id, user_id)
         primary_jtc_id = await _get_last_used_jtc_channel(guild_id, user_id)
 
         resolved_jtcs: list[JTCChannelSettings] = []
         for snapshot in snapshots:
-            await resolve_snapshot_targets(snapshot)
+            await _resolve_snapshot_targets_internal(
+                snapshot, guild_id, roles_map, get_member_name
+            )
             jtc_name = jtc_channels_map.get(
                 str(snapshot.jtc_channel_id), f"JTC {snapshot.jtc_channel_id}"
             )
@@ -710,7 +773,11 @@ async def reset_user_voice_settings(
         raise HTTPException(status_code=400, detail="No active guild selected")
 
     # Require admin role for destructive operations (following bot pattern)
-    if not current_user.is_admin:
+    def _is_admin_for_guild(user: UserProfile, guild_id: int) -> bool:
+        perm = user.authorized_guilds.get(str(guild_id)) if user else None
+        return bool(perm and perm.role_level in {"bot_owner", "bot_admin", "discord_manager"})
+
+    if not _is_admin_for_guild(current_user, int(current_user.active_guild_id)):
         raise HTTPException(
             status_code=403,
             detail="Admin role required for voice settings reset operations",
@@ -718,6 +785,8 @@ async def reset_user_voice_settings(
 
     guild_id = int(current_user.active_guild_id)
     user_id_int = int(user_id)
+
+    action_type = "RESET_USER_VOICE_SETTINGS"
 
     try:
         # Log the action

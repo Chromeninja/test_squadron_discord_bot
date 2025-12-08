@@ -2,9 +2,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Literal
 
-import discord  # legacy (embeds no longer dispatched)
+import discord  # embeds no longer dispatched
 
 from helpers.discord_api import channel_send_message
 from utils.logging import get_logger
@@ -19,12 +18,37 @@ class EventType(str, Enum):
     ADMIN_CHECK = "ADMIN_CHECK"  # Admin initiated manual check
 
 
+class InitiatorKind(str, Enum):
+    USER = "User"
+    ADMIN = "Admin"
+    AUTO = "Auto"
+
+
+class InitiatorSource(str, Enum):
+    COMMAND = "command"
+    WEB = "web"
+    BULK = "bulk"
+    VOICE = "voice"
+    BUTTON = "button"
+    AUTO = "auto"
+    SYSTEM = "system"
+
+
+VALID_COMBINATIONS: dict[EventType, set[InitiatorKind]] = {
+    EventType.VERIFICATION: {InitiatorKind.USER},
+    EventType.RECHECK: {InitiatorKind.USER, InitiatorKind.ADMIN, InitiatorKind.AUTO},
+    EventType.AUTO_CHECK: {InitiatorKind.AUTO},
+    EventType.ADMIN_CHECK: {InitiatorKind.ADMIN},
+}
+
+
 @dataclass
 class ChangeSet:
     user_id: int
     event: EventType
-    initiator_kind: Literal["User", "Admin", "Auto"]
+    initiator_kind: InitiatorKind | str
     initiator_name: str | None = None
+    initiator_source: InitiatorSource | str | None = None
     guild_id: int | None = None  # Guild where the event occurred
 
     status_before: str | None = None
@@ -49,6 +73,30 @@ class ChangeSet:
     # Use timezone-aware UTC now instead of deprecated utcnow() for future-proofing
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     duration_ms: int = 0
+
+    def __post_init__(self):
+        # Normalize legacy string literals to enums for safety
+        if isinstance(self.event, str):
+            try:
+                self.event = EventType(self.event)
+            except ValueError:
+                # Unknown event string; keep raw but avoid attribute errors
+                pass
+        if isinstance(self.initiator_kind, str):
+            self.initiator_kind = InitiatorKind(self.initiator_kind)
+        if self.initiator_source and isinstance(self.initiator_source, str):
+            try:
+                self.initiator_source = InitiatorSource(self.initiator_source)
+            except ValueError:
+                # Allow passthrough of unknown custom sources without failing init
+                pass
+
+        valid_kinds = VALID_COMBINATIONS.get(self.event, set())
+        if valid_kinds and self.initiator_kind not in valid_kinds:
+            raise ValueError(
+                f"Invalid ChangeSet combination: event={self.event.value} "
+                f"initiator={self.initiator_kind.value}"
+            )
 
 
 MD_ESCAPE_CHARS = ["`", "*", "_", "~", "|", ">", "\\"]
@@ -255,9 +303,14 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     emoji = _event_emoji(cs)
     duration = ""  # duration tracking removed
     title = f"🗂️ <@{cs.user_id}> — Verification Update"
-    header_initiated = f"Initiated by {cs.initiator_kind}" + (
+    initiator_kind_value = (
+        cs.initiator_kind.value
+        if isinstance(cs.initiator_kind, InitiatorKind)
+        else str(cs.initiator_kind)
+    )
+    header_initiated = f"Initiated by {initiator_kind_value}" + (
         f" ({cs.initiator_name})"
-        if cs.initiator_kind == "Admin" and cs.initiator_name
+        if cs.initiator_kind == InitiatorKind.ADMIN and cs.initiator_name
         else ""
     )
     embed = discord.Embed(title=title, color=color_for(cs))
@@ -367,19 +420,51 @@ def _escape_inline(value: str | None) -> str:
     return "".join(out)
 
 
+def _initiator_source_label(cs: ChangeSet) -> str | None:
+    source = cs.initiator_source
+    if source is None:
+        return None
+    try:
+        if isinstance(source, str):
+            source = InitiatorSource(source)
+    except ValueError:
+        return source if isinstance(source, str) else None
+
+    mapping = {
+        InitiatorSource.COMMAND: "Command",
+        InitiatorSource.WEB: "Web",
+        InitiatorSource.BULK: "Bulk",
+        InitiatorSource.VOICE: "Voice",
+        InitiatorSource.BUTTON: "Button",
+        InitiatorSource.AUTO: "Auto",
+        InitiatorSource.SYSTEM: "System",
+    }
+    return mapping.get(source)
+
+
 def _header_tag(cs: ChangeSet) -> str:
-    if cs.event == EventType.VERIFICATION:
+    source_label = _initiator_source_label(cs)
+    suffix_parts = []
+    if source_label:
+        suffix_parts.append(source_label)
+    if cs.initiator_kind == InitiatorKind.ADMIN and cs.initiator_name:
+        suffix_parts.append(cs.initiator_name)
+    suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+
+    if cs.event == EventType.VERIFICATION and cs.initiator_kind == InitiatorKind.USER:
         return "Verification • User"
-    if cs.event == EventType.RECHECK and cs.initiator_kind == "User":
-        return "Recheck • User"
+    if cs.event == EventType.RECHECK:
+        if cs.initiator_kind == InitiatorKind.USER:
+            return "Recheck • User"
+        if cs.initiator_kind == InitiatorKind.ADMIN:
+            return f"Recheck • Admin{suffix}"
+        if cs.initiator_kind == InitiatorKind.AUTO:
+            return "Recheck • Auto"
+    if cs.event == EventType.AUTO_CHECK:
+        return "Auto Check"
     if cs.event == EventType.ADMIN_CHECK:
-        suffix = (
-            f" • Admin: {cs.initiator_name}"
-            if cs.initiator_kind == "Admin" and cs.initiator_name
-            else ""
-        )
         return f"Admin Check{suffix}"
-    return "Auto Check" if cs.event == EventType.AUTO_CHECK else cs.event.name
+    return cs.event.name
 
 
 def _outcome(cs: ChangeSet, has_changes: bool) -> tuple[str, str]:
@@ -396,11 +481,11 @@ def _build_header(cs: ChangeSet, has_changes: bool) -> str:
     return f"[{tag}] <@{cs.user_id}> {emoji} {outcome}"
 
 
-def _format_duration(ms: int) -> str:  # legacy stub (kept for compatibility)
+def _format_duration(ms: int) -> str:  # stub retained for callers
     return ""
 
 
-def _field_label_map() -> dict:  # legacy
+def _field_label_map() -> dict:  # stub retained for callers
     return {}
 
 
@@ -459,24 +544,21 @@ def _suppress_org_change(
     return False
 
 
-def _render_plaintext(cs: ChangeSet) -> str:
-    status_changed = _changed_material(cs.status_before, cs.status_after)
-    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
-    # Suppress initial moniker population during auto checks (noise when feature rolled out)
-    if moniker_changed and cs.event == EventType.AUTO_CHECK:
+def _moniker_changed(cs: ChangeSet) -> bool:
+    changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    if changed and cs.event == EventType.AUTO_CHECK:
         before = (cs.moniker_before or "").strip().lower()
         if before in {"", "(none)", "none"}:
-            moniker_changed = False
-    username_changed = _changed_material(cs.username_before, cs.username_after)
-    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
+            return False
+    return changed
 
-    # Check org changes
+
+def _org_change_flags(cs: ChangeSet) -> tuple[bool, bool]:
     main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
     affiliate_orgs_changed = _orgs_changed(
         cs.affiliate_orgs_before, cs.affiliate_orgs_after
     )
 
-    # Suppress org changes if transitioning from null to populated during auto-check
     if main_orgs_changed and _suppress_org_change(
         cs.main_orgs_before, cs.main_orgs_after, cs.event
     ):
@@ -486,39 +568,49 @@ def _render_plaintext(cs: ChangeSet) -> str:
     ):
         affiliate_orgs_changed = False
 
-    has_changes = (
-        status_changed
-        or moniker_changed
-        or username_changed
-        or handle_changed
-        or main_orgs_changed
-        or affiliate_orgs_changed
-    )
+    return main_orgs_changed, affiliate_orgs_changed
+
+
+def _calculate_changes(cs: ChangeSet) -> dict[str, bool]:
+    main_orgs_changed, affiliate_orgs_changed = _org_change_flags(cs)
+    return {
+        "status": _changed_material(cs.status_before, cs.status_after),
+        "moniker": _moniker_changed(cs),
+        "username": _changed_material(cs.username_before, cs.username_after),
+        "handle": _changed_material(cs.handle_before, cs.handle_after),
+        "main_orgs": main_orgs_changed,
+        "affiliate_orgs": affiliate_orgs_changed,
+    }
+
+
+def _render_plaintext(cs: ChangeSet) -> str:
+    changes = _calculate_changes(cs)
+    has_changes = any(changes.values())
     header = _build_header(cs, has_changes)
     if not has_changes:
         return header
     lines = [header]
-    if status_changed:
+    if changes["status"]:
         lines.append(
             f"Status: {_format_value(_truncate(cs.status_before or ''))} → {_format_value(_truncate(cs.status_after or ''))}"
         )
-    if moniker_changed:
+    if changes["moniker"]:
         lines.append(
             f"Moniker: {_format_value(_truncate(cs.moniker_before or '(none)'))} → {_format_value(_truncate(cs.moniker_after or '(none)'))}"
         )
-    if username_changed:
+    if changes["username"]:
         lines.append(
             f"Username: {_format_value(_truncate(cs.username_before or '(none)'))} → {_format_value(_truncate(cs.username_after or '(none)'))}"
         )
-    if handle_changed:
+    if changes["handle"]:
         lines.append(
             f"Handle: {_format_value(_truncate(cs.handle_before or '(none)'))} → {_format_value(_truncate(cs.handle_after or '(none)'))}"
         )
-    if main_orgs_changed:
+    if changes["main_orgs"]:
         lines.append(
             f"Main Org: {_format_org_list(cs.main_orgs_before)} → {_format_org_list(cs.main_orgs_after)}"
         )
-    if affiliate_orgs_changed:
+    if changes["affiliate_orgs"]:
         lines.append(
             f"Affiliate Orgs: {_format_org_list(cs.affiliate_orgs_before)} → {_format_org_list(cs.affiliate_orgs_after)}"
         )
@@ -545,38 +637,8 @@ async def post_if_changed(bot, cs: ChangeSet):
         if before and after and before.lower() == after.lower() and before != after:
             setattr(cs, f"{attr}_after", before)  # revert to suppress
 
-    status_changed = _changed_material(cs.status_before, cs.status_after)
-    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
-    if moniker_changed and cs.event == EventType.AUTO_CHECK:
-        before = (cs.moniker_before or "").strip().lower()
-        if before in {"", "(none)", "none"}:
-            moniker_changed = False
-    username_changed = _changed_material(cs.username_before, cs.username_after)
-    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
-
-    # Check org changes with suppression
-    main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
-    if main_orgs_changed and _suppress_org_change(
-        cs.main_orgs_before, cs.main_orgs_after, cs.event
-    ):
-        main_orgs_changed = False
-
-    affiliate_orgs_changed = _orgs_changed(
-        cs.affiliate_orgs_before, cs.affiliate_orgs_after
-    )
-    if affiliate_orgs_changed and _suppress_org_change(
-        cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event
-    ):
-        affiliate_orgs_changed = False
-
-    has_changes = (
-        status_changed
-        or moniker_changed
-        or username_changed
-        or handle_changed
-        or main_orgs_changed
-        or affiliate_orgs_changed
-    )
+    changes = _calculate_changes(cs)
+    has_changes = any(changes.values())
     if cs.event == EventType.AUTO_CHECK and not has_changes:
         return  # suppress entirely for auto no-change
 
@@ -614,7 +676,7 @@ async def post_if_changed(bot, cs: ChangeSet):
                         guild_id, "leadership_announcement_channel_id", guild
                     )
 
-        # Fallback to legacy attribute if config service unavailable
+        # Fallback to static attribute if config service unavailable
         if not channel and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
             channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
             if channel_id:
@@ -622,7 +684,7 @@ async def post_if_changed(bot, cs: ChangeSet):
 
     except Exception as e:
         logger.debug(f"Failed to resolve leadership log channel: {e}")
-        # Try legacy fallback
+        # Try static attribute fallback
         channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
         if channel_id:
             channel = bot.get_channel(int(channel_id))
@@ -642,7 +704,9 @@ async def post_if_changed(bot, cs: ChangeSet):
 __all__ = [
     "ChangeSet",
     "EventType",
-    "build_embed",  # build_embed retained for backwards compatibility (may be removed later)
+    "InitiatorKind",
+    "InitiatorSource",
+    "build_embed",  # build_embed retained for callers still importing it
     "build_message",
     "color_for",
     "escape_md",

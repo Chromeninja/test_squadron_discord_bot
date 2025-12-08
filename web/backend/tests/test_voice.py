@@ -146,6 +146,61 @@ async def test_user_settings_search_by_discord_id(
 
 
 @pytest.mark.asyncio
+async def test_user_settings_search_numeric_includes_unverified(
+    client: AsyncClient, mock_admin_session: str, temp_db: str
+):
+    """Numeric search should include users with voice settings even if unverified."""
+    from services.db.database import Database
+
+    unverified_user_id = 555555555
+
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            INSERT INTO channel_settings
+            (guild_id, jtc_channel_id, user_id, channel_name, user_limit, lock)
+            VALUES (123, 2222, ?, 'Unverified Channel', 3, 0)
+            """,
+            (unverified_user_id,),
+        )
+        await db.execute(
+            """
+            INSERT INTO user_jtc_preferences
+            (guild_id, user_id, last_used_jtc_channel_id)
+            VALUES (123, ?, 2222)
+            """,
+            (unverified_user_id,),
+        )
+        await db.commit()
+
+    response = await client.get(
+        f"/api/voice/user-settings?query={unverified_user_id}",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["success"] is True
+    assert data["total"] == 1
+    assert data["page"] == 1
+    assert data["page_size"] == 20
+    assert len(data["items"]) == 1
+
+    user = data["items"][0]
+    assert user["user_id"] == str(unverified_user_id)
+    assert user["rsi_handle"] is None
+    assert user["primary_jtc_id"] == "2222"
+    assert len(user["jtcs"]) == 1
+
+    jtc = user["jtcs"][0]
+    assert jtc["jtc_channel_id"] == "2222"
+    assert jtc["channel_name"] == "Unverified Channel"
+    assert jtc["user_limit"] == 3
+    assert jtc["lock"] is False
+
+
+@pytest.mark.asyncio
 async def test_user_settings_search_by_rsi_handle_partial(
     client: AsyncClient, mock_admin_session: str, temp_db: str
 ):

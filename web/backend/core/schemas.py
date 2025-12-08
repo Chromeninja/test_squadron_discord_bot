@@ -379,7 +379,7 @@ class RoleDelegationPolicy(BaseModel):
     target_role_id: str
     prerequisite_role_ids_all: list[str] = Field(default_factory=list)
     prerequisite_role_ids_any: list[str] = Field(default_factory=list)
-    # Legacy compatibility field; populated from *_all for old clients when present.
+    # Compatibility field; populated from *_all for older clients when present.
     prerequisite_role_ids: list[str] = Field(default_factory=list)
     enabled: bool = True
     note: str | None = None
@@ -422,7 +422,7 @@ class VoiceSelectableRoles(BaseModel):
 
 
 class RoleDelegationConfig(BaseModel):
-    """Collection of delegation policies for a guild (legacy endpoint wrapper)."""
+    """Collection of delegation policies for a guild (compat endpoint wrapper)."""
 
     policies: list[RoleDelegationPolicy] = Field(default_factory=list)
 

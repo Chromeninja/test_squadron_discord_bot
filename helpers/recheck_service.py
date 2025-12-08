@@ -11,13 +11,19 @@ remediation, audit logging.
 
 import time
 from dataclasses import asdict as _asdict
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING
 
 import discord
 
 from helpers.audit import log_admin_action
 from helpers.http_helper import NotFoundError
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.leadership_log import (
+    ChangeSet,
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+    post_if_changed,
+)
 from helpers.rate_limiter import check_rate_limit, log_attempt
 from helpers.role_helper import reverify_member
 from helpers.snapshots import diff_snapshots, snapshot_member_state
@@ -36,8 +42,10 @@ async def perform_recheck(
     rsi_handle: str,
     bot: "Bot",
     *,
-    initiator_kind: str = "User",
+    initiator_kind: InitiatorKind = InitiatorKind.USER,
+    initiator_source: InitiatorSource | None = None,
     admin_user_id: str | None = None,
+    admin_display_name: str | None = None,
     enforce_rate_limit: bool = True,
     log_leadership: bool = True,
     log_audit: bool = False,
@@ -59,8 +67,10 @@ async def perform_recheck(
         member: Discord member to recheck
         rsi_handle: RSI handle to verify against
         bot: Bot instance with config and services
-        initiator_kind: "User" (button), "Admin" (dashboard), or "System" (auto)
+        initiator_kind: InitiatorKind.USER (button), InitiatorKind.ADMIN (dashboard/bulk), or InitiatorKind.AUTO
+        initiator_source: Optional InitiatorSource to distinguish command/web/bulk/voice/auto/button/system
         admin_user_id: Required if initiator_kind="Admin" for audit logging
+        admin_display_name: Optional human-friendly admin name for leadership log (not a mention)
         enforce_rate_limit: If True, check and log rate limit attempts
         log_leadership: If True, post leadership log with before/after diff
         log_audit: If True, log to admin_action_log table
@@ -85,6 +95,8 @@ async def perform_recheck(
         "diff": None,
         "remediated": False,
     }
+
+    initiator_label = initiator_kind.value
 
     # Rate limiting
     if enforce_rate_limit:
@@ -121,7 +133,7 @@ async def perform_recheck(
             await handle_username_404(bot, member, rsi_handle)
         except Exception as e:
             logger.warning(
-                f"Unified 404 handler failed ({initiator_kind} recheck): {e}"
+                f"Unified 404 handler failed ({initiator_label} recheck): {e}"
             )
 
         result["error"] = "RSI handle not found. User may have changed their handle."
@@ -139,7 +151,7 @@ async def perform_recheck(
 
         return result
     except Exception:
-        logger.exception(f"Recheck failed ({initiator_kind})")
+        logger.exception(f"Recheck failed ({initiator_label})")
         result["error"] = "Recheck failed due to internal error"
 
         # Log failed admin action
@@ -229,13 +241,16 @@ async def perform_recheck(
     # Leadership log
     if log_leadership:
         try:
-            # Cast to Literal type for ChangeSet type safety
-            initiator_literal = cast('Literal["User", "Admin", "Auto"]', initiator_kind)
             cs = ChangeSet(
                 user_id=member.id,
                 event=EventType.RECHECK,
-                initiator_kind=initiator_literal,
-                initiator_name=admin_user_id if initiator_kind == "Admin" else None,
+                initiator_kind=initiator_kind,
+                initiator_source=initiator_source,
+                initiator_name=(
+                    admin_display_name
+                    if initiator_kind == InitiatorKind.ADMIN
+                    else None
+                ),
                 notes=None,
                 guild_id=member.guild.id if member.guild else None,
             )
@@ -259,7 +274,7 @@ async def perform_recheck(
                 logger.debug(f"Failed to attach diff to ChangeSet: {e}")
             await post_if_changed(bot, cs)
         except Exception as e:
-            logger.debug(f"Leadership log post failed ({initiator_kind} recheck): {e}")
+            logger.debug(f"Leadership log post failed ({initiator_label} recheck): {e}")
 
     # Admin audit log
     if log_audit and admin_user_id:

@@ -132,7 +132,7 @@ class TestVoiceSettingsHelper:
             cursor = AsyncMock()
             # Mock finding the JTC channel for active voice
             cursor.fetchone.side_effect = [
-                (55555,),  # jtc_channel_id from user_voice_channels
+                (55555,),  # jtc_channel_id from voice_channels lookup
                 ("Test Channel", 5, 1),  # channel_settings
             ]
             cursor.fetchall.side_effect = [

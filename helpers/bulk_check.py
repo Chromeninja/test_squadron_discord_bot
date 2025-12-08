@@ -73,9 +73,9 @@ async def collect_targets(
     Args:
         targets: "users" (from members_input), "voice_channel", or "active_voice"
         guild: The Discord guild
-        members_input: For "users" mode, either:
-          - A string of mentions/IDs (legacy, e.g., "@user1 123456789")
-          - A list of discord.Member objects (modern)
+                members_input: For "users" mode, either:
+                    - A string of mentions/IDs (older format, e.g., "@user1 123456789")
+                    - A list of discord.Member objects (modern)
         channel: VoiceChannel for "voice_channel" mode
 
     Returns:

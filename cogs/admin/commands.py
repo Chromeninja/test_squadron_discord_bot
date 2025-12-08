@@ -12,6 +12,8 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
+from services.db.database import Database
+from services.log_retention import prune_old_logs
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
@@ -330,6 +332,63 @@ class AdminCog(commands.Cog):
             self.logger.exception("Error in view-logs command", exc_info=e)
             await interaction.followup.send(
                 f"❌ Error retrieving logs: {e!s}", ephemeral=True
+            )
+
+    @app_commands.command(
+        name="prune-logs",
+        description=(
+            "Prune admin_action_log and voice_cooldowns entries older than N days."
+        ),
+    )
+    @app_commands.describe(days="Delete entries older than this many days (default 30).")
+    @app_commands.guild_only()
+    @require_permission_level(PermissionLevel.BOT_ADMIN)
+    async def prune_logs_command(
+        self, interaction: discord.Interaction, days: int = 30
+    ) -> None:
+        """Manually prune operational log tables without scheduling."""
+
+        self.logger.info(
+            "prune-logs command triggered",
+            extra={**get_interaction_extra(interaction), "retention_days": days},
+        )
+
+        await interaction.response.defer(ephemeral=True)
+
+        if days <= 0:
+            await interaction.followup.send(
+                "❌ Days must be a positive integer.", ephemeral=True
+            )
+            return
+
+        try:
+            async with Database.get_connection() as db:
+                result = await prune_old_logs(db, days)
+
+            message = (
+                "✅ Pruned old log entries.\n"
+                f"• admin_action_log: {result['admin_action_log_deleted']} deleted\n"
+                f"• voice_cooldowns: {result['voice_cooldowns_deleted']} deleted\n"
+                f"Retention window: {days} days"
+            )
+            await interaction.followup.send(message, ephemeral=True)
+
+            self.logger.info(
+                "prune-logs command completed",
+                extra={
+                    **get_interaction_extra(interaction),
+                    "retention_days": days,
+                    **result,
+                },
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Failed to prune logs: {e!s}", ephemeral=True
+            )
+            self.logger.exception(
+                "prune-logs command failed",
+                extra={**get_interaction_extra(interaction), "retention_days": days},
+                exc_info=e,
             )
 
     @app_commands.command(

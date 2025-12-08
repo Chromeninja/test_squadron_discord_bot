@@ -13,7 +13,13 @@ from helpers.embeds import (
     create_error_embed,
     create_success_embed,
 )
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.leadership_log import (
+    ChangeSet,
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+    post_if_changed,
+)
 from helpers.rate_limiter import (
     check_rate_limit,
     get_remaining_attempts,
@@ -316,7 +322,8 @@ class HandleModal(Modal, title="Verification"):
         cs = ChangeSet(
             user_id=member.id,
             event=EventType.VERIFICATION,
-            initiator_kind="User",
+            initiator_kind=InitiatorKind.USER,
+            initiator_source=InitiatorSource.BUTTON,
             initiator_name=None,
             notes=None,
             guild_id=member.guild.id if member.guild else None,

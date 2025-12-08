@@ -13,6 +13,7 @@ from helpers.embeds import (
     create_success_embed,
     create_verification_embed,
 )
+from helpers.leadership_log import InitiatorKind, InitiatorSource
 from helpers.recheck_service import perform_recheck
 from helpers.views import VerificationView
 from services.db.database import Database
@@ -382,7 +383,8 @@ class VerificationCog(commands.Cog):
             member=member,
             rsi_handle=rsi_handle,
             bot=self.bot,
-            initiator_kind="User",
+            initiator_kind=InitiatorKind.USER,
+            initiator_source=InitiatorSource.BUTTON,
             enforce_rate_limit=True,
             log_leadership=True,
             log_audit=False,  # User-initiated, no admin audit needed

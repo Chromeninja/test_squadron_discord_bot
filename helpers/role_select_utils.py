@@ -9,6 +9,9 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+_NOT_SET = object()
+
+
 def _normalize_role_ids(raw_roles: Any, guild_id: int | None, key: str) -> list[int]:
     """Coerce role identifiers into unique ints, ignoring invalid entries."""
 
@@ -41,8 +44,14 @@ def _normalize_role_ids(raw_roles: Any, guild_id: int | None, key: str) -> list[
     return normalized
 
 
-async def load_selectable_roles(bot, guild, key: str = "roles.selectable") -> list[int]:
-    """Fetch selectable roles for a guild via ConfigService, normalized to ints."""
+async def load_selectable_roles(
+    bot, guild, key: str | None = None
+) -> list[int]:
+    """Fetch selectable roles for a guild via ConfigService, normalized to ints.
+
+    Prefers the current DB key ("selectable_roles") and falls back to the
+    legacy key ("roles.selectable") for backward compatibility.
+    """
     if guild is None or not getattr(bot, "services", None):
         return []
 
@@ -50,16 +59,30 @@ async def load_selectable_roles(bot, guild, key: str = "roles.selectable") -> li
     if not config_service:
         return []
 
-    try:
-        roles = await config_service.get_guild_setting(guild.id, key, [])
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("Failed to load %s for guild %s: %s", key, guild.id, exc)
-        return []
+    keys_to_try = [key] if key else ["selectable_roles", "roles.selectable"]
 
-    normalized = _normalize_role_ids(roles, guild.id, key)
-    if not normalized:
-        logger.warning("No %s configured for guild %s", key, guild.id)
-    return normalized
+    for current_key in keys_to_try:
+        try:
+            roles = await config_service.get_guild_setting(
+                guild.id, current_key, _NOT_SET
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Failed to load %s for guild %s: %s", current_key, guild.id, exc
+            )
+            continue
+
+        if roles is _NOT_SET:
+            # Nothing stored for this key; try the next candidate
+            continue
+
+        normalized = _normalize_role_ids(roles, guild.id, current_key)
+        if not normalized:
+            logger.warning("No %s configured for guild %s", current_key, guild.id)
+        return normalized
+
+    # No configured values found in any key
+    return []
 
 
 def refresh_role_select(select_obj, guild, allowed_roles: list[int]) -> None:

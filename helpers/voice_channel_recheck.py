@@ -6,10 +6,15 @@ Returns per-user results, summary, and CSV export.
 import discord
 
 from helpers.bulk_check import StatusRow, write_csv
+from helpers.leadership_log import InitiatorKind, InitiatorSource
 
 
 async def recheck_voice_channel(
-    channel: discord.VoiceChannel, bot, initiator_kind="Admin", admin_user_id=None
+    channel: discord.VoiceChannel,
+    bot,
+    initiator_kind: InitiatorKind = InitiatorKind.ADMIN,
+    initiator_source: InitiatorSource | None = InitiatorSource.VOICE,
+    admin_user_id=None,
 ):
     results = []
     from services.db.database import Database
@@ -34,6 +39,7 @@ async def recheck_voice_channel(
                 rsi_handle,
                 bot,
                 initiator_kind=initiator_kind,
+                initiator_source=initiator_source,
                 admin_user_id=admin_user_id,
                 enforce_rate_limit=False,
                 log_leadership=True,
@@ -54,7 +60,7 @@ async def recheck_voice_channel(
             results.append(row)
     # Write CSV
     filename, csv_content = await write_csv(
-        results, guild_name=channel.guild.name, invoker_name=initiator_kind
+        results, guild_name=channel.guild.name, invoker_name=initiator_kind.value
     )
     # Build summary
     summary = f"Rechecked {len(results)} users in voice channel '{channel.name}'."

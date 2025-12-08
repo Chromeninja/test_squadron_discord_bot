@@ -374,7 +374,7 @@ class TestMultipleChannelsPerOwner:
     async def test_store_user_channel_marks_channel_orphan_when_occupied(
         self, voice_service_with_bot
     ):
-        """Ensure populated legacy channels are preserved and marked ownerless."""
+        """Ensure populated existing channels are preserved and marked ownerless."""
         voice_service, mock_bot = voice_service_with_bot
 
         guild_id = 12345
@@ -439,7 +439,7 @@ class TestMultipleChannelsPerOwner:
                     owner_id,
                     old_channel_id,
                     "channel_name",
-                    "Legacy",
+                    "Existing",
                 ),
             )
             await db.commit()

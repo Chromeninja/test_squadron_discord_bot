@@ -520,10 +520,9 @@ async def cleanup_user_voice_data(
         await db.commit()
 
 
-async def cleanup_legacy_user_voice_data(user_id: int) -> None:
+async def cleanup_user_voice_data_unscoped(user_id: int) -> None:
     """
-    Clean up all voice data for a user using the legacy approach (user_id only).
-    This is kept for backward compatibility and rollback purposes.
+    Clean up all voice data for a user using the user_id-only path.
 
     Args:
         user_id: The Discord user ID

@@ -302,7 +302,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     # Leadership message posted (header only, no explicit 404 text per current renderer)
     assert leader_chan.send.await_count == 1
     leadership_msg = leader_chan.send.await_args_list[0][0][0]
-    assert leadership_msg.startswith("[RECHECK]")
+    assert leadership_msg.startswith("[Recheck • Auto]")
     # Spam alert also
     assert spam_chan.send.await_count == 1
     spam_msg = spam_chan.send.await_args_list[0][0][0]
@@ -434,10 +434,10 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     await handle_username_404(bot, member, "LostOne")  # type: ignore[arg-type]
 
     # Leadership log should have one post containing header with
-    # RECHECK and 404 note suppressed to header only
+    # Recheck • Auto and 404 note suppressed to header only
     assert leader_chan.send.await_count == 1
     msg = leader_chan.send.await_args_list[0][0][0]
-    assert msg.startswith("[RECHECK]")
+    assert msg.startswith("[Recheck • Auto]")
     # Spam alert also fires
     assert spam_chan.send.await_count == 1
 

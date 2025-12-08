@@ -1,6 +1,6 @@
 """Role delegation management endpoints.
 
-These endpoints are legacy and will be superseded by the guild bot role settings
+These endpoints are deprecated and will be superseded by the guild bot role settings
 (`delegation_policies` in `/api/guilds/{guild_id}/settings/bot-roles`). Keep for
 backward compatibility until the dashboard migrates fully.
 """

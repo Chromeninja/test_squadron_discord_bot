@@ -282,6 +282,10 @@ Developer documentation source is included in the `docs/` directory (markdown fi
 
 If you prefer to view HTML docs locally, build them from the Sphinx sources on your machine (see "Building docs locally" below) — otherwise read the markdown files in `docs/`.
 
+## Developer Scripts
+
+Tools in `scripts/` are optional utilities for debugging and maintenance. They are not used during normal bot or backend operation, and runtime modules should not import them.
+
 ## 🌐 Web Admin Dashboard
 
 The bot includes a comprehensive web admin dashboard for managing and monitoring bot operations from a browser interface.

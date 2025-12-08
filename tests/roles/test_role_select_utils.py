@@ -35,12 +35,22 @@ def build_bot(role_config: dict[str, list]):
 
 @pytest.mark.asyncio
 async def test_load_selectable_roles_normalizes_and_dedupes():
-    bot = build_bot({"roles.selectable": ["1", ["1", "5"], -1, "99", "abc"]})
+    bot = build_bot({"selectable_roles": ["1", ["1", "5"], -1, "99", "abc"]})
     guild = DummyGuild()
 
     roles = await rsu.load_selectable_roles(bot, guild)
 
     assert roles == [1, 5, 99]
+
+
+@pytest.mark.asyncio
+async def test_load_selectable_roles_falls_back_to_legacy_key():
+    bot = build_bot({"roles.selectable": ["2", "4", "2"]})
+    guild = DummyGuild()
+
+    roles = await rsu.load_selectable_roles(bot, guild)
+
+    assert roles == [2, 4]
 
 
 @pytest.mark.asyncio

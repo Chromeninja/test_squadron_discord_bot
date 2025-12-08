@@ -1,4 +1,5 @@
--- Canonical schema for fresh deployments
+-- Canonical schema definition (version=1)
+-- Source of truth: services/db/schema.py initializes version=1 at runtime.
 PRAGMA foreign_keys=ON;
 
 -- Migration tracking (single canonical version)
@@ -6,7 +7,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at INTEGER DEFAULT (strftime('%s','now'))
 );
-INSERT OR IGNORE INTO schema_migrations (version) VALUES (0);
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);
 
 -- Verification (membership_status removed; org data stored as JSON text)
 CREATE TABLE IF NOT EXISTS verification (
@@ -57,18 +58,6 @@ CREATE INDEX IF NOT EXISTS idx_voice_channels_owner ON voice_channels(owner_id, 
 CREATE INDEX IF NOT EXISTS idx_voice_channels_active ON voice_channels(guild_id, jtc_channel_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_voice_channels_voice_channel_id ON voice_channels(voice_channel_id);
 
--- Legacy user voice channels (kept for compatibility)
-CREATE TABLE IF NOT EXISTS user_voice_channels (
-    guild_id INTEGER NOT NULL,
-    jtc_channel_id INTEGER NOT NULL,
-    owner_id INTEGER NOT NULL,
-    voice_channel_id INTEGER NOT NULL,
-    created_at INTEGER DEFAULT (strftime('%s','now')),
-    PRIMARY KEY (guild_id, jtc_channel_id, owner_id)
-);
-CREATE INDEX IF NOT EXISTS idx_user_voice_channels_voice_channel_id ON user_voice_channels(voice_channel_id);
-CREATE INDEX IF NOT EXISTS idx_uvc_owner_scope ON user_voice_channels(owner_id, guild_id, jtc_channel_id);
-
 -- Voice cooldowns
 CREATE TABLE IF NOT EXISTS voice_cooldowns (
     guild_id INTEGER NOT NULL,
@@ -76,6 +65,20 @@ CREATE TABLE IF NOT EXISTS voice_cooldowns (
     user_id INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
     PRIMARY KEY (guild_id, jtc_channel_id, user_id)
+);
+
+-- Per-channel settings keyed by voice channel id for multi-channel support
+CREATE TABLE IF NOT EXISTS voice_channel_settings (
+    guild_id INTEGER NOT NULL,
+    jtc_channel_id INTEGER NOT NULL,
+    owner_id INTEGER NOT NULL,
+    voice_channel_id INTEGER NOT NULL,
+    setting_key TEXT NOT NULL,
+    setting_value TEXT,
+    PRIMARY KEY (guild_id, jtc_channel_id, owner_id, voice_channel_id, setting_key),
+    FOREIGN KEY (voice_channel_id)
+        REFERENCES voice_channels(voice_channel_id)
+        ON DELETE CASCADE
 );
 
 -- Channel settings

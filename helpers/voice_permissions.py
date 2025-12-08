@@ -5,7 +5,7 @@ This module provides functions for asserting and enforcing permissions
 on user-created voice channels.
 """
 
-import discord
+import discord  # type: ignore[import-not-found]
 
 from services.db.database import Database
 from utils.logging import get_logger

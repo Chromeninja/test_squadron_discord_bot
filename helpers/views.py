@@ -9,9 +9,14 @@ messages, applying permission changes, and updating channel settings.
 
 import contextlib
 
-import discord
-from discord import Interaction, SelectOption
-from discord.ui import Button, Select, UserSelect, View
+import discord  # type: ignore[import-not-found]
+from discord import Interaction, SelectOption  # type: ignore[import-not-found]
+from discord.ui import (  # type: ignore[import-not-found]
+    Button,
+    Select,
+    UserSelect,
+    View,
+)
 
 from helpers.discord_api import edit_channel, send_message
 from helpers.embeds import create_cooldown_embed, create_token_embed

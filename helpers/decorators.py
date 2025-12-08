@@ -129,7 +129,7 @@ def require_bot_admin() -> Callable[[F], F]:
 def require_admin() -> Callable[[F], F]:
     """Decorator that limits a command to moderators or higher.
 
-    Deprecated alias retained for backward compatibility with legacy cogs.
+    Deprecated alias retained for backward compatibility with older cogs.
     """
 
     return require_permission_level(PermissionLevel.MODERATOR)

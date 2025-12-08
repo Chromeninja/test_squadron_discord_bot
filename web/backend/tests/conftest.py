@@ -23,6 +23,10 @@ sys.path.insert(0, str(backend_root))
 
 import contextlib
 
+from core import dependencies
+
+from config.config_loader import ConfigLoader
+from services.config_service import ConfigService
 from services.db.database import Database
 
 
@@ -112,7 +116,18 @@ async def temp_db():
 @pytest_asyncio.fixture
 async def client(temp_db):
     """Create a test client for the FastAPI app."""
-    # Import app after database is initialized
+    # Seed backend dependencies because ASGITransport doesn't trigger lifespan in tests
+    config_loader = ConfigLoader()
+    dependencies._config_loader = config_loader
+
+    config_service = ConfigService()
+    await config_service.initialize()
+    dependencies._config_service = config_service
+
+    # Reset voice service singleton for fresh test state
+    dependencies._voice_service = None
+
+    # Import app after database and services are initialized
     from app import app
 
     transport = ASGITransport(app=app)

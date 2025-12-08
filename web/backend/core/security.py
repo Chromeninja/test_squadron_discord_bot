@@ -6,7 +6,7 @@ Handles Discord OAuth2 flow, session tokens, and access control.
 
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Response
 from itsdangerous import BadSignature, SignatureExpired
@@ -48,7 +48,7 @@ def generate_oauth_state() -> str:
         Random state string
     """
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = datetime.now(timezone.utc).timestamp()
+    _oauth_states[state] = datetime.now(UTC).timestamp()
     return state
 
 
@@ -67,13 +67,13 @@ def validate_oauth_state(state: str) -> bool:
 
     # Check expiration (5 minutes)
     timestamp = _oauth_states.pop(state)
-    age = datetime.now(timezone.utc).timestamp() - timestamp
+    age = datetime.now(UTC).timestamp() - timestamp
     return age < 300  # 5 minutes
 
 
 def cleanup_expired_states() -> None:
     """Remove expired OAuth states (call periodically)."""
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     expired = [s for s, t in _oauth_states.items() if now - t > 300]
     for s in expired:
         _oauth_states.pop(s, None)
@@ -122,7 +122,7 @@ def create_session_token(user_data: dict) -> str:
     Returns:
         Signed JWT token string
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         **user_data,
         "exp": now + timedelta(hours=JWT_EXPIRATION_HOURS),

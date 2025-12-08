@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # Add project root to path to import from bot modules
 project_root = Path(__file__).parent.parent.parent
@@ -77,10 +78,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration - permissive for local dev
+# CORS configuration - include prod FRONTEND_URL when provided
+cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    cors_origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,6 +107,16 @@ app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
 app.include_router(health.router)
 app.include_router(errors.router)
 app.include_router(logs.router)
+
+
+# Serve built frontend assets in production
+frontend_dist = project_root / "web" / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(frontend_dist), html=True),
+        name="static",
+    )
 
 
 @app.get("/")

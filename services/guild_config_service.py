@@ -1,9 +1,9 @@
-"""Legacy GuildConfigService module.
+"""Retired GuildConfigService module.
 
 This module previously implemented a database-backed caching layer for guild
 settings. The functionality now lives in ``services.config_service.ConfigService``
 and ``services.guild_config_helper.GuildConfigHelper``. Importing this module is
-treated as an error so that any remaining legacy references are surfaced during
+treated as an error so that any remaining stale references are surfaced during
 development.
 """
 

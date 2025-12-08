@@ -95,8 +95,7 @@ async def test_enforce_permission_changes() -> None:
 
 @pytest.mark.asyncio
 async def test_get_user_channel() -> None:
-    """Test that get_user_channel properly orders by created_at
-    when using legacy path."""
+    """Test that get_user_channel orders by created_at across scope variants."""
     # Create mock user
     user = MagicMock(spec=discord.abc.User)
     user.id = 1001
@@ -153,7 +152,7 @@ async def test_get_user_channel() -> None:
         # Reset mocks
         db.execute.reset_mock()
 
-        # Call with no specific guild or JTC (legacy path)
+        # Call with no specific guild or JTC (unscoped path)
         result = await get_user_channel(bot, user)
         assert result == channel
 

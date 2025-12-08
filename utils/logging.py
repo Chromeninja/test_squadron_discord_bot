@@ -1,3 +1,4 @@
+import atexit
 import json
 import logging
 import logging.handlers
@@ -5,6 +6,9 @@ import queue
 from pathlib import Path
 
 from config.config_loader import ConfigLoader
+
+_queue_listener: logging.handlers.QueueListener | None = None
+_atexit_registered = False
 
 
 class CustomJsonFormatter(logging.Formatter):
@@ -66,6 +70,12 @@ def setup_logging(log_file: str = "logs/bot.log") -> None:
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
+    # Stop any existing listener before creating a new one (e.g., during tests)
+    global _queue_listener
+    if _queue_listener:
+        _queue_listener.stop()
+        _queue_listener = None
+
     log_path = Path(log_file)
     logs_dir = log_path.parent
     if not logs_dir.exists():
@@ -79,6 +89,9 @@ def setup_logging(log_file: str = "logs/bot.log") -> None:
     root_logger.addHandler(queue_handler)
 
     queue_listener.start()
+    _queue_listener = queue_listener
+
+    _register_logging_shutdown()
 
     discord_logger = logging.getLogger("discord")
     discord_logger.setLevel(logging.WARNING)
@@ -116,6 +129,28 @@ def _build_queue_listener(
     return logging.handlers.QueueListener(
         log_queue, file_handler, console_handler, respect_handler_level=True
     )
+
+
+def _register_logging_shutdown() -> None:
+    """Ensure the queue listener is stopped during interpreter shutdown."""
+
+    global _atexit_registered
+
+    if _atexit_registered:
+        return
+
+    def _shutdown_listener() -> None:
+        global _queue_listener
+        if _queue_listener:
+            try:
+                _queue_listener.stop()
+            except Exception:
+                # Defensive guard; avoid raising during interpreter shutdown
+                pass
+            _queue_listener = None
+
+    atexit.register(_shutdown_listener)
+    _atexit_registered = True
 
 
 def get_logger(name: str) -> logging.Logger:

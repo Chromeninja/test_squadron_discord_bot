@@ -128,7 +128,8 @@ class HealthService(BaseService):
                 table_names = {
                     "verification",
                     "guild_settings",
-                    "user_voice_channels",
+                    "voice_channels",
+                    "voice_channel_settings",
                     "voice_cooldowns",
                     "channel_settings",
                     "guild_registry",

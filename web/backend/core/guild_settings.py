@@ -19,7 +19,7 @@ AFFILIATE_ROLE_KEY = "roles.affiliate_role"
 NONMEMBER_ROLE_KEY = "roles.nonmember_role"
 SELECTABLE_ROLES_KEY = "selectable_roles"
 DELEGATION_POLICIES_KEY = "roles.delegation_policies"
-# Legacy alias retained for compatibility until callers are migrated.
+# Compatibility alias retained until callers are migrated.
 ROLE_DELEGATION_POLICIES_KEY = DELEGATION_POLICIES_KEY
 
 SETTINGS_VERSION_KEY = "meta.settings_version"
@@ -85,7 +85,7 @@ def _normalize_policy_roles(raw_roles: Any) -> list[str]:
 def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
     """Normalize delegation policies to the new schema shape with string snowflakes.
 
-    Supports legacy keys (grantor_roles/granted_role/requirements.required_roles)
+    Supports older keys (grantor_roles/granted_role/requirements.required_roles)
     and new keys (grantor_role_ids/target_role_id/prerequisite_role_ids_all/
     prerequisite_role_ids_any).
     """

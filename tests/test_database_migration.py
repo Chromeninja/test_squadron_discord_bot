@@ -9,7 +9,7 @@ async def test_init_schema_creates_expected_tables() -> None:
     async with aiosqlite.connect(":memory:") as db:
         await init_schema(db)
 
-        # verification table exists without legacy membership_status
+        # verification table exists without the removed membership_status column
         cursor = await db.execute("PRAGMA table_info(verification)")
         columns = [row[1] for row in await cursor.fetchall()]
         assert "membership_status" not in columns
@@ -28,7 +28,7 @@ async def test_init_schema_idempotent() -> None:
         await init_schema(db)
 
         cursor = await db.execute(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version = 0"
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = 1"
         )
         row = await cursor.fetchone()
         assert row and row[0] == 1

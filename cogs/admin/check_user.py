@@ -63,11 +63,11 @@ class CheckUserCommands(app_commands.Group):
             )
 
     async def _fetch_verification_row(self, user_id: int) -> tuple[Any, ...] | None:
-        """Fetch verification data (handle, timestamps, org lists)."""
+        """Fetch verification data (handle, moniker, timestamps, org lists)."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """
-                SELECT rsi_handle, last_updated, main_orgs, affiliate_orgs
+                SELECT rsi_handle, community_moniker, last_updated, main_orgs, affiliate_orgs
                 FROM verification
                 WHERE user_id = ?
                 """,
@@ -118,10 +118,11 @@ class CheckUserCommands(app_commands.Group):
         joined_val = "Unknown"
         if member.joined_at:
             joined_ts = int(member.joined_at.timestamp())
-            joined_val = f"<t:{joined_ts}:F>\n<t:{joined_ts}:R>"
+            joined_val = f"<t:{joined_ts}:R>"
 
         verify_status = "❌ Not in database"
         rsi_handle = "—"
+        community_moniker = "—"
         last_verified = "—"
         main_org_lines: list[str] = []
         affiliate_org_lines: list[str] = []
@@ -129,9 +130,13 @@ class CheckUserCommands(app_commands.Group):
         affiliate_org_value = "—"
 
         if verification_row:
-            rsi_handle, last_updated, main_orgs_json, affiliate_orgs_json = (
-                verification_row
-            )
+            (
+                rsi_handle,
+                community_moniker,
+                last_updated,
+                main_orgs_json,
+                affiliate_orgs_json,
+            ) = verification_row
 
             main_orgs = self._parse_org_list(main_orgs_json)
             affiliate_orgs = self._parse_org_list(affiliate_orgs_json)
@@ -146,8 +151,11 @@ class CheckUserCommands(app_commands.Group):
                 rsi_url = f"https://robertsspaceindustries.com/citizens/{rsi_handle}"
                 rsi_handle = f"[{rsi_handle}]({rsi_url})"
 
+            if not community_moniker:
+                community_moniker = "—"
+
             if last_updated:
-                last_verified = f"<t:{last_updated}:F>\n<t:{last_updated}:R>"
+                last_verified = f"<t:{last_updated}:R>"
 
             main_org_lines = self._build_org_links(main_orgs)
             affiliate_org_lines = self._build_org_links(affiliate_orgs)
@@ -159,6 +167,7 @@ class CheckUserCommands(app_commands.Group):
         # First row (table style): Lock/UserLimit analogue
         embed.add_field(name="Verification Status", value=verify_status, inline=True)
         embed.add_field(name="RSI Handle", value=rsi_handle, inline=True)
+        embed.add_field(name="Community Moniker", value=community_moniker, inline=True)
 
         # Second row: Last verified vs Joined date
         embed.add_field(name="Last Verified", value=last_verified, inline=True)

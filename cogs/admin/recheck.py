@@ -7,7 +7,13 @@ import discord
 from discord.ext import commands, tasks
 
 from helpers.http_helper import NotFoundError
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
+from helpers.leadership_log import (
+    ChangeSet,
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+    post_if_changed,
+)
 from helpers.role_helper import _compute_next_recheck, assign_roles
 from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
@@ -215,7 +221,8 @@ class AutoRecheck(commands.Cog):
             cs = ChangeSet(
                 user_id=member.id,
                 event=EventType.AUTO_CHECK,
-                initiator_kind="Auto",
+                initiator_kind=InitiatorKind.AUTO,
+                initiator_source=InitiatorSource.AUTO,
                 initiator_name=None,
                 notes=None,
                 guild_id=member.guild.id if member.guild else None,

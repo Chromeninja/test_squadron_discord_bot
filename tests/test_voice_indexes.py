@@ -12,12 +12,15 @@ async def test_composite_indexes_created(temp_db) -> None:
     """Test that new composite indexes are created by schema initialization."""
     async with Database.get_connection() as db:
         # Check that our new composite indexes exist
-        cursor = await db.execute("PRAGMA index_list(user_voice_channels)")
+        cursor = await db.execute("PRAGMA index_list(voice_channels)")
         indexes = await cursor.fetchall()
         index_names = [idx[1] for idx in indexes]
 
-        assert "idx_uvc_owner_scope" in index_names, (
-            "idx_uvc_owner_scope index should exist"
+        assert "idx_voice_channels_owner" in index_names, (
+            "idx_voice_channels_owner index should exist"
+        )
+        assert "idx_voice_channels_active" in index_names, (
+            "idx_voice_channels_active index should exist"
         )
 
         # Check channel_settings indexes
