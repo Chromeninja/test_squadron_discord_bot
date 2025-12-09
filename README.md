@@ -103,6 +103,10 @@ The bot includes several administrative commands for configuration and managemen
 
 > **💡 Live Command Discovery**: For the most up-to-date list of available commands, use `/help` in Discord or `/status` for detailed bot information. Commands listed below represent the core functionality but may not reflect the latest additions or changes.
 
+#### About Command
+
+- `/about` (ephemeral): Shows bot purpose, current version, privacy summary, user rights, and support contact. Uses centralized metadata in `utils/about_metadata.py` (update version/contact during releases). Full policy: `PRIVACY.md`.
+
 #### General Admin Commands
 
 | Command | Description | Required Role | Usage |

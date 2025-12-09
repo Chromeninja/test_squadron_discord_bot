@@ -10,6 +10,17 @@ from typing import TYPE_CHECKING
 import discord  # type: ignore[import-not-found]
 
 from helpers.permissions_helper import get_role_display_name
+from utils.about_metadata import (
+    BOT_DESCRIPTION,
+    BOT_NAME,
+    BOT_PURPOSE_ITEMS,
+    BOT_VERSION,
+    PRIVACY_POLICY_URL,
+    PRIVACY_SUMMARY,
+    SUPPORT_EMAIL,
+    SUPPORT_TICKET_INFO,
+    USER_RIGHTS_SUMMARY,
+)
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -62,6 +73,54 @@ def create_verification_embed() -> discord.Embed:
         "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
     )
     return create_embed(title, description, color, thumbnail_url)
+
+
+def build_about_embed() -> discord.Embed:
+    """Build the About embed with centralized metadata."""
+
+    embed = create_embed(
+        title=f"{BOT_NAME} – About",
+        description=BOT_DESCRIPTION,
+        color=0xFFBB00,
+    )
+
+    embed.add_field(
+        name="Bot Purpose",
+        value="\n".join(f"• {item}" for item in BOT_PURPOSE_ITEMS),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Version",
+        value=f"{BOT_VERSION}",
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Privacy Summary",
+        value=PRIVACY_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="User Rights",
+        value=USER_RIGHTS_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Support & Contact",
+        value=f"{SUPPORT_TICKET_INFO}\nEmail: {SUPPORT_EMAIL}",
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Full Privacy Policy",
+        value=f"Read the full policy: {PRIVACY_POLICY_URL}",
+        inline=False,
+    )
+
+    return embed
 
 
 def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
