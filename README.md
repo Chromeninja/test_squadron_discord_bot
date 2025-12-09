@@ -107,6 +107,10 @@ The bot includes several administrative commands for configuration and managemen
 
 - `/about` (ephemeral): Shows bot purpose, current version, privacy summary, user rights, and support contact. Uses centralized metadata in `utils/about_metadata.py` (update version/contact during releases). Full policy: `PRIVACY.md`.
 
+#### Dashboard Command
+
+- `/dashboard` (ephemeral, Staff+): Provides a link to the Web Admin Dashboard. URL configured in `web_dashboard.url` (config.yaml). Dashboard enforces role-based permissions for guild management, user lookup, and statistics.
+
 #### General Admin Commands
 
 | Command | Description | Required Role | Usage |

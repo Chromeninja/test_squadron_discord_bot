@@ -305,15 +305,34 @@ class HandleModal(Modal, title="Verification"):
         before_snap = await snapshot_member_state(self.bot, member)
 
         # Verification successful
-        _old_status, assigned_role_type = await assign_roles(
-            member,
-            verify_value_check,
-            cased_handle_used,
-            self.bot,
-            community_moniker=community_moniker,
-            main_orgs=main_orgs,
-            affiliate_orgs=affiliate_orgs,
-        )
+        try:
+            _old_status, assigned_role_type = await assign_roles(
+                member,
+                verify_value_check,
+                cased_handle_used,
+                self.bot,
+                community_moniker=community_moniker,
+                main_orgs=main_orgs,
+                affiliate_orgs=affiliate_orgs,
+            )
+        except ValueError as e:
+            # Handle duplicate RSI handle or other validation errors
+            error_msg = str(e)
+            if "already verified by another Discord account" in error_msg:
+                error_msg = (
+                    "❌ **This RSI handle is already verified by another Discord user.**\n\n"
+                    "Each RSI handle can only be linked to one Discord account.\n\n"
+                    "If you believe this is an error, please contact a moderator."
+                )
+            embed = create_error_embed(error_msg)
+            await followup_send_message(
+                interaction, "", embed=embed, ephemeral=True
+            )
+            logger.warning(
+                f"Verification failed: {e!s}",
+                extra={"user_id": member.id, "rsi_handle": cased_handle_used},
+            )
+            return
         # Allow enqueued role/nick tasks to process so snapshot reflects changes
         with contextlib.suppress(Exception):
             await flush_tasks()

@@ -25,6 +25,8 @@ class FlakyGuild:
         self._calls = {"get": 0, "fetch": 0}
         self._member_on_retry = member_on_retry
         self._fetch_on_first = fetch_on_first
+        self.id = 12345
+        self.name = "TestGuild"
 
     def get_member(self, user_id: int):
         self._calls["get"] += 1

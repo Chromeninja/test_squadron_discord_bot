@@ -36,6 +36,9 @@ rsi:
   # Global cap for ALL RSI HTTP calls (manual + auto)
   requests_per_minute: 30
 
+web_dashboard:
+  url: "http://localhost:5173"  # Frontend URL (change to production URL in deployment)
+
 auto_recheck:
   enabled: true
 

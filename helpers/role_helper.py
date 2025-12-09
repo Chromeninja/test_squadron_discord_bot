@@ -102,6 +102,46 @@ async def assign_roles(
             if prev_affiliate_orgs_json:
                 prev_affiliate_orgs = json.loads(prev_affiliate_orgs_json)
 
+    # Check for RSI handle conflict - enforce one RSI handle per Discord user
+    conflict_user_id = await Database.check_rsi_handle_conflict(cased_handle, member.id)
+    if conflict_user_id:
+        logger.warning(
+            f"RSI handle '{cased_handle}' already verified by user {conflict_user_id}, "
+            f"rejecting verification attempt by {member.id} ({member.display_name})"
+        )
+
+        # Log to leadership log
+        from helpers.leadership_log import (
+            ChangeSet,
+            EventType,
+            InitiatorKind,
+            InitiatorSource,
+            post_if_changed,
+        )
+
+        changeset = ChangeSet(
+            user_id=member.id,
+            event=EventType.VERIFICATION,
+            initiator_kind=InitiatorKind.USER,
+            initiator_name=member.display_name,
+            initiator_source=InitiatorSource.COMMAND,
+            guild_id=member.guild.id,
+            notes=f"❌ Verification rejected: RSI handle '{cased_handle}' is already verified by Discord user <@{conflict_user_id}>. One RSI handle can only be linked to one Discord account.",
+            handle_before=None,
+            handle_after=cased_handle,
+        )
+
+        try:
+            await post_if_changed(bot, changeset)
+        except Exception as e:
+            logger.warning(f"Failed to post duplicate handle leadership log: {e}")
+
+        # Raise an error to prevent verification
+        raise ValueError(
+            f"RSI handle '{cased_handle}' is already verified by another Discord account. "
+            "Each RSI handle can only be linked to one Discord user."
+        )
+
     # Get role configuration from database for this guild
     if hasattr(bot, "services") and bot.services:
         try:
@@ -181,6 +221,9 @@ async def assign_roles(
         roles_to_add.append(non_member_role)
         assigned_role_type = "non_member"
         logger.debug(f"Appending role to add: {non_member_role.name}")
+
+    # Track user guild membership
+    await Database.track_user_guild_membership(member.id, member.guild.id)
 
     # Update DB - remove membership_status column, rely on org lists
     async with Database.get_connection() as db:

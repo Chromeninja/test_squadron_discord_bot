@@ -157,7 +157,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
     """Fetch bot role settings for a guild with sensible defaults.
 
     Returns dict with keys: bot_admins, discord_managers, moderators, staff,
-    main_role, affiliate_role, nonmember_role (all list[str]), and 
+    main_role, affiliate_role, nonmember_role (all list[str]), and
     delegation_policies (list[dict]).
     """
     query = """

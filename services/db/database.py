@@ -706,3 +706,314 @@ class Database:
                 }
                 for row in rows
             ]
+
+    @classmethod
+    async def track_user_guild_membership(
+        cls, user_id: int, guild_id: int
+    ) -> None:
+        """
+        Record that a user is active in a guild, updating last_seen timestamp.
+
+        Args:
+            user_id: Discord user ID
+            guild_id: Discord guild ID
+        """
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO user_guild_membership (user_id, guild_id, joined_at, last_seen)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, guild_id) DO UPDATE SET last_seen = excluded.last_seen
+                """,
+                (user_id, guild_id, now, now),
+            )
+            await db.commit()
+
+    @classmethod
+    async def remove_user_guild_membership(
+        cls, user_id: int, guild_id: int
+    ) -> None:
+        """
+        Remove a user's membership record for a specific guild.
+
+        Args:
+            user_id: Discord user ID
+            guild_id: Discord guild ID
+        """
+        async with cls.get_connection() as db:
+            await db.execute(
+                "DELETE FROM user_guild_membership WHERE user_id = ? AND guild_id = ?",
+                (user_id, guild_id),
+            )
+            await db.commit()
+
+    @classmethod
+    async def get_user_active_guilds(cls, user_id: int) -> list[int]:
+        """
+        Get list of guild IDs where a user is currently tracked as active.
+
+        Args:
+            user_id: Discord user ID
+
+        Returns:
+            List of guild IDs
+        """
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT guild_id FROM user_guild_membership WHERE user_id = ?",
+                (user_id,),
+            )
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+    @classmethod
+    async def check_rsi_handle_conflict(
+        cls, rsi_handle: str, user_id: int
+    ) -> int | None:
+        """
+        Check if an RSI handle is already verified by a different Discord user.
+
+        Args:
+            rsi_handle: RSI handle to check (case-insensitive)
+            user_id: Discord user ID attempting to verify
+
+        Returns:
+            The user_id of the conflicting account, or None if no conflict
+        """
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT user_id FROM verification WHERE LOWER(rsi_handle) = LOWER(?) AND user_id != ?",
+                (rsi_handle, user_id),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+    @classmethod
+    async def cleanup_guild_specific_data(
+        cls, user_id: int, guild_id: int
+    ) -> dict[str, int]:
+        """
+        Remove all guild-specific data for a user in a specific guild.
+
+        This includes voice settings, auto-recheck state, channel settings,
+        permissions, etc. Does NOT remove global verification data.
+
+        Args:
+            user_id: Discord user ID
+            guild_id: Discord guild ID
+
+        Returns:
+            Dict mapping table names to number of rows deleted
+        """
+        deleted_counts = {}
+
+        async with cls.get_connection() as db:
+            await db.execute("BEGIN TRANSACTION")
+            try:
+                # Voice channels owned by user in this guild
+                cursor = await db.execute(
+                    "DELETE FROM voice_channels WHERE owner_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["voice_channels"] = cursor.rowcount
+
+                # Voice channel settings
+                cursor = await db.execute(
+                    "DELETE FROM voice_channel_settings WHERE owner_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["voice_channel_settings"] = cursor.rowcount
+
+                # Channel settings
+                cursor = await db.execute(
+                    "DELETE FROM channel_settings WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["channel_settings"] = cursor.rowcount
+
+                # Channel permissions
+                cursor = await db.execute(
+                    "DELETE FROM channel_permissions WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["channel_permissions"] = cursor.rowcount
+
+                # PTT settings
+                cursor = await db.execute(
+                    "DELETE FROM channel_ptt_settings WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["channel_ptt_settings"] = cursor.rowcount
+
+                # Priority speaker settings
+                cursor = await db.execute(
+                    "DELETE FROM channel_priority_speaker_settings WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["channel_priority_speaker_settings"] = cursor.rowcount
+
+                # Soundboard settings
+                cursor = await db.execute(
+                    "DELETE FROM channel_soundboard_settings WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["channel_soundboard_settings"] = cursor.rowcount
+
+                # Voice cooldowns
+                cursor = await db.execute(
+                    "DELETE FROM voice_cooldowns WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["voice_cooldowns"] = cursor.rowcount
+
+                # User JTC preferences
+                cursor = await db.execute(
+                    "DELETE FROM user_jtc_preferences WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["user_jtc_preferences"] = cursor.rowcount
+
+                # Announcement events for this guild
+                cursor = await db.execute(
+                    "DELETE FROM announcement_events WHERE user_id = ? AND guild_id = ?",
+                    (user_id, guild_id),
+                )
+                deleted_counts["announcement_events"] = cursor.rowcount
+
+                await db.commit()
+                logger.info(
+                    f"Cleaned up guild-specific data for user {user_id} in guild {guild_id}: {deleted_counts}"
+                )
+            except Exception:
+                await db.rollback()
+                raise
+
+        return deleted_counts
+
+    @classmethod
+    async def cleanup_all_user_data(cls, user_id: int) -> dict[str, int]:
+        """
+        Remove ALL data for a user across all guilds, including global verification.
+
+        This is a full cleanup when a user has left all managed guilds.
+
+        Args:
+            user_id: Discord user ID
+
+        Returns:
+            Dict mapping table names to number of rows deleted
+        """
+        deleted_counts = {}
+
+        async with cls.get_connection() as db:
+            await db.execute("BEGIN TRANSACTION")
+            try:
+                # Global verification record
+                cursor = await db.execute(
+                    "DELETE FROM verification WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["verification"] = cursor.rowcount
+
+                # Auto-recheck state
+                cursor = await db.execute(
+                    "DELETE FROM auto_recheck_state WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["auto_recheck_state"] = cursor.rowcount
+
+                # Rate limits
+                cursor = await db.execute(
+                    "DELETE FROM rate_limits WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["rate_limits"] = cursor.rowcount
+
+                # Voice channels (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM voice_channels WHERE owner_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["voice_channels"] = cursor.rowcount
+
+                # Voice channel settings (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM voice_channel_settings WHERE owner_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["voice_channel_settings"] = cursor.rowcount
+
+                # Channel settings (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM channel_settings WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["channel_settings"] = cursor.rowcount
+
+                # Channel permissions (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM channel_permissions WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["channel_permissions"] = cursor.rowcount
+
+                # PTT settings (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM channel_ptt_settings WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["channel_ptt_settings"] = cursor.rowcount
+
+                # Priority speaker settings (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM channel_priority_speaker_settings WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["channel_priority_speaker_settings"] = cursor.rowcount
+
+                # Soundboard settings (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM channel_soundboard_settings WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["channel_soundboard_settings"] = cursor.rowcount
+
+                # Voice cooldowns (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM voice_cooldowns WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["voice_cooldowns"] = cursor.rowcount
+
+                # User JTC preferences (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM user_jtc_preferences WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["user_jtc_preferences"] = cursor.rowcount
+
+                # Announcement events (all guilds)
+                cursor = await db.execute(
+                    "DELETE FROM announcement_events WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["announcement_events"] = cursor.rowcount
+
+                # Guild membership tracking
+                cursor = await db.execute(
+                    "DELETE FROM user_guild_membership WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_counts["user_guild_membership"] = cursor.rowcount
+
+                await db.commit()
+                logger.info(
+                    f"Cleaned up all data for user {user_id}: {deleted_counts}"
+                )
+            except Exception:
+                await db.rollback()
+                raise
+
+        return deleted_counts
+

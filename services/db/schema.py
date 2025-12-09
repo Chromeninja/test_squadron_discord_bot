@@ -68,6 +68,25 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_verification_moniker ON verification(community_moniker)"
     )
 
+    # User guild membership tracking - tracks which guilds each verified user is active in
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_guild_membership (
+            user_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            joined_at INTEGER DEFAULT (strftime('%s','now')),
+            last_seen INTEGER DEFAULT (strftime('%s','now')),
+            PRIMARY KEY (user_id, guild_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_guild_membership_user ON user_guild_membership(user_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_guild_membership_guild ON user_guild_membership(guild_id)"
+    )
+
     # Guild settings
     await db.execute(
         """

@@ -89,61 +89,161 @@ class AutoRecheck(commands.Cog):
                     await self._handle_recheck(member, user_id, rsi_handle, now)
 
     async def _prune_user_from_db(self, user_id: int) -> None:
-        """Remove user records when they're no longer in any guild."""
+        """
+        Remove user records only if they're no longer in ANY managed guild.
+
+        Uses multi-guild awareness to avoid premature pruning.
+        """
         try:
-            async with Database.get_connection() as db:
-                await db.execute(
-                    "DELETE FROM auto_recheck_state WHERE user_id = ?",
-                    (user_id,),
+            # Check if user is still in any managed guild
+            remaining_guilds = []
+            for guild in self.bot.guilds:
+                member = guild.get_member(int(user_id))
+                if member:
+                    remaining_guilds.append(guild)
+
+            if remaining_guilds:
+                # User is still in some guilds - don't prune
+                guild_names = ", ".join([g.name for g in remaining_guilds])
+                logger.info(
+                    f"User {user_id} not found in current guild during recheck, "
+                    f"but is still active in {len(remaining_guilds)} other guild(s): {guild_names}. "
+                    f"Skipping prune."
                 )
-                await db.execute(
-                    "DELETE FROM verification WHERE user_id = ?",
-                    (user_id,),
-                )
-                await db.commit()
-            logger.info(f"Pruned user {user_id} from DB (left all guilds)")
+                return
+
+            # User is not in any guild - perform full cleanup
+            await Database.cleanup_all_user_data(user_id)
+            logger.info(f"Pruned user {user_id} from DB (not in any managed guilds)")
+
+            # Log to leadership log
+            from helpers.leadership_log import (
+                ChangeSet,
+                EventType,
+                InitiatorKind,
+                InitiatorSource,
+                post_if_changed,
+            )
+
+            changeset = ChangeSet(
+                user_id=user_id,
+                event=EventType.AUTO_CHECK,
+                initiator_kind=InitiatorKind.AUTO,
+                initiator_name="Auto-Recheck",
+                initiator_source=InitiatorSource.AUTO,
+                notes=(
+                    f"User {user_id} not found in any managed guilds during auto-recheck. "
+                    f"Removed all verification and user data."
+                ),
+            )
+
+            try:
+                await post_if_changed(self.bot, changeset)
+            except Exception as e:
+                logger.warning(f"Failed to post prune leadership log: {e}")
+
         except Exception as e:
             logger.warning(f"Failed to prune user {user_id}: {e}")
 
     async def _fetch_member_or_prune(
         self, guild: discord.Guild, user_id: int
     ) -> discord.Member | None:
-        """Return member if present; otherwise prune their records and return None."""
+        """
+        Return member if present; use retries and multi-guild checks before pruning.
+
+        Implements safer prune logic:
+        1. Try to fetch member from cache
+        2. If not found, wait and retry with fetch_member (API call)
+        3. Retry up to 3 times with exponential backoff
+        4. Only prune if user is confirmed gone from ALL managed guilds
+        """
+        # Try 1: Check cache
         member = guild.get_member(int(user_id))
-        if member is None:
+        if member is not None:
+            return member
+
+        # Try 2-4: Fetch with retries (exponential backoff: 1s, 2s, 4s)
+        for attempt in range(3):
+            await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s
+
             try:
                 member = await guild.fetch_member(int(user_id))
-            except (discord.NotFound, discord.HTTPException):
-                member = None
-
-        # If member not found, allow a short delay and retry once to avoid
-        # pruning during transient cache misses.
-        if member is None:
-            await asyncio.sleep(1)
-            # Retry the same lookup strategy once more
-            member = guild.get_member(int(user_id))
-            if member is None:
-                try:
-                    member = await guild.fetch_member(int(user_id))
-                except (discord.NotFound, discord.HTTPException):
-                    member = None
-
-        if member is None:
-            try:
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        "DELETE FROM verification WHERE user_id = ?", (int(user_id),)
+                if member is not None:
+                    logger.debug(
+                        f"Successfully fetched member {user_id} from guild {guild.name} "
+                        f"on attempt {attempt + 1}"
                     )
-                    await db.execute(
-                        "DELETE FROM auto_recheck_state WHERE user_id = ?",
-                        (int(user_id),),
-                    )
-                    await db.commit()
-            except Exception as e:
-                logger.warning(f"Failed to prune departed user {user_id}: {e}")
+                    return member
+            except discord.NotFound:
+                # Member definitely not in this guild
+                logger.debug(f"Member {user_id} not found in guild {guild.name} (NotFound)")
+                break
+            except discord.HTTPException as e:
+                # Transient error - continue retrying
+                logger.warning(
+                    f"HTTP error fetching member {user_id} from guild {guild.name} "
+                    f"on attempt {attempt + 1}: {e}"
+                )
+                continue
+
+        # Member not found in this guild after retries
+        # Check if they're still in ANY other managed guild before pruning
+        remaining_guilds = []
+        for other_guild in self.bot.guilds:
+            if other_guild.id == guild.id:
+                continue
+
+            other_member = other_guild.get_member(int(user_id))
+            if other_member:
+                remaining_guilds.append(other_guild)
+
+        if remaining_guilds:
+            # User is still in other guilds - don't prune, just return None
+            guild_names = ", ".join([g.name for g in remaining_guilds])
+            logger.info(
+                f"Member {user_id} not found in guild {guild.name}, but is still active "
+                f"in {len(remaining_guilds)} other guild(s): {guild_names}. "
+                f"Skipping cleanup."
+            )
             return None
 
-        return member
+        # User is not in any managed guild - perform full cleanup
+        try:
+            await Database.cleanup_all_user_data(user_id)
+            logger.info(
+                f"Member {user_id} not found in any managed guilds. Performed full cleanup."
+            )
+
+            # Log to leadership log
+            from helpers.leadership_log import (
+                ChangeSet,
+                EventType,
+                InitiatorKind,
+                InitiatorSource,
+                post_if_changed,
+            )
+
+            changeset = ChangeSet(
+                user_id=user_id,
+                event=EventType.AUTO_CHECK,
+                initiator_kind=InitiatorKind.AUTO,
+                initiator_name="Auto-Recheck",
+                initiator_source=InitiatorSource.AUTO,
+                notes=(
+                    f"Member {user_id} not found in any managed guilds during auto-recheck. "
+                    f"Removed all verification and user data."
+                ),
+            )
+
+            try:
+                await post_if_changed(self.bot, changeset)
+            except Exception as e:
+                logger.warning(f"Failed to post prune leadership log: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to cleanup departed user {user_id}: {e}")
+
+        return None
 
     async def _handle_recheck(
         self, member: discord.Member, user_id: int, rsi_handle: str, now: int
