@@ -16,7 +16,12 @@ from helpers.leadership_log import (
     InitiatorSource,
     post_if_changed,
 )
+from helpers.task_queue import flush_tasks
+from helpers.verification_logging import log_guild_sync
 from services.db.database import Database
+from services.guild_sync import apply_state_to_guild
+from services.verification_scheduler import compute_next_retry, schedule_user_recheck
+from services.verification_state import get_global_state
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -147,95 +152,46 @@ class MemberLifecycle(commands.Cog):
 
         # Track guild membership
         await Database.track_user_guild_membership(user_id, guild.id)
-
-        # Check if user has existing verification
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT rsi_handle, main_orgs, affiliate_orgs FROM verification WHERE user_id = ?",
-                (user_id,),
-            )
-            row = await cursor.fetchone()
-
-        if not row:
-            # New user, no verification yet
-            logger.debug(f"New member {user_id} joined {guild.name}, no existing verification")
+        state = await get_global_state(user_id)
+        if not state:
+            logger.debug("Member %s joined %s with no stored verification", user_id, guild.name)
             return
 
-        # User has existing verification - restore roles
-        rsi_handle, main_orgs_json, affiliate_orgs_json = row
-
         logger.info(
-            f"Rejoining member {user_id} has existing verification ({rsi_handle}). "
-            f"Restoring roles in guild {guild.name}"
+            "Rejoining member %s has stored verification (%s). Applying to guild %s",
+            user_id,
+            state.rsi_handle,
+            guild.name,
         )
 
-        # Import here to avoid circular dependency
-        import json
-
-        from helpers.role_helper import assign_roles
-        from services.db.database import derive_membership_status
-
         try:
-            # Parse org lists
-            main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
-            affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
-
-            # Get guild's org SID to determine status
-            org_sid = "TEST"  # Default
-            if hasattr(self.bot, "services") and self.bot.services:  # type: ignore
-                try:
-                    org_sid_config = await self.bot.services.config.get_guild_setting(  # type: ignore
-                        guild.id, "organization.sid", default="TEST"
-                    )
-                    org_sid = org_sid_config.strip().upper() if org_sid_config else "TEST"
-                except Exception as e:
-                    logger.warning(f"Failed to get org SID for guild {guild.id}: {e}")
-
-            # Derive membership status for this guild
-            status = derive_membership_status(main_orgs, affiliate_orgs, org_sid)
-
-            # Convert status to verify_value for assign_roles
-            verify_value_map = {"main": 1, "affiliate": 2, "non_member": 0}
-            verify_value = verify_value_map.get(status, 0)
-
-            # Restore roles
-            await assign_roles(
-                member,
-                verify_value,
-                rsi_handle,
-                self.bot,
-                None,  # community_moniker - we don't have it readily available
-                main_orgs,
-                affiliate_orgs,
-            )
-
-            logger.info(
-                f"Successfully restored {status} roles for rejoining member {user_id} "
-                f"in guild {guild.name}"
-            )
-
-            # Log to leadership log
-            changeset = ChangeSet(
-                user_id=user_id,
-                event=EventType.AUTO_CHECK,  # System automated event
-                initiator_kind=InitiatorKind.AUTO,
-                initiator_name="System",
-                initiator_source=InitiatorSource.SYSTEM,
-                guild_id=guild.id,
-                notes=(
-                    f"Member rejoined guild {guild.name} with existing verification "
-                    f"(RSI handle: {rsi_handle}). Restored {status} roles automatically."
-                ),
-            )
-
-            try:
-                await post_if_changed(self.bot, changeset)
-            except Exception as e:
-                logger.warning(f"Failed to post rejoin leadership log: {e}")
-
+            res = await apply_state_to_guild(state, guild, self.bot)
+            await flush_tasks()
+            if res:
+                log_guild_sync(
+                    res,
+                    EventType.AUTO_CHECK,
+                    self.bot,
+                    initiator={
+                        "user_id": user_id,
+                        "kind": InitiatorKind.AUTO,
+                        "source": InitiatorSource.SYSTEM,
+                        "name": "System",
+                        "notes": f"Member rejoined guild {guild.name}",
+                    },
+                )
+                next_retry = compute_next_retry(state, config=getattr(self.bot, "config", {}))
+                if next_retry:
+                    await schedule_user_recheck(user_id, next_retry)
+                logger.info(
+                    "Applied stored verification (%s) to member %s in guild %s", state.status, user_id, guild.name
+                )
         except Exception as e:
             logger.exception(
-                f"Failed to restore roles for rejoining member {user_id} in guild {guild.name}: {e}"
+                "Failed to restore verification for member %s in guild %s: %s",
+                user_id,
+                guild.name,
+                e,
             )
 
 

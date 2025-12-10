@@ -10,25 +10,25 @@ remediation, audit logging.
 """
 
 import time
-from dataclasses import asdict as _asdict
 from typing import TYPE_CHECKING
 
 import discord
 
 from helpers.audit import log_admin_action
 from helpers.http_helper import NotFoundError
-from helpers.leadership_log import (
-    ChangeSet,
-    EventType,
-    InitiatorKind,
-    InitiatorSource,
-    post_if_changed,
-)
+from helpers.leadership_log import EventType, InitiatorKind, InitiatorSource
 from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.role_helper import reverify_member
-from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from helpers.username_404 import handle_username_404
+from helpers.verification_logging import log_guild_sync
+from services.db.database import Database
+from services.guild_sync import apply_state_to_guild
+from services.verification_scheduler import (
+    compute_next_retry,
+    handle_recheck_failure,
+    schedule_user_recheck,
+)
+from services.verification_state import compute_global_state, store_global_state
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -55,11 +55,11 @@ async def perform_recheck(
 
     This function orchestrates the full recheck flow:
     1. Rate limiting (optional)
-    2. Before snapshot
-    3. Call reverify_member (enqueues role/nickname tasks)
+    2. Compute global verification state from RSI API
+    3. Apply state to guild (enqueues role/nickname tasks)
     4. 404 remediation if RSI handle not found
     5. Flush task queue (apply role/nickname changes)
-    6. After snapshot + diff
+    6. Store global state and schedule next recheck
     7. Leadership log (optional)
     8. Admin audit log (optional)
 
@@ -119,26 +119,26 @@ async def perform_recheck(
 
             return result
 
-    # Snapshot BEFORE reverify
     start_time = time.time()
-    before_snap = await snapshot_member_state(bot, member)
 
-    # Attempt re-verification (DB + role/nick tasks enqueued)
     try:
-        reverify_result = await reverify_member(member, rsi_handle, bot)
+        global_state = await compute_global_state(
+            member.id,
+            rsi_handle,
+            bot.http_client,  # type: ignore[attr-defined]
+            config=getattr(bot, "config", {}),
+            force_refresh=initiator_kind == InitiatorKind.ADMIN,
+        )
     except NotFoundError:
-        # Invoke unified remediation
         result["remediated"] = True
         try:
             await handle_username_404(bot, member, rsi_handle)
+            await flush_tasks()
         except Exception as e:
             logger.warning(
                 f"Unified 404 handler failed ({initiator_label} recheck): {e}"
             )
-
         result["error"] = "RSI handle not found. User may have changed their handle."
-
-        # Log failed admin action with remediation
         if log_audit and admin_user_id:
             await log_admin_action(
                 admin_user_id=admin_user_id,
@@ -148,135 +148,74 @@ async def perform_recheck(
                 details={"rsi_handle": rsi_handle, "remediated": True},
                 status="error",
             )
-
         return result
-    except Exception:
+    except Exception as e:
         logger.exception(f"Recheck failed ({initiator_label})")
-        result["error"] = "Recheck failed due to internal error"
-
-        # Log failed admin action
+        result["error"] = str(e)
         if log_audit and admin_user_id:
             await log_admin_action(
                 admin_user_id=admin_user_id,
                 guild_id=str(member.guild.id),
                 action="RECHECK_USER",
                 target_user_id=str(member.id),
-                details={"rsi_handle": rsi_handle, "error": "internal_error"},
+                details={"rsi_handle": rsi_handle, "error": str(e)},
                 status="error",
             )
-
         return result
 
-    # Parse reverify result
-    success, status_info, message = reverify_result
-    if not success:
-        result["error"] = message or "Re-check failed. Please try again later."
+    if global_state.error:
+        fail_count = await Database.get_auto_recheck_fail_count(int(member.id))
+        await handle_recheck_failure(
+            member.id,
+            global_state.error,
+            fail_count=fail_count + 1,
+            config=getattr(bot, "config", {}),
+        )
+        result["error"] = global_state.error
+        return result
 
-        # Log failed admin action
-        if log_audit and admin_user_id:
-            await log_admin_action(
-                admin_user_id=admin_user_id,
-                guild_id=str(member.guild.id),
-                action="RECHECK_USER",
-                target_user_id=str(member.id),
-                details={"rsi_handle": rsi_handle, "message": message},
-                status="error",
+    # Apply to guild BEFORE storing global state so "before" snapshot captures current DB
+    guild_result = await apply_state_to_guild(global_state, member.guild, bot)
+    await flush_tasks()
+
+    # Now persist the global state after snapshots are taken
+    await store_global_state(global_state)
+
+    # Always set status from global_state (it's the source of truth)
+    result["status"] = global_state.status
+
+    if guild_result:
+        diff_payload = guild_result.diff
+        if hasattr(diff_payload, "to_dict"):
+            try:
+                diff_payload = diff_payload.to_dict()
+            except Exception:
+                diff_payload = guild_result.diff  # fallback to raw object
+
+        result["diff"] = diff_payload
+
+        if log_leadership:
+            log_guild_sync(
+                guild_result,
+                EventType.RECHECK,
+                bot,
+                initiator={
+                    "user_id": member.id,
+                    "kind": initiator_kind,
+                    "source": initiator_source,
+                    "name": admin_display_name,
+                },
             )
 
-        return result
-
-    # Extract status
-    if isinstance(status_info, tuple):
-        _old_status, new_status = status_info
-    else:
-        new_status = status_info
-
-    result["status"] = new_status
-    result["success"] = True
-
-    # Log rate limit attempt
     if enforce_rate_limit:
         await log_attempt(member.id, "recheck")
 
-    # Flush task queue to apply role/nickname changes
-    try:
-        await flush_tasks()
-    except Exception as e:
-        logger.debug(f"Failed to flush task queue: {e}")
+    next_retry = compute_next_retry(global_state, config=getattr(bot, "config", {}))
+    if next_retry:
+        await schedule_user_recheck(member.id, next_retry)
 
-    # Refetch member to get latest nickname/roles after queued tasks applied
-    try:
-        refreshed = await member.guild.fetch_member(member.id)
-        if refreshed:
-            member = refreshed
-    except Exception as e:
-        logger.debug(f"Failed to refetch member: {e}")
+    result["success"] = True
 
-    # Snapshot AFTER reverify and compute diff
-    after_snap = await snapshot_member_state(bot, member)
-    diff = diff_snapshots(before_snap, after_snap)
-
-    # Adjust diff for nickname changes if flag set
-    try:
-        if diff.get("username_before") == diff.get("username_after") and getattr(
-            member, "_nickname_changed_flag", False
-        ):
-            pref = getattr(member, "_preferred_verification_nick", None)
-            if pref and pref != diff.get("username_before"):
-                diff["username_after"] = pref
-    except Exception as e:
-        logger.debug(f"Failed to adjust nickname diff: {e}")
-
-    # Store a JSON-serializable dict for API responses
-    try:
-        result["diff"] = diff.to_dict()  # MemberSnapshotDiff implements to_dict()
-    except Exception:
-        # Fallback: best-effort dataclass conversion
-        try:
-            result["diff"] = _asdict(diff)
-        except Exception as e:
-            logger.debug(f"Failed to serialize diff: {e}")
-            result["diff"] = None
-
-    # Leadership log
-    if log_leadership:
-        try:
-            cs = ChangeSet(
-                user_id=member.id,
-                event=EventType.RECHECK,
-                initiator_kind=initiator_kind,
-                initiator_source=initiator_source,
-                initiator_name=(
-                    admin_display_name
-                    if initiator_kind == InitiatorKind.ADMIN
-                    else None
-                ),
-                notes=None,
-                guild_id=member.guild.id if member.guild else None,
-            )
-            # Apply diff fields (MemberSnapshotDiff implements items())
-            try:
-                iterable = None
-                if hasattr(diff, "items"):
-                    iterable = diff.items()
-                else:
-                    diff_dict = (
-                        result.get("diff")
-                        if isinstance(result.get("diff"), dict)
-                        else None
-                    )
-                    if diff_dict:
-                        iterable = diff_dict.items()
-                if iterable:
-                    for k, v in iterable:
-                        setattr(cs, k, v)
-            except Exception as e:
-                logger.debug(f"Failed to attach diff to ChangeSet: {e}")
-            await post_if_changed(bot, cs)
-        except Exception as e:
-            logger.debug(f"Leadership log post failed ({initiator_label} recheck): {e}")
-
-    # Admin audit log
     if log_audit and admin_user_id:
         await log_admin_action(
             admin_user_id=admin_user_id,
@@ -285,9 +224,9 @@ async def perform_recheck(
             target_user_id=str(member.id),
             details={
                 "rsi_handle": rsi_handle,
-                "status": new_status,
+                "status": result.get("status"),
                 "duration_ms": int((time.time() - start_time) * 1000),
-                "diff": diff.to_dict() if hasattr(diff, "to_dict") else None,
+                "diff": result.get("diff"),
             },
             status="success",
         )

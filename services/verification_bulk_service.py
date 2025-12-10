@@ -2,7 +2,12 @@
 Verification Bulk Service
 
 Manages queued batch-processing jobs for bulk verification status checks.
-This handles READ-ONLY status checks only (no RSI verification).
+
+This service provides two modes:
+1. READ-ONLY mode (default): Quick admin reporting without updating stored state
+2. UNIFIED mode (opt-in): Uses compute_global_state pipeline to update stored state,
+   schedule auto-rechecks, and sync across all guilds
+
 Coordinates with auto-recheck loop to avoid conflicts.
 """
 
@@ -321,28 +326,49 @@ class VerificationBulkService:
                     )
                 )
 
-    async def _perform_rsi_recheck(self, status_rows: list, guild_id: int) -> list:
-        """Perform live RSI verification for each member in the batch using concurrent execution.
-
-        Uses asyncio.gather to check all RSI handles concurrently while respecting
-        the HTTPClient's built-in rate limiting (concurrency=3, 0.5s delay per request).
-
-        Concurrency model:
-        - All tasks in the batch are submitted concurrently via asyncio.gather
-        - HTTPClient's semaphore limits actual concurrent requests to 3
-        - HTTPClient enforces 0.5s delay between requests to avoid bot detection
-        - Batch size is capped at 50 users (configurable via max_users_per_run)
-        - Inter-batch sleep of 1-3s occurs in _process_batches
-
-        This design allows efficient parallel processing while maintaining proper
-        rate limiting and prevents overwhelming the RSI API.
+    async def _perform_rsi_recheck(
+        self, status_rows: list, guild_id: int, *, use_unified_pipeline: bool = False
+    ) -> list:
+        """
+        Perform live RSI verification for each member in the batch.
 
         Args:
             status_rows: List of StatusRow objects from DB (max 50 per batch)
             guild_id: Discord guild ID for fetching org config
+            use_unified_pipeline: If True, use compute_global_state + store_global_state
+                + schedule_user_recheck. If False (default), perform READ-ONLY checks.
 
         Returns:
             Updated list of StatusRow objects with RSI recheck data
+
+        Design Decision:
+            READ-ONLY mode (default): Direct is_valid_rsi_handle calls for fast admin
+            reporting without updating stored state or scheduling rechecks.
+
+            UNIFIED mode (opt-in): Uses compute_global_state pipeline for consistent
+            state management, caching, and auto-recheck scheduling. Slower but ensures
+            stored state matches reality.
+
+        Concurrency model:
+        - All tasks in the batch are submitted concurrently via asyncio.gather
+        - HTTPClient's semaphore limits actual concurrent requests to 3
+        - HTTPClient enforces 0.5s delay between requests
+        - Batch size is capped at 50 users (configurable via max_users_per_run)
+        - Inter-batch sleep of 1-3s occurs in _process_batches
+        """
+        if use_unified_pipeline:
+            return await self._perform_rsi_recheck_unified(status_rows, guild_id)
+        else:
+            return await self._perform_rsi_recheck_readonly(status_rows, guild_id)
+
+    async def _perform_rsi_recheck_readonly(
+        self, status_rows: list, guild_id: int
+    ) -> list:
+        """
+        READ-ONLY RSI verification for quick admin reporting (does not update stored state).
+
+        Uses direct is_valid_rsi_handle calls without caching or state persistence.
+        Suitable for admin dashboards and status reports.
         """
         from helpers.bulk_check import StatusRow
         from helpers.http_helper import NotFoundError
@@ -577,6 +603,135 @@ class VerificationBulkService:
                     f"❌ Error posting results to leadership chat: {e!s}",
                     ephemeral=True,
                 )
+
+    async def _perform_rsi_recheck_unified(
+        self, status_rows: list, guild_id: int
+    ) -> list:
+        """
+        UNIFIED pipeline RSI verification with state persistence and scheduling.
+
+        Uses compute_global_state to:
+        - Benefit from caching (avoid duplicate RSI calls)
+        - Update stored global verification state
+        - Schedule auto-rechecks
+        - Maintain consistency across multi-guild users
+
+        Suitable for bulk operations where admin wants to update stored state
+        and trigger recheck scheduling.
+        """
+        from helpers.bulk_check import StatusRow
+        from services.verification_scheduler import (
+            compute_next_retry,
+            schedule_user_recheck,
+        )
+        from services.verification_state import compute_global_state, store_global_state
+
+        current_time = int(time.time())
+
+        # Get organization config
+        org_name = "test"  # Default fallback
+        if hasattr(self.bot, "services") and hasattr(
+            self.bot.services, "guild_config"
+        ):
+            try:
+                org_name_config = await self.bot.services.guild_config.get_setting(
+                    guild_id, "organization.name", default="test"
+                )
+                org_name = (
+                    org_name_config.strip().lower() if org_name_config else "test"
+                )
+            except Exception:
+                pass
+
+        async def check_with_unified_pipeline(row: StatusRow) -> RsiStatusResult:
+            """Check using unified pipeline and persist state."""
+            if not row.rsi_handle:
+                return RsiStatusResult(
+                    status="unknown", checked_at=current_time, error="No RSI handle"
+                )
+
+            try:
+                # Use unified pipeline
+                global_state = await compute_global_state(
+                    row.user_id,
+                    row.rsi_handle,
+                    self.bot.http_client,
+                    config=getattr(self.bot, "config", None),
+                    org_name=org_name,
+                    force_refresh=True,  # Admin bulk checks want fresh data
+                )
+
+                # Persist state
+                try:
+                    await store_global_state(global_state)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to store global state for user {row.user_id}: {e}"
+                    )
+
+                # Schedule recheck
+                try:
+                    config = getattr(self.bot, "config", None)
+                    next_retry = compute_next_retry(global_state, config=config)
+                    await schedule_user_recheck(row.user_id, next_retry)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to schedule recheck for user {row.user_id}: {e}"
+                    )
+
+                # Return result
+                return RsiStatusResult(
+                    status=global_state.status,
+                    checked_at=global_state.checked_at,
+                    main_orgs=global_state.main_orgs,
+                    affiliate_orgs=global_state.affiliate_orgs,
+                    error=global_state.error,
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Unified pipeline check failed for user {row.user_id} ({row.rsi_handle}): {e}"
+                )
+                return RsiStatusResult(
+                    status="unknown", checked_at=current_time, error=str(e)[:200]
+                )
+
+        # Execute all checks concurrently (compute_global_state handles throttling)
+        tasks = [check_with_unified_pipeline(row) for row in status_rows]
+        rsi_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Build updated rows
+        updated_rows = []
+        for row, result in zip(status_rows, rsi_results, strict=False):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"Unexpected exception in unified pipeline check for user {row.user_id}: {result}"
+                )
+                result = RsiStatusResult(
+                    status="unknown",
+                    checked_at=current_time,
+                    error=f"Unexpected error: {result!s}"[:200],
+                )
+
+            if not isinstance(result, RsiStatusResult):
+                continue
+
+            updated_row = StatusRow(
+                user_id=row.user_id,
+                username=row.username,
+                rsi_handle=row.rsi_handle,
+                membership_status=row.membership_status,
+                last_updated=row.last_updated,
+                voice_channel=row.voice_channel,
+                rsi_status=result.status,
+                rsi_checked_at=result.checked_at,
+                rsi_error=result.error,
+                rsi_main_orgs=result.main_orgs,
+                rsi_affiliate_orgs=result.affiliate_orgs,
+            )
+            updated_rows.append(updated_row)
+
+        return updated_rows
 
 
 async def initialize(bot: commands.Bot) -> VerificationBulkService:

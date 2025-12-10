@@ -1,5 +1,7 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+import discord
 import pytest
 
 from cogs.admin.recheck import AutoRecheck
@@ -39,8 +41,10 @@ class FlakyGuild:
         self._calls["fetch"] += 1
         if self._fetch_on_first and self._calls["fetch"] == 1:
             return FakeMember(user_id)
-        # Otherwise behave like the get_member retry
-        return FakeMember(user_id) if self._member_on_retry else None
+        # If member_on_retry is False, raise NotFound to signal member doesn't exist
+        if not self._member_on_retry:
+            raise discord.NotFound(MagicMock(), "Member not found")
+        return FakeMember(user_id)
 
 
 @pytest.mark.asyncio

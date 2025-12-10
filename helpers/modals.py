@@ -1,4 +1,3 @@
-import contextlib
 import re
 
 import discord
@@ -14,11 +13,9 @@ from helpers.embeds import (
     create_success_embed,
 )
 from helpers.leadership_log import (
-    ChangeSet,
     EventType,
     InitiatorKind,
     InitiatorSource,
-    post_if_changed,
 )
 from helpers.rate_limiter import (
     check_rate_limit,
@@ -26,13 +23,15 @@ from helpers.rate_limiter import (
     log_attempt,
     reset_attempts,
 )
-from helpers.role_helper import assign_roles
-from helpers.snapshots import diff_snapshots, snapshot_member_state
 from helpers.task_queue import flush_tasks
 from helpers.token_manager import clear_token, token_store, validate_token
+from helpers.verification_logging import log_guild_sync
 from helpers.voice_utils import get_user_channel, update_channel_settings
+from services.guild_sync import apply_state_to_guild, sync_user_to_all_guilds
+from services.verification_scheduler import compute_next_retry, schedule_user_recheck
+from services.verification_state import compute_global_state, store_global_state
 from utils.logging import get_logger
-from verification.rsi_verification import is_valid_rsi_bio, is_valid_rsi_handle
+from verification.rsi_verification import is_valid_rsi_bio
 
 logger = get_logger(__name__)
 
@@ -156,25 +155,7 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("Invalid RSI handle format.", extra={"user_id": member.id})
             return
 
-        # Proceed with verification to get verify_value and cased_handle
-        # Get organization config from guild
-        org_name = await get_org_name(self.bot, interaction.guild.id)
-        org_sid = await get_org_sid(self.bot, interaction.guild.id)
-
-        verify_value, cased_handle, community_moniker, _, _ = await is_valid_rsi_handle(
-            rsi_handle_input, self.bot.http_client, org_name.lower(), org_sid
-        )
-        if verify_value is None or cased_handle is None:  # moniker optional
-            embed = create_error_embed(
-                "Failed to verify RSI handle. Please check and try again."
-            )
-            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-            logger.warning(
-                "Verification failed: invalid RSI handle.", extra={"user_id": member.id}
-            )
-            return
-
-        # Validate token
+        # Validate token first (before expensive RSI calls)
         user_token_info = token_store.get(member.id)
         if not user_token_info:
             embed = create_error_embed(
@@ -195,21 +176,32 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-        # Perform RSI verification with sanitized handle
-        # Get org config for consistency
+        # Get organization config from guild
         org_name = await get_org_name(self.bot, interaction.guild.id)
         org_sid = await get_org_sid(self.bot, interaction.guild.id)
 
-        (
-            verify_value_check,
-            _cased_handle_2,
-            community_moniker_2,
-            main_orgs,
-            affiliate_orgs,
-        ) = await is_valid_rsi_handle(
-            cased_handle, self.bot.http_client, org_name.lower(), org_sid
-        )
-        if verify_value_check is None:
+        # Use unified pipeline: compute_global_state for RSI verification
+        try:
+            global_state = await compute_global_state(
+                member.id,
+                rsi_handle_input,
+                self.bot.http_client,
+                config=getattr(self.bot, "config", None),
+                org_name=org_name.lower(),
+                force_refresh=True,  # Force fresh check for initial verification
+            )
+        except Exception as e:
+            embed = create_error_embed(
+                "Failed to verify RSI handle. Please check and try again."
+            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            logger.warning(
+                "Verification failed: RSI fetch error: %s", e, extra={"user_id": member.id}
+            )
+            return
+
+        # Check if RSI verification succeeded
+        if global_state.error or not global_state.rsi_handle:
             embed = create_error_embed(
                 "Failed to verify RSI handle. Please check your handle again."
             )
@@ -217,11 +209,9 @@ class HandleModal(Modal, title="Verification"):
             logger.warning("RSI verification failed.", extra={"user_id": member.id})
             return
 
-        # Determine which cased handle to use (prefer the freshly-extracted one)
-        cased_handle_used = _cased_handle_2 or cased_handle
-        # Prefer the second call's community moniker if present
-        community_moniker = community_moniker_2 or community_moniker
+        cased_handle_used = global_state.rsi_handle
 
+        # Verify token in RSI bio
         token_verify = await is_valid_rsi_bio(
             cased_handle_used, user_token_info["token"], self.bot.http_client
         )
@@ -236,11 +226,11 @@ class HandleModal(Modal, title="Verification"):
             )
             return
 
-        # Log verification attempt and check rate limiting
+        # Log verification attempt
         await log_attempt(member.id, "verification")
 
-        # Check if verification failed
-        if verify_value_check is None or not token_verify:
+        # Check if bio token verification failed
+        if not token_verify:
             remaining_attempts = await get_remaining_attempts(member.id, "verification")
             if remaining_attempts <= 0:
                 # User has exceeded max attempts
@@ -267,19 +257,7 @@ class HandleModal(Modal, title="Verification"):
                     },
                 )
             else:
-                error_msg = []
-                if verify_value_check is None:
-                    error_msg.append("- Could not verify RSI organization membership.")
-                elif verify_value_check == 0:
-                    # Check if this might be due to hidden affiliations
-                    error_msg.append(
-                        f"- You are not a member of {org_name} or its affiliates."
-                    )
-                    error_msg.append(
-                        f"- If your {org_name} affiliation is hidden on RSI, please make it visible temporarily so we can verify affiliate status."
-                    )
-                if not token_verify:
-                    error_msg.append("- Token not found or mismatch in bio.")
+                error_msg = ["- Token not found or mismatch in bio."]
                 error_msg.append(
                     f"You have {remaining_attempts} attempts left before cooldown."
                 )
@@ -292,29 +270,14 @@ class HandleModal(Modal, title="Verification"):
                     extra={
                         "user_id": member.id,
                         "remaining_attempts": remaining_attempts,
-                        "verify_value": verify_value_check,
                         "token_verify": token_verify,
                     },
                 )
             return
 
-        # Leadership log: snapshot before
-        import time as _t
-
-        _start = _t.time()
-        before_snap = await snapshot_member_state(self.bot, member)
-
-        # Verification successful
+        # Verification successful - persist global state
         try:
-            _old_status, assigned_role_type = await assign_roles(
-                member,
-                verify_value_check,
-                cased_handle_used,
-                self.bot,
-                community_moniker=community_moniker,
-                main_orgs=main_orgs,
-                affiliate_orgs=affiliate_orgs,
-            )
+            await store_global_state(global_state)
         except ValueError as e:
             # Handle duplicate RSI handle or other validation errors
             error_msg = str(e)
@@ -333,30 +296,48 @@ class HandleModal(Modal, title="Verification"):
                 extra={"user_id": member.id, "rsi_handle": cased_handle_used},
             )
             return
-        # Allow enqueued role/nick tasks to process so snapshot reflects changes
-        with contextlib.suppress(Exception):
-            await flush_tasks()
-        after_snap = await snapshot_member_state(self.bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        cs = ChangeSet(
-            user_id=member.id,
-            event=EventType.VERIFICATION,
-            initiator_kind=InitiatorKind.USER,
-            initiator_source=InitiatorSource.BUTTON,
-            initiator_name=None,
-            notes=None,
-            guild_id=member.guild.id if member.guild else None,
-        )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-        cs.started_at = before_snap and cs.started_at  # preserve default
-        # duration tracking removed
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Failed to persist verification state: %s", e)
+            embed = create_error_embed("Failed to save verification. Please try again.")
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        # Apply to current guild
+        result = await apply_state_to_guild(global_state, member.guild, self.bot)
+        await flush_tasks()
+
+        # Log the change with proper initiator metadata
+        if result:
+            log_guild_sync(
+                result,
+                EventType.VERIFICATION,
+                self.bot,
+                initiator={
+                    "user_id": member.id,
+                    "kind": InitiatorKind.USER,
+                    "source": InitiatorSource.BUTTON,
+                },
+            )
+
+        # Schedule auto-recheck using unified scheduler
+        config = getattr(self.bot, "config", None)
+        next_retry = compute_next_retry(global_state, config=config)
+        await schedule_user_recheck(member.id, next_retry)
+
+        # Sync to all other guilds where user is a member
         try:
-            await post_if_changed(self.bot, cs)
-        except Exception:
-            logger.debug("Leadership log post failed (verification modal)")
+            await sync_user_to_all_guilds(global_state, self.bot)
+        except Exception as e:
+            logger.warning(
+                "Failed to sync user to other guilds: %s", e, extra={"user_id": member.id}
+            )
+
+        # Clean up token and reset rate limit
         clear_token(member.id)
         await reset_attempts(member.id)
+
+        # Determine assigned role type for success message
+        assigned_role_type = global_state.status
 
         # Send customized success message based on role
         if assigned_role_type == "main":

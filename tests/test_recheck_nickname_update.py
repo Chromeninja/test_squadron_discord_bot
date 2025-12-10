@@ -1,8 +1,13 @@
+"""Tests for nickname update behavior in apply_roles_for_status.
+
+Tests the nickname handling logic when applying roles via the unified pipeline.
+"""
+
 import types
 
 import pytest
 
-from helpers.role_helper import assign_roles
+from helpers.role_helper import apply_roles_for_status
 
 
 class FakeRole:
@@ -41,7 +46,8 @@ class FakeMember:
 
 
 @pytest.mark.asyncio
-async def test_assign_roles_updates_nickname_with_moniker(monkeypatch, temp_db) -> None:
+async def test_apply_roles_updates_nickname_with_moniker(monkeypatch, temp_db) -> None:
+    """Test that nickname is set to rsi_handle (not community_moniker)."""
     # Prepare bot namespace
     bot = types.SimpleNamespace()
     bot.config = {}
@@ -78,10 +84,10 @@ async def test_assign_roles_updates_nickname_with_moniker(monkeypatch, temp_db) 
 
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
-    # Initial assignment with moniker1
-    await assign_roles(
+    # Initial assignment with moniker - nickname should be handle, not moniker
+    await apply_roles_for_status(
         member,  # type: ignore[arg-type]
-        1,
+        "main",
         "CaseHandle",
         bot,
         community_moniker="Moniker One",
@@ -89,10 +95,10 @@ async def test_assign_roles_updates_nickname_with_moniker(monkeypatch, temp_db) 
     # Policy: nickname always handle
     assert edits.get("nick") == "CaseHandle"
 
-    # Second assignment with changed moniker
-    await assign_roles(
+    # Second assignment with changed moniker - nickname still handle
+    await apply_roles_for_status(
         member,  # type: ignore[arg-type]
-        1,
+        "main",
         "CaseHandle",
         bot,
         community_moniker="Moniker Two",
@@ -101,7 +107,8 @@ async def test_assign_roles_updates_nickname_with_moniker(monkeypatch, temp_db) 
 
 
 @pytest.mark.asyncio
-async def test_assign_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
+async def test_apply_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
+    """Test nickname uses handle when no moniker is provided."""
     bot = types.SimpleNamespace()
     bot.config = {}
     bot.BOT_VERIFIED_ROLE_ID = 1
@@ -132,9 +139,9 @@ async def test_assign_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
 
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
-    await assign_roles(
+    await apply_roles_for_status(
         member,  # type: ignore[arg-type]
-        1,
+        "main",
         "HandleCase",
         bot,
         community_moniker=None,
@@ -143,9 +150,10 @@ async def test_assign_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_assign_roles_nickname_always_handle_even_if_moniker_present(
+async def test_apply_roles_nickname_always_handle_even_if_moniker_present(
     monkeypatch, temp_db
 ) -> None:
+    """Test that nickname is always set to handle, regardless of moniker."""
     bot = types.SimpleNamespace()
     bot.config = {}
     bot.BOT_VERIFIED_ROLE_ID = 1
@@ -177,21 +185,21 @@ async def test_assign_roles_nickname_always_handle_even_if_moniker_present(
 
     monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
 
-    await assign_roles(
+    await apply_roles_for_status(
         member,  # type: ignore[arg-type]
-        1,
+        "main",
         "SuperHandle",
         bot,
-        community_moniker="Different Moniker",  # type: ignore[arg-type]
+        community_moniker="Different Moniker",
     )
     assert edits.get("nick") == "SuperHandle"
     # Re-run with different moniker to ensure it stays handle
-    await assign_roles(
+    await apply_roles_for_status(
         member,  # type: ignore[arg-type]
-        1,
+        "main",
         "SuperHandle",
         bot,
-        community_moniker="Another Moniker",  # type: ignore[arg-type]
+        community_moniker="Another Moniker",
     )
     assert edits.get("nick") == "SuperHandle"
     # Ensure calls captured both times with handle set

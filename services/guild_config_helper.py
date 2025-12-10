@@ -64,56 +64,61 @@ class GuildConfigHelper:
             TextChannel object if found and valid, None otherwise
         """
         full_key = f"channels.{channel_key}"
-        logger.info(
-            f"GuildConfigHelper.get_channel: guild_id={guild_id}, key='{full_key}'"
+        logger.debug(
+            "GuildConfigHelper.get_channel: guild_id=%s, key='%s'", guild_id, full_key
         )
 
         channel_id = await self.config.get(guild_id, full_key, parser=int)
 
-        logger.info(
-            f"  ConfigService returned channel_id: {channel_id} (type: {type(channel_id).__name__ if channel_id else 'None'})"
+        logger.debug(
+            "  ConfigService returned channel_id: %s (type: %s)",
+            channel_id,
+            type(channel_id).__name__ if channel_id else "None",
         )
 
         if not channel_id:
-            logger.info("  ✗ No channel ID found - returning None")
-            logger.debug(f"No channel configured for {channel_key} in guild {guild_id}")
+            logger.debug("No channel configured for %s in guild %s", channel_key, guild_id)
             return None
 
         if guild is None:
-            logger.info(f"  Guild object not provided, fetching guild {guild_id}...")
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 logger.warning(
-                    f"  ✗ Guild {guild_id} not found when fetching "
-                    f"channel {channel_key} - bot may not be in this guild"
+                    "Guild %s not found when fetching channel %s - bot may not be in this guild",
+                    guild_id,
+                    channel_key,
                 )
                 return None
-            logger.info(f"  ✓ Guild found: {guild.name} (ID: {guild.id})")
-        else:
-            logger.info(f"  ✓ Guild object provided: {guild.name} (ID: {guild.id})")
 
-        logger.info(f"  Fetching channel {channel_id} from guild...")
         channel = guild.get_channel(channel_id)
         if not channel:
             logger.warning(
-                f"  ✗ Channel {channel_id} ({channel_key}) not found in guild {guild_id}"
+                "Channel %s (%s) not found in guild %s - may have been deleted",
+                channel_id,
+                channel_key,
+                guild_id,
             )
-            logger.warning("  Channel may have been deleted or bot lacks access")
             return None
-
-        logger.info(
-            f"  ✓ Channel object fetched: #{channel.name} (ID: {channel.id}, Type: {type(channel).__name__})"
-        )
 
         if not isinstance(channel, discord.TextChannel):
             logger.warning(
-                f"  ✗ Channel {channel_id} ({channel_key}) is not a text "
-                f"channel in guild {guild_id} (Type: {type(channel).__name__})"
+                "Channel %s (%s) is not a text channel in guild %s (Type: %s)",
+                channel_id,
+                channel_key,
+                guild_id,
+                type(channel).__name__,
             )
             return None
 
-        logger.info(f"  ✓ Returning valid TextChannel: #{channel.name}")
+        logger.debug("Resolved %s channel: #%s", channel_key, channel.name)
         return channel
+
+    async def get_org_sid(self, guild_id: int) -> str:
+        """Return normalized org SID for the guild."""
+        org_sid = await self.config.get(guild_id, "organization.sid", default="TEST")
+        if isinstance(org_sid, str) and org_sid.startswith('"'):
+            org_sid = org_sid.strip('"')
+        return str(org_sid).upper() if org_sid else "TEST"
 
     async def get_leadership_log_channel(
         self, guild_id: int, guild: discord.Guild | None = None

@@ -470,6 +470,81 @@ class Database:
             await db.commit()
 
     @classmethod
+    async def get_user_active_guilds(cls, user_id: int) -> list[int]:
+        """Return guild IDs where the user is currently tracked as a member."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT guild_id FROM user_guild_membership WHERE user_id = ?",
+                (user_id,),
+            )
+            rows = await cursor.fetchall()
+            return [int(r[0]) for r in rows]
+
+    @classmethod
+    async def get_global_verification_state(cls, user_id: int) -> dict | None:
+        """Fetch the stored global verification state for a user."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT rsi_handle, main_orgs, affiliate_orgs, community_moniker, last_updated
+                FROM verification
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+
+            def _parse_list(val: str | None) -> list[str]:
+                if not val:
+                    return []
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return []
+
+            return {
+                "rsi_handle": row[0],
+                "main_orgs": _parse_list(row[1]),
+                "affiliate_orgs": _parse_list(row[2]),
+                "community_moniker": row[3],
+                "last_updated": int(row[4]) if row[4] else 0,
+            }
+
+    @classmethod
+    async def update_global_verification_state(
+        cls, user_id: int, state: dict
+    ) -> None:
+        """Upsert the global verification state in the verification table."""
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO verification (
+                    user_id, rsi_handle, main_orgs, affiliate_orgs,
+                    community_moniker, last_updated, needs_reverify, needs_reverify_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    rsi_handle = excluded.rsi_handle,
+                    main_orgs = excluded.main_orgs,
+                    affiliate_orgs = excluded.affiliate_orgs,
+                    community_moniker = excluded.community_moniker,
+                    last_updated = excluded.last_updated,
+                    needs_reverify = 0,
+                    needs_reverify_at = NULL
+                """,
+                (
+                    user_id,
+                    state.get("rsi_handle", ""),
+                    json.dumps(state.get("main_orgs")),
+                    json.dumps(state.get("affiliate_orgs")),
+                    state.get("community_moniker"),
+                    int(state.get("last_updated", 0)),
+                ),
+            )
+            await db.commit()
+
+    @classmethod
     async def purge_voice_data(
         cls, guild_id: int, user_id: int | None = None
     ) -> dict[str, int]:

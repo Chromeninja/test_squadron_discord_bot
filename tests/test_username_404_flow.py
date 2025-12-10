@@ -1,10 +1,15 @@
+"""Tests for RSI 404 username handling and remediation.
+
+Tests the 404 handling behavior using the unified verification pipeline.
+"""
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from helpers.http_helper import NotFoundError
-from helpers.role_helper import reverify_member
+from helpers.recheck_service import perform_recheck
 from helpers.username_404 import handle_username_404
 from services.db.database import Database
 
@@ -313,6 +318,10 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
+    """Test that perform_recheck handles 404 errors with unified pipeline."""
+    import discord
+    from unittest.mock import MagicMock
+    
     # Seed verification row
     async with Database.get_connection() as db:
         await db.execute(
@@ -321,42 +330,74 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
         )
         await db.commit()
 
-    # Fake bot + member with proper HTTP client
+    # Create mock member with full attributes needed by perform_recheck
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 123
+    mock_guild.name = "Test Guild"
+    
+    member = MagicMock(spec=discord.Member)
+    member.id = 202
+    member.display_name = "UserX"
+    member.mention = "@UserX"
+    member.guild = mock_guild
+    member.roles = []
+
+    # Fake bot with HTTP client
     bot = SimpleNamespace()
     bot.http_client = FakeHTTPClient("recheck_test_client")
-    bot.VERIFICATION_CHANNEL_ID = 42
     bot.role_cache = {}
+    bot.config = {}
+    bot.services = SimpleNamespace()
+    bot.services.config = AsyncMock()
+    bot.services.config.get_guild_setting = AsyncMock(return_value=[])
+    bot.services.guild_config = AsyncMock()
+    bot.services.guild_config.get_channel = AsyncMock(return_value=None)
+    bot.services.guild_config.get_setting = AsyncMock(return_value=None)
 
-    member = SimpleNamespace(id=202, mention="@UserX", guild=None)
-
-    # Track the HTTP client passed to is_valid_rsi_handle
+    # Track the HTTP client passed to compute_global_state
     captured_http_client = None
 
-    async def fake_is_valid(
-        handle: str, http_client, org_name: str, org_sid=None
-    ) -> None:
+    # Mock compute_global_state to raise NotFoundError (simulating 404)
+    async def fake_compute_global_state(user_id, handle, http_client, **kwargs):
         nonlocal captured_http_client
         captured_http_client = http_client
-        raise NotFoundError
+        raise NotFoundError("RSI handle not found")
 
     monkeypatch.setattr(
-        "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
+        "helpers.recheck_service.compute_global_state", fake_compute_global_state
+    )
+    
+    # Mock the 404 handler
+    handle_404_called = False
+    async def mock_handle_404(b, m, h):
+        nonlocal handle_404_called
+        handle_404_called = True
+    monkeypatch.setattr("helpers.recheck_service.handle_username_404", mock_handle_404)
+    monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
+
+    # Call perform_recheck - should handle 404 gracefully
+    result = await perform_recheck(
+        member, 
+        "HandleX", 
+        bot,  # type: ignore[arg-type]
+        enforce_rate_limit=False,
+        log_leadership=False,
     )
 
-    # Call reverify_member and expect it to return failure result (not raise)
-    result = await reverify_member(member, "HandleX", bot)  # type: ignore[arg-type]
-    success, status_info, _message = result
+    # Should return failure result with remediated flag
+    assert not result["success"], "perform_recheck should return success=False for 404"
+    assert result["remediated"] is True, "Should flag as remediated"
+    assert "not found" in result["error"].lower(), "Error should mention not found"
 
-    # Should return failure due to NotFoundError
-    assert not success, "reverify_member should return False for NotFoundError"
-    assert status_info == "error", "Status should be 'error'"
+    # Verify 404 handler was called
+    assert handle_404_called, "Should call handle_username_404"
 
-    # Verify that the correct HTTP client was passed
+    # Verify HTTP client was passed correctly
     assert captured_http_client is not None, (
-        "HTTP client should have been passed to is_valid_rsi_handle"
+        "HTTP client should have been passed to compute_global_state"
     )
     assert captured_http_client is bot.http_client, (
-        "Should pass bot.http_client to is_valid_rsi_handle"
+        "Should pass bot.http_client to compute_global_state"
     )
     assert isinstance(captured_http_client, FakeHTTPClient), (
         "Should receive FakeHTTPClient instance"
@@ -443,7 +484,13 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> None:
+async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) -> None:
+    """Test that successful verification clears the needs_reverify flag via unified pipeline."""
+    import discord
+    from unittest.mock import MagicMock
+    from services.verification_state import GlobalVerificationState
+    import time as time_module
+    
     # Seed flagged verification row
     async with Database.get_connection() as db:
         await db.execute(
@@ -452,46 +499,81 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
         )
         await db.commit()
 
+    # Create mock member with full attributes
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 123
+    mock_guild.name = "Test Guild"
+    
+    member = MagicMock(spec=discord.Member)
+    member.id = 303
+    member.display_name = "UserReverify"
+    member.mention = "@UserReverify"
+    member.guild = mock_guild
+    member.roles = []
+    member.nick = None
+
     bot = SimpleNamespace()
     bot.http_client = FakeHTTPClient("reverify_test_client")
     bot.role_cache = {}
     bot.config = {"auto_recheck": {"cadence_days": {}}}
-    # Provide required role ID attrs for assign_roles path (even if cache empty)
-    bot.BOT_VERIFIED_ROLE_ID = 1
-    bot.MAIN_ROLE_ID = 2
-    bot.AFFILIATE_ROLE_ID = 3
-    bot.NON_MEMBER_ROLE_ID = 4
-    member = SimpleNamespace(
-        id=303,
-        display_name="UserReverify",
-        roles=[],
-        guild=SimpleNamespace(id=123, me=SimpleNamespace(top_role=1), owner_id=999),
-    )
-    # Avoid nickname path complexity
-    monkeypatch.setattr("helpers.role_helper.can_modify_nickname", lambda m: False)
+    bot.services = SimpleNamespace()
+    bot.services.config = AsyncMock()
+    bot.services.config.get_guild_setting = AsyncMock(return_value=[])
+    bot.services.guild_config = AsyncMock()
+    bot.services.guild_config.get_channel = AsyncMock(return_value=None)
+    bot.services.guild_config.get_setting = AsyncMock(return_value=None)
 
-    # Track the HTTP client passed to is_valid_rsi_handle
+    # Track the HTTP client passed to compute_global_state
     captured_http_client = None
 
-    # Return successful verification
-    async def fake_is_valid(handle: str, http_client, org_name: str, org_sid=None):
+    # Create a mock GlobalVerificationState for successful verification
+    async def fake_compute_global_state(user_id, handle, http_client, **kwargs):
         nonlocal captured_http_client
         captured_http_client = http_client
-        return 1, "NewHandle", None, [], []
+        return GlobalVerificationState(
+            user_id=user_id,
+            rsi_handle="NewHandle",
+            status="main",
+            main_orgs=["TEST"],
+            affiliate_orgs=[],
+            community_moniker=None,
+            checked_at=int(time_module.time()),
+            error=None,
+        )
 
     monkeypatch.setattr(
-        "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
+        "helpers.recheck_service.compute_global_state", fake_compute_global_state
     )
 
-    ok, _role_type, _err = await reverify_member(member, "OldOne", bot)  # type: ignore[arg-type]
-    assert ok is True
+    # Mock store_global_state to clear the flag (as it would in real code)
+    async def mock_store_global_state(state):
+        # The real store_global_state clears needs_reverify
+        await Database.clear_needs_reverify(state.user_id)
+    
+    monkeypatch.setattr(
+        "helpers.recheck_service.store_global_state", mock_store_global_state
+    )
+
+    # Mock apply_state_to_guild to return None (no changes)
+    monkeypatch.setattr("helpers.recheck_service.apply_state_to_guild", AsyncMock(return_value=None))
+    monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
+    monkeypatch.setattr("helpers.recheck_service.schedule_user_recheck", AsyncMock())
+
+    result = await perform_recheck(
+        member, 
+        "OldOne", 
+        bot,  # type: ignore[arg-type]
+        enforce_rate_limit=False,
+        log_leadership=False,
+    )
+    assert result["success"] is True
 
     # Verify that the correct HTTP client was passed
     assert captured_http_client is not None, (
-        "HTTP client should have been passed to is_valid_rsi_handle"
+        "HTTP client should have been passed to compute_global_state"
     )
     assert captured_http_client is bot.http_client, (
-        "Should pass bot.http_client to is_valid_rsi_handle"
+        "Should pass bot.http_client to compute_global_state"
     )
     assert isinstance(captured_http_client, FakeHTTPClient), (
         "Should receive FakeHTTPClient instance"

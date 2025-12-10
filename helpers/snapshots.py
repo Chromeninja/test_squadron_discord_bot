@@ -102,7 +102,6 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
 
 
 @dataclass
-@dataclass
 class MemberSnapshotDiff:
     status_before: str
     status_after: str
