@@ -76,7 +76,6 @@ class TestConfigService:
 
         # Get setting
         retrieved = await config_service.get_guild_setting(guild_id, key)
-        print(f"DEBUG: Set {value}, got back: {retrieved}")
         assert retrieved == value
 
         await config_service.shutdown()

@@ -26,10 +26,10 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
   - **`voice.py`**: Voice channel management system
   - **`admin.py`**: Administrative commands
 - **`helpers/`**: Utility modules for common functionality
-  - **`defensive_retry.py`**: 🆕 Robust retry mechanisms with exponential backoff
-  - **`structured_errors.py`**: 🆕 AI-friendly error reporting and analysis
-  - **`schema_validation.py`**: 🆕 JSON schema validation for data consistency
-- **`prompts/`**: 🆕 AI-agent friendly templates and schemas
+  - **`http_helper.py`**: HTTP client with retry mechanisms
+  - **`embeds.py`**: Discord embed creation utilities
+  - **`error_messages.py`**: User-facing error message formatting
+- **`prompts/`**: AI-agent friendly templates and schemas
   - **`schemas/`**: JSON schemas for data validation
   - **`messages/`**: User-facing message templates
   - **`system/`**: Development and debugging templates

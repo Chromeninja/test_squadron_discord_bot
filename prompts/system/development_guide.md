@@ -46,25 +46,21 @@ ai_hints:
 ### Error Handling Pattern
 
 ```python
-from helpers.defensive_retry import discord_retry
-from helpers.structured_errors import report_error
+import logging
 
-@discord_retry
+logger = logging.getLogger(__name__)
+
 async def risky_discord_operation(member: discord.Member) -> bool:
     try:
         # Discord API operation here
         await member.edit(roles=[role])
         return True
     except Exception as e:
-        report_error(
-            error=e,
-            component='role_management',
-            context={
-                'member_id': member.id,
-                'guild_id': member.guild.id,
-                'operation': 'edit_roles'
-            },
-            severity='error'
+        logger.exception(
+            "Failed to edit roles for member %s in guild %s",
+            member.id,
+            member.guild.id,
+            exc_info=e
         )
         return False
 ```
@@ -73,7 +69,7 @@ async def risky_discord_operation(member: discord.Member) -> bool:
 
 ```python
 import json
-from helpers.database import Database
+from services.db.database import Database
 
 async def update_verification_status(
     user_id: int, 
@@ -90,14 +86,11 @@ async def update_verification_status(
             await db.commit()
         return True
     except Exception as e:
-        report_error(
-            error=e,
-            component='database',
-            context={
-                'operation': 'update_verification',
-                'user_id': user_id,
-                'rsi_handle': rsi_handle
-            }
+        logger.exception(
+            "Failed to update verification for user %s",
+            user_id,
+            exc_info=e
+        )
         )
         return False
 ```

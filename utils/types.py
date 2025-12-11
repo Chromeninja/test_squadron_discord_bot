@@ -3,7 +3,6 @@ Type definitions and common data structures for the Discord bot.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, NamedTuple
 
 
@@ -114,29 +113,3 @@ class GuildConfig:
         # Initialization is now handled by field(default_factory=...)
         pass
 
-
-class ServiceStatus(Enum):
-    """Service initialization status."""
-
-    UNINITIALIZED = "uninitialized"
-    INITIALIZING = "initializing"
-    READY = "ready"
-    ERROR = "error"
-
-
-class LogLevel(Enum):
-    """Log level enumeration."""
-
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
-
-
-# Type aliases
-GuildId = int
-UserId = int
-ChannelId = int
-MessageId = int
-RoleId = int

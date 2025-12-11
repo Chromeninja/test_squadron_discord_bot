@@ -1,5 +1,3 @@
-import re
-
 import discord
 from discord.ui import Modal, TextInput
 
@@ -31,12 +29,9 @@ from services.guild_sync import apply_state_to_guild, sync_user_to_all_guilds
 from services.verification_scheduler import compute_next_retry, schedule_user_recheck
 from services.verification_state import compute_global_state, store_global_state
 from utils.logging import get_logger
-from verification.rsi_verification import is_valid_rsi_bio
+from verification.rsi_verification import RSI_HANDLE_REGEX, is_valid_rsi_bio
 
 logger = get_logger(__name__)
-
-# Regular expression to validate RSI handle format
-RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 
 
 async def get_org_name(bot, guild_id: int) -> str:
