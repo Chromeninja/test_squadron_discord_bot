@@ -19,7 +19,6 @@ export interface UserProfile {
   avatar: string | null;
   authorized_guilds: Record<string, GuildPermission>;
   active_guild_id?: string | null;
-  // Deprecated fields (use authorized_guilds instead)
   is_admin?: boolean;
   is_moderator?: boolean;
 }
@@ -31,7 +30,7 @@ export interface GuildSummary {
 }
 
 export interface GuildRole {
-  id: string;  // Changed from number to string to preserve 64-bit Discord snowflake precision
+  id: string;
   name: string;
   color: number | null;
 }
@@ -43,7 +42,7 @@ export interface GuildInfo {
 }
 
 export interface DiscordChannel {
-  id: string;  // Changed from number to string to preserve Discord snowflake precision
+  id: string;
   name: string;
   category: string | null;
   position: number;
@@ -54,7 +53,6 @@ export interface RoleDelegationPolicyPayload {
   target_role_id: string;
   prerequisite_role_ids_all: string[];
   prerequisite_role_ids_any: string[];
-  // Deprecated fallback; when present treat as prerequisite_role_ids_all
   prerequisite_role_ids?: string[];
   enabled: boolean;
   note?: string | null;
@@ -74,14 +72,14 @@ export interface BotRoleSettingsPayload {
 }
 
 export interface BotChannelSettingsPayload {
-  verification_channel_id: string | null;  // Changed to string to preserve precision
+  verification_channel_id: string | null;
   bot_spam_channel_id: string | null;
   public_announcement_channel_id: string | null;
   leadership_announcement_channel_id: string | null;
 }
 
 export interface VoiceSelectableRolesPayload {
-  selectable_roles: string[];  // Changed to string[] to preserve Discord snowflake precision
+  selectable_roles: string[];
 }
 
 export interface OrganizationSettingsPayload {
@@ -179,7 +177,7 @@ export interface ActiveVoiceChannel {
 }
 
 export interface PermissionEntry {
-  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_id: string;
   target_type: string;
   permission: string;
   target_name?: string | null;
@@ -187,7 +185,7 @@ export interface PermissionEntry {
 }
 
 export interface PTTSettingEntry {
-  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_id: string;
   target_type: string;
   ptt_enabled: boolean;
   target_name?: string | null;
@@ -195,7 +193,7 @@ export interface PTTSettingEntry {
 }
 
 export interface PrioritySpeakerEntry {
-  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_id: string;
   target_type: string;
   priority_enabled: boolean;
   target_name?: string | null;
@@ -203,7 +201,7 @@ export interface PrioritySpeakerEntry {
 }
 
 export interface SoundboardEntry {
-  target_id: string;  // Changed to string to preserve Discord snowflake precision
+  target_id: string;
   target_type: string;
   soundboard_enabled: boolean;
   target_name?: string | null;
@@ -211,7 +209,7 @@ export interface SoundboardEntry {
 }
 
 export interface JTCChannelSettings {
-  jtc_channel_id: string;  // Changed to string to preserve Discord snowflake precision
+  jtc_channel_id: string;
   jtc_channel_name: string | null;  // Friendly name of the JTC channel
   channel_name: string | null;
   user_limit: number | null;
@@ -223,10 +221,10 @@ export interface JTCChannelSettings {
 }
 
 export interface UserJTCSettings {
-  user_id: string;  // Changed to string to preserve Discord snowflake precision
+  user_id: string;
   rsi_handle: string | null;
   community_moniker: string | null;
-  primary_jtc_id: string | null;  // Changed to string to preserve Discord snowflake precision
+  primary_jtc_id: string | null;
   jtcs: JTCChannelSettings[];
 }
 

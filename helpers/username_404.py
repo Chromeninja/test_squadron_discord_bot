@@ -5,15 +5,15 @@ import discord
 
 from helpers.discord_api import channel_send_message
 from helpers.leadership_log import (
-    ChangeSet,
     EventType,
     InitiatorKind,
     InitiatorSource,
-    post_if_changed,
 )
-from helpers.snapshots import diff_snapshots, snapshot_member_state
+from helpers.snapshots import snapshot_member_state
 from helpers.task_queue import enqueue_task, flush_tasks
+from helpers.verification_logging import log_guild_sync
 from services.db.database import Database
+from services.guild_sync import GuildSyncResult
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -159,24 +159,30 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> b
             logger.warning(f"Failed sending spam alert for {member.id}: {e}")
     # Leadership announcement removed (standardized in leadership_log.post_if_changed)
 
-    # Leadership snapshot AFTER and post log (always, error path)
+    # Leadership snapshot AFTER and post log via unified log_guild_sync
     try:
         with contextlib.suppress(Exception):
             await flush_tasks()
         after_snap = await snapshot_member_state(bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        cs = ChangeSet(
+        # Create a GuildSyncResult for unified logging
+        sync_result = GuildSyncResult(
+            guild_id=member.guild.id if member.guild else 0,
             user_id=member.id,
-            event=EventType.RECHECK,
-            initiator_kind=InitiatorKind.AUTO,
-            initiator_source=InitiatorSource.AUTO,
-            initiator_name=None,
-            notes="RSI 404",
-            guild_id=member.guild.id if member.guild else None,
+            member=member,
+            before=before_snap,
+            after=after_snap,
         )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-        await post_if_changed(bot, cs)
+        await log_guild_sync(
+            sync_result,
+            EventType.RECHECK,
+            bot,
+            initiator={
+                "user_id": member.id,
+                "kind": InitiatorKind.AUTO,
+                "source": InitiatorSource.AUTO,
+                "notes": "RSI 404",
+            },
+        )
     except Exception:
         logger.debug("Leadership log 404 post failed")
 

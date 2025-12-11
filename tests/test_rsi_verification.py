@@ -1,5 +1,5 @@
-# tests/test_rsi_verification_enhanced.py
-"""Unit tests for enhanced RSI verification functions."""
+# tests/test_rsi_verification.py
+"""Unit tests for RSI verification functions including parsing and token validation."""
 
 import pytest
 

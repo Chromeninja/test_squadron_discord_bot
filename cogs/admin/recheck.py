@@ -110,7 +110,7 @@ class AutoRecheck(commands.Cog):
             )
 
             for res in results:
-                log_guild_sync(res, EventType.AUTO_CHECK, self.bot)
+                await log_guild_sync(res, EventType.AUTO_CHECK, self.bot)
 
             try:
                 next_retry = compute_next_retry(
@@ -133,7 +133,7 @@ class AutoRecheck(commands.Cog):
         """
         Try to fetch a member from a guild, with retry on transient cache miss.
         If member not found after retry, prune (delete) their verification data.
-        
+
         Returns:
             discord.Member if found, None if not found and pruned
         """

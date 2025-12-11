@@ -3,10 +3,9 @@ Verification Bulk Service
 
 Manages queued batch-processing jobs for bulk verification status checks.
 
-This service provides two modes:
-1. READ-ONLY mode (default): Quick admin reporting without updating stored state
-2. UNIFIED mode (opt-in): Uses compute_global_state pipeline to update stored state,
-   schedule auto-rechecks, and sync across all guilds
+This service uses the unified verification pipeline (compute_global_state,
+store_global_state, schedule_user_recheck) for all RSI verification checks,
+ensuring consistent state management, caching, and auto-recheck scheduling.
 
 Coordinates with auto-recheck loop to avoid conflicts.
 """
@@ -327,178 +326,29 @@ class VerificationBulkService:
                 )
 
     async def _perform_rsi_recheck(
-        self, status_rows: list, guild_id: int, *, use_unified_pipeline: bool = False
+        self, status_rows: list, guild_id: int
     ) -> list:
         """
-        Perform live RSI verification for each member in the batch.
+        Perform live RSI verification for each member in the batch using the unified pipeline.
+
+        This method always uses compute_global_state + store_global_state + schedule_user_recheck
+        to ensure consistent state management, caching, and auto-recheck scheduling.
 
         Args:
             status_rows: List of StatusRow objects from DB (max 50 per batch)
             guild_id: Discord guild ID for fetching org config
-            use_unified_pipeline: If True, use compute_global_state + store_global_state
-                + schedule_user_recheck. If False (default), perform READ-ONLY checks.
 
         Returns:
             Updated list of StatusRow objects with RSI recheck data
 
-        Design Decision:
-            READ-ONLY mode (default): Direct is_valid_rsi_handle calls for fast admin
-            reporting without updating stored state or scheduling rechecks.
-
-            UNIFIED mode (opt-in): Uses compute_global_state pipeline for consistent
-            state management, caching, and auto-recheck scheduling. Slower but ensures
-            stored state matches reality.
-
         Concurrency model:
         - All tasks in the batch are submitted concurrently via asyncio.gather
-        - HTTPClient's semaphore limits actual concurrent requests to 3
+        - compute_global_state handles rate limiting via HTTPClient's semaphore (concurrency=3)
         - HTTPClient enforces 0.5s delay between requests
         - Batch size is capped at 50 users (configurable via max_users_per_run)
         - Inter-batch sleep of 1-3s occurs in _process_batches
         """
-        if use_unified_pipeline:
-            return await self._perform_rsi_recheck_unified(status_rows, guild_id)
-        else:
-            return await self._perform_rsi_recheck_readonly(status_rows, guild_id)
-
-    async def _perform_rsi_recheck_readonly(
-        self, status_rows: list, guild_id: int
-    ) -> list:
-        """
-        READ-ONLY RSI verification for quick admin reporting (does not update stored state).
-
-        Uses direct is_valid_rsi_handle calls without caching or state persistence.
-        Suitable for admin dashboards and status reports.
-        """
-        from helpers.bulk_check import StatusRow
-        from helpers.http_helper import NotFoundError
-        from verification.rsi_verification import is_valid_rsi_handle
-
-        current_time = int(time.time())
-
-        # Create concurrent tasks for all handles
-        async def check_single_handle(row: StatusRow) -> RsiStatusResult:
-            """Check a single RSI handle and return structured result.
-
-            Rate limiting is handled by HTTPClient's semaphore (concurrency=3)
-            and 0.5s delay between requests.
-            """
-            if not row.rsi_handle:
-                return RsiStatusResult(
-                    status="unknown", checked_at=current_time, error="No RSI handle"
-                )
-
-            # Get organization config from guild
-            org_name = "test"  # Default fallback
-            org_sid = None
-            if hasattr(self.bot, "services") and hasattr(
-                self.bot.services, "guild_config"
-            ):
-                try:
-                    org_name_config = await self.bot.services.guild_config.get_setting(
-                        guild_id, "organization.name", default="test"
-                    )
-                    org_name = (
-                        org_name_config.strip().lower() if org_name_config else "test"
-                    )
-
-                    org_sid_config = await self.bot.services.guild_config.get_setting(
-                        guild_id, "organization.sid", default=None
-                    )
-                    org_sid = org_sid_config.strip().upper() if org_sid_config else None
-                except Exception:
-                    pass  # Use defaults
-
-            try:
-                (
-                    verify_value,
-                    _,
-                    _,
-                    main_orgs,
-                    affiliate_orgs,
-                ) = await is_valid_rsi_handle(
-                    row.rsi_handle, self.bot.http_client, org_name, org_sid
-                )
-
-                # Map verify_value to status string
-                if verify_value == 1:
-                    status = "main"
-                elif verify_value == 2:
-                    status = "affiliate"
-                elif verify_value == 0:
-                    status = "non_member"
-                else:
-                    status = "unknown"
-
-                logger.info(
-                    f"RSI check for user {row.user_id} ({row.rsi_handle}): verify_value={verify_value}, status={status}, "
-                    f"main_orgs={main_orgs}, affiliate_orgs={affiliate_orgs}"
-                )
-                return RsiStatusResult(
-                    status=status,
-                    checked_at=current_time,
-                    main_orgs=main_orgs if main_orgs else None,
-                    affiliate_orgs=affiliate_orgs if affiliate_orgs else None,
-                )
-
-            except NotFoundError:
-                logger.debug(
-                    f"RSI handle not found for user {row.user_id}: {row.rsi_handle}"
-                )
-                return RsiStatusResult(
-                    status="unknown",
-                    checked_at=current_time,
-                    error="Handle not found (404)",
-                )
-            except Exception as e:
-                logger.warning(
-                    f"RSI recheck failed for user {row.user_id} ({row.rsi_handle}): {e}"
-                )
-                return RsiStatusResult(
-                    status="unknown", checked_at=current_time, error=str(e)[:200]
-                )
-
-        # Execute all RSI checks concurrently
-        # Note: HTTPClient's semaphore (concurrency=3) automatically limits actual
-        # concurrent requests, so submitting all tasks at once is safe and efficient
-        tasks = [check_single_handle(row) for row in status_rows]
-        rsi_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Build updated rows with RSI data
-        updated_rows = []
-        for row, result in zip(status_rows, rsi_results, strict=False):
-            # Handle unexpected exceptions from gather
-            if isinstance(result, Exception):
-                logger.error(
-                    f"Unexpected exception in RSI check for user {row.user_id}: {result}"
-                )
-                result = RsiStatusResult(
-                    status="unknown",
-                    checked_at=current_time,
-                    error=f"Unexpected error: {result!s}"[:200],
-                )
-
-            # Type guard: result is now definitely RsiStatusResult
-            if not isinstance(result, RsiStatusResult):
-                continue
-
-            # Create new StatusRow with RSI data
-            updated_row = StatusRow(
-                user_id=row.user_id,
-                username=row.username,
-                rsi_handle=row.rsi_handle,
-                membership_status=row.membership_status,
-                last_updated=row.last_updated,
-                voice_channel=row.voice_channel,
-                rsi_status=result.status,
-                rsi_checked_at=result.checked_at,
-                rsi_error=result.error,
-                rsi_main_orgs=result.main_orgs,
-                rsi_affiliate_orgs=result.affiliate_orgs,
-            )
-            updated_rows.append(updated_row)
-
-        return updated_rows
+        return await self._perform_rsi_recheck_unified(status_rows, guild_id)
 
     async def _report_progress(
         self, job: BulkVerificationJob, processed: int, total: int, batch_size: int

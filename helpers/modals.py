@@ -308,7 +308,7 @@ class HandleModal(Modal, title="Verification"):
 
         # Log the change with proper initiator metadata
         if result:
-            log_guild_sync(
+            await log_guild_sync(
                 result,
                 EventType.VERIFICATION,
                 self.bot,

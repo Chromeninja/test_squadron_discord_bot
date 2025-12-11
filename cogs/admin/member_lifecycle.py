@@ -168,7 +168,7 @@ class MemberLifecycle(commands.Cog):
             res = await apply_state_to_guild(state, guild, self.bot)
             await flush_tasks()
             if res:
-                log_guild_sync(
+                await log_guild_sync(
                     res,
                     EventType.AUTO_CHECK,
                     self.bot,

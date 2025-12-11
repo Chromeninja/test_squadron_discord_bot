@@ -17,7 +17,6 @@ import pytest
 import pytest_asyncio
 
 from cogs.admin.member_lifecycle import MemberLifecycle
-from helpers.role_helper import apply_roles_for_status
 from services.db.database import Database
 
 # Suppress deprecation warnings - we're testing backward compatibility
@@ -369,7 +368,7 @@ async def test_member_rejoin_restores_roles(temp_db, mock_bot, mock_member, mock
 @pytest.mark.asyncio
 async def test_duplicate_handle_conflict_detection(temp_db, mock_member):
     """Test that duplicate RSI handles are detected via conflict check.
-    
+
     This tests the unified pipeline approach: check for conflicts BEFORE
     applying roles using Database.check_rsi_handle_conflict().
     """
@@ -385,10 +384,10 @@ async def test_duplicate_handle_conflict_detection(temp_db, mock_member):
 
     # Check for conflict before assigning roles (unified pipeline pattern)
     conflict_id = await Database.check_rsi_handle_conflict("DuplicateHandle", mock_member.id)
-    
+
     # Should detect conflict
     assert conflict_id == existing_user_id, "Should detect existing user with same handle"
-    
+
     # In unified pipeline, caller would raise/abort here rather than proceed
     # Verify the new user was NOT added to verification (we didn't proceed)
     async with Database.get_connection() as db:

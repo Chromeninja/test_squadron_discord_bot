@@ -319,9 +319,10 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
 @pytest.mark.asyncio
 async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     """Test that perform_recheck handles 404 errors with unified pipeline."""
-    import discord
     from unittest.mock import MagicMock
-    
+
+    import discord
+
     # Seed verification row
     async with Database.get_connection() as db:
         await db.execute(
@@ -334,7 +335,7 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     mock_guild = MagicMock(spec=discord.Guild)
     mock_guild.id = 123
     mock_guild.name = "Test Guild"
-    
+
     member = MagicMock(spec=discord.Member)
     member.id = 202
     member.display_name = "UserX"
@@ -366,7 +367,7 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
     monkeypatch.setattr(
         "helpers.recheck_service.compute_global_state", fake_compute_global_state
     )
-    
+
     # Mock the 404 handler
     handle_404_called = False
     async def mock_handle_404(b, m, h):
@@ -377,8 +378,8 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
 
     # Call perform_recheck - should handle 404 gracefully
     result = await perform_recheck(
-        member, 
-        "HandleX", 
+        member,
+        "HandleX",
         bot,  # type: ignore[arg-type]
         enforce_rate_limit=False,
         log_leadership=False,
@@ -486,11 +487,13 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
 @pytest.mark.asyncio
 async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) -> None:
     """Test that successful verification clears the needs_reverify flag via unified pipeline."""
-    import discord
-    from unittest.mock import MagicMock
-    from services.verification_state import GlobalVerificationState
     import time as time_module
-    
+    from unittest.mock import MagicMock
+
+    import discord
+
+    from services.verification_state import GlobalVerificationState
+
     # Seed flagged verification row
     async with Database.get_connection() as db:
         await db.execute(
@@ -503,7 +506,7 @@ async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) ->
     mock_guild = MagicMock(spec=discord.Guild)
     mock_guild.id = 123
     mock_guild.name = "Test Guild"
-    
+
     member = MagicMock(spec=discord.Member)
     member.id = 303
     member.display_name = "UserReverify"
@@ -549,7 +552,7 @@ async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) ->
     async def mock_store_global_state(state):
         # The real store_global_state clears needs_reverify
         await Database.clear_needs_reverify(state.user_id)
-    
+
     monkeypatch.setattr(
         "helpers.recheck_service.store_global_state", mock_store_global_state
     )
@@ -560,8 +563,8 @@ async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) ->
     monkeypatch.setattr("helpers.recheck_service.schedule_user_recheck", AsyncMock())
 
     result = await perform_recheck(
-        member, 
-        "OldOne", 
+        member,
+        "OldOne",
         bot,  # type: ignore[arg-type]
         enforce_rate_limit=False,
         log_leadership=False,

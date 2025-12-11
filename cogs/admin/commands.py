@@ -12,37 +12,10 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
-from services.db.database import Database
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class ConfigSchema:
-    """Deprecated: Discord-based configuration is removed. Web Admin is required."""
-
-    ALLOWED_KEYS: ClassVar[dict[str, dict[str, Any]]] = {}
-
-    @classmethod
-    def get_key_choices(cls) -> list[app_commands.Choice[str]]:
-        return []
-
-    @classmethod
-    def get_type_for_key(cls, key: str) -> type:
-        return str
-
-    @classmethod
-    def get_validation_info(cls, key: str) -> dict[str, Any]:
-        return {}
-
-    @classmethod
-    def get_value_hint(cls, key: str) -> str:
-        return ""
-
-    @classmethod
-    def validate_value(cls, key: str, value: Any) -> tuple[bool, str, Any]:
-        return False, "Discord config editing has been removed. Use Web Admin.", None
 
 
 class AdminCog(commands.Cog):

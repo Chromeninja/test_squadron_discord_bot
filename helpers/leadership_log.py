@@ -66,11 +66,10 @@ class ChangeSet:
     affiliate_orgs_before: list[str] | None = None
     affiliate_orgs_after: list[str] | None = None
 
-    roles_added: list[str] = field(default_factory=list)  # ignored in new formatter
-    roles_removed: list[str] = field(default_factory=list)  # ignored in new formatter
+    roles_added: list[str] = field(default_factory=list)
+    roles_removed: list[str] = field(default_factory=list)
 
     notes: str | None = None
-    # Use timezone-aware UTC now instead of deprecated utcnow() for future-proofing
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     duration_ms: int = 0
 
@@ -324,12 +323,10 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
                 name=label, value=f"{before or '—'} → {after or '—'}", inline=False
             )
         elif _verbosity(bot) == "verbose":
-            # In verbose mode show unchanged chips
             if before:
                 embed.add_field(name=label, value=f"No Change ({before})", inline=False)
 
     add_section("Membership Status", cs.status_before, cs.status_after)
-    # Updated labels (Aug 2025 policy): concise field names
     add_section("Handle", cs.handle_before, cs.handle_after)
     add_section("Moniker", cs.moniker_before, cs.moniker_after)
     add_section("Username", cs.username_before, cs.username_after)

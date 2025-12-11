@@ -824,25 +824,6 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def get_user_active_guilds(cls, user_id: int) -> list[int]:
-        """
-        Get list of guild IDs where a user is currently tracked as active.
-
-        Args:
-            user_id: Discord user ID
-
-        Returns:
-            List of guild IDs
-        """
-        async with cls.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT guild_id FROM user_guild_membership WHERE user_id = ?",
-                (user_id,),
-            )
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
-
-    @classmethod
     async def check_rsi_handle_conflict(
         cls, rsi_handle: str, user_id: int
     ) -> int | None:

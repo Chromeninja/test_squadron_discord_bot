@@ -195,7 +195,7 @@ async def perform_recheck(
         result["diff"] = diff_payload
 
         if log_leadership:
-            log_guild_sync(
+            await log_guild_sync(
                 guild_result,
                 EventType.RECHECK,
                 bot,

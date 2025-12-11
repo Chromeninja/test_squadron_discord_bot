@@ -1,10 +1,33 @@
 # tests/test_verification_bulk_rsi_recheck.py
+"""Tests for bulk verification RSI recheck using the unified pipeline."""
 
-from unittest.mock import Mock, patch
+import time
+from typing import cast
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from helpers.bulk_check import StatusRow
+from services.verification_state import GlobalVerificationState, VerificationStatus
+
+
+def _make_global_state(
+    user_id: int, handle: str, status: VerificationStatus, error: str | None = None
+):
+    """Helper to create a GlobalVerificationState-like object."""
+    main_orgs = ["TEST"] if status == "main" else []
+    affiliate_orgs = ["TEST"] if status == "affiliate" else []
+
+    return GlobalVerificationState(
+        user_id=user_id,
+        rsi_handle=handle.upper(),
+        status=status,
+        main_orgs=main_orgs,
+        affiliate_orgs=affiliate_orgs,
+        community_moniker=None,
+        checked_at=int(time.time()),
+        error=error,
+    )
 
 
 @pytest.mark.asyncio
@@ -14,6 +37,7 @@ async def test_perform_rsi_recheck_concurrent_execution():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
     service = VerificationBulkService(bot)
 
     input_rows = [
@@ -25,13 +49,14 @@ async def test_perform_rsi_recheck_concurrent_execution():
     # Track call order to verify concurrency
     call_order = []
 
-    async def mock_verify(handle, client, org_name, org_sid=None):
+    async def mock_compute(user_id, handle, http_client, **kwargs):
         call_order.append(handle)
-        return (1, handle.upper(), None, [], [])
+        return _make_global_state(user_id, handle, "main")
 
     with patch(
-        "verification.rsi_verification.is_valid_rsi_handle", side_effect=mock_verify
-    ):
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # All handles should be checked
@@ -49,22 +74,24 @@ async def test_perform_rsi_recheck_all_main():
     """Test RSI recheck when all users are main members."""
     from services.verification_bulk_service import VerificationBulkService
 
-    # Mock bot with http_client
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
-    # Create input rows
     input_rows = [
         StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
         StatusRow(2, "User2", "handle2", "affiliate", 1609459200, "Gaming"),
     ]
 
-    # Mock is_valid_rsi_handle to return main status (verify_value=1)
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.return_value = (1, "Handle1", None, [], [])  # verify_value=1 = main
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        return _make_global_state(user_id, handle, "main")
 
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results
@@ -84,6 +111,7 @@ async def test_perform_rsi_recheck_mixed_statuses():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
@@ -93,14 +121,20 @@ async def test_perform_rsi_recheck_mixed_statuses():
         StatusRow(3, "User3", "handle3", "non_member", 1609459200, None),
     ]
 
-    # Mock different return values for each call
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.side_effect = [
-            (1, "Handle1", None, [], []),  # main
-            (2, "Handle2", None, [], []),  # affiliate
-            (0, "Handle3", None, [], []),  # non_member
-        ]
+    # Return different statuses for each user
+    statuses: dict[str, VerificationStatus] = {
+        "handle1": cast("VerificationStatus", "main"),
+        "handle2": cast("VerificationStatus", "affiliate"),
+        "handle3": cast("VerificationStatus", "non_member"),
+    }
 
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        return _make_global_state(user_id, handle, statuses[handle])
+
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results map correctly
@@ -121,6 +155,7 @@ async def test_perform_rsi_recheck_not_found():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
@@ -128,10 +163,13 @@ async def test_perform_rsi_recheck_not_found():
         StatusRow(1, "User1", "invalid_handle", "unknown", None, None),
     ]
 
-    # Mock NotFoundError
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.side_effect = NotFoundError("Handle not found")
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        raise NotFoundError("Handle not found")
 
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Should handle gracefully and mark as unknown
@@ -148,6 +186,7 @@ async def test_perform_rsi_recheck_generic_error():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
@@ -156,13 +195,18 @@ async def test_perform_rsi_recheck_generic_error():
         StatusRow(2, "User2", "handle2", "affiliate", 1609459200, "Gaming"),
     ]
 
-    # First call succeeds, second raises error
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.side_effect = [
-            (1, "Handle1", None, [], []),
-            Exception("Network error"),
-        ]
+    call_count = [0]
 
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return _make_global_state(user_id, handle, "main")
+        raise Exception("Network error")
+
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # First should succeed, second should be marked unknown with error
@@ -180,6 +224,7 @@ async def test_perform_rsi_recheck_no_handle():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
@@ -187,12 +232,20 @@ async def test_perform_rsi_recheck_no_handle():
         StatusRow(1, "User1", None, None, None, None),  # No RSI handle
     ]
 
-    # Should not call is_valid_rsi_handle
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
+    compute_called = [False]
+
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        compute_called[0] = True
+        return _make_global_state(user_id, handle, "main")
+
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
-        # Verify was not called since no handle
-        mock_verify.assert_not_called()
+    # compute_global_state should not be called since no handle
+    assert not compute_called[0]
 
     # Should mark as unknown with error message
     assert len(result_rows) == 1
@@ -202,12 +255,13 @@ async def test_perform_rsi_recheck_no_handle():
 
 
 @pytest.mark.asyncio
-async def test_perform_rsi_recheck_none_verify_value():
-    """Test RSI recheck when verify_value is None."""
+async def test_perform_rsi_recheck_with_error_in_state():
+    """Test RSI recheck when compute_global_state returns error in state."""
     from services.verification_bulk_service import VerificationBulkService
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
 
     service = VerificationBulkService(bot)
 
@@ -215,16 +269,19 @@ async def test_perform_rsi_recheck_none_verify_value():
         StatusRow(1, "User1", "handle1", "unknown", None, None),
     ]
 
-    # Mock returning None verify_value
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.return_value = (None, "Handle1", None, [], [])
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        return _make_global_state(user_id, handle, "non_member", error="RSI fetch failed")
 
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
-    # Should map None to unknown
+    # Should return the state but include the error
     assert len(result_rows) == 1
-    assert result_rows[0].rsi_status == "unknown"
-    assert result_rows[0].rsi_error is None
+    assert result_rows[0].rsi_status == "non_member"
+    assert result_rows[0].rsi_error == "RSI fetch failed"
 
 
 @pytest.mark.asyncio
@@ -235,6 +292,7 @@ async def test_perform_rsi_recheck_partial_failures():
 
     bot = Mock()
     bot.http_client = Mock()
+    bot.config = {}
     service = VerificationBulkService(bot)
 
     input_rows = [
@@ -244,15 +302,23 @@ async def test_perform_rsi_recheck_partial_failures():
         StatusRow(4, "User4", "handle4", "unknown", None, None),
     ]
 
-    # Mix of success and failures
-    with patch("verification.rsi_verification.is_valid_rsi_handle") as mock_verify:
-        mock_verify.side_effect = [
-            (1, "Handle1", None, [], []),  # success - main
-            NotFoundError("Not found"),  # failure - 404
-            (0, "Handle3", None, [], []),  # success - non_member
-            Exception("Timeout"),  # failure - exception
-        ]
+    responses = {
+        "handle1": (cast("VerificationStatus", "main"), None),
+        "handle2": (cast("VerificationStatus", "404"), NotFoundError("Not found")),
+        "handle3": (cast("VerificationStatus", "non_member"), None),
+        "handle4": (cast("VerificationStatus", "error"), Exception("Timeout")),
+    }
 
+    async def mock_compute(user_id, handle, http_client, **kwargs):
+        status, error = responses[handle]
+        if error:
+            raise error
+        return _make_global_state(user_id, handle, cast("VerificationStatus", status))
+
+    with patch(
+        "services.verification_state.compute_global_state", side_effect=mock_compute
+    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
+       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify mixed results

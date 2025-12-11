@@ -24,9 +24,14 @@ def _is_downgrade(old_status: str | None, new_status: str | None) -> bool:
     return order.get(new_status, 0) < order.get(old_status, 0)
 
 
-def _should_suppress(diff: dict, event: EventType) -> bool:
+def _should_suppress(diff: dict, event: EventType, *, notes: str | None = None) -> bool:
     if not diff:
         return True
+
+    # Never suppress events with explicit notes (e.g., "RSI 404")
+    if notes:
+        return False
+
     # Check for no-op scenarios (no actual changes)
     status_same = diff.get("status_before") == diff.get("status_after")
     orgs_same = diff.get("main_orgs_before") == diff.get("main_orgs_after") and diff.get(
@@ -83,13 +88,14 @@ def _maybe_announce(sync_result, diff: dict, bot) -> None:
             logger.warning("Failed to queue public announcement: %s", e)
 
 
-def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None) -> None:
+async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None) -> None:
     """Post leadership log entry based on diff and event type."""
     diff = sync_result.diff
-    if _should_suppress(diff, event):
+    initiator_info = initiator or {}
+    notes = initiator_info.get("notes")
+    if _should_suppress(diff, event, notes=notes):
         return
 
-    initiator_info = initiator or {}
     initiator_info.setdefault("user_id", sync_result.user_id)
     cs = _build_changeset(diff, event, sync_result.guild_id, initiator_info)
 
@@ -100,12 +106,12 @@ def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, A
         logger.debug("Announcement enqueue failed", exc_info=True)
 
     try:
-        bot.loop.create_task(post_if_changed(bot, cs))
+        await post_if_changed(bot, cs)
     except Exception:
         logger.debug("Leadership log post failed", exc_info=True)
 
 
-def log_transition_if_needed(sync_result, bot, event: EventType) -> None:
+async def log_transition_if_needed(sync_result, bot, event: EventType) -> None:
     """Helper to log downgrades or org changes consistently."""
     diff = sync_result.diff
     if _should_suppress(diff, event):
@@ -115,4 +121,4 @@ def log_transition_if_needed(sync_result, bot, event: EventType) -> None:
         or diff.get("main_orgs_before") != diff.get("main_orgs_after")
         or diff.get("affiliate_orgs_before") != diff.get("affiliate_orgs_after")
     ):
-        log_guild_sync(sync_result, event, bot)
+        await log_guild_sync(sync_result, event, bot)
