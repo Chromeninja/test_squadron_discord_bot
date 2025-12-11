@@ -92,7 +92,7 @@ ignore = [
     "S311",   # suspicious-non-cryptographic-random-usage - random delays don't need crypto
     "RUF006", # asyncio-dangling-task - fire-and-forget tasks are intentional
     "N806",   # non-lowercase-variable-in-function - constants in functions are fine
-    "DTZ003", # call-datetime-utcnow - UTC is correct for our use case
+    # DTZ003 (call-datetime-utcnow) is NOT ignored - use datetime.now(timezone.utc) instead
     "B904",   # raise-without-from-inside-except - not always needed
     "S110",   # try-except-pass - sometimes intentional for optional operations
     "SIM105", # suppressible-exception - contextlib.suppress isn't always clearer

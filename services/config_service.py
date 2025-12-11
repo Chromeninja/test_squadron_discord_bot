@@ -1,12 +1,12 @@
 """Configuration service for per-guild settings and global configuration."""
 
 import asyncio
+import copy
 import json
 from collections.abc import Callable
 from typing import Any
 
-import yaml
-
+from config.config_loader import ConfigLoader
 from services.db.database import Database
 
 from .base import BaseService
@@ -22,33 +22,32 @@ class ConfigService(BaseService):
     falling back to global defaults.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config_loader: ConfigLoader | None = None) -> None:
         super().__init__("config")
         self._global_config: dict[str, Any] = {}
         self._guild_cache: dict[int, dict[str, Any]] = {}
         self._cache_lock = asyncio.Lock()
         self._guild_versions: dict[int, str | None] = {}
+        # Use centralized ConfigLoader to avoid duplicate path resolution/reads
+        self._config_loader = config_loader or ConfigLoader()
 
     async def _initialize_impl(self) -> None:
         """Load global configuration."""
         await self._load_global_config()
 
     async def _load_global_config(self) -> None:
-        """Load global configuration from config.yaml."""
-        try:
-            with open("config/config.yaml", encoding="utf-8") as f:
-                self._global_config = yaml.safe_load(f) or {}
+        """Load global configuration from the centralized ConfigLoader."""
+        config = self._config_loader.load_config()
+        # Work on a copy so service-specific coercions do not mutate the shared loader cache
+        self._global_config = copy.deepcopy(config) if isinstance(config, dict) else {}
 
-            # Normalize role IDs to integers at load time
-            self._coerce_role_types(self._global_config)
+        # Normalize role IDs to integers at load time
+        self._coerce_role_types(self._global_config)
 
+        if self._global_config:
             self.logger.info("Global configuration loaded successfully")
-        except FileNotFoundError:
-            self.logger.warning("Global config file not found, using empty config")
-            self._global_config = {}
-        except yaml.YAMLError as e:
-            self.logger.exception("Error parsing global config", exc_info=e)
-            self._global_config = {}
+        else:
+            self.logger.warning("Global config empty or missing; using defaults")
 
     def _coerce_role_types(self, config: dict[str, Any]) -> None:
         """

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-import yaml
 from core.dependencies import (
     InternalAPIClient,
     get_config_loader,
@@ -423,17 +421,14 @@ async def get_guild_member_detail(
 # Organization Settings Endpoints
 
 
-# Load RSI config
+# Load RSI config via centralized ConfigLoader (no direct file IO)
 def _load_rsi_config() -> dict:
-    """Load RSI configuration from config.yaml."""
-    project_root = Path(__file__).parent.parent.parent.parent
-    config_path = project_root / "config" / "config.yaml"
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-            return config.get("rsi", {})
-    except Exception:
-        return {}
+    """Return RSI configuration from the shared ConfigLoader cache."""
+    from core.dependencies import get_config_loader
+
+    loader = get_config_loader()
+    config = loader.load_config()
+    return config.get("rsi", {})
 
 
 # Initialize RSI client (lazy)
@@ -563,13 +558,7 @@ async def get_guild_info(
 
 def _read_only_yaml_snapshot(config_loader: ConfigLoader) -> dict:
     """Return a small subset of global YAML config for read-only display."""
-    # Load from project root config/config.yaml using loader
-    project_root = Path(__file__).parent.parent.parent.parent
-    config_path = project_root / "config" / "config.yaml"
-    try:
-        cfg = config_loader.load_config(str(config_path))
-    except Exception:
-        cfg = {}
+    cfg = config_loader.load_config()
 
     return {
         "rsi": cfg.get("rsi"),

@@ -1,6 +1,7 @@
 from typing import Any
 
 from discord.ext import commands
+import discord
 
 from helpers.http_helper import HTTPClient
 from services.internal_api import InternalAPIServer
@@ -31,3 +32,8 @@ class MyBot(commands.Bot):
     # Private attributes for internal tracking
     _missing_role_warned_guilds: set[int]
     _guild_role_expectations: dict[int, set[str]]
+
+# Module-level attributes for type checking
+PREFIX: Any
+intents: discord.Intents
+initial_extensions: list[str]

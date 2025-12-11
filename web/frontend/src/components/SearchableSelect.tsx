@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 
 export interface SelectOption {
   id: string;  // Changed from number to string to preserve Discord ID precision
@@ -23,6 +23,11 @@ const SearchableSelect = ({
 }: SearchableSelectProps) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const listboxId = useMemo(
+    () => `searchable-select-list-${Math.random().toString(36).slice(2, 8)}`,
+    []
+  );
 
   const selectedOption = useMemo(
     () => options.find((opt) => opt.id === selected),
@@ -63,6 +68,20 @@ const SearchableSelect = ({
     }
   };
 
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && containerRef.current && !containerRef.current.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+    };
+  }, []);
+
   const getDisplayLabel = (option: SelectOption) => {
     if (formatLabel) {
       return formatLabel(option);
@@ -71,7 +90,7 @@ const SearchableSelect = ({
   };
 
   return (
-    <div className="relative space-y-2">
+    <div className="relative space-y-2" ref={containerRef}>
       <div className="flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800 p-2 focus-within:border-indigo-400">
         {selectedOption && !isOpen && (
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-600/20 px-3 py-1 text-sm text-indigo-200">
@@ -80,6 +99,7 @@ const SearchableSelect = ({
               type="button"
               className="text-xs text-indigo-300 hover:text-white"
               onClick={handleClear}
+              aria-label="Clear selection"
             >
               ×
             </button>
@@ -95,12 +115,20 @@ const SearchableSelect = ({
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleInputKeyDown}
           placeholder={selectedOption && !isOpen ? '' : placeholder}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
           className="flex-1 bg-transparent text-sm focus:outline-none"
         />
       </div>
 
       {isOpen && (
-        <div className="absolute z-10 w-full max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg">
+        <div
+          className="absolute z-10 w-full max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg"
+          role="listbox"
+          id={listboxId}
+        >
           {filteredOptions.length === 0 ? (
             <div className="p-3 text-sm text-gray-400">No matches found.</div>
           ) : (
@@ -112,6 +140,8 @@ const SearchableSelect = ({
                     option.id === selected ? 'bg-slate-800 text-indigo-300' : 'text-gray-200'
                   }`}
                   onClick={() => handleSelect(option.id)}
+                  role="option"
+                  aria-selected={option.id === selected}
                 >
                   {getDisplayLabel(option)}
                 </li>

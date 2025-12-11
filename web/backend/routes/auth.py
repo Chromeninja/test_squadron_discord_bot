@@ -5,7 +5,6 @@ Authentication routes for Discord OAuth2 flow.
 import logging
 import os
 import secrets
-from pathlib import Path
 
 import httpx
 from core.dependencies import (
@@ -546,12 +545,8 @@ async def get_bot_invite_url(
     Returns:
         JSON with invite_url field
     """
-    # Load config path relative to project root
-    project_root = Path(__file__).parent.parent.parent.parent
-    config_path = project_root / "config" / "config.yaml"
-
-    # Load config using ConfigLoader class method
-    config_dict = ConfigLoader.load_config(str(config_path))
+    # Use centralized ConfigLoader (already initialized at startup)
+    config_dict = config_loader.load_config()
     bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
 
     # Build bot invite URL with redirect back to our callback

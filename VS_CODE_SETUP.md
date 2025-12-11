@@ -4,14 +4,16 @@ A concise guide to get VS Code ready for developing and debugging the full stack
 
 ## 1) Prereqs
 - VS Code (latest)
-- Python 3.8+ available on your system
-- Node.js 18+ (for frontend)
+- Python 3.12+ available on your system (repo uses `venv`)
+- Node.js 20+ (for frontend + unit tests)
 - Repo cloned locally
 
 ## 2) Recommended extensions (auto-suggested by `.vscode/extensions.json`)
 - `ms-python.python`
 - `ms-python.vscode-pylance`
 - `ms-python.python-test-adapter`
+ - `esbenp.prettier-vscode` (optional)
+ - `dbaeumer.vscode-eslint` (optional)
 
 ## 3) Open the workspace
 - Open the folder `/home/chrome/test_squadron_discord_bot` in VS Code.
@@ -22,7 +24,7 @@ A concise guide to get VS Code ready for developing and debugging the full stack
 - This ensures the Testing view, debugger, and terminals use the project venv.
 
 ## 5) Environment file
-- Create `.env` in the repo root (shared by bot and backend). See `SETUP.txt` for example values.
+- Create `.env` in the repo root (shared by bot and backend). See `SETUP.md` for example values.
 
 ## 6) Install dependencies
 ```bash
@@ -32,6 +34,10 @@ pip install -r web/backend/requirements.txt
 pip install -r requirements-dev.txt
 cd web/frontend && npm install && cd ../..
 ```
+
+Frontend test environment:
+- Vitest is installed via `npm install`
+- DOM environment: `happy-dom` is configured in `vite.config.ts` (install with `npm install -D happy-dom` if prompted)
 
 ## 7) Launch / Debug
 Use the built-in launch configs (Run and Debug panel):
@@ -45,7 +51,15 @@ Breakpoints: set in Python or frontend code, then run the corresponding config.
 ## 8) Testing in VS Code
 - Open the Testing view (beaker icon). Tests are auto-discovered from `tests/` and `web/backend/tests/`.
 - Run/Debug all tests or individual tests from the tree.
-- CLI equivalent: `.venv/bin/python -m pytest tests/ web/backend/tests/ -v`.
+- CLI equivalent (backend/bot):
+	```bash
+	.venv/bin/python -m pytest tests/ web/backend/tests/ -v
+	```
+- Frontend tests (Vitest):
+	```bash
+	cd web/frontend
+	npm test -- --run
+	```
 
 ## 9) Tasks (optional shortcuts)
 Command Palette → `Tasks: Run Task`:
@@ -54,7 +68,24 @@ Command Palette → `Tasks: Run Task`:
 - `pytest: all tests`
 - Quick modes are also available.
 
-## 10) Common tips
+Optional frontend tasks (if added to `tasks.json`):
+- `vitest: unit tests`
+- `vite: dev server`
+
+## 10) Staging dry-run (dev preflight)
+Use the consolidated dry-run script to validate config + readiness and (optionally) load bot extensions without login:
+
+```bash
+# API checks only
+.venv/bin/python scripts/staging_dry_run.py --backend-url http://localhost:8081 --bot-url http://127.0.0.1:8082
+
+# Include bot extension smoke (no Discord login)
+.venv/bin/python scripts/staging_dry_run.py --bot-smoke --bot-timeout 3
+```
+
+This respects `CONFIG_PATH` overrides and reports `config_status` from the shared loader.
+
+## 11) Common tips
 - If debugpy complains about missing modules, ensure `.venv` is active and deps are installed.
 - If Testing view shows discovery errors, reload the window (`Developer: Reload Window`) after installing deps.
 - Keep the `.env` file up to date; it is read by launch configs for bot/backend.

@@ -116,11 +116,14 @@ async def temp_db():
 @pytest_asyncio.fixture
 async def client(temp_db):
     """Create a test client for the FastAPI app."""
+    # Ensure clean ConfigLoader state so CONFIG_PATH overrides apply per-test
+    ConfigLoader.reset()
+
     # Seed backend dependencies because ASGITransport doesn't trigger lifespan in tests
     config_loader = ConfigLoader()
     dependencies._config_loader = config_loader
 
-    config_service = ConfigService()
+    config_service = ConfigService(config_loader=config_loader)
     await config_service.initialize()
     dependencies._config_service = config_service
 

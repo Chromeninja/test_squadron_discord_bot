@@ -5,6 +5,8 @@ Tests for health monitoring endpoints.
 import httpx
 import pytest
 
+from config.config_loader import ConfigLoader
+
 
 @pytest.mark.asyncio
 async def test_health_overview_success_admin(
@@ -129,3 +131,32 @@ async def test_health_overview_http_status_error(
 
     assert response.status_code == 502
     assert response.json()["detail"] == "bot unavailable"
+
+
+@pytest.mark.asyncio
+async def test_config_status_endpoint_reports_loader_state(client):
+    response = await client.get("/api/health/config-status")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["config_status"] in {"ok", "degraded", "error"}
+    assert "config_path" in data
+
+
+@pytest.mark.asyncio
+async def test_readiness_reflects_config_error(monkeypatch, tmp_path, client):
+    # Build an invalid config before client fixture initializes ConfigLoader
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("voice: [oops", encoding="utf-8")
+
+    monkeypatch.setenv("CONFIG_PATH", str(broken))
+
+    # Force the shared ConfigLoader into an error state before calling the endpoint
+    ConfigLoader.reset()
+    ConfigLoader.load_config(str(broken))
+
+    response = await client.get("/api/health/readiness")
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["config_status"] == "error"

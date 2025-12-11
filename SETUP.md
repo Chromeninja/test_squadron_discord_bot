@@ -3,11 +3,17 @@
 Use this guide to deploy the full stack on a Linux host: Discord bot, Web Admin backend (FastAPI), and Web Admin frontend (Vite).
 
 ## Prerequisites
-- Python 3.8+
+- Python 3.12+ (recommended) with `venv`
 - Git
-- Node.js 18+ + npm
+- Node.js 20+ and npm (for frontend and tests)
 - Discord Bot token
 - Discord OAuth app credentials (client id/secret/redirect URI)
+
+### Developer tools (new)
+- Frontend test runner: Vitest (installed via `npm install`)
+- DOM environment for tests: `happy-dom` (auto-installed via `npm install -D happy-dom`)
+- Optional: `jsdom` if you prefer, but `happy-dom` is configured by default in `vite.config.ts`
+- Python test tools: `pytest`, `pytest-asyncio` (from `requirements-dev.txt`)
 
 ## 1) Clone repo
 ```bash
@@ -35,6 +41,12 @@ cd web/frontend
 npm install
 npm run build
 cd ../..
+```
+
+Frontend tests (optional, recommended for UI changes):
+```bash
+cd web/frontend
+npm test -- --run
 ```
 
 ## 5) Configure environment
@@ -207,6 +219,51 @@ sudo systemctl stop test_squadron_backend.service
 sudo systemctl stop test_squadron_bot.service
 ```
 
+## 8) Expose the backend/bot on a Vultr VM (public/LAN access)
+
+The backend listens on port 8081 and the bot’s internal API (if enabled) often on 8082. Use a reverse proxy with TLS for public access; only expose raw ports when necessary.
+
+1. Bind services to all interfaces (already set to `--host 0.0.0.0`).
+2. Open firewall (Ubuntu `ufw` example):
+   ```bash
+   sudo ufw allow OpenSSH
+   sudo ufw allow 80/tcp   # HTTP (for ACME) if using a proxy
+   sudo ufw allow 443/tcp  # HTTPS
+   # Optional: expose backend directly (not recommended publicly)
+   # sudo ufw allow 8081/tcp
+   # Optional: expose bot internal API; prefer restricting to trusted IPs
+   # sudo ufw allow from <YOUR_IP> to any port 8082 proto tcp
+   sudo ufw enable
+   ```
+   If Vultr cloud firewall is enabled, mirror these rules there (80, 443, and only the ports you truly need).
+3. Reverse proxy with TLS (recommended). Example Caddyfile:
+   ```
+   your-domain.example.com {
+     reverse_proxy localhost:8081
+   }
+   ```
+   Or Nginx (snippet):
+   ```
+   server {
+     listen 80;
+     server_name your-domain.example.com;
+     location / {
+       proxy_pass http://127.0.0.1:8081;
+       proxy_set_header Host $host;
+       proxy_set_header X-Real-IP $remote_addr;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+     }
+   }
+   ```
+   Add HTTPS with Let’s Encrypt (e.g., `certbot --nginx -d your-domain.example.com`).
+4. Point DNS to your Vultr VM public IP (A record). Test from another device: `curl -I https://your-domain.example.com/api/health`.
+5. Lock down the bot internal API:
+   - Prefer keeping it private or behind firewall allowlists.
+   - If you must expose, require auth (API key) and consider a separate hostname/port with allowlisted IPs.
+
+Tip: On a LAN-only test, use the VM’s private IP (e.g., 10.x/192.168.x) and keep the firewall open only to that network.
+
 ## 8) Quick checks
 - Bot: run `/status` in Discord and expect a response
 - Backend: http://localhost:8081/docs (FastAPI Swagger UI)
@@ -217,6 +274,25 @@ sudo systemctl stop test_squadron_bot.service
 ```bash
 .venv/bin/python -m pytest tests/ web/backend/tests/ -v
 ```
+
+Frontend unit tests:
+```bash
+cd web/frontend
+npm test -- --run
+```
+
+## 10) Preflight (staging) dry-run
+Use the consolidated staging dry-run script to verify config, readiness, and optionally load bot extensions without login.
+
+```bash
+# Backend and bot API checks
+.venv/bin/python scripts/staging_dry_run.py --backend-url http://localhost:8081 --bot-url http://127.0.0.1:8082
+
+# Include bot extension smoke load (no Discord login)
+.venv/bin/python scripts/staging_dry_run.py --bot-smoke --bot-timeout 3
+```
+
+This script honors `CONFIG_PATH` for config overrides and surfaces `config_status` without re-parsing on each call.
 
 ## Notes
 - If the venv is not activated, prefix commands with `.venv/bin/python`.

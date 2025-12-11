@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config.config_loader import ConfigLoader
+from config.config_loader import ConfigLoader, normalize_prefix
 from helpers.http_helper import HTTPClient
 from helpers.task_queue import start_task_workers, stop_task_workers
 from helpers.token_manager import cleanup_tokens
@@ -29,12 +29,27 @@ if not TOKEN:
     logger.critical("DISCORD_TOKEN not found in environment variables.")
     raise ValueError("DISCORD_TOKEN not set.")
 
-# Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
-# Some deployments may accidentally supply an empty list / string; fall back to mention‑only behavior.
-raw_prefix = config["bot"].get("prefix")
-PREFIX = (
-    raw_prefix if raw_prefix else commands.when_mentioned
-)  # empty list, empty string, None -> default
+# ---------------------------------------------------------------------------
+# Prefix Normalization with Observability
+# ---------------------------------------------------------------------------
+# Get prefix normalization mode from env (shadow/enforce), default to enforce
+_PREFIX_MODE = os.environ.get("PREFIX_NORMALIZATION_MODE", "enforce")
+
+# Access configuration values from config.yaml
+raw_prefix = config.get("bot", {}).get("prefix")
+
+# Normalize the prefix with validation and warnings
+_normalized_prefixes, _prefix_warnings = normalize_prefix(raw_prefix, mode=_PREFIX_MODE)
+
+# Track prefix warnings for admin channel alerting on bot ready
+PREFIX_WARNINGS: list[str] = _prefix_warnings
+
+# Set the actual prefix: use normalized list or fall back to mention-only
+if _normalized_prefixes:
+    PREFIX = _normalized_prefixes
+else:
+    PREFIX = commands.when_mentioned
+    logger.info("Bot will respond to mentions only (no text prefix configured)")
 
 
 # Configure intents - start from none and enable only what's required
@@ -163,12 +178,26 @@ class MyBot(commands.Bot):
         # We use _get_session to ensure the HTTP client is initialized
         await self.http_client._get_session()
 
-        for extension in initial_extensions:
-            try:
-                await self.load_extension(extension)
-                logger.info(f"Loaded extension: {extension}")
-            except Exception as e:
-                logger.exception(f"Failed to load extension {extension}", exc_info=e)
+        # Load cogs with validation (observability-instrumented)
+        from helpers.cog_loader import load_all_cogs, get_cog_health_status
+
+        cog_results = await load_all_cogs(
+            self,
+            initial_extensions,
+            strict=os.environ.get("COG_VALIDATION_STRICT", "true").lower() == "true",
+        )
+
+        # Store cog health for later access
+        self._cog_health = get_cog_health_status()
+
+        # Log individual cog results for backward compatibility
+        for ext, result in cog_results.items():
+            if result.loaded:
+                logger.info(f"Loaded extension: {ext}")
+            elif result.skipped:
+                logger.warning(f"Skipped extension {ext}: {result.error}")
+            else:
+                logger.error(f"Failed to load extension {ext}: {result.error}")
 
         # Cache roles after bot is ready
         self._track_task(spawn(self.cache_roles()), "cache_roles")
@@ -238,6 +267,10 @@ class MyBot(commands.Bot):
             return
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
+
+        # Alert admin channel about prefix warnings if any
+        await self._alert_prefix_warnings()
+
         for guild in self.guilds:
             try:
                 await guild.chunk(cache=True)
@@ -246,6 +279,47 @@ class MyBot(commands.Bot):
                 logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
+
+    async def _alert_prefix_warnings(self) -> None:
+        """Send admin channel alert if there were prefix normalization warnings."""
+        if not PREFIX_WARNINGS:
+            return
+
+        for guild in self.guilds:
+            try:
+                # Get admin channel from config
+                bot_spam_id = await self.services.config.get_guild_setting(
+                    guild.id, "channels.bot_spam_channel_id"
+                )
+                if not bot_spam_id:
+                    continue
+
+                channel = guild.get_channel(int(bot_spam_id))
+                if not channel or not hasattr(channel, "send"):
+                    continue
+
+                embed = discord.Embed(
+                    title="⚠️ Prefix Configuration Warning",
+                    description="The command prefix configuration had issues during startup.",
+                    color=discord.Color.orange(),
+                )
+                embed.add_field(
+                    name="Warnings",
+                    value="\n".join(f"• {w}" for w in PREFIX_WARNINGS[:10]),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Current Mode",
+                    value="Mention-only" if PREFIX == commands.when_mentioned else f"Prefixes: {PREFIX}",
+                    inline=False,
+                )
+                embed.set_footer(text="Check config.yaml prefix settings")
+
+                await channel.send(embed=embed)
+                logger.info(f"Sent prefix warning alert to guild {guild.name}")
+
+            except Exception as e:
+                logger.warning(f"Failed to send prefix warning to guild {guild.name}: {e}")
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
@@ -596,6 +670,6 @@ class MyBot(commands.Bot):
 
 bot = MyBot(command_prefix=PREFIX, intents=intents)
 
-# Only auto-run if not in explicit dry-run context (dev_smoke_startup sets TESTBOT_DRY_RUN)
+# Only auto-run if not in explicit dry-run context (TESTBOT_DRY_RUN)
 if os.getenv("TESTBOT_DRY_RUN") != "1":
     bot.run(TOKEN)

@@ -24,6 +24,10 @@ const SearchableMultiSelect = ({
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const listboxId = useMemo(
+    () => `multi-select-list-${componentId}-${Math.random().toString(36).slice(2, 8)}`,
+    [componentId]
+  );
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -116,6 +120,7 @@ const SearchableMultiSelect = ({
                 type="button"
                 className="text-xs text-indigo-300 hover:text-white"
                 onClick={() => removeSelection(id)}
+                aria-label={`Remove ${label}`}
               >
                 ×
               </button>
@@ -129,12 +134,20 @@ const SearchableMultiSelect = ({
           onKeyDown={handleInputKeyDown}
           onFocus={() => setIsOpen(true)}
           placeholder={placeholder}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
           className="flex-1 bg-transparent text-sm focus:outline-none"
         />
       </div>
 
       {isOpen && (
-        <div className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg">
+        <div
+          className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-lg"
+          role="listbox"
+          id={listboxId}
+        >
           {filteredOptions.length === 0 ? (
             <div className="p-3 text-sm text-gray-400">No roles match your search.</div>
           ) : (
@@ -148,6 +161,8 @@ const SearchableMultiSelect = ({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => toggleSelection(option.id)}
                   onMouseEnter={() => setHighlightedIndex(index)}
+                  role="option"
+                  aria-selected={selectedSet.has(option.id)}
                 >
                   {option.name}
                 </li>

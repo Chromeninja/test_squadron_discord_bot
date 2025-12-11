@@ -19,9 +19,51 @@ from fastapi import Cookie, Depends, HTTPException, Request, Response
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-# Add project root to Python path for imports
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+
+# ---------------------------------------------------------------------------
+# Project Root Resolution (Observability-instrumented)
+# ---------------------------------------------------------------------------
+def project_root() -> Path:
+    """
+    Compute and return the project root directory.
+
+    Resolution order:
+    1. PROJECT_ROOT environment variable (if set and valid)
+    2. Derived from this file's location: web/backend/core/dependencies.py -> project root
+
+    Returns:
+        Path: Absolute path to project root directory.
+
+    Observability:
+        - Logs INFO on first resolution with resolved path
+        - Logs INFO if PROJECT_ROOT env override is used
+        - Logs WARNING if PROJECT_ROOT env points to non-existent directory
+    """
+    # Check for environment override first
+    env_root = os.environ.get("PROJECT_ROOT")
+    if env_root:
+        env_path = Path(env_root).resolve()
+        if env_path.is_dir():
+            logging.getLogger(__name__).info(
+                "Project root overridden via PROJECT_ROOT env",
+                extra={"project_root": str(env_path)},
+            )
+            return env_path
+        else:
+            logging.getLogger(__name__).warning(
+                "PROJECT_ROOT env points to non-existent directory; falling back to derived path",
+                extra={"invalid_path": str(env_path)},
+            )
+
+    # Derive from file location: web/backend/core/dependencies.py
+    # parents[0] = core/, [1] = backend/, [2] = web/, [3] = project root
+    derived = Path(__file__).resolve().parents[3]
+    return derived
+
+
+# Compute once at module load for sys.path setup
+_PROJECT_ROOT = project_root()
+sys.path.insert(0, str(_PROJECT_ROOT))
 
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
@@ -75,27 +117,45 @@ async def get_voice_service() -> VoiceService:
 
 
 async def initialize_services():
-    """Initialize services on application startup."""
+    """Initialize services on application startup.
+
+    Observability:
+        - Logs INFO with resolved config path on successful load
+        - Logs WARNING if config file is missing (degraded mode)
+        - Logs ERROR if config YAML is invalid
+        - Logs INFO with database path on successful initialization
+    """
     global _config_service, _config_loader
 
-    # Load global config (use absolute path from project root)
+    # Load global config once via centralized loader (supports CONFIG_PATH override)
     _config_loader = ConfigLoader()
-    config_path = project_root / "config" / "config.yaml"
-    config_dict = _config_loader.load_config(str(config_path))
+    config_dict = _config_loader.load_config()
+
+    config_status = _config_loader.get_config_status()
+    logger.info(
+        "Config load status",
+        extra={
+            "config_path": config_status.get("config_path"),
+            "config_status": config_status.get("config_status"),
+        },
+    )
 
     # Initialize database with configured path
     db_path = config_dict.get("database", {}).get("path", "TESTDatabase.db")
     # Make db_path absolute if relative
     if not Path(db_path).is_absolute():
-        db_path = str(project_root / db_path)
+        db_path = str(_PROJECT_ROOT / db_path)
 
     await Database.initialize(db_path)
 
     # Initialize config service
-    _config_service = ConfigService()
+    _config_service = ConfigService(config_loader=_config_loader)
     await _config_service.initialize()
 
-    logger.info("Services initialized", extra={"db_path": db_path})
+    logger.info(
+        "Services initialized",
+        extra={"db_path": db_path, "project_root": str(_PROJECT_ROOT)},
+    )
 
 
 async def shutdown_services():

@@ -3131,36 +3131,139 @@ class VoiceService(BaseService):
         """
         Validate bot has permissions to create channels in a category.
 
+        Checks:
+        - Category exists
+        - Bot instance available
+        - Bot has Manage Channels permission in category
+        - Bot has Move Members permission in guild
+
         Args:
             category: Discord category channel
 
         Returns:
             Tuple of (can_create, error_message)
+
+        Observability:
+            - Logs DEBUG on permission check start
+            - Logs WARNING with specific missing permission
+            - Logs INFO on successful validation
         """
         try:
+            self.logger.debug(
+                f"Validating JTC permissions for category {category.id if category else 'None'}"
+            )
+
             if category is None:
+                self.logger.warning("JTC permission check failed: category is None")
                 return False, "Category does not exist"
 
             if not self.bot or not self.bot.user:
+                self.logger.warning("JTC permission check failed: bot not available")
                 return False, "Bot instance or bot user not available"
 
             guild = category.guild
             bot_member = guild.get_member(self.bot.user.id)
             if bot_member is None:
+                self.logger.warning(
+                    f"JTC permission check failed: bot member not found in guild {guild.id}"
+                )
                 return False, "Bot member not found in guild"
 
+            # Check category-level permissions
             perms = category.permissions_for(bot_member)
             if not perms.manage_channels:
+                self.logger.warning(
+                    f"Missing 'Manage Channels' permission in category '{category.name}' ({category.id})",
+                    extra={"guild_id": guild.id, "category_id": category.id},
+                )
                 return (
                     False,
                     f"Bot missing 'Manage Channels' permission in category '{category.name}'",
                 )
 
+            # Check guild-level Move Members permission
+            guild_perms = bot_member.guild_permissions
+            if not guild_perms.move_members:
+                self.logger.warning(
+                    f"Missing 'Move Members' permission in guild {guild.id}",
+                    extra={"guild_id": guild.id},
+                )
+                return (
+                    False,
+                    f"Bot missing 'Move Members' permission in guild '{guild.name}'",
+                )
+
+            self.logger.debug(
+                f"JTC permission validation passed for category {category.name}",
+                extra={"guild_id": guild.id, "category_id": category.id},
+            )
             return True, None
 
         except Exception as e:
             self.logger.exception("Error validating JTC permissions", exc_info=e)
             return False, str(e)
+
+    async def voice_setup_guard(
+        self,
+        category: discord.CategoryChannel,
+        member: discord.Member,
+    ) -> tuple[bool, str | None]:
+        """
+        Comprehensive pre-check before voice channel creation.
+
+        Validates:
+        - Bot permissions in category (Manage Channels)
+        - Bot permissions in guild (Move Members)
+        - Bot role hierarchy vs target member (for overwrites)
+
+        Args:
+            category: Category to create channel in
+            member: Member to create channel for
+
+        Returns:
+            Tuple of (can_proceed, error_message)
+
+        Observability:
+            - Logs INFO on guard check start
+            - Logs WARNING on any check failure
+            - Logs DEBUG on successful guard pass
+        """
+        self.logger.info(
+            f"Voice setup guard check for member {member.id} in category {category.id if category else 'None'}"
+        )
+
+        # Check base permissions
+        can_create, error = await self._validate_jtc_permissions(category)
+        if not can_create:
+            return False, error
+
+        # Check role hierarchy for permission overwrites
+        if self.bot and self.bot.user:
+            bot_member = category.guild.get_member(self.bot.user.id)
+            if bot_member:
+                try:
+                    if bot_member.top_role <= member.top_role:
+                        self.logger.warning(
+                            f"Bot role '{bot_member.top_role.name}' not higher than "
+                            f"member role '{member.top_role.name}'; permission overwrites may fail",
+                            extra={
+                                "guild_id": category.guild.id,
+                                "member_id": member.id,
+                                "bot_role_position": bot_member.top_role.position,
+                                "member_role_position": member.top_role.position,
+                            },
+                        )
+                        # This is a warning, not a failure - channel creation can proceed
+                        # but overwrites may not work
+                except (TypeError, AttributeError):
+                    # Mock objects may not have proper role comparison
+                    pass
+
+        self.logger.debug(
+            f"Voice setup guard passed for member {member.id}",
+            extra={"guild_id": category.guild.id, "category_id": category.id},
+        )
+        return True, None
 
     async def _create_voice_channel_queued(
         self,

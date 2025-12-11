@@ -13,8 +13,9 @@ For local development/testing only.
 import os
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 
+# Import centralized project_root from dependencies
+from core.dependencies import project_root
 from core.security import clear_session_cookie
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -22,9 +23,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# Add project root to path to import from bot modules
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Use centralized project root
+_PROJECT_ROOT = project_root()
+sys.path.insert(0, str(_PROJECT_ROOT))
 
 # Import bot's structured logging setup
 from utils.logging import get_logger, setup_logging
@@ -34,7 +35,7 @@ setup_logging(log_file="web/backend/logs/bot.log")
 logger = get_logger(__name__)
 
 # Load environment variables from project root .env file
-env_path = project_root / ".env"
+env_path = _PROJECT_ROOT / ".env"
 logger.info("Loading backend environment", extra={"env_path": str(env_path)})
 load_dotenv(env_path)
 
@@ -108,7 +109,7 @@ app.include_router(logs.router)
 
 
 # Serve built frontend assets in production
-frontend_dist = project_root / "web" / "frontend" / "dist"
+frontend_dist = _PROJECT_ROOT / "web" / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount(
         "/",

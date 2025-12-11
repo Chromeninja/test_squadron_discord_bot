@@ -339,6 +339,8 @@ async def verify_member_with_logging(member: discord.Member, handle: str) -> boo
 ### AI-Readable Error Context
 
 ```python
+from datetime import datetime, timezone
+
 def create_error_context(
     operation: str,
     inputs: dict[str, Any],
@@ -349,7 +351,7 @@ def create_error_context(
         'operation': operation,
         'inputs': inputs,
         'system_state': state,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'ai_debug_hints': [
             f"Operation '{operation}' failed with given inputs",
             "Check input validation and external service availability",

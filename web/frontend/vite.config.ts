@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Vite app config (move Vitest settings to vitest.config.ts)
 export default defineConfig({
   plugins: [react()],
   server: {

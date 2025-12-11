@@ -238,6 +238,33 @@ async def test_list_guild_members_proxies_internal_api(
     assert data["members"][0]["roles"][0]["name"] == "Pilot"
 
 
+    @pytest.mark.asyncio
+    async def test_guild_config_read_only_uses_shared_loader(
+        monkeypatch, tmp_path, client: AsyncClient, mock_admin_session: str
+    ):
+        custom_config = tmp_path / "custom-config.yaml"
+        custom_config.write_text(
+            """
+    rsi:
+      user_agent: CUSTOM-UA
+    voice_debug_logging_enabled: true
+    """,
+            encoding="utf-8",
+        )
+
+        # Ensure ConfigLoader consumes the override before client fixture initializes
+        monkeypatch.setenv("CONFIG_PATH", str(custom_config))
+
+        response = await client.get(
+            "/api/guilds/123/config", cookies={"session": mock_admin_session}
+        )
+
+        assert response.status_code == 200
+        ro = response.json()["data"]["read_only"]
+        assert ro["rsi"]["user_agent"] == "CUSTOM-UA"
+        assert ro["voice_debug_logging_enabled"] is True
+
+
 @pytest.mark.asyncio
 async def test_list_guild_members_forbidden_without_matching_active_guild(
     client: AsyncClient,
