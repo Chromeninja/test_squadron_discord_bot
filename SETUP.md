@@ -9,12 +9,6 @@ Use this guide to deploy the full stack on a Linux host: Discord bot, Web Admin 
 - Discord Bot token
 - Discord OAuth app credentials (client id/secret/redirect URI)
 
-### Developer tools (new)
-- Frontend test runner: Vitest (installed via `npm install`)
-- DOM environment for tests: `happy-dom` (auto-installed via `npm install -D happy-dom`)
-- Optional: `jsdom` if you prefer, but `happy-dom` is configured by default in `vite.config.ts`
-- Python test tools: `pytest`, `pytest-asyncio` (from `requirements-dev.txt`)
-
 ## 1) Clone repo
 ```bash
 git clone https://github.com/Chromeninja/test_squadron_discord_bot.git test_discord_bot
