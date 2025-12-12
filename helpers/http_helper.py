@@ -13,7 +13,6 @@ import asyncio
 import os
 import random
 from dataclasses import dataclass
-from typing import Literal
 
 import aiohttp
 

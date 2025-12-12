@@ -60,7 +60,9 @@ class TestVoiceReconciliation:
         ):  # Prevent startup tasks from running
             await service._initialize_impl()
 
-        return service
+        yield service
+        # Properly shut down the service after test
+        await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_reconcile_all_guilds_on_ready(self, voice_service, mock_bot):

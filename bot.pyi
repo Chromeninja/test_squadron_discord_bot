@@ -1,7 +1,7 @@
 from typing import Any
 
-from discord.ext import commands
 import discord
+from discord.ext import commands
 
 from helpers.http_helper import HTTPClient
 from services.internal_api import InternalAPIServer

@@ -179,7 +179,7 @@ class MyBot(commands.Bot):
         await self.http_client._get_session()
 
         # Load cogs with validation (observability-instrumented)
-        from helpers.cog_loader import load_all_cogs, get_cog_health_status
+        from helpers.cog_loader import get_cog_health_status, load_all_cogs
 
         cog_results = await load_all_cogs(
             self,
@@ -310,7 +310,7 @@ class MyBot(commands.Bot):
                 )
                 embed.add_field(
                     name="Current Mode",
-                    value="Mention-only" if PREFIX == commands.when_mentioned else f"Prefixes: {PREFIX}",
+                    value="Mention-only" if commands.when_mentioned == PREFIX else f"Prefixes: {PREFIX}",
                     inline=False,
                 )
                 embed.set_footer(text="Check config.yaml prefix settings")

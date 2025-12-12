@@ -2,6 +2,7 @@
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -88,7 +89,7 @@ class ConfigLoader:
                 cls._config = {}
                 cls._config_status = "degraded"
             except yaml.YAMLError as e:
-                logging.error(
+                logging.exception(
                     "Error parsing configuration YAML at %s: %s; "
                     "using empty/default config.",
                     config_path,
@@ -97,7 +98,7 @@ class ConfigLoader:
                 cls._config = {}
                 cls._config_status = "error"
             except UnicodeDecodeError as e:
-                logging.error(
+                logging.exception(
                     "Encoding error reading configuration at %s: %s; "
                     "using empty/default config.",
                     config_path,
@@ -167,6 +168,118 @@ ALLOWED_PREFIX_CHARS = set(
 )
 
 
+@dataclass
+class _PrefixContext:
+    normalized: list[str]
+    seen: set[str]
+    warnings: list[str]
+    logger: logging.Logger
+
+
+def _record_warning(msg: str, ctx: _PrefixContext) -> None:
+    """Append a warning message and log it (module-level helper)."""
+    ctx.warnings.append(msg)
+    ctx.logger.warning(msg)
+
+
+def _validate_and_add_prefix(
+    prefix: str,
+    source_desc: str,
+    ctx: _PrefixContext,
+) -> None:
+    """Validate a prefix and add it to normalized if valid.
+
+    Pure helper extracted to keep normalize_prefix small per Ruff PLR0915.
+    """
+    trimmed = prefix.strip()
+    if not trimmed:
+        _record_warning(
+            f"Whitespace-only prefix from {source_desc} ignored", ctx
+        )
+        return
+
+    if not trimmed.isascii():
+        _record_warning(
+            f"Non-ASCII prefix '{trimmed[:20]}...' from {source_desc} rejected",
+            ctx,
+        )
+        return
+
+    if "`" in trimmed or "\n" in trimmed:
+        _record_warning(
+            "Prefix contains disallowed characters (backtick/newline) from "
+            f"{source_desc}",
+            ctx,
+        )
+        return
+
+    if len(trimmed) > MAX_PREFIX_LENGTH:
+        _record_warning(
+            f"Prefix '{trimmed[:MAX_PREFIX_LENGTH]}...' exceeds max length "
+            f"{MAX_PREFIX_LENGTH}; truncated",
+            ctx,
+        )
+        trimmed = trimmed[:MAX_PREFIX_LENGTH]
+
+    if len(ctx.normalized) >= MAX_PREFIX_COUNT:
+        _record_warning(
+            f"Prefix count limit ({MAX_PREFIX_COUNT}) reached; '{trimmed}' ignored",
+            ctx,
+        )
+        return
+
+    if trimmed in ctx.seen:
+        ctx.logger.debug("Duplicate prefix '%s' ignored", trimmed)
+        return
+
+    ctx.seen.add(trimmed)
+    ctx.normalized.append(trimmed)
+
+
+def _normalize_from_string(
+    raw_prefix: str,
+    ctx: _PrefixContext,
+) -> None:
+    """Handle normalization when raw_prefix is a single string."""
+    if not raw_prefix.strip():
+        ctx.logger.info("Empty string prefix; bot will respond to mentions only")
+        return
+    _validate_and_add_prefix(raw_prefix, "string config", ctx)
+
+
+def _normalize_from_list(
+    raw_list: list[Any],
+    ctx: _PrefixContext,
+) -> None:
+    """Handle normalization when raw_prefix is a list."""
+    if not raw_list:
+        ctx.logger.info("Empty list prefix; bot will respond to mentions only")
+        return
+
+    for i, item in enumerate(raw_list):
+        if isinstance(item, str):
+            _validate_and_add_prefix(item, f"list item {i}", ctx)
+        else:
+            _record_warning(
+                f"Non-string item at index {i} (type={type(item).__name__}) in prefix list ignored",
+                ctx,
+            )
+
+
+def _log_final_prefix(
+    ctx: _PrefixContext, mode: str
+) -> None:
+    """Log final normalized prefix list and warning summary."""
+    if ctx.normalized:
+        ctx.logger.info("Command prefix set to %s", ctx.normalized)
+    else:
+        ctx.logger.info(
+            "No valid prefixes after normalization; bot will respond to mentions only"
+        )
+    if ctx.warnings and mode == "enforce":
+        ctx.logger.warning("Prefix normalization completed with %s warning(s)", len(ctx.warnings))
+
+
 def normalize_prefix(
     raw_prefix: Any,
     *,
@@ -198,98 +311,29 @@ def normalize_prefix(
         - Logs WARNING for each validation issue
     """
     logger = logging.getLogger(__name__)
-    warnings: list[str] = []
-    normalized: list[str] = []
-    seen: set[str] = set()
-
-    def _validate_and_add(prefix: str, source_desc: str) -> None:
-        """Validate a single prefix string and add to normalized list if valid."""
-        # Trim whitespace
-        trimmed = prefix.strip()
-
-        # Skip empty after trim
-        if not trimmed:
-            msg = f"Whitespace-only prefix from {source_desc} ignored"
-            warnings.append(msg)
-            logger.warning(msg)
-            return
-
-        # Check for non-ASCII characters
-        if not trimmed.isascii():
-            msg = f"Non-ASCII prefix '{trimmed[:20]}...' from {source_desc} rejected"
-            warnings.append(msg)
-            logger.warning(msg)
-            return
-
-        # Check for disallowed characters (backtick, newline)
-        if "`" in trimmed or "\n" in trimmed:
-            msg = f"Prefix contains disallowed characters (backtick/newline) from {source_desc}"
-            warnings.append(msg)
-            logger.warning(msg)
-            return
-
-        # Truncate if too long
-        if len(trimmed) > MAX_PREFIX_LENGTH:
-            msg = f"Prefix '{trimmed[:MAX_PREFIX_LENGTH]}...' exceeds max length {MAX_PREFIX_LENGTH}; truncated"
-            warnings.append(msg)
-            logger.warning(msg)
-            trimmed = trimmed[:MAX_PREFIX_LENGTH]
-
-        # Check prefix count limit
-        if len(normalized) >= MAX_PREFIX_COUNT:
-            msg = f"Prefix count limit ({MAX_PREFIX_COUNT}) reached; '{trimmed}' ignored"
-            warnings.append(msg)
-            logger.warning(msg)
-            return
-
-        # Dedupe
-        if trimmed in seen:
-            logger.debug(f"Duplicate prefix '{trimmed}' ignored")
-            return
-
-        seen.add(trimmed)
-        normalized.append(trimmed)
+    ctx = _PrefixContext(normalized=[], seen=set(), warnings=[], logger=logger)
 
     # Handle different input types
     if raw_prefix is None:
         logger.info("No prefix configured; bot will respond to mentions only")
-        return [], warnings
+        return [], ctx.warnings
 
     if isinstance(raw_prefix, str):
-        if not raw_prefix.strip():
-            logger.info("Empty string prefix; bot will respond to mentions only")
-            return [], warnings
-        _validate_and_add(raw_prefix, "string config")
+        _normalize_from_string(raw_prefix, ctx)
+        if not ctx.normalized and not ctx.warnings:
+            return [], ctx.warnings
 
     elif isinstance(raw_prefix, list):
-        if not raw_prefix:
-            logger.info("Empty list prefix; bot will respond to mentions only")
-            return [], warnings
-
-        for i, item in enumerate(raw_prefix):
-            if isinstance(item, str):
-                _validate_and_add(item, f"list item {i}")
-            else:
-                msg = f"Non-string item at index {i} (type={type(item).__name__}) in prefix list ignored"
-                warnings.append(msg)
-                logger.warning(msg)
+        _normalize_from_list(raw_prefix, ctx)
+        if not ctx.normalized and not ctx.warnings:
+            return [], ctx.warnings
 
     else:
-        # Invalid type
         msg = f"Invalid prefix type {type(raw_prefix).__name__}; falling back to mention-only"
-        warnings.append(msg)
-        logger.warning(msg)
-        return [], warnings
+        _record_warning(msg, ctx)
+        return [], ctx.warnings
 
     # Final logging
-    if normalized:
-        logger.info(f"Command prefix set to {normalized}")
-    else:
-        logger.info("No valid prefixes after normalization; bot will respond to mentions only")
+    _log_final_prefix(ctx, mode)
 
-    if warnings and mode == "enforce":
-        logger.warning(
-            f"Prefix normalization completed with {len(warnings)} warning(s)"
-        )
-
-    return normalized, warnings
+    return ctx.normalized, ctx.warnings

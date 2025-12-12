@@ -47,11 +47,15 @@ class VoiceService(BaseService):
         config_service: ConfigService,
         bot: Optional["discord.Client"] = None,
         test_mode: bool = False,
+        auto_start_background: bool = False,
     ) -> None:
         super().__init__("voice")
         self.config_service = config_service
         self.bot = bot  # Store bot instance for channel operations
         self.test_mode = test_mode
+        # Explicit opt-in for starting background tasks during initialize().
+        # Defaults to False to avoid event loop leaks in tests/CI.
+        self.auto_start_background = auto_start_background
         self._background_tasks: set[asyncio.Task] = set()
         # Track creation locks (tagged keys) and when they were last used for cleanup
         # Keys are prefixed tuples so user-scoped locks cannot collide with JTC locks
@@ -133,8 +137,28 @@ class VoiceService(BaseService):
         # Clean up orphaned JTC data (defense-in-depth)
         await self._cleanup_orphaned_jtc_data()
 
-        if not self.test_mode:
+        # Only start background tasks if explicitly enabled and not in test mode
+        if self.auto_start_background and not self.test_mode:
             self._spawn_background_task(self._cleanup_task(), name="voice.cleanup_task")
+            self._spawn_background_task(
+                self._run_reconcile_after_ready(),
+                name="voice.reconcile_after_ready",
+            )
+
+    async def start_background_tasks(self) -> None:
+        """Explicitly start long-running background tasks.
+
+        Call this from application startup when you want the service to run
+        its maintenance and reconciliation loops. Tests should avoid calling
+        this unless they intend to exercise background behaviors.
+        """
+        if self.test_mode:
+            return
+        # Prevent duplicate scheduling
+        existing_names = {t.get_name() for t in self._background_tasks if isinstance(t, asyncio.Task)}
+        if "voice.cleanup_task" not in existing_names:
+            self._spawn_background_task(self._cleanup_task(), name="voice.cleanup_task")
+        if "voice.reconcile_after_ready" not in existing_names:
             self._spawn_background_task(
                 self._run_reconcile_after_ready(),
                 name="voice.reconcile_after_ready",
@@ -904,6 +928,9 @@ class VoiceService(BaseService):
 
                 await self._cleanup_stale_locks()
 
+            except asyncio.CancelledError:
+                self.logger.debug("Cleanup task cancelled, exiting gracefully")
+                break
             except Exception as e:
                 self.logger.exception("Error in voice cleanup task", exc_info=e)
 
@@ -2277,6 +2304,8 @@ class VoiceService(BaseService):
                 self.logger.warning(
                     "Bot instance not available for startup reconciliation"
                 )
+        except asyncio.CancelledError:
+            self.logger.debug("Reconciliation task cancelled during startup")
         except Exception as e:
             self.logger.exception("Error during startup reconciliation", exc_info=e)
 

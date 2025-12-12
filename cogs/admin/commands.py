@@ -4,7 +4,6 @@ Refactored admin cog with service integration and health monitoring.
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
 
 import discord
 from discord import app_commands

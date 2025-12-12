@@ -163,11 +163,13 @@ def mock_db_connection():
         yield helper
 
 
-@pytest.fixture
-def voice_service(mock_bot):
+@pytest_asyncio.fixture
+async def voice_service(mock_bot):
     """Create a VoiceService instance for testing."""
     config_service = MagicMock(spec=ConfigService)
     service = VoiceService(config_service, mock_bot, test_mode=True)
     # Skip actual initialization to avoid database/network calls
     service._initialized = True
-    return service
+    yield service
+    # Properly shut down the service after test
+    await service.shutdown()

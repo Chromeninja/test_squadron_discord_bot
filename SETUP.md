@@ -99,8 +99,7 @@ python bot.py
 
 ## 7) Run as systemd services (production / cloud)
 
-> On a server you should NOT keep 3 terminals open.
-> Instead, run the **backend + bot as services**, and serve the **frontend as static files**.
+> Run the **backend + bot as services**, and serve the **frontend as static files**.
 
 ### 7.1 Backend service (FastAPI)
 
