@@ -168,6 +168,7 @@ ALLOWED_PREFIX_CHARS = set(
 )
 
 
+<<<<<<< HEAD
 @dataclass
 class _PrefixContext:
     normalized: list[str]
@@ -281,6 +282,9 @@ def _log_final_prefix(
 
 
 def normalize_prefix(
+=======
+def normalize_prefix(  # noqa: PLR0915
+>>>>>>> 7635956 (feat: update setup documentation for production deployment and systemd services; refactor verification message ID handling to use database)
     raw_prefix: Any,
     *,
     mode: str = "enforce",

@@ -295,7 +295,7 @@ class MyBot(commands.Bot):
                     continue
 
                 channel = guild.get_channel(int(bot_spam_id))
-                if not channel or not hasattr(channel, "send"):
+                if not channel or not isinstance(channel, discord.abc.Messageable):
                     continue
 
                 embed = discord.Embed(

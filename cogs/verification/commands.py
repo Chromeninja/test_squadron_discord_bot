@@ -1,6 +1,4 @@
 import json
-import os
-from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -22,121 +20,68 @@ from utils.tasks import spawn
 
 logger = get_logger(__name__)
 
-# Data directory for storing bot state
-data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
 
-
-def _load_verification_message_id() -> int | None:
+async def _load_verification_message_ids_from_db() -> dict[int, int]:
     """
-    Load the verification message ID from persistent storage.
-
-    Returns:
-        The message ID if found and valid, None otherwise.
-    """
-    message_id_file = data_dir / "verification_message_id.json"
-
-    if not message_id_file.exists():
-        return None
-
-    try:
-        data = json.loads(message_id_file.read_text(encoding="utf-8"))
-        message_id = data.get("message_id")
-        if isinstance(message_id, int):
-            return message_id
-        logger.warning(
-            f"Invalid message_id type in {message_id_file}: {type(message_id)}"
-        )
-        return None
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(
-            f"Failed to read verification message ID from {message_id_file}: {e}"
-        )
-        return None
-
-
-def _load_verification_message_ids() -> dict[int, int]:
-    """
-    Load verification message IDs for all guilds from persistent storage.
+    Load verification message IDs for all guilds from database.
 
     Returns:
         Dict mapping guild_id to message_id
     """
-    message_id_file = data_dir / "verification_message_ids.json"
-
-    if not message_id_file.exists():
-        # File doesn't exist yet - this is normal on first run with new format
-        logger.debug("No multi-guild verification message IDs file found yet")
-        return {}
-
+    message_ids: dict[int, int] = {}
     try:
-        data = json.loads(message_id_file.read_text(encoding="utf-8"))
-        # Convert string keys back to integers
-        return {int(guild_id): msg_id for guild_id, msg_id in data.items()}
-    except (json.JSONDecodeError, OSError, ValueError) as e:
-        logger.warning(
-            f"Failed to read verification message IDs from {message_id_file}: {e}"
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT guild_id, value
+                FROM guild_settings
+                WHERE key = 'channels.verification_message_id'
+                """
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                try:
+                    guild_id = int(row[0])
+                    message_id = json.loads(row[1])
+                    message_ids[guild_id] = int(message_id)
+                except (ValueError, json.JSONDecodeError, TypeError) as e:
+                    logger.warning(
+                        f"Invalid verification message ID for guild {row[0]}: {e}"
+                    )
+        logger.info(f"Loaded {len(message_ids)} verification message IDs from database")
+    except Exception as e:
+        logger.exception(
+            "Failed to load verification message IDs from database", exc_info=e
         )
-        return {}
+    return message_ids
 
 
-def _save_verification_message_id(message_id: int) -> None:
+async def _save_verification_message_to_db(guild_id: int, message_id: int) -> None:
     """
-    Save the verification message ID to persistent storage atomically.
+    Save a verification message ID for a guild to database.
 
     Args:
-        message_id: The Discord message ID to save.
+        guild_id: The Discord guild ID
+        message_id: The Discord message ID
     """
-    message_id_file = data_dir / "verification_message_id.json"
-
     try:
-        # Ensure data directory exists
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        # Write to temporary file first for atomicity
-        temp_file = message_id_file.with_suffix(".tmp")
-        temp_file.write_text(
-            json.dumps({"message_id": message_id}, indent=2), encoding="utf-8"
-        )
-
-        # Atomic replace
-        temp_file.replace(message_id_file)
-        logger.info(f"Saved verification message ID {message_id} to {message_id_file}")
-
-    except OSError as e:
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO guild_settings (guild_id, key, value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value
+                """,
+                (guild_id, "channels.verification_message_id", json.dumps(message_id)),
+            )
+            await db.commit()
+            logger.debug(
+                f"Saved verification message ID {message_id} for guild {guild_id}"
+            )
+    except Exception as e:
         logger.exception(
-            f"Failed to save verification message ID to {message_id_file}", exc_info=e
-        )
-
-
-def _save_verification_message_ids(message_ids: dict[int, int]) -> None:
-    """
-    Save verification message IDs for all guilds to persistent storage atomically.
-
-    Args:
-        message_ids: Dict mapping guild_id to message_id
-    """
-    message_id_file = data_dir / "verification_message_ids.json"
-
-    try:
-        # Ensure data directory exists
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        # Convert integer keys to strings for JSON
-        json_data = {str(guild_id): msg_id for guild_id, msg_id in message_ids.items()}
-
-        # Write to temporary file first for atomicity
-        temp_file = message_id_file.with_suffix(".tmp")
-        temp_file.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
-
-        # Atomic replace
-        temp_file.replace(message_id_file)
-        logger.info(
-            f"Saved {len(message_ids)} verification message IDs to {message_id_file}"
-        )
-
-    except OSError as e:
-        logger.exception(
-            f"Failed to save verification message IDs to {message_id_file}", exc_info=e
+            f"Failed to save verification message ID for guild {guild_id}",
+            exc_info=e,
         )
 
 
@@ -179,12 +124,8 @@ class VerificationCog(commands.Cog):
             logger.info(f"  Guild {idx}: {g.name} (ID: {g.id})")
 
         guild_config = self.bot.services.guild_config  # type: ignore[attr-defined]
-        message_ids = _load_verification_message_ids()
+        message_ids = await _load_verification_message_ids_from_db()
         updated_message_ids = message_ids.copy()
-
-        logger.info(
-            f"Loaded {len(message_ids)} existing verification message IDs: {message_ids}"
-        )
 
         guilds_processed = 0
         guilds_sent = 0
@@ -338,9 +279,10 @@ class VerificationCog(commands.Cog):
 
         if updated_message_ids != message_ids:
             logger.info(
-                f"Saving {len(updated_message_ids)} message IDs to persistent storage..."
+                f"Saving {len(updated_message_ids)} message IDs to database..."
             )
-            _save_verification_message_ids(updated_message_ids)
+            for guild_id, msg_id in updated_message_ids.items():
+                await _save_verification_message_to_db(guild_id, msg_id)
             logger.info("✓ Successfully saved verification message IDs")
             for guild_id, msg_id in updated_message_ids.items():
                 logger.info(f"  Guild {guild_id}: Message {msg_id}")

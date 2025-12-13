@@ -185,14 +185,7 @@ async def perform_recheck(
     result["status"] = global_state.status
 
     if guild_result:
-        diff_payload = guild_result.diff
-        if hasattr(diff_payload, "to_dict"):
-            try:
-                diff_payload = diff_payload.to_dict()
-            except Exception:
-                diff_payload = guild_result.diff  # fallback to raw object
-
-        result["diff"] = diff_payload
+        result["diff"] = guild_result.diff
 
         if log_leadership:
             await log_guild_sync(
