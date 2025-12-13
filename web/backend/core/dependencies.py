@@ -895,3 +895,43 @@ class InternalAPIClient:
         )
         response.raise_for_status()
         return response.json()
+    async def post_bulk_recheck_summary(
+        self,
+        guild_id: int,
+        admin_user_id: int,
+        scope_label: str,
+        status_rows: list[dict],
+        csv_bytes: str,
+        csv_filename: str,
+    ) -> dict:
+        """
+        Post bulk recheck summary to leadership channel.
+
+        Args:
+            guild_id: Discord guild ID
+            admin_user_id: Discord user ID of admin who triggered recheck
+            scope_label: Description of recheck scope (e.g., "web bulk recheck")
+            status_rows: List of StatusRow data as dicts
+            csv_bytes: Base64-encoded CSV file content
+            csv_filename: Name for the CSV file
+
+        Returns:
+            dict with keys: success, channel_name
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        json_body = {
+            "admin_user_id": admin_user_id,
+            "scope_label": scope_label,
+            "status_rows": status_rows,
+            "csv_bytes": csv_bytes,
+            "csv_filename": csv_filename,
+        }
+        response = await client.post(
+            f"/guilds/{guild_id}/bulk-recheck/summary",
+            json=json_body,
+        )
+        response.raise_for_status()
+        return response.json()

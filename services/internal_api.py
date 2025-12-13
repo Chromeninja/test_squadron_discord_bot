@@ -5,12 +5,15 @@ Provides HTTP endpoints for the web dashboard to query bot state
 without hitting Discord API rate limits.
 """
 
+import base64
 import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from helpers.announcement import send_admin_bulk_check_summary
+from helpers.bulk_check import StatusRow, build_summary_embed
 from helpers.leadership_log import InitiatorKind, InitiatorSource
 from services.db.database import Database
 from utils.logging import get_logger
@@ -76,6 +79,9 @@ class InternalAPIServer:
         )
         self.app.router.add_post(
             "/guilds/{guild_id}/config/refresh", self.refresh_guild_config
+        )
+        self.app.router.add_post(
+            "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
@@ -848,4 +854,127 @@ class InternalAPIServer:
             logger.exception(
                 f"Error rechecking user {user_id} in guild {guild_id}: {e}"
             )
+            return web.json_response({"error": f"Recheck failed: {e!s}"}, status=500)
+
+    async def post_bulk_recheck_summary(self, request: web.Request) -> web.Response:
+        """
+        Post bulk recheck summary to leadership channel.
+
+        Path: POST /guilds/{guild_id}/bulk-recheck/summary
+        Headers: Authorization: Bearer <api_key>
+        Body: {
+            "admin_user_id": int,
+            "scope_label": str,
+            "status_rows": list[dict],  # List of StatusRow data
+            "csv_bytes": str (base64),
+            "csv_filename": str
+        }
+
+        Returns: {
+            "success": bool,
+            "channel_name": str
+        }
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        # Parse request body
+        try:
+            body = await request.json()
+            admin_user_id = body["admin_user_id"]
+            scope_label = body.get("scope_label", "specific users")
+            status_rows_data = body["status_rows"]
+            csv_base64 = body["csv_bytes"]
+            csv_filename = body["csv_filename"]
+        except (KeyError, ValueError) as e:
+            return web.json_response(
+                {"error": f"Missing or invalid request fields: {e}"}, status=400
+            )
+
+        # Get the admin member who initiated the recheck
+        invoker = guild.get_member(admin_user_id)
+        if invoker is None:
+            try:
+                invoker = await guild.fetch_member(admin_user_id)
+            except Exception:
+                return web.json_response(
+                    {"error": "Admin user not found in guild"}, status=404
+                )
+
+        # Decode CSV from base64
+        try:
+            csv_bytes = base64.b64decode(csv_base64)
+        except Exception as e:
+            return web.json_response(
+                {"error": f"Invalid base64 CSV data: {e}"}, status=400
+            )
+
+        # Reconstruct StatusRow objects from data using class method
+        try:
+            status_rows = [StatusRow.from_dict(row) for row in status_rows_data]
+        except Exception as e:
+            return web.json_response(
+                {"error": f"Invalid status rows data: {e}"}, status=400
+            )
+
+        # Build embed using the same helper as Discord bulk verification
+        try:
+            # Get member objects for embed generation
+            members = [
+                member
+                for row in status_rows
+                if (member := guild.get_member(row.user_id))
+            ]
+
+            embed = build_summary_embed(
+                invoker=invoker,
+                members=members,
+                rows=status_rows,
+                truncated_count=0,
+                scope_label=scope_label,
+                scope_channel=None,  # Not applicable for web bulk recheck
+            )
+        except Exception as e:
+            logger.exception(f"Error building summary embed: {e}")
+            return web.json_response(
+                {"error": f"Failed to build embed: {e!s}"}, status=500
+            )
+
+        # Send to leadership channel using existing helper
+        try:
+            channel_name = await send_admin_bulk_check_summary(
+                self.bot,
+                guild=guild,
+                invoker=invoker,
+                scope_label=scope_label,
+                scope_channel=None,
+                embed=embed,
+                csv_bytes=csv_bytes,
+                csv_filename=csv_filename,
+            )
+
+            return web.json_response(
+                {"success": True, "channel_name": channel_name}
+            )
+
+        except Exception as e:
+            logger.exception(
+                f"Error posting bulk recheck summary to leadership channel: {e}"
+            )
+            return web.json_response(
+                {"error": f"Failed to post to leadership channel: {e!s}"}, status=500
+            )
+
             return web.json_response({"error": f"Recheck failed: {e!s}"}, status=500)

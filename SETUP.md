@@ -186,11 +186,21 @@ server {
     location /api {
         proxy_pass http://127.0.0.1:8081;
         include proxy_params;
+        
+        # Increase buffer size for large session cookies
+        proxy_buffer_size 16k;
+        proxy_buffers 4 16k;
+        proxy_busy_buffers_size 32k;
     }
 
     location /auth {
         proxy_pass http://127.0.0.1:8081;
         include proxy_params;
+        
+        # Increase buffer size for large session cookies
+        proxy_buffer_size 16k;
+        proxy_buffers 4 16k;
+        proxy_busy_buffers_size 32k;
     }
 }
 EOF

@@ -28,6 +28,27 @@ class StatusRow(NamedTuple):
     rsi_main_orgs: list[str] | None = None  # List of main organization names
     rsi_affiliate_orgs: list[str] | None = None  # List of affiliate organization names
 
+    def to_dict(self) -> dict:
+        """Convert StatusRow to dict for JSON serialization."""
+        return self._asdict()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StatusRow":
+        """Create StatusRow from dict (e.g., from JSON)."""
+        return cls(
+            user_id=data["user_id"],
+            username=data["username"],
+            rsi_handle=data.get("rsi_handle"),
+            membership_status=data.get("membership_status"),
+            last_updated=data.get("last_updated"),
+            voice_channel=data.get("voice_channel"),
+            rsi_status=data.get("rsi_status"),
+            rsi_checked_at=data.get("rsi_checked_at"),
+            rsi_error=data.get("rsi_error"),
+            rsi_main_orgs=data.get("rsi_main_orgs"),
+            rsi_affiliate_orgs=data.get("rsi_affiliate_orgs"),
+        )
+
 
 MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
 

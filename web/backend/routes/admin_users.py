@@ -21,6 +21,9 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Maximum number of users that can be rechecked in a single bulk operation
+MAX_BULK_RECHECK = 100
+
 router = APIRouter()
 
 
@@ -285,11 +288,10 @@ async def bulk_recheck_users(
     if not request.user_ids:
         raise HTTPException(status_code=400, detail="No user IDs provided")
 
-    max_bulk_recheck = 100
-    if len(request.user_ids) > max_bulk_recheck:
+    if len(request.user_ids) > MAX_BULK_RECHECK:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot recheck more than {max_bulk_recheck} users at once",
+            detail=f"Cannot recheck more than {MAX_BULK_RECHECK} users at once",
         )
 
     successful = 0
@@ -407,6 +409,7 @@ async def bulk_recheck_users(
     # Generate CSV export using the same helper as Discord verify check
     csv_filename = None
     csv_content = None
+    csv_bytes = None
     if status_rows:
         try:
             # Get guild name for CSV filename
@@ -421,6 +424,31 @@ async def bulk_recheck_users(
             csv_content = base64.b64encode(csv_bytes).decode("utf-8")
         except Exception as e:
             logger.warning(f"Failed to generate CSV: {e}")
+
+    # Post summary to leadership channel
+    if status_rows and csv_bytes and csv_filename and csv_content:
+        try:
+            # Convert StatusRow namedtuples to dicts for JSON serialization
+            status_rows_data = [row.to_dict() for row in status_rows]
+
+            # Post to leadership channel via internal API
+            # The internal API will build the embed using the same helper as Discord bulk verification
+            response = await internal_api.post_bulk_recheck_summary(
+                guild_id=int(current_user.active_guild_id),
+                admin_user_id=int(current_user.user_id),
+                scope_label="web bulk recheck",
+                status_rows=status_rows_data,
+                csv_bytes=csv_content,  # Already base64 encoded
+                csv_filename=csv_filename,
+            )
+            logger.info(
+                f"Posted bulk recheck summary to leadership channel: {response.get('channel_name')}"
+            )
+        except Exception as e:
+            # Log but don't fail the request if posting fails
+            logger.warning(
+                f"Failed to post bulk recheck summary to leadership channel: {e}"
+            )
 
     return BulkRecheckResponse(
         success=failed == 0,
