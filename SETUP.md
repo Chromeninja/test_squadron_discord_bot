@@ -1,104 +1,124 @@
 # TEST Squadron Discord Bot — Production Deployment (Linux)
 
-This guide deploys the Discord bot, FastAPI backend, and Vite frontend on a single Linux server using systemd and nginx.
-
-For local development, see VS_CODE_SETUP.md.
+Deploy the Discord bot, FastAPI backend, and Vite frontend on a single Debian-based server using systemd and nginx. These steps assume a clean Debian 12+ VM with sudo access. For local development, see VS_CODE_SETUP.md.
 
 ## Requirements
 
-- Debian 11+ or Ubuntu 22.04+
-- Minimum 2 GB RAM
-- Python 3.12+
-- Node.js 20+
+- Debian 12+ (or Ubuntu 22.04+)
+- 2 GB RAM minimum
 - Discord Bot token
-- Discord OAuth application (client ID, secret, redirect URI)
-- Domain name (recommended for HTTPS)
+- Discord OAuth app (client ID, secret, redirect URI)
+- Domain name for HTTPS (recommended)
 
-<<<<<<< HEAD
-## 1) Clone repo
+## 1. System Prep (root or sudo)
+
 ```bash
-git clone https://github.com/Chromeninja/test_squadron_discord_bot.git test_discord_bot
-cd test_discord_bot
-```
-=======
-## 1. System Packages
-
-Update the system and install required packages:
-
 sudo apt update
-sudo apt install -y git curl nginx python3 python3-venv python3-pip
+sudo apt install -y git curl nginx ufw python3 python3-venv python3-pip
 
-Install Node.js 20:
-
+# Node.js 20 (NodeSource)
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-## 2. Clone Repository & Python Setup
+# Optional: verify versions
+python3 --version
+node --version
+git --version
+```
 
+## 2. Clone Repository
+
+```bash
 git clone https://github.com/Chromeninja/test_squadron_discord_bot.git
 cd test_squadron_discord_bot
->>>>>>> 7635956 (feat: update setup documentation for production deployment and systemd services; refactor verification message ID handling to use database)
+```
 
+## 3. Python Environment
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 pip install -r web/backend/requirements.txt
+```
 
-## 3. Build Frontend
+## 4. Frontend Build
 
+```bash
 cd web/frontend
 npm install
-npm run build
+VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build
 cd ../..
+```
 
-## 4. Environment Configuration
+## 5. Environment File
 
-Create a .env file in the project root:
+Find your public IP (if you do not have a domain yet):
 
+```bash
+curl -4 ifconfig.me
+```
+
+Create .env in the project root (use nano or the heredoc below). Replace `YOUR_PUBLIC_IP` if you are using an IP instead of a domain.
+
+```bash
+nano .env
+# paste the contents below, then save/exit
+
+# or use heredoc:
+cat <<'EOF' > .env
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
-DISCORD_REDIRECT_URI=https://your-domain.com/auth/callback
+DISCORD_REDIRECT_URI=http://YOUR_PUBLIC_IP/auth/callback
 
-DB_PATH=./test_squadron.db
 SESSION_SECRET=generate_with_openssl
 INTERNAL_API_KEY=generate_with_openssl
+INTERNAL_API_URL=http://127.0.0.1:8082
 
-VITE_API_BASE=https://your-domain.com
-ENVIRONMENT=production
-LOG_LEVEL=INFO
+VITE_API_BASE=http://YOUR_PUBLIC_IP
 
-COOKIE_SECURE=true
+COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
 
-Secure the file:
+# Optional: set if serving frontend from a separate host (CORS allowlist)
+# FRONTEND_URL=https://your-domain.com
+
+# Optional: set a bot owner ID for global access
+# BOT_OWNER_ID=your_discord_user_id
+EOF
 
 chmod 600 .env
+```
 
 Notes:
-- SESSION_SECRET and INTERNAL_API_KEY should be at least 32 random bytes
-- .env must never be committed to version control
-- DISCORD_REDIRECT_URI must exactly match the value configured in the Discord Developer Portal
+- Use at least 32 random bytes for SESSION_SECRET and INTERNAL_API_KEY (for example: `openssl rand -hex 32`).
+- DISCORD_REDIRECT_URI must match the Discord Developer Portal entry (use the exact IP or domain you register).
+- Set COOKIE_SECURE=true only after you add HTTPS.
+- INTERNAL_API_URL only needs changing if you move the internal API off 127.0.0.1:8082.
+- Keep .env out of version control.
 
-## 5. Application Config
+## 6. Application Config
 
-Primary configuration:
-- config/config.yaml
+- Primary config: config/config.yaml
+- Reference template: config/config-example.yaml
 
-Reference template:
-- config/config-example.yaml
+Copy and adjust as needed:
 
-## 6. systemd Services
+```bash
+cp config/config-example.yaml config/config.yaml
+# edit config/config.yaml
+```
 
-### Backend (FastAPI)
+## 7. systemd Services
 
-<<<<<<< HEAD
-> Run the **backend + bot as services**, and serve the **frontend as static files**.
-=======
-Create /etc/systemd/system/test_squadron_backend.service:
->>>>>>> 7635956 (feat: update setup documentation for production deployment and systemd services; refactor verification message ID handling to use database)
+Replace `/home/chrome` and `chrome` below with your actual deploy user and path.
 
+Create backend service:
+
+```bash
+sudo tee /etc/systemd/system/test_squadron_backend.service > /dev/null <<'EOF'
 [Unit]
 After=network.target
 
@@ -108,14 +128,17 @@ WorkingDirectory=/home/chrome/test_squadron_discord_bot
 EnvironmentFile=/home/chrome/test_squadron_discord_bot/.env
 ExecStart=/home/chrome/test_squadron_discord_bot/.venv/bin/python -m uvicorn app:app --app-dir web/backend --host 0.0.0.0 --port 8081
 Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+EOF
+```
 
-### Discord Bot
+Create bot service:
 
-Create /etc/systemd/system/test_squadron_bot.service:
-
+```bash
+sudo tee /etc/systemd/system/test_squadron_bot.service > /dev/null <<'EOF'
 [Unit]
 After=network.target
 
@@ -125,22 +148,30 @@ WorkingDirectory=/home/chrome/test_squadron_discord_bot
 EnvironmentFile=/home/chrome/test_squadron_discord_bot/.env
 ExecStart=/home/chrome/test_squadron_discord_bot/.venv/bin/python bot.py
 Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+EOF
+```
 
-Enable and start services:
+Enable and start both services:
 
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now test_squadron_backend test_squadron_bot
+sudo systemctl status test_squadron_backend test_squadron_bot
+```
 
-## 7. nginx Configuration
+## 8. nginx
 
-Create /etc/nginx/sites-available/test_squadron:
+Create nginx site config (replace `your-domain.com` with your public IP or domain):
 
+```bash
+sudo tee /etc/nginx/sites-available/test_squadron > /dev/null <<'EOF'
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name YOUR_PUBLIC_IP_OR_DOMAIN;
 
     root /home/chrome/test_squadron_discord_bot/web/frontend/dist;
     index index.html;
@@ -159,48 +190,49 @@ server {
         include proxy_params;
     }
 }
+EOF
+```
 
-Enable the site:
+Enable and restart nginx:
 
+```bash
 sudo ln -s /etc/nginx/sites-available/test_squadron /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
+```
 
-## 8. HTTPS (Recommended)
+## 9. HTTPS (recommended)
 
+```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
+```
 
-## 9. Firewall
+## 10. Firewall
 
+```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 80,443/tcp
 sudo ufw enable
+```
 
-Do not expose backend ports (8081) directly.
+Do not expose port 8081 publicly.
 
-## 10. Verification
+## 11. Verification
 
-Backend health check:
-curl https://your-domain.com/api/health
+- Backend health: `curl https://your-domain.com/api/health`
+- Discord bot: run `/status` in a server where the bot is installed
+- OAuth: open https://your-domain.com, log in with Discord, and confirm dashboard loads
+- Logs: `journalctl -u test_squadron_backend -f` and `journalctl -u test_squadron_bot -f`
 
-Discord:
-- Run /status in a server where the bot is installed
+## 12. Updating
 
-OAuth:
-- Load https://your-domain.com
-- Complete Discord login
-- Verify dashboard loads
-
-Logs:
-journalctl -u test_squadron_backend -f
-journalctl -u test_squadron_bot -f
-
-## 11. Updating the Deployment
-
-- sudo systemctl stop test_squadron_backend test_squadron_bot
-- git pull
-- source .venv/bin/activate
-- pip install -r requirements.txt -r web/backend/requirements.txt
-- cd web/frontend && npm install && npm run build && cd ../..
-- sudo systemctl start test_squadron_backend test_squadron_bot
+```bash
+sudo systemctl stop test_squadron_backend test_squadron_bot
+cd /home/chrome/test_squadron_discord_bot
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt -r web/backend/requirements.txt
+cd web/frontend && npm install && npm run build && cd ../..
+sudo systemctl start test_squadron_backend test_squadron_bot
+```

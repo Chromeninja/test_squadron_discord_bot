@@ -36,7 +36,6 @@ DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
 DISCORD_REDIRECT_URI = os.getenv(
     "DISCORD_REDIRECT_URI", "http://localhost:8081/auth/callback"
 )
-DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID", "")
 DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_API_BASE = "https://discord.com/api/v10"

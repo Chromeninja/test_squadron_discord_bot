@@ -167,8 +167,6 @@ ALLOWED_PREFIX_CHARS = set(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:',.<>?/~"
 )
 
-
-<<<<<<< HEAD
 @dataclass
 class _PrefixContext:
     normalized: list[str]
@@ -178,31 +176,21 @@ class _PrefixContext:
 
 
 def _record_warning(msg: str, ctx: _PrefixContext) -> None:
-    """Append a warning message and log it (module-level helper)."""
+    """Append a warning message and log it."""
     ctx.warnings.append(msg)
     ctx.logger.warning(msg)
 
 
-def _validate_and_add_prefix(
-    prefix: str,
-    source_desc: str,
-    ctx: _PrefixContext,
-) -> None:
-    """Validate a prefix and add it to normalized if valid.
-
-    Pure helper extracted to keep normalize_prefix small per Ruff PLR0915.
-    """
+def _validate_and_add_prefix(prefix: str, source_desc: str, ctx: _PrefixContext) -> None:
+    """Validate a prefix and add it if it passes all checks."""
     trimmed = prefix.strip()
     if not trimmed:
-        _record_warning(
-            f"Whitespace-only prefix from {source_desc} ignored", ctx
-        )
+        _record_warning(f"Whitespace-only prefix from {source_desc} ignored", ctx)
         return
 
     if not trimmed.isascii():
         _record_warning(
-            f"Non-ASCII prefix '{trimmed[:20]}...' from {source_desc} rejected",
-            ctx,
+            f"Non-ASCII prefix '{trimmed[:20]}...' from {source_desc} rejected", ctx
         )
         return
 
@@ -237,22 +225,16 @@ def _validate_and_add_prefix(
     ctx.normalized.append(trimmed)
 
 
-def _normalize_from_string(
-    raw_prefix: str,
-    ctx: _PrefixContext,
-) -> None:
-    """Handle normalization when raw_prefix is a single string."""
+def _normalize_from_string(raw_prefix: str, ctx: _PrefixContext) -> None:
+    """Normalize when raw_prefix is a single string."""
     if not raw_prefix.strip():
         ctx.logger.info("Empty string prefix; bot will respond to mentions only")
         return
     _validate_and_add_prefix(raw_prefix, "string config", ctx)
 
 
-def _normalize_from_list(
-    raw_list: list[Any],
-    ctx: _PrefixContext,
-) -> None:
-    """Handle normalization when raw_prefix is a list."""
+def _normalize_from_list(raw_list: list[Any], ctx: _PrefixContext) -> None:
+    """Normalize when raw_prefix is a list."""
     if not raw_list:
         ctx.logger.info("Empty list prefix; bot will respond to mentions only")
         return
@@ -267,10 +249,8 @@ def _normalize_from_list(
             )
 
 
-def _log_final_prefix(
-    ctx: _PrefixContext, mode: str
-) -> None:
-    """Log final normalized prefix list and warning summary."""
+def _log_final_prefix(ctx: _PrefixContext, mode: str) -> None:
+    """Log final normalized prefix list and any warnings."""
     if ctx.normalized:
         ctx.logger.info("Command prefix set to %s", ctx.normalized)
     else:
@@ -278,13 +258,12 @@ def _log_final_prefix(
             "No valid prefixes after normalization; bot will respond to mentions only"
         )
     if ctx.warnings and mode == "enforce":
-        ctx.logger.warning("Prefix normalization completed with %s warning(s)", len(ctx.warnings))
+        ctx.logger.warning(
+            "Prefix normalization completed with %s warning(s)", len(ctx.warnings)
+        )
 
 
-def normalize_prefix(
-=======
 def normalize_prefix(  # noqa: PLR0915
->>>>>>> 7635956 (feat: update setup documentation for production deployment and systemd services; refactor verification message ID handling to use database)
     raw_prefix: Any,
     *,
     mode: str = "enforce",

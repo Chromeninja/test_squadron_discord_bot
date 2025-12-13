@@ -37,7 +37,7 @@ rsi:
   requests_per_minute: 30
 
 web_dashboard:
-  url: "http://localhost:5173"  # Frontend URL (change to production URL in deployment)
+  url: "http://your_public_ip_or_domain"  # Production frontend URL
 
 auto_recheck:
   enabled: true
