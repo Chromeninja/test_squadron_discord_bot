@@ -44,6 +44,9 @@ router = APIRouter()
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Frontend URL for redirects (defaults to dev server if not set)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 # Discord permission bitfield for Administrator
 ADMINISTRATOR_PERMISSION = 0x0000000000000008
 
@@ -396,7 +399,7 @@ async def callback(code: str, state: str | None = None):
         session_token = create_session_token(session_data)
 
         # Create response with session cookie
-        response = RedirectResponse(url="http://localhost:5173")
+        response = RedirectResponse(url=FRONTEND_URL)
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
             value=session_token,
@@ -593,7 +596,7 @@ async def bot_authorization_callback(
         logger.warning(f"Bot authorization failed: {error} - {error_description}")
         # Redirect to frontend with error
         return RedirectResponse(
-            url=f"http://localhost:5173/select-server?error={error}",
+            url=f"{FRONTEND_URL}/select-server?error={error}",
             status_code=302,
         )
 
@@ -601,7 +604,7 @@ async def bot_authorization_callback(
     # Frontend will automatically refresh the guild list
     logger.info(f"Bot successfully added to guild {guild_id}")
     return RedirectResponse(
-        url="http://localhost:5173/select-server?bot_added=true",
+        url=f"{FRONTEND_URL}/select-server?bot_added=true",
         status_code=302,
     )
 

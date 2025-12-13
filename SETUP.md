@@ -82,12 +82,10 @@ INTERNAL_API_KEY=generate_with_openssl
 INTERNAL_API_URL=http://127.0.0.1:8082
 
 VITE_API_BASE=http://YOUR_PUBLIC_IP
+FRONTEND_URL=http://YOUR_PUBLIC_IP
 
 COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
-
-# Optional: set if serving frontend from a separate host (CORS allowlist)
-# FRONTEND_URL=https://your-domain.com
 
 # Optional: set a bot owner ID for global access
 # BOT_OWNER_ID=your_discord_user_id
@@ -99,6 +97,7 @@ chmod 600 .env
 Notes:
 - Use at least 32 random bytes for SESSION_SECRET and INTERNAL_API_KEY (for example: `openssl rand -hex 32`).
 - DISCORD_REDIRECT_URI must match the Discord Developer Portal entry (use the exact IP or domain you register).
+- FRONTEND_URL must match VITE_API_BASE and is used for OAuth redirects after login.
 - Set COOKIE_SECURE=true only after you add HTTPS.
 - INTERNAL_API_URL only needs changing if you move the internal API off 127.0.0.1:8082.
 - Keep .env out of version control.
@@ -175,7 +174,7 @@ Create nginx site config (replace `your-domain.com` with your public IP or domai
 sudo tee /etc/nginx/sites-available/test_squadron > /dev/null <<'EOF'
 server {
     listen 80;
-    server_name YOUR_PUBLIC_IP_OR_DOMAIN;
+    server_name YOUR_PUBLIC_IP_OR_DOMAIN 192.168.1.236;
 
     root /home/chrome/test_squadron_discord_bot/web/frontend/dist;
     index index.html;
@@ -196,6 +195,8 @@ server {
 }
 EOF
 ```
+
+Note: The `server_name` directive accepts multiple space-separated values (public IP, internal LAN IP, domain). Replace `192.168.1.236` with your actual internal IP if testing from LAN. Remove it for production.
 
 Enable site and remove default:
 
@@ -310,6 +311,18 @@ curl -s https://api.ipify.org
 Use the correct health endpoint:
 ```bash
 curl http://127.0.0.1:8081/api/health/liveness
+```
+
+### OAuth redirects to localhost after login
+
+1. **Missing FRONTEND_URL**: Add `FRONTEND_URL=http://YOUR_PUBLIC_IP` to `.env`
+2. **Mismatch in Discord Portal**: Ensure Discord Developer Portal redirect URI matches your IP/domain
+3. **Restart backend**: `sudo systemctl restart test_squadron_backend` after changing `.env`
+
+Verify:
+```bash
+grep FRONTEND_URL .env
+sudo journalctl -u test_squadron_backend -n 20 | grep -i redirect
 ```
 
 ### Services fail to start
