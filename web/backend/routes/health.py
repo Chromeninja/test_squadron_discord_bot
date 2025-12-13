@@ -19,6 +19,21 @@ from config.config_loader import ConfigLoader
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 
+@router.get("/")
+async def health_check():
+    """
+    Simple health check endpoint (public).
+    
+    Returns basic service status without requiring authentication.
+    Use /overview for detailed health metrics (admin only).
+    """
+    return {
+        "status": "ok",
+        "service": "test-squadron-backend",
+        "config_loaded": bool(ConfigLoader._config),
+    }
+
+
 @router.get(
     "/overview",
     response_model=HealthResponse,

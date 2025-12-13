@@ -50,6 +50,10 @@ cd web/frontend
 npm install
 VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build
 cd ../..
+
+# Fix permissions so nginx (www-data) can serve frontend files
+chmod 755 /home/chrome
+chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
 ```
 
 ## 5. Environment File
@@ -193,12 +197,18 @@ server {
 EOF
 ```
 
-Enable and restart nginx:
+Enable site and remove default:
 
 ```bash
+# Remove default nginx site (takes priority otherwise)
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Enable our site
 sudo ln -s /etc/nginx/sites-available/test_squadron /etc/nginx/sites-enabled/
+
+# Test and reload
 sudo nginx -t
-sudo systemctl restart nginx
+sudo systemctl reload nginx
 ```
 
 ## 9. HTTPS (recommended)
@@ -220,6 +230,25 @@ Do not expose port 8081 publicly.
 
 ## 11. Verification
 
+Check that services are running and ports are accessible:
+
+```bash
+# Check service status
+sudo systemctl status test_squadron_backend test_squadron_bot
+
+# Check listening ports (backend on 8081, nginx on 80/443)
+sudo netstat -tlnp | grep -E ':(80|443|8081)'
+
+# Test backend health (internal only)
+curl http://127.0.0.1:8081/api/health/liveness
+
+# Test frontend access (external)
+curl http://YOUR_PUBLIC_IP_OR_DOMAIN
+
+# Check firewall rules
+sudo ufw status
+```
+
 - Backend health: `curl https://your-domain.com/api/health`
 - Discord bot: run `/status` in a server where the bot is installed
 - OAuth: open https://your-domain.com, log in with Discord, and confirm dashboard loads
@@ -233,6 +262,79 @@ cd /home/chrome/test_squadron_discord_bot
 git pull
 source .venv/bin/activate
 pip install -r requirements.txt -r web/backend/requirements.txt
-cd web/frontend && npm install && npm run build && cd ../..
+cd web/frontend && npm install && VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build && cd ../..
 sudo systemctl start test_squadron_backend test_squadron_bot
+```
+
+## 13. Troubleshooting
+
+### nginx 500 Internal Server Error
+
+Nginx cannot read files in your home directory:
+
+```bash
+# Check nginx error logs
+sudo tail -20 /var/log/nginx/error.log
+
+# Fix permissions
+chmod 755 /home/chrome
+chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
+sudo systemctl reload nginx
+```
+
+### nginx shows "Welcome to nginx!" instead of frontend
+
+Default site is taking priority:
+
+```bash
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo systemctl reload nginx
+```
+
+### Cannot access public IP externally
+
+1. **Router port forwarding**: Forward ports 80 and 443 to your server's internal IP
+2. **ISP blocking port 80**: Use port 8080 instead (update nginx `listen` and Discord redirect URI)
+3. **Windows Firewall** (Hyper-V): Allow inbound ports 80/443 on the host
+
+Test from external device (not same network):
+```bash
+# Check if your public IP is correct
+curl -s https://api.ipify.org
+
+# Test from https://www.canyouseeme.org/ with your IP:80
+```
+
+### Backend health returns 404
+
+Use the correct health endpoint:
+```bash
+curl http://127.0.0.1:8081/api/health/liveness
+```
+
+### Services fail to start
+
+Check logs for errors:
+```bash
+sudo journalctl -u test_squadron_backend -n 50 --no-pager
+sudo journalctl -u test_squadron_bot -n 50 --no-pager
+```
+
+### Validate full setup
+
+```bash
+# Services running
+sudo systemctl is-active test_squadron_backend test_squadron_bot
+
+# Ports listening
+sudo netstat -tlnp | grep -E ':(80|8081|8082)'
+
+# Frontend working
+curl -s http://localhost | head -5
+
+# Backend health
+curl http://127.0.0.1:8081/api/health/liveness
+
+# Internal API (bot-to-web)
+curl http://127.0.0.1:8082/health
 ```
