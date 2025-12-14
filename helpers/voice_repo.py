@@ -3,11 +3,13 @@ Voice Repository
 
 This module provides a data access layer for voice-related database operations.
 It abstracts away SQL queries and provides a consistent interface for the voice cog.
+
+Note: Database imports are done lazily inside functions to avoid circular imports
+through services/__init__.py -> VoiceService -> voice_repo.py
 """
 
 from typing import Any
 
-from services.db.database import Database
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,18 +31,17 @@ async def get_user_channel_id(
     Returns:
         The voice channel ID or None if not found
     """
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT voice_channel_id
-            FROM voice_channels
-            WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            (owner_id, guild_id, jtc_channel_id),
-        )
-        row = await cursor.fetchone()
-        return row[0] if row else None
+    from services.db.repository import BaseRepository
+
+    return await BaseRepository.fetch_value(
+        """
+        SELECT voice_channel_id
+        FROM voice_channels
+        WHERE owner_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (owner_id, guild_id, jtc_channel_id),
+    )
 
 
 async def get_owner_id_by_channel(voice_channel_id: int) -> int | None:
@@ -56,18 +57,17 @@ async def get_owner_id_by_channel(voice_channel_id: int) -> int | None:
     Returns:
         The owner's Discord user ID or None if channel not found or not managed
     """
+    from services.db.repository import BaseRepository
+
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT owner_id
-                FROM voice_channels
-                WHERE voice_channel_id = ? AND is_active = 1
-                """,
-                (voice_channel_id,),
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        return await BaseRepository.fetch_value(
+            """
+            SELECT owner_id
+            FROM voice_channels
+            WHERE voice_channel_id = ? AND is_active = 1
+            """,
+            (voice_channel_id,),
+        )
     except Exception as e:
         logger.exception(
             f"Error retrieving owner for channel {voice_channel_id}: {e}",
@@ -110,46 +110,44 @@ async def upsert_channel_settings(
         logger.warning("No fields provided for upsert_channel_settings")
         return
 
-    async with Database.get_connection() as db:
-        # First check if the record exists
-        cursor = await db.execute(
-            """
-            SELECT 1 FROM channel_settings
+    from services.db.repository import BaseRepository
+
+    # First check if the record exists
+    exists = await BaseRepository.exists(
+        """
+        SELECT 1 FROM channel_settings
+        WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+        """,
+        (user_id, guild_id, jtc_channel_id),
+    )
+
+    if exists:
+        # Update existing record
+        set_clause = ", ".join([f"{key} = ?" for key in fields])
+        values = list(fields.values())
+        values.extend([user_id, guild_id, jtc_channel_id])
+
+        await BaseRepository.execute(
+            f"""
+            UPDATE channel_settings
+            SET {set_clause}
             WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
             """,
-            (user_id, guild_id, jtc_channel_id),
+            tuple(values),
         )
-        exists = await cursor.fetchone()
+    else:
+        # Insert new record
+        columns = ["user_id", "guild_id", "jtc_channel_id", *list(fields.keys())]
+        placeholders = ["?"] * len(columns)
+        values = [user_id, guild_id, jtc_channel_id, *list(fields.values())]
 
-        if exists:
-            # Update existing record
-            set_clause = ", ".join([f"{key} = ?" for key in fields])
-            values = list(fields.values())
-            values.extend([user_id, guild_id, jtc_channel_id])
-
-            await db.execute(
-                f"""
-                UPDATE channel_settings
-                SET {set_clause}
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-                """,
-                values,
-            )
-        else:
-            # Insert new record
-            columns = ["user_id", "guild_id", "jtc_channel_id", *list(fields.keys())]
-            placeholders = ["?"] * len(columns)
-            values = [user_id, guild_id, jtc_channel_id, *list(fields.values())]
-
-            await db.execute(
-                f"""
-                INSERT INTO channel_settings ({", ".join(columns)})
-                VALUES ({", ".join(placeholders)})
-                """,
-                values,
-            )
-
-        await db.commit()
+        await BaseRepository.execute(
+            f"""
+            INSERT INTO channel_settings ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
+            """,
+            tuple(values),
+        )
 
 
 async def list_permissions(
@@ -180,19 +178,16 @@ async def list_permissions(
         logger.error(f"Invalid table name: {table_name}")
         return []
 
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            f"""
-            SELECT * FROM {table_name}
-            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-            """,
-            (user_id, guild_id, jtc_channel_id),
-        )
+    from services.db.repository import BaseRepository
 
-        columns = [desc[0] for desc in cursor.description]
-        rows = await cursor.fetchall()
-
-        return [dict(zip(columns, row, strict=False)) for row in rows]
+    rows = await BaseRepository.fetch_all(
+        f"""
+        SELECT * FROM {table_name}
+        WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+        """,
+        (user_id, guild_id, jtc_channel_id),
+    )
+    return [dict(row) for row in rows]
 
 
 async def set_feature_row(
@@ -231,55 +226,53 @@ async def set_feature_row(
 
     feature_column, feature_value = valid_tables[table_name]
 
-    async with Database.get_connection() as db:
-        # Check if row exists
-        cursor = await db.execute(
+    from services.db.repository import BaseRepository
+
+    # Check if row exists
+    exists = await BaseRepository.exists(
+        f"""
+        SELECT 1 FROM {table_name}
+        WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+            AND target_id = ? AND target_type = ?
+        """,
+        (user_id, guild_id, jtc_channel_id, target_id, target_type),
+    )
+
+    if exists:
+        # Update existing row
+        await BaseRepository.execute(
             f"""
-            SELECT 1 FROM {table_name}
+            UPDATE {table_name}
+            SET {feature_column} = ?
             WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
                 AND target_id = ? AND target_type = ?
             """,
-            (user_id, guild_id, jtc_channel_id, target_id, target_type),
+            (
+                feature_value,
+                user_id,
+                guild_id,
+                jtc_channel_id,
+                target_id,
+                target_type,
+            ),
         )
-        exists = await cursor.fetchone()
-
-        if exists:
-            # Update existing row
-            await db.execute(
-                f"""
-                UPDATE {table_name}
-                SET {feature_column} = ?
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-                    AND target_id = ? AND target_type = ?
-                """,
-                (
-                    feature_value,
-                    user_id,
-                    guild_id,
-                    jtc_channel_id,
-                    target_id,
-                    target_type,
-                ),
-            )
-        else:
-            # Insert new row
-            await db.execute(
-                f"""
-                INSERT INTO {table_name}
-                (user_id, guild_id, jtc_channel_id, target_id, target_type, {feature_column})
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    user_id,
-                    guild_id,
-                    jtc_channel_id,
-                    target_id,
-                    target_type,
-                    feature_value,
-                ),
-            )
-
-        await db.commit()
+    else:
+        # Insert new row
+        await BaseRepository.execute(
+            f"""
+            INSERT INTO {table_name}
+            (user_id, guild_id, jtc_channel_id, target_id, target_type, {feature_column})
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                guild_id,
+                jtc_channel_id,
+                target_id,
+                target_type,
+                feature_value,
+            ),
+        )
 
 
 async def transfer_channel_owner(
@@ -297,11 +290,10 @@ async def transfer_channel_owner(
     Returns:
         True if transfer was successful, False otherwise
     """
-    async with Database.get_connection() as db:
-        # Start a transaction
-        await db.execute("BEGIN TRANSACTION")
+    from services.db.repository import BaseRepository
 
-        try:
+    try:
+        async with BaseRepository.transaction() as db:
             # Get current owner
             cursor = await db.execute(
                 """
@@ -314,7 +306,6 @@ async def transfer_channel_owner(
 
             if not row:
                 logger.error(f"No channel found with ID {voice_channel_id}")
-                await db.execute("ROLLBACK")
                 return False
 
             current_owner_id, previous_owner_id = row
@@ -451,14 +442,12 @@ async def transfer_channel_owner(
                 (guild_id, jtc_channel_id, new_owner_id),
             )
 
-            # Commit all changes
-            await db.execute("COMMIT")
+            # Transaction auto-commits on success
             return True
 
-        except Exception:
-            logger.exception("Error transferring channel ownership")
-            await db.execute("ROLLBACK")
-            return False
+    except Exception:
+        logger.exception("Error transferring channel ownership")
+        return False
 
 
 async def get_stale_voice_entries(cutoff_time: int) -> list[tuple[int, int, int]]:
@@ -471,16 +460,16 @@ async def get_stale_voice_entries(cutoff_time: int) -> list[tuple[int, int, int]
     Returns:
         List of (guild_id, jtc_channel_id, user_id) tuples
     """
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT guild_id, jtc_channel_id, user_id FROM voice_cooldowns
-            WHERE timestamp < ?
-            """,
-            (cutoff_time,),
-        )
-        rows = await cursor.fetchall()
-        return [(row[0], row[1], row[2]) for row in rows]
+    from services.db.repository import BaseRepository
+
+    rows = await BaseRepository.fetch_all(
+        """
+        SELECT guild_id, jtc_channel_id, user_id FROM voice_cooldowns
+        WHERE timestamp < ?
+        """,
+        (cutoff_time,),
+    )
+    return [(row[0], row[1], row[2]) for row in rows]
 
 
 async def cleanup_user_voice_data(
@@ -504,7 +493,9 @@ async def cleanup_user_voice_data(
         "voice_cooldowns",
     ]
 
-    async with Database.get_connection() as db:
+    from services.db.repository import BaseRepository
+
+    async with BaseRepository.transaction() as db:
         for table in tables_to_delete:
             # voice_channels uses owner_id instead of user_id
             id_column = "owner_id" if table == "voice_channels" else "user_id"
@@ -516,8 +507,6 @@ async def cleanup_user_voice_data(
                 """,
                 (user_id, guild_id, jtc_channel_id),
             )
-
-        await db.commit()
 
 
 async def cleanup_user_voice_data_unscoped(user_id: int) -> None:
@@ -546,7 +535,9 @@ async def cleanup_user_voice_data_unscoped(user_id: int) -> None:
         "voice_cooldowns": "user_id",
     }
 
-    async with Database.get_connection() as db:
+    from services.db.repository import BaseRepository
+
+    async with BaseRepository.transaction() as db:
         for table, column in tables_to_delete:
             # Security check: validate table and column names
             if valid_tables_columns.get(table) != column:
@@ -555,5 +546,3 @@ async def cleanup_user_voice_data_unscoped(user_id: int) -> None:
 
             # Safe to use string formatting since we validated against whitelist
             await db.execute(f"DELETE FROM {table} WHERE {column} = ?", (user_id,))
-
-        await db.commit()

@@ -15,7 +15,7 @@ from aiohttp import web
 from helpers.announcement import send_admin_bulk_check_summary
 from helpers.bulk_check import StatusRow, build_summary_embed
 from helpers.leadership_log import InitiatorKind, InitiatorSource
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -781,21 +781,19 @@ class InternalAPIServer:
 
         # Get the member's RSI handle from verification database
         try:
-            async with Database.get_connection() as conn:
-                cursor = await conn.execute(
-                    "SELECT rsi_handle FROM verification WHERE user_id = ?", (user_id,)
+            row = await BaseRepository.fetch_one(
+                "SELECT rsi_handle FROM verification WHERE user_id = ?", (user_id,)
+            )
+
+            if not row or not row[0]:
+                return web.json_response(
+                    {
+                        "error": "User has no RSI handle on record. They need to verify first."
+                    },
+                    status=400,
                 )
-                row = await cursor.fetchone()
 
-                if not row or not row[0]:
-                    return web.json_response(
-                        {
-                            "error": "User has no RSI handle on record. They need to verify first."
-                        },
-                        status=400,
-                    )
-
-                rsi_handle = row[0]
+            rsi_handle = row[0]
 
         except Exception as e:
             logger.exception(f"Error fetching RSI handle for user {user_id}: {e}")

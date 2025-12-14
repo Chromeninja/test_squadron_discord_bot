@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -156,22 +156,19 @@ class LogCleanupService:
         try:
             cutoff_timestamp = int(time.time()) - (self.audit_logs_days * 86400)
 
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "DELETE FROM admin_action_log WHERE timestamp < ?",
-                    (cutoff_timestamp,),
-                )
-                rows_deleted = cursor.rowcount
-                await db.commit()
+            rows_deleted = await BaseRepository.execute(
+                "DELETE FROM admin_action_log WHERE timestamp < ?",
+                (cutoff_timestamp,),
+            )
 
-                logger.info(
-                    f"Audit logs cleanup completed: {rows_deleted} rows deleted",
-                    extra={
-                        "rows_deleted": rows_deleted,
-                        "retention_days": self.audit_logs_days,
-                    },
-                )
-                return {"rows_deleted": rows_deleted}
+            logger.info(
+                f"Audit logs cleanup completed: {rows_deleted} rows deleted",
+                extra={
+                    "rows_deleted": rows_deleted,
+                    "retention_days": self.audit_logs_days,
+                },
+            )
+            return {"rows_deleted": rows_deleted}
 
         except Exception as e:
             logger.exception("Error during audit logs cleanup", exc_info=e)

@@ -263,7 +263,7 @@ def _log_final_prefix(ctx: _PrefixContext, mode: str) -> None:
         )
 
 
-def normalize_prefix(  # noqa: PLR0915
+def normalize_prefix(
     raw_prefix: Any,
     *,
     mode: str = "enforce",

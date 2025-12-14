@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -71,17 +71,10 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if voice_channel_id:
                 # Check if this is a managed voice channel
-                async with Database.get_connection() as db:
-                    cursor = await db.execute(
-                        """
-                        SELECT jtc_channel_id FROM voice_channels
-                        WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1
-                    """,
-                        (voice_channel_id, user.id),
-                    )
-                    row = await cursor.fetchone()
-                    if row:
-                        jtc_channel_id = row[0]
+                jtc_channel_id = await BaseRepository.fetch_value(
+                    "SELECT jtc_channel_id FROM voice_channels WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1",
+                    (voice_channel_id, user.id),
+                )
 
             # If no active channel or not managed, check for last used JTC
             if not jtc_channel_id:

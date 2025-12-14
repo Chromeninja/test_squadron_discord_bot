@@ -96,16 +96,23 @@ class TestVoiceSettingsHelper:
         self, mock_bot, mock_interaction
     ):
         """Test fetch_channel_settings when user has no active voice and no saved settings."""
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            # Mock no active channel
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = None
-            cursor.fetchall.return_value = []
-            mock_conn.execute.return_value = cursor
-
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_value",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.db.repository.BaseRepository.fetch_all",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
             result = await fetch_channel_settings(
                 mock_bot, mock_interaction, allow_inactive=True
             )
@@ -125,23 +132,39 @@ class TestVoiceSettingsHelper:
         mock_interaction.user.voice = MagicMock()
         mock_interaction.user.voice.channel = mock_voice_channel
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
+        # Mock Database.get_connection for the transaction in _get_all_user_settings
+        mock_conn = AsyncMock()
+        cursor = AsyncMock()
+        # The queries:
+        # 1. channel_settings query - fetchone
+        # 2. permissions query - fetchall
+        # 3. ptt_settings query - fetchall
+        # 4. priority_speaker_settings query - fetchall
+        # 5. soundboard_settings query - fetchall
+        cursor.fetchone.return_value = ("Test Channel", 5, 1)  # channel_settings
+        cursor.fetchall.side_effect = [
+            [(1001, "user", "permit")],  # permissions
+            [(1001, "user", 1)],  # ptt_settings
+            [],  # priority_settings
+            [],  # soundboard_settings
+        ]
+        mock_conn.execute.return_value = cursor
 
-            cursor = AsyncMock()
-            # Mock finding the JTC channel for active voice
-            cursor.fetchone.side_effect = [
-                (55555,),  # jtc_channel_id from voice_channels lookup
-                ("Test Channel", 5, 1),  # channel_settings
-            ]
-            cursor.fetchall.side_effect = [
-                [(1001, "user", "permit")],  # permissions
-                [(1001, "user", 1)],  # ptt_settings
-                [],  # priority_settings
-                [],  # soundboard_settings
-            ]
-            mock_conn.execute.return_value = cursor
+        # Return jtc_channel_id from voice_channels lookup
+        async def mock_fetch_one(query, params=None):
+            if "voice_channels" in query:
+                return (55555,)  # jtc_channel_id
+            return None
+
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                side_effect=mock_fetch_one,
+            ),
+            patch("services.db.database.Database.get_connection") as mock_db,
+        ):
+            mock_db.return_value.__aenter__.return_value = mock_conn
 
             result = await fetch_channel_settings(
                 mock_bot, mock_interaction, allow_inactive=True
@@ -157,19 +180,19 @@ class TestVoiceSettingsHelper:
     @pytest.mark.asyncio
     async def test_get_all_user_settings_comprehensive(self):
         """Test _get_all_user_settings returns comprehensive settings."""
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
+        mock_conn = AsyncMock()
+        cursor = AsyncMock()
+        cursor.fetchone.return_value = ("Custom Channel", 8, 1)  # channel_settings
+        cursor.fetchall.side_effect = [
+            [(1001, "user", "permit"), (1002, "role", "reject")],  # permissions
+            [(1001, "user", 1)],  # ptt_settings
+            [(1001, "user", 1)],  # priority_settings
+            [(1002, "role", 0)],  # soundboard_settings
+        ]
+        mock_conn.execute.return_value = cursor
 
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = ("Custom Channel", 8, 1)  # channel_settings
-            cursor.fetchall.side_effect = [
-                [(1001, "user", "permit"), (1002, "role", "reject")],  # permissions
-                [(1001, "user", 1)],  # ptt_settings
-                [(1001, "user", 1)],  # priority_settings
-                [(1002, "role", 0)],  # soundboard_settings
-            ]
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.database.Database.get_connection") as mock_db:
+            mock_db.return_value.__aenter__.return_value = mock_conn
 
             settings = await _get_all_user_settings(12345, 55555, 67890)
 

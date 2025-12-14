@@ -14,7 +14,7 @@ from helpers.embeds import (
 from helpers.leadership_log import InitiatorKind, InitiatorSource
 from helpers.recheck_service import perform_recheck
 from helpers.views import VerificationView
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 from utils.tasks import spawn
 
@@ -22,67 +22,35 @@ logger = get_logger(__name__)
 
 
 async def _load_verification_message_ids_from_db() -> dict[int, int]:
-    """
-    Load verification message IDs for all guilds from database.
-
-    Returns:
-        Dict mapping guild_id to message_id
-    """
+    """Load verification message IDs for all guilds from database."""
     message_ids: dict[int, int] = {}
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT guild_id, value
-                FROM guild_settings
-                WHERE key = 'channels.verification_message_id'
-                """
-            )
-            rows = await cursor.fetchall()
-            for row in rows:
-                try:
-                    guild_id = int(row[0])
-                    message_id = json.loads(row[1])
-                    message_ids[guild_id] = int(message_id)
-                except (ValueError, json.JSONDecodeError, TypeError) as e:
-                    logger.warning(
-                        f"Invalid verification message ID for guild {row[0]}: {e}"
-                    )
+        rows = await BaseRepository.fetch_all(
+            "SELECT guild_id, value FROM guild_settings WHERE key = 'channels.verification_message_id'"
+        )
+        for row in rows:
+            try:
+                guild_id = int(row[0])
+                message_id = json.loads(row[1])
+                message_ids[guild_id] = int(message_id)
+            except (ValueError, json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Invalid verification message ID for guild {row[0]}: {e}")
         logger.info(f"Loaded {len(message_ids)} verification message IDs from database")
     except Exception as e:
-        logger.exception(
-            "Failed to load verification message IDs from database", exc_info=e
-        )
+        logger.exception("Failed to load verification message IDs from database", exc_info=e)
     return message_ids
 
 
 async def _save_verification_message_to_db(guild_id: int, message_id: int) -> None:
-    """
-    Save a verification message ID for a guild to database.
-
-    Args:
-        guild_id: The Discord guild ID
-        message_id: The Discord message ID
-    """
+    """Save a verification message ID for a guild to database."""
     try:
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT INTO guild_settings (guild_id, key, value)
-                VALUES (?, ?, ?)
-                ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value
-                """,
-                (guild_id, "channels.verification_message_id", json.dumps(message_id)),
-            )
-            await db.commit()
-            logger.debug(
-                f"Saved verification message ID {message_id} for guild {guild_id}"
-            )
-    except Exception as e:
-        logger.exception(
-            f"Failed to save verification message ID for guild {guild_id}",
-            exc_info=e,
+        await BaseRepository.execute(
+            "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?) ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value",
+            (guild_id, "channels.verification_message_id", json.dumps(message_id)),
         )
+        logger.debug(f"Saved verification message ID {message_id} for guild {guild_id}")
+    except Exception as e:
+        logger.exception(f"Failed to save verification message ID for guild {guild_id}", exc_info=e)
 
 
 class VerificationCog(commands.Cog):
@@ -297,20 +265,13 @@ class VerificationCog(commands.Cog):
         member = interaction.user
 
         # Fetch existing verification record
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
-            )
-            row = await cursor.fetchone()
-            if not row:
-                embed = create_error_embed(
-                    "You are not verified yet. Please click Verify first."
-                )
-                await followup_send_message(
-                    interaction, "", embed=embed, ephemeral=True
-                )
-                return
-            rsi_handle = row[0]
+        rsi_handle = await BaseRepository.fetch_value(
+            "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
+        )
+        if not rsi_handle:
+            embed = create_error_embed("You are not verified yet. Please click Verify first.")
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
 
         # Ensure member is a Member, not just User
         if not isinstance(member, discord.Member):

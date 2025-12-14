@@ -115,12 +115,12 @@ async def test_get_user_channel() -> None:
     db = AsyncMock()
     db.execute.return_value = cursor
 
-    # Setup a proper context manager for Database.get_connection
+    # Setup a proper context manager for BaseRepository.transaction
     cm = AsyncMock()
     cm.__aenter__.return_value = db
     cm.__aexit__.return_value = None
 
-    with patch("helpers.voice_utils.Database.get_connection", return_value=cm):
+    with patch("helpers.voice_utils.BaseRepository.transaction", return_value=cm):
         # Call with specific guild and JTC
         result = await get_user_channel(bot, user, 1, 101)
         assert result == channel

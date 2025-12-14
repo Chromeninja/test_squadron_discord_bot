@@ -6,6 +6,8 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from services.db.repository import BaseRepository
+
 if TYPE_CHECKING:
     from aiosqlite import Connection
 
@@ -527,3 +529,89 @@ async def set_organization_settings(
 
     await _touch_settings_version(db, guild_id, source="organization")
     await db.commit()
+
+
+# -----------------------------------------------------------------------------
+# Standalone BaseRepository-based functions (no db parameter required)
+# -----------------------------------------------------------------------------
+
+
+async def fetch_bot_role_settings(guild_id: int) -> dict:
+    """Fetch bot role settings for a guild using BaseRepository.
+
+    Standalone version that doesn't require a db connection parameter.
+
+    Returns dict with keys: bot_admins, discord_managers, moderators, staff,
+    main_role, affiliate_role, nonmember_role (all list[str]), and
+    delegation_policies (list[dict]).
+    """
+    query = """
+        SELECT key, value
+        FROM guild_settings
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    rows = await BaseRepository.fetch_all(
+        query,
+        (
+            guild_id,
+            BOT_ADMINS_KEY,
+            MODERATORS_KEY,
+            DISCORD_MANAGERS_KEY,
+            STAFF_KEY,
+            BOT_VERIFIED_ROLE_KEY,
+            MAIN_ROLE_KEY,
+            AFFILIATE_ROLE_KEY,
+            NONMEMBER_ROLE_KEY,
+            DELEGATION_POLICIES_KEY,
+        ),
+    )
+
+    result = {
+        "bot_admins": [],
+        "discord_managers": [],
+        "moderators": [],
+        "staff": [],
+        "bot_verified_role": [],
+        "main_role": [],
+        "affiliate_role": [],
+        "nonmember_role": [],
+        "delegation_policies": [],
+    }
+    for key, value in rows:
+        if key == BOT_ADMINS_KEY:
+            result["bot_admins"] = _coerce_role_list(value)
+        elif key == MODERATORS_KEY:
+            result["moderators"] = _coerce_role_list(value)
+        elif key == DISCORD_MANAGERS_KEY:
+            result["discord_managers"] = _coerce_role_list(value)
+        elif key == STAFF_KEY:
+            result["staff"] = _coerce_role_list(value)
+        elif key == BOT_VERIFIED_ROLE_KEY:
+            result["bot_verified_role"] = _coerce_role_list(value)
+        elif key == MAIN_ROLE_KEY:
+            result["main_role"] = _coerce_role_list(value)
+        elif key == AFFILIATE_ROLE_KEY:
+            result["affiliate_role"] = _coerce_role_list(value)
+        elif key == NONMEMBER_ROLE_KEY:
+            result["nonmember_role"] = _coerce_role_list(value)
+        elif key == DELEGATION_POLICIES_KEY:
+            result["delegation_policies"] = _coerce_policy_list(value)
+
+    return result
+
+
+async def fetch_role_delegation_policies(guild_id: int) -> list[dict]:
+    """Fetch delegation policies for a guild using BaseRepository.
+
+    Standalone version that doesn't require a db connection parameter.
+    """
+    row = await BaseRepository.fetch_one(
+        """
+        SELECT value FROM guild_settings
+        WHERE guild_id = ? AND key = ?
+        """,
+        (guild_id, DELEGATION_POLICIES_KEY),
+    )
+    if not row:
+        return []
+    return _coerce_policy_list(row[0])

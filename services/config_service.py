@@ -7,11 +7,39 @@ from collections.abc import Callable
 from typing import Any
 
 from config.config_loader import ConfigLoader
-from services.db.database import Database
+from services.db.repository import BaseRepository
 
 from .base import BaseService
 
 SETTINGS_VERSION_KEY = "meta.settings_version"
+
+
+# -----------------------------------------------------------------------------
+# Common Configuration Keys (centralized constants)
+# -----------------------------------------------------------------------------
+
+# Organization settings
+CONFIG_ORG_SID = "organization.sid"
+CONFIG_ORG_NAME = "organization.name"
+
+# Role settings
+CONFIG_VERIFIED_ROLE = "roles.bot_verified_role"
+CONFIG_MAIN_ROLE = "roles.main_role"
+CONFIG_AFFILIATE_ROLE = "roles.affiliate_role"
+CONFIG_NONMEMBER_ROLE = "roles.non_member_role"
+CONFIG_BOT_ADMINS = "roles.bot_admins"
+CONFIG_DISCORD_MANAGERS = "roles.discord_managers"
+CONFIG_MODERATORS = "roles.moderators"
+CONFIG_STAFF = "roles.staff"
+
+# Channel settings
+CONFIG_VERIFICATION_CHANNEL = "channels.verification_channel_id"
+CONFIG_BOT_SPAM_CHANNEL = "channels.bot_spam_channel_id"
+CONFIG_PUBLIC_ANNOUNCE_CHANNEL = "channels.public_announcement_channel_id"
+CONFIG_LEADERSHIP_ANNOUNCE_CHANNEL = "channels.leadership_announcement_channel_id"
+
+# Voice settings
+CONFIG_JTC_CHANNELS = "voice.jtc_channels"
 
 
 class ConfigService(BaseService):
@@ -171,15 +199,13 @@ class ConfigService(BaseService):
         import json
 
         # Store in database
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
-                VALUES (?, ?, ?)
-                """,
-                (guild_id, key, json.dumps(value)),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            """
+            INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+            VALUES (?, ?, ?)
+            """,
+            (guild_id, key, json.dumps(value)),
+        )
 
         # Update cache
         async with self._cache_lock:
@@ -219,23 +245,20 @@ class ConfigService(BaseService):
 
         # Load from database
         settings = {}
-        async with (
-            Database.get_connection() as db,
-            db.execute(
-                "SELECT key, value FROM guild_settings WHERE guild_id = ?", (guild_id,)
-            ) as cursor,
-        ):
-            async for row in cursor:
-                key, value_json = row
-                try:
-                    import json
+        rows = await BaseRepository.fetch_all(
+            "SELECT key, value FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        )
+        for row in rows:
+            key, value_json = row
+            try:
+                import json
 
-                    settings[key] = json.loads(value_json)
-                    self.logger.debug(f"  Loaded setting: {key} = {settings[key]}")
-                except (json.JSONDecodeError, TypeError):
-                    self.logger.warning(
-                        f"Failed to parse setting {key} for guild {guild_id}"
-                    )
+                settings[key] = json.loads(value_json)
+                self.logger.debug(f"  Loaded setting: {key} = {settings[key]}")
+            except (json.JSONDecodeError, TypeError):
+                self.logger.warning(
+                    f"Failed to parse setting {key} for guild {guild_id}"
+                )
 
         # Cache the settings
         async with self._cache_lock:
@@ -447,15 +470,13 @@ class ConfigService(BaseService):
         return None
 
     async def _fetch_settings_version_from_db(self, guild_id: int) -> str | None:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT value FROM guild_settings
-                WHERE guild_id = ? AND key = ?
-                """,
-                (guild_id, SETTINGS_VERSION_KEY),
-            )
-            row = await cursor.fetchone()
+        row = await BaseRepository.fetch_one(
+            """
+            SELECT value FROM guild_settings
+            WHERE guild_id = ? AND key = ?
+            """,
+            (guild_id, SETTINGS_VERSION_KEY),
+        )
 
         if not row:
             return None
@@ -488,3 +509,114 @@ class ConfigService(BaseService):
             List of join-to-create channel IDs
         """
         return await self.get_guild_jtc_channels(guild_id)
+
+    # -------------------------------------------------------------------------
+    # Type-Safe Configuration Accessors
+    # -------------------------------------------------------------------------
+    # These methods provide a uniform, typed interface for common config values,
+    # eliminating scattered get() calls with hardcoded key strings.
+
+    async def get_org_sid(self, guild_id: int, default: str = "TEST") -> str:
+        """Get the organization SID for a guild."""
+        value = await self.get(guild_id, CONFIG_ORG_SID, default=default)
+        return str(value) if value else default
+
+    async def get_org_name(self, guild_id: int, default: str = "") -> str:
+        """Get the organization name for a guild."""
+        value = await self.get(guild_id, CONFIG_ORG_NAME, default=default)
+        return str(value) if value else default
+
+    async def get_verified_role_id(self, guild_id: int) -> int | None:
+        """Get the verified role ID for a guild."""
+        value = await self.get(guild_id, CONFIG_VERIFIED_ROLE)
+        return self._parse_first_role_id(value)
+
+    async def get_main_role_id(self, guild_id: int) -> int | None:
+        """Get the main member role ID for a guild."""
+        value = await self.get(guild_id, CONFIG_MAIN_ROLE)
+        return self._parse_first_role_id(value)
+
+    async def get_affiliate_role_id(self, guild_id: int) -> int | None:
+        """Get the affiliate role ID for a guild."""
+        value = await self.get(guild_id, CONFIG_AFFILIATE_ROLE)
+        return self._parse_first_role_id(value)
+
+    async def get_nonmember_role_id(self, guild_id: int) -> int | None:
+        """Get the non-member role ID for a guild."""
+        value = await self.get(guild_id, CONFIG_NONMEMBER_ROLE)
+        return self._parse_first_role_id(value)
+
+    async def get_bot_admin_role_ids(self, guild_id: int) -> list[int]:
+        """Get the bot admin role IDs for a guild."""
+        value = await self.get(guild_id, CONFIG_BOT_ADMINS, default=[])
+        return self._parse_role_id_list(value)
+
+    async def get_discord_manager_role_ids(self, guild_id: int) -> list[int]:
+        """Get the Discord manager role IDs for a guild."""
+        value = await self.get(guild_id, CONFIG_DISCORD_MANAGERS, default=[])
+        return self._parse_role_id_list(value)
+
+    async def get_moderator_role_ids(self, guild_id: int) -> list[int]:
+        """Get the moderator role IDs for a guild."""
+        value = await self.get(guild_id, CONFIG_MODERATORS, default=[])
+        return self._parse_role_id_list(value)
+
+    async def get_staff_role_ids(self, guild_id: int) -> list[int]:
+        """Get the staff role IDs for a guild."""
+        value = await self.get(guild_id, CONFIG_STAFF, default=[])
+        return self._parse_role_id_list(value)
+
+    async def get_verification_channel_id(self, guild_id: int) -> int | None:
+        """Get the verification channel ID for a guild."""
+        value = await self.get(guild_id, CONFIG_VERIFICATION_CHANNEL)
+        return self._safe_int(value)
+
+    async def get_bot_spam_channel_id(self, guild_id: int) -> int | None:
+        """Get the bot spam channel ID for a guild."""
+        value = await self.get(guild_id, CONFIG_BOT_SPAM_CHANNEL)
+        return self._safe_int(value)
+
+    async def get_public_announcement_channel_id(self, guild_id: int) -> int | None:
+        """Get the public announcement channel ID for a guild."""
+        value = await self.get(guild_id, CONFIG_PUBLIC_ANNOUNCE_CHANNEL)
+        return self._safe_int(value)
+
+    async def get_leadership_announcement_channel_id(self, guild_id: int) -> int | None:
+        """Get the leadership announcement channel ID for a guild."""
+        value = await self.get(guild_id, CONFIG_LEADERSHIP_ANNOUNCE_CHANNEL)
+        return self._safe_int(value)
+
+    # -------------------------------------------------------------------------
+    # Helper Methods for Type-Safe Accessors
+    # -------------------------------------------------------------------------
+
+    def _safe_int(self, value: Any) -> int | None:
+        """Safely convert a value to int."""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _parse_first_role_id(self, value: Any) -> int | None:
+        """Parse a role value that might be a single ID or list, returning first ID."""
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return self._safe_int(value[0]) if value else None
+        return self._safe_int(value)
+
+    def _parse_role_id_list(self, value: Any) -> list[int]:
+        """Parse a value into a list of role IDs."""
+        if not value:
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        result = []
+        for v in value:
+            parsed = self._safe_int(v)
+            if parsed is not None:
+                result.append(parsed)
+        return result
+

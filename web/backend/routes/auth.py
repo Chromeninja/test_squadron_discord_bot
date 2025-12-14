@@ -170,15 +170,13 @@ async def callback(code: str, state: str | None = None):
             print(f"User is member of guilds: {user_guild_ids}")
 
             # Get list of guilds where the bot is installed (from database)
-            from services.db.database import Database
-            from web.backend.core.guild_settings import get_bot_role_settings
+            from services.db.repository import BaseRepository
+            from web.backend.core.guild_settings import fetch_bot_role_settings
 
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT DISTINCT guild_id FROM guild_settings"
-                )
-                rows = await cursor.fetchall()
-                bot_guild_ids = {row[0] for row in rows}
+            rows = await BaseRepository.fetch_all(
+                "SELECT DISTINCT guild_id FROM guild_settings"
+            )
+            bot_guild_ids = {row[0] for row in rows}
 
             logger.debug(f"Bot is installed in guilds (from DB): {bot_guild_ids}")
 
@@ -284,21 +282,20 @@ async def callback(code: str, state: str | None = None):
                     user_role_ids = guild_member_data.get("roles", [])
 
                     # Fetch role configuration from database
-                    async with Database.get_connection() as db:
-                        role_settings = await get_bot_role_settings(db, int(guild_id))
-                        bot_admin_role_ids = [
-                            int(rid) for rid in role_settings.get("bot_admins", [])
-                        ]
-                        discord_manager_role_ids = [
-                            int(rid)
-                            for rid in role_settings.get("discord_managers", [])
-                        ]
-                        moderator_role_ids = [
-                            int(rid) for rid in role_settings.get("moderators", [])
-                        ]
-                        staff_role_ids = [
-                            int(rid) for rid in role_settings.get("staff", [])
-                        ]
+                    role_settings = await fetch_bot_role_settings(int(guild_id))
+                    bot_admin_role_ids = [
+                        int(rid) for rid in role_settings.get("bot_admins", [])
+                    ]
+                    discord_manager_role_ids = [
+                        int(rid)
+                        for rid in role_settings.get("discord_managers", [])
+                    ]
+                    moderator_role_ids = [
+                        int(rid) for rid in role_settings.get("moderators", [])
+                    ]
+                    staff_role_ids = [
+                        int(rid) for rid in role_settings.get("staff", [])
+                    ]
 
                     # Convert user_role_ids to integers
                     user_role_ids_int = [int(rid) for rid in user_role_ids]

@@ -15,6 +15,7 @@ from helpers.task_queue import enqueue_task
 from helpers.voice_permissions import enforce_permission_changes
 from helpers.voice_settings import get_voice_settings_snapshots
 from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.types import VoiceChannelInfo, VoiceChannelResult
 
 from .base import BaseService
@@ -196,7 +197,7 @@ class VoiceService(BaseService):
                 "voice.startup_cleanup_mode", "delayed"
             )
 
-            async with Database.get_connection() as db:
+            async with BaseRepository.transaction() as db:
                 cursor = await db.execute(
                     "SELECT voice_channel_id FROM voice_channels WHERE is_active = 1"
                 )
@@ -592,7 +593,7 @@ class VoiceService(BaseService):
 
         try:
             # Find channel record
-            async with Database.get_connection() as db:
+            async with BaseRepository.transaction() as db:
                 async with db.execute(
                     """
                     SELECT guild_id, jtc_channel_id, owner_id
@@ -706,20 +707,15 @@ class VoiceService(BaseService):
         Returns:
             Voice channel ID or None if not found
         """
-        async with (
-            Database.get_connection() as db,
-            db.execute(
-                """
-                SELECT voice_channel_id FROM voice_channels
-                WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
-                ORDER BY created_at DESC
-                LIMIT 1
+        return await BaseRepository.fetch_value(
+            """
+            SELECT voice_channel_id FROM voice_channels
+            WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1
             """,
-                (guild_id, jtc_channel_id, user_id),
-            ) as cursor,
-        ):
-            row = await cursor.fetchone()
-            return row[0] if row else None
+            (guild_id, jtc_channel_id, user_id),
+        )
 
     async def _get_any_user_voice_channel(
         self, guild_id: int, user_id: int
@@ -734,20 +730,15 @@ class VoiceService(BaseService):
         Returns:
             Voice channel ID or None if not found
         """
-        async with (
-            Database.get_connection() as db,
-            db.execute(
-                """
-                SELECT voice_channel_id FROM voice_channels
-                WHERE guild_id = ? AND owner_id = ? AND is_active = 1
-                ORDER BY created_at DESC
-                LIMIT 1
+        return await BaseRepository.fetch_value(
+            """
+            SELECT voice_channel_id FROM voice_channels
+            WHERE guild_id = ? AND owner_id = ? AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1
             """,
-                (guild_id, user_id),
-            ) as cursor,
-        ):
-            row = await cursor.fetchone()
-            return row[0] if row else None
+            (guild_id, user_id),
+        )
 
     async def cleanup_stale_channels(self, guild: discord.Guild) -> int:
         """
@@ -764,18 +755,14 @@ class VoiceService(BaseService):
         cleaned_count = 0
 
         # Get all voice channels for this guild from database
-        async with (
-            Database.get_connection() as db,
-            db.execute(
-                """
-                SELECT voice_channel_id, jtc_channel_id, owner_id
-                FROM voice_channels
-                WHERE guild_id = ? AND is_active = 1
+        voice_channels = await BaseRepository.fetch_all(
+            """
+            SELECT voice_channel_id, jtc_channel_id, owner_id
+            FROM voice_channels
+            WHERE guild_id = ? AND is_active = 1
             """,
-                (guild.id,),
-            ) as cursor,
-        ):
-            voice_channels = await cursor.fetchall()
+            (guild.id,),
+        )
 
         for voice_channel_id, _jtc_channel_id, _owner_id in voice_channels:
             # Check if channel still exists on Discord
@@ -799,22 +786,17 @@ class VoiceService(BaseService):
         self, guild_id: int, jtc_channel_id: int, user_id: int, cooldown_seconds: int
     ) -> bool:
         """Check if a user is on cooldown for voice channel creation."""
-        async with (
-            Database.get_connection() as db,
-            db.execute(
-                """
-                SELECT timestamp FROM voice_cooldowns
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+        last_creation = await BaseRepository.fetch_value(
+            """
+            SELECT timestamp FROM voice_cooldowns
+            WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
             """,
-                (guild_id, jtc_channel_id, user_id),
-            ) as cursor,
-        ):
-            row = await cursor.fetchone()
+            (guild_id, jtc_channel_id, user_id),
+        )
 
-        if not row:
+        if not last_creation:
             return False
 
-        last_creation = row[0]
         current_time = int(time.time())
         return (current_time - last_creation) < cooldown_seconds
 
@@ -822,41 +804,37 @@ class VoiceService(BaseService):
         self, guild_id: int, jtc_channel_id: int, user_id: int
     ) -> None:
         """Update the cooldown timestamp for a user."""
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO voice_cooldowns
-                (guild_id, jtc_channel_id, user_id, timestamp)
-                VALUES (?, ?, ?, ?)
+        await BaseRepository.execute(
+            """
+            INSERT OR REPLACE INTO voice_cooldowns
+            (guild_id, jtc_channel_id, user_id, timestamp)
+            VALUES (?, ?, ?, ?)
             """,
-                (guild_id, jtc_channel_id, user_id, int(time.time())),
-            )
-            await db.commit()
+            (guild_id, jtc_channel_id, user_id, int(time.time())),
+        )
 
     async def _store_voice_channel(
         self, guild_id: int, jtc_channel_id: int, owner_id: int, voice_channel_id: int
     ) -> None:
         """Store voice channel record in database."""
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO voice_channels
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id)
-                VALUES (?, ?, ?, ?)
+        await BaseRepository.execute(
+            """
+            INSERT OR REPLACE INTO voice_channels
+            (guild_id, jtc_channel_id, owner_id, voice_channel_id)
+            VALUES (?, ?, ?, ?)
             """,
-                (guild_id, jtc_channel_id, owner_id, voice_channel_id),
-            )
-            await db.commit()
+            (guild_id, jtc_channel_id, owner_id, voice_channel_id),
+        )
 
     async def cleanup_by_channel_id(self, voice_channel_id: int) -> None:
         """Clean up database records for a specific voice channel."""
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             # Clean up settings for this specific channel
             await db.execute(
                 """
                 DELETE FROM voice_channel_settings
                 WHERE voice_channel_id = ?
-            """,
+                """,
                 (voice_channel_id,),
             )
 
@@ -865,11 +843,9 @@ class VoiceService(BaseService):
                 """
                 DELETE FROM voice_channels
                 WHERE voice_channel_id = ?
-            """,
+                """,
                 (voice_channel_id,),
             )
-
-            await db.commit()
 
     async def _purge_inactive_voice_channels(
         self, older_than_seconds: int | None = None
@@ -882,11 +858,7 @@ class VoiceService(BaseService):
             query += " AND last_activity < ?"
             params = (cutoff,)
 
-        async with Database.get_connection() as db:
-            cursor = await db.execute(query, params)
-            deleted = cursor.rowcount if cursor.rowcount not in (None, -1) else 0
-            await db.commit()
-        return deleted
+        return await BaseRepository.execute(query, params)
 
     async def _generate_channel_name(self, user: discord.Member) -> str:
         """Generate a name for a voice channel."""
@@ -906,15 +878,13 @@ class VoiceService(BaseService):
 
                 # Clean up old cooldown records (older than 24 hours)
                 cutoff_time = int(time.time()) - (24 * 3600)
-                async with Database.get_connection() as db:
-                    await db.execute(
-                        """
-                        DELETE FROM voice_cooldowns
-                        WHERE timestamp < ?
+                await BaseRepository.execute(
+                    """
+                    DELETE FROM voice_cooldowns
+                    WHERE timestamp < ?
                     """,
-                        (cutoff_time,),
-                    )
-                    await db.commit()
+                    (cutoff_time,),
+                )
 
                 self.logger.debug("Cleaned up old voice cooldown records")
 
@@ -939,24 +909,17 @@ class VoiceService(BaseService):
         base_health = await super().health_check()
 
         try:
-            async with Database.get_connection() as db:
-                # Count active voice channels
-                async with db.execute(
-                    """
-                    SELECT COUNT(*) FROM voice_channels WHERE is_active = 1
-                """
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    active_channels = row[0] if row is not None else 0
+            # Count active voice channels
+            active_channels = await BaseRepository.fetch_value(
+                "SELECT COUNT(*) FROM voice_channels WHERE is_active = 1",
+            )
+            active_channels = active_channels or 0
 
-                # Count total cooldown records
-                async with db.execute(
-                    """
-                    SELECT COUNT(*) FROM voice_cooldowns
-                """
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    cooldown_records = row[0] if row is not None else 0
+            # Count total cooldown records
+            cooldown_records = await BaseRepository.fetch_value(
+                "SELECT COUNT(*) FROM voice_cooldowns",
+            )
+            cooldown_records = cooldown_records or 0
         except Exception:
             active_channels = "error"
             cooldown_records = "error"
@@ -1002,14 +965,14 @@ class VoiceService(BaseService):
         )
 
         try:
-            async with Database.get_connection() as db:
+            async with BaseRepository.transaction() as db:
                 # Get basic channel settings
                 cursor = await db.execute(
                     """
                     SELECT channel_name, user_limit, lock
                     FROM channel_settings
                     WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-                """,
+                    """,
                     (guild_id, jtc_channel_id, owner_id),
                 )
                 row = await cursor.fetchone()
@@ -1227,32 +1190,28 @@ class VoiceService(BaseService):
             VoiceChannelInfo if found, None otherwise
         """
         try:
-            async with (
-                Database.get_connection() as db,
-                db.execute(
-                    """
-                    SELECT guild_id, jtc_channel_id, voice_channel_id, owner_id,
-                           created_at, last_activity, is_active
-                    FROM voice_channels
-                    WHERE guild_id = ? AND owner_id = ? AND is_active = 1
-                    LIMIT 1
+            row = await BaseRepository.fetch_one(
+                """
+                SELECT guild_id, jtc_channel_id, voice_channel_id, owner_id,
+                       created_at, last_activity, is_active
+                FROM voice_channels
+                WHERE guild_id = ? AND owner_id = ? AND is_active = 1
+                LIMIT 1
                 """,
-                    (guild_id, user_id),
-                ) as cursor,
-            ):
-                row = await cursor.fetchone()
+                (guild_id, user_id),
+            )
 
-                if row:
-                    return VoiceChannelInfo(
-                        guild_id=row[0],
-                        jtc_channel_id=row[1],
-                        channel_id=row[2],
-                        owner_id=row[3],
-                        created_at=row[4],
-                        last_activity=row[5],
-                        is_active=bool(row[6]),
-                    )
-                return None
+            if row:
+                return VoiceChannelInfo(
+                    guild_id=row[0],
+                    jtc_channel_id=row[1],
+                    channel_id=row[2],
+                    owner_id=row[3],
+                    created_at=row[4],
+                    last_activity=row[5],
+                    is_active=bool(row[6]),
+                )
+            return None
 
         except Exception as e:
             self.logger.exception("Error getting user voice channel", exc_info=e)
@@ -1430,19 +1389,17 @@ class VoiceService(BaseService):
     async def _is_managed_channel(self, channel_id: int) -> bool:
         """Check if a channel is managed by the bot."""
         try:
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT 1 FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1 LIMIT 1",
-                    (channel_id,),
+            is_managed = await BaseRepository.exists(
+                "SELECT 1 FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1 LIMIT 1",
+                (channel_id,),
+            )
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    "Channel %s is %smanaged",
+                    channel_id,
+                    "" if is_managed else "not ",
                 )
-                is_managed = await cursor.fetchone() is not None
-                if self.debug_logging_enabled:
-                    self.logger.debug(
-                        "Channel %s is %smanaged",
-                        channel_id,
-                        "" if is_managed else "not ",
-                    )
-                return is_managed
+            return is_managed
         except Exception as e:
             self.logger.exception("Error checking if channel is managed", exc_info=e)
             return False
@@ -2093,90 +2050,77 @@ class VoiceService(BaseService):
         """
         try:
             orphaned_channel: discord.VoiceChannel | None = None
-            async with Database.get_connection() as db:
-                # Begin explicit transaction for atomicity
-                await db.execute("BEGIN EXCLUSIVE TRANSACTION")
-
-                try:
-                    # Check if there's already an active channel for this user in this JTC
-                    # This SELECT happens inside the transaction, preventing TOCTOU
-                    cursor = await db.execute(
-                        """
-                        SELECT voice_channel_id FROM voice_channels
-                        WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+            async with BaseRepository.exclusive_transaction() as db:
+                # Check if there's already an active channel for this user in this JTC
+                # This SELECT happens inside the transaction, preventing TOCTOU
+                cursor = await db.execute(
+                    """
+                    SELECT voice_channel_id FROM voice_channels
+                    WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
                     """,
-                        (guild_id, jtc_channel_id, user_id),
+                    (guild_id, jtc_channel_id, user_id),
+                )
+                existing_row = await cursor.fetchone()
+                existing_channel_id = existing_row[0] if existing_row else None
+
+                if self.debug_logging_enabled:
+                    self.logger.info(
+                        "DB: store_user_channel guild=%s jtc=%s user=%s existing_channel=%s",
+                        guild_id,
+                        jtc_channel_id,
+                        user_id,
+                        existing_channel_id,
                     )
-                    existing_row = await cursor.fetchone()
-                    existing_channel_id = existing_row[0] if existing_row else None
 
-                    if self.debug_logging_enabled:
-                        self.logger.info(
-                            "DB: store_user_channel guild=%s jtc=%s user=%s existing_channel=%s",
-                            guild_id,
-                            jtc_channel_id,
-                            user_id,
-                            existing_channel_id,
-                        )
+                if existing_row and existing_channel_id is not None:
+                    old_channel_id = existing_channel_id
+                    if old_channel_id == channel_id:
+                        # Same channel, this is a no-op (defensive check)
+                        if self.debug_logging_enabled:
+                            self.logger.debug(
+                                f"DB: Channel {channel_id} already stored for user {user_id}, skipping duplicate insert"
+                            )
+                        # Context manager will commit on exit
+                        return
 
-                    if existing_row and existing_channel_id is not None:
-                        old_channel_id = existing_channel_id
-                        if old_channel_id == channel_id:
-                            # Same channel, this is a no-op (defensive check)
-                            if self.debug_logging_enabled:
-                                self.logger.debug(
-                                    f"DB: Channel {channel_id} already stored for user {user_id}, skipping duplicate insert"
-                                )
-                            await db.commit()
-                            return
+                    orphaned_channel = await self._handle_old_channel_transition(
+                        db=db,
+                        guild_id=guild_id,
+                        jtc_channel_id=jtc_channel_id,
+                        user_id=user_id,
+                        old_channel_id=old_channel_id,
+                        new_channel_id=channel_id,
+                    )
 
-                        orphaned_channel = await self._handle_old_channel_transition(
-                            db=db,
-                            guild_id=guild_id,
-                            jtc_channel_id=jtc_channel_id,
-                            user_id=user_id,
-                            old_channel_id=old_channel_id,
-                            new_channel_id=channel_id,
-                        )
-
-                    # Insert the new channel atomically
-                    await db.execute(
-                        """
-                        INSERT INTO voice_channels
-                        (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                # Insert the new channel atomically
+                await db.execute(
+                    """
+                    INSERT INTO voice_channels
+                    (guild_id, jtc_channel_id, owner_id, voice_channel_id, created_at, last_activity, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                        (
-                            guild_id,
-                            jtc_channel_id,
-                            user_id,
-                            channel_id,
-                            int(time.time()),
-                            int(time.time()),
-                            1,
-                        ),
+                    (
+                        guild_id,
+                        jtc_channel_id,
+                        user_id,
+                        channel_id,
+                        int(time.time()),
+                        int(time.time()),
+                        1,
+                    ),
+                )
+
+                # Context manager auto-commits on success
+
+                if self.debug_logging_enabled:
+                    self.logger.info(
+                        "DB: insert_complete guild=%s jtc=%s user=%s old_channel=%s new_channel=%s",
+                        guild_id,
+                        jtc_channel_id,
+                        user_id,
+                        existing_channel_id,
+                        channel_id,
                     )
-
-                    # Commit transaction
-                    await db.commit()
-
-                    if self.debug_logging_enabled:
-                        self.logger.info(
-                            "DB: insert_complete guild=%s jtc=%s user=%s old_channel=%s new_channel=%s",
-                            guild_id,
-                            jtc_channel_id,
-                            user_id,
-                            existing_channel_id,
-                            channel_id,
-                        )
-
-                except Exception as e:
-                    # Rollback on any error
-                    await db.rollback()
-                    self.logger.exception(
-                        f"Transaction rolled back during channel storage: {e}"
-                    )
-                    raise
 
         except Exception as e:
             self.logger.exception("Error storing user channel", exc_info=e)
@@ -2387,19 +2331,16 @@ class VoiceService(BaseService):
 
                                 try:
                                     # Check if user has an existing active channel for this JTC
-                                    async with Database.get_connection() as db:
-                                        cursor = await db.execute(
-                                            """
-                                            SELECT voice_channel_id FROM voice_channels
-                                            WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
-                                            LIMIT 1
+                                    existing_channel_id = await BaseRepository.fetch_value(
+                                        """
+                                        SELECT voice_channel_id FROM voice_channels
+                                        WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
+                                        LIMIT 1
                                         """,
-                                            (guild.id, jtc_id, member.id),
-                                        )
-                                        row = await cursor.fetchone()
+                                        (guild.id, jtc_id, member.id),
+                                    )
 
-                                    if row:
-                                        existing_channel_id = row[0]
+                                    if existing_channel_id:
                                         existing_channel = guild.get_channel(
                                             existing_channel_id
                                         )
@@ -2494,45 +2435,43 @@ class VoiceService(BaseService):
         total_scheduled_cleanup = 0
 
         try:
-            async with Database.get_connection() as db:
-                # Fetch all user voice channels across all guilds
-                cursor = await db.execute(
-                    """SELECT guild_id, voice_channel_id, owner_id, jtc_channel_id, created_at
-                       FROM voice_channels WHERE is_active = 1"""
-                )
-                all_channels = await cursor.fetchall()
+            # Fetch all user voice channels across all guilds
+            all_channels = await BaseRepository.fetch_all(
+                """SELECT guild_id, voice_channel_id, owner_id, jtc_channel_id, created_at
+                   FROM voice_channels WHERE is_active = 1""",
+            )
 
-                for (
-                    guild_id,
-                    voice_channel_id,
-                    owner_id,
-                    jtc_channel_id,
-                    created_at,
-                ) in all_channels:
-                    try:
-                        await self._reconcile_single_channel(
-                            guild_id,
-                            voice_channel_id,
-                            owner_id,
-                            jtc_channel_id,
-                            created_at,
-                        )
-                        total_reconciled += 1
+            for (
+                guild_id,
+                voice_channel_id,
+                owner_id,
+                jtc_channel_id,
+                created_at,
+            ) in all_channels:
+                try:
+                    await self._reconcile_single_channel(
+                        guild_id,
+                        voice_channel_id,
+                        owner_id,
+                        jtc_channel_id,
+                        created_at,
+                    )
+                    total_reconciled += 1
 
-                        # Track reconciliation results based on what happened
-                        channel = self.bot.get_channel(voice_channel_id)
-                        if not channel:
-                            total_removed += 1
-                        elif voice_channel_id in self.managed_voice_channels:
-                            total_rehydrated += 1
-                        else:
-                            total_scheduled_cleanup += 1
+                    # Track reconciliation results based on what happened
+                    channel = self.bot.get_channel(voice_channel_id)
+                    if not channel:
+                        total_removed += 1
+                    elif voice_channel_id in self.managed_voice_channels:
+                        total_rehydrated += 1
+                    else:
+                        total_scheduled_cleanup += 1
 
-                    except Exception as e:
-                        self.logger.exception(
-                            f"Error reconciling channel {voice_channel_id} (guild {guild_id})",
-                            exc_info=e,
-                        )
+                except Exception as e:
+                    self.logger.exception(
+                        f"Error reconciling channel {voice_channel_id} (guild {guild_id})",
+                        exc_info=e,
+                    )
 
         except Exception as e:
             self.logger.exception(
@@ -2794,36 +2733,34 @@ class VoiceService(BaseService):
                     guild_id,
                     jtc_channel_id,
                 )
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    """
-                    SELECT channel_name, user_limit, lock
-                    FROM channel_settings
-                    WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
+            row = await BaseRepository.fetch_one(
+                """
+                SELECT channel_name, user_limit, lock
+                FROM channel_settings
+                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
                 """,
-                    (guild_id, jtc_channel_id, user_id),
-                )
-                row = await cursor.fetchone()
+                (guild_id, jtc_channel_id, user_id),
+            )
 
-                if not row:
-                    if self.debug_logging_enabled:
-                        self.logger.debug(
-                            "No settings row found for user %s, guild %s, JTC %s",
-                            user_id,
-                            guild_id,
-                            jtc_channel_id,
-                        )
-                    return None
-
-                channel_name, user_limit, lock = row
-                result = {
-                    "channel_name": channel_name,
-                    "user_limit": user_limit,
-                    "lock": lock,
-                }
+            if not row:
                 if self.debug_logging_enabled:
-                    self.logger.debug("Found settings: %s", result)
-                return result
+                    self.logger.debug(
+                        "No settings row found for user %s, guild %s, JTC %s",
+                        user_id,
+                        guild_id,
+                        jtc_channel_id,
+                    )
+                return None
+
+            channel_name, user_limit, lock = row
+            result = {
+                "channel_name": channel_name,
+                "user_limit": user_limit,
+                "lock": lock,
+            }
+            if self.debug_logging_enabled:
+                self.logger.debug("Found settings: %s", result)
+            return result
 
         except Exception as e:
             self.logger.exception("Error loading channel settings", exc_info=e)
@@ -2843,21 +2780,19 @@ class VoiceService(BaseService):
             Dictionary of settings or None if no settings exist
         """
         try:
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    """
-                    SELECT setting_key, setting_value
-                    FROM voice_channel_settings
-                    WHERE guild_id = ? AND owner_id = ?
+            rows = await BaseRepository.fetch_all(
+                """
+                SELECT setting_key, setting_value
+                FROM voice_channel_settings
+                WHERE guild_id = ? AND owner_id = ?
                 """,
-                    (guild_id, user_id),
-                )
-                rows = await cursor.fetchall()
+                (guild_id, user_id),
+            )
 
-                if not rows:
-                    return None
+            if not rows:
+                return None
 
-                return {row[0]: row[1] for row in rows}
+            return {row[0]: row[1] for row in rows}
 
         except Exception as e:
             self.logger.exception("Error getting user channel settings", exc_info=e)
@@ -2924,70 +2859,68 @@ class VoiceService(BaseService):
             channel = user.voice.channel
 
             # Check if this is a managed voice channel from voice_channels
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    """
-                    SELECT owner_id, previous_owner_id, jtc_channel_id
-                    FROM voice_channels
-                    WHERE guild_id = ? AND voice_channel_id = ? AND is_active = 1
+            row = await BaseRepository.fetch_one(
+                """
+                SELECT owner_id, previous_owner_id, jtc_channel_id
+                FROM voice_channels
+                WHERE guild_id = ? AND voice_channel_id = ? AND is_active = 1
                 """,
-                    (guild_id, channel.id),
-                )
-                row = await cursor.fetchone()
+                (guild_id, channel.id),
+            )
 
-                if not row:
-                    return VoiceChannelResult(success=False, error="NOT_MANAGED")
+            if not row:
+                return VoiceChannelResult(success=False, error="NOT_MANAGED")
 
-                current_owner_id, previous_owner_id, jtc_channel_id = row
-                ownerless = current_owner_id == self.ORPHAN_OWNER_ID
-                effective_previous_owner = (
-                    previous_owner_id
-                    if ownerless and previous_owner_id
-                    else current_owner_id
-                )
+            current_owner_id, previous_owner_id, jtc_channel_id = row
+            ownerless = current_owner_id == self.ORPHAN_OWNER_ID
+            effective_previous_owner = (
+                previous_owner_id
+                if ownerless and previous_owner_id
+                else current_owner_id
+            )
 
-                # Check if current owner is still in the channel (skip for orphaned channels)
-                if not ownerless:
-                    current_owner = channel.guild.get_member(current_owner_id)
-                    if current_owner and current_owner in channel.members:
-                        return VoiceChannelResult(
-                            success=False,
-                            error="OWNER_PRESENT",
-                        )
-
-                # Use the comprehensive transfer method from voice_repo
-                from helpers.voice_repo import transfer_channel_owner
-
-                success = await transfer_channel_owner(
-                    voice_channel_id=channel.id,
-                    new_owner_id=user_id,
-                    guild_id=guild_id,
-                    jtc_channel_id=jtc_channel_id,
-                )
-
-                if not success:
+            # Check if current owner is still in the channel (skip for orphaned channels)
+            if not ownerless:
+                current_owner = channel.guild.get_member(current_owner_id)
+                if current_owner and current_owner in channel.members:
                     return VoiceChannelResult(
                         success=False,
-                        error="DB_TEMP_ERROR",
+                        error="OWNER_PRESENT",
                     )
 
-                # Update permission overwrites using permissions helper
+            # Use the comprehensive transfer method from voice_repo
+            from helpers.voice_repo import transfer_channel_owner
 
-                from helpers.permissions_helper import update_channel_owner
+            success = await transfer_channel_owner(
+                voice_channel_id=channel.id,
+                new_owner_id=user_id,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
+            )
 
-                # Cast for type-checker: allow voice or stage channels.
-                channel_for_perms = cast(
-                    "discord.VoiceChannel | discord.StageChannel", channel
+            if not success:
+                return VoiceChannelResult(
+                    success=False,
+                    error="DB_TEMP_ERROR",
                 )
 
-                # Rely on duck typing so test doubles (MockVoiceChannel) still exercise the path.
-                await update_channel_owner(
-                    channel=channel_for_perms,
-                    new_owner_id=user_id,
-                    previous_owner_id=effective_previous_owner,
-                    guild_id=guild_id,
-                    jtc_channel_id=jtc_channel_id,
-                )
+            # Update permission overwrites using permissions helper
+
+            from helpers.permissions_helper import update_channel_owner
+
+            # Cast for type-checker: allow voice or stage channels.
+            channel_for_perms = cast(
+                "discord.VoiceChannel | discord.StageChannel", channel
+            )
+
+            # Rely on duck typing so test doubles (MockVoiceChannel) still exercise the path.
+            await update_channel_owner(
+                channel=channel_for_perms,
+                new_owner_id=user_id,
+                previous_owner_id=effective_previous_owner,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
+            )
 
             return VoiceChannelResult(
                 success=True, channel_id=channel.id, channel_mention=channel.mention
@@ -3017,48 +2950,46 @@ class VoiceService(BaseService):
             VoiceChannelResult with success status and error code (not formatted message)
         """
         try:
-            async with Database.get_connection() as db:
-                # Find the user's voice channel from voice_channels table
-                cursor = await db.execute(
-                    """
-                    SELECT voice_channel_id, jtc_channel_id FROM voice_channels
-                    WHERE guild_id = ? AND owner_id = ? AND is_active = 1
-                    ORDER BY created_at DESC LIMIT 1
+            # Find the user's voice channel from voice_channels table
+            row = await BaseRepository.fetch_one(
+                """
+                SELECT voice_channel_id, jtc_channel_id FROM voice_channels
+                WHERE guild_id = ? AND owner_id = ? AND is_active = 1
+                ORDER BY created_at DESC LIMIT 1
                 """,
-                    (guild_id, current_owner_id),
-                )
-                row = await cursor.fetchone()
+                (guild_id, current_owner_id),
+            )
 
-                if not row:
-                    return VoiceChannelResult(success=False, error="NO_CHANNEL")
+            if not row:
+                return VoiceChannelResult(success=False, error="NO_CHANNEL")
 
-                voice_channel_id, jtc_channel_id = row
+            voice_channel_id, jtc_channel_id = row
 
-                # Check if new owner is in the channel
-                channel = discord.utils.get(
-                    new_owner.guild.voice_channels, id=voice_channel_id
-                )
-                if not channel or new_owner not in channel.members:
-                    return VoiceChannelResult(
-                        success=False,
-                        error="NOT_IN_CHANNEL",
-                    )
-
-                # Use the comprehensive transfer method from voice_repo
-                from helpers.voice_repo import transfer_channel_owner
-
-                success = await transfer_channel_owner(
-                    voice_channel_id=voice_channel_id,
-                    new_owner_id=new_owner_id,
-                    guild_id=guild_id,
-                    jtc_channel_id=jtc_channel_id,
+            # Check if new owner is in the channel
+            channel = discord.utils.get(
+                new_owner.guild.voice_channels, id=voice_channel_id
+            )
+            if not channel or new_owner not in channel.members:
+                return VoiceChannelResult(
+                    success=False,
+                    error="NOT_IN_CHANNEL",
                 )
 
-                if not success:
-                    return VoiceChannelResult(
-                        success=False,
-                        error="DB_TEMP_ERROR",
-                    )
+            # Use the comprehensive transfer method from voice_repo
+            from helpers.voice_repo import transfer_channel_owner
+
+            success = await transfer_channel_owner(
+                voice_channel_id=voice_channel_id,
+                new_owner_id=new_owner_id,
+                guild_id=guild_id,
+                jtc_channel_id=jtc_channel_id,
+            )
+
+            if not success:
+                return VoiceChannelResult(
+                    success=False,
+                    error="DB_TEMP_ERROR",
+                )
 
                 # Update permission overwrites using permissions helper
                 from helpers.permissions_helper import update_channel_owner
@@ -3101,54 +3032,52 @@ class VoiceService(BaseService):
             List of channel information dictionaries with owner_id, voice_channel_id, created_at
         """
         try:
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    """
-                    SELECT owner_id, voice_channel_id, created_at
-                    FROM voice_channels
-                    WHERE guild_id = ? AND is_active = 1
-                    ORDER BY created_at DESC
+            rows = await BaseRepository.fetch_all(
+                """
+                SELECT owner_id, voice_channel_id, created_at
+                FROM voice_channels
+                WHERE guild_id = ? AND is_active = 1
+                ORDER BY created_at DESC
                 """,
-                    (guild_id,),
-                )
-                rows = await cursor.fetchall()
+                (guild_id,),
+            )
 
-                channels = [
-                    {
-                        "owner_id": row[0],
-                        "voice_channel_id": row[1],
-                        "created_at": row[2],
-                    }
-                    for row in rows
+            channels = [
+                {
+                    "owner_id": row[0],
+                    "voice_channel_id": row[1],
+                    "created_at": row[2],
+                }
+                for row in rows
+            ]
+
+            # Filter by in-memory cache to ensure channels are still active
+            # Fall back to database if cache is not available/reliable
+            if self.managed_voice_channels:
+                active_channels = [
+                    channel
+                    for channel in channels
+                    if channel["voice_channel_id"] in self.managed_voice_channels
                 ]
-
-                # Filter by in-memory cache to ensure channels are still active
-                # Fall back to database if cache is not available/reliable
-                if self.managed_voice_channels:
-                    active_channels = [
-                        channel
-                        for channel in channels
-                        if channel["voice_channel_id"] in self.managed_voice_channels
-                    ]
-                    # If cache filtering results in significantly fewer channels,
-                    # use database as authoritative source and update cache
-                    if len(active_channels) < len(channels) * 0.5:
-                        self.logger.info(
-                            f"Cache appears stale, using database as source of truth for {guild_id}"
-                        )
-                        # Refresh cache from database
-                        for channel in channels:
-                            self.managed_voice_channels.add(channel["voice_channel_id"])
-                        return channels
-                    return active_channels
-                else:
-                    # No cache available, use database as source of truth
+                # If cache filtering results in significantly fewer channels,
+                # use database as authoritative source and update cache
+                if len(active_channels) < len(channels) * 0.5:
                     self.logger.info(
-                        f"No cache available, using database as source of truth for {guild_id}"
+                        f"Cache appears stale, using database as source of truth for {guild_id}"
                     )
+                    # Refresh cache from database
                     for channel in channels:
                         self.managed_voice_channels.add(channel["voice_channel_id"])
                     return channels
+                return active_channels
+            else:
+                # No cache available, use database as source of truth
+                self.logger.info(
+                    f"No cache available, using database as source of truth for {guild_id}"
+                )
+                for channel in channels:
+                    self.managed_voice_channels.add(channel["voice_channel_id"])
+                return channels
 
         except Exception as e:
             self.logger.exception("Error getting all voice channels", exc_info=e)
@@ -3653,13 +3582,11 @@ class VoiceService(BaseService):
             List of voice channel IDs
         """
         try:
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    "SELECT voice_channel_id FROM voice_channels WHERE guild_id = ? AND is_active = 1",
-                    (guild_id,),
-                )
-                rows = await cursor.fetchall()
-                return [row[0] for row in rows]
+            rows = await BaseRepository.fetch_all(
+                "SELECT voice_channel_id FROM voice_channels WHERE guild_id = ? AND is_active = 1",
+                (guild_id,),
+            )
+            return [row[0] for row in rows]
 
         except Exception as e:
             self.logger.exception("Error getting guild managed channels", exc_info=e)
@@ -3678,8 +3605,6 @@ class VoiceService(BaseService):
         Returns:
             Dict mapping table names to number of rows deleted.
         """
-        from services.db.database import Database
-
         # Get managed channels before purging if doing guild-wide clear
         if user_id is None:
             managed_channels = await self.get_all_guild_managed_channels(guild_id)
@@ -3720,7 +3645,6 @@ class VoiceService(BaseService):
         if not stale_jtc_ids:
             return {"deleted_channels": [], "failed_channels": [], "errors": []}
 
-        from services.db.database import Database
 
         deleted_channels = []
         failed_channels = []
@@ -3742,12 +3666,10 @@ class VoiceService(BaseService):
                 WHERE guild_id = ? AND jtc_channel_id IN ({placeholders}) AND is_active = 1
             """
 
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    query,
-                    [guild_id, *stale_jtc_list],
-                )
-                stale_managed_channels = await cursor.fetchall()
+            stale_managed_channels = await BaseRepository.fetch_all(
+                query,
+                (guild_id, *stale_jtc_list),
+            )
 
             # Attempt to delete each managed channel if it's empty
             if self.bot:

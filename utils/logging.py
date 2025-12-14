@@ -11,6 +11,13 @@ _queue_listener: logging.handlers.QueueListener | None = None
 _atexit_registered = False
 
 
+class ErrorLevelFilter(logging.Filter):
+    """Allow only error-or-higher log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - trivial
+        return record.levelno >= logging.ERROR
+
+
 class CustomJsonFormatter(logging.Formatter):
     def __init__(self, datefmt: str | None = None) -> None:
         super().__init__(datefmt=datefmt)
@@ -81,6 +88,10 @@ def setup_logging(log_file: str = "logs/bot.log") -> None:
     if not logs_dir.exists():
         logs_dir.mkdir(parents=True)
 
+    errors_dir = logs_dir / "errors"
+    if not errors_dir.exists():
+        errors_dir.mkdir(parents=True)
+
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=1000)
     queue_listener = _build_queue_listener(log_queue, log_level, str(log_path))
 
@@ -120,15 +131,47 @@ def _build_queue_listener(
     file_handler.suffix = "%Y-%m-%d"
     file_handler.setLevel(log_level)
 
+    # Error-only handler writing to dedicated JSONL files for admin dashboard
+    errors_dir = Path(log_file).parent / "errors"
+    error_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=str(errors_dir / "errors.jsonl"),
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        utc=True,
+        encoding="utf-8",
+    )
+    error_handler.suffix = "%Y-%m-%d"
+    error_handler.namer = _error_log_namer  # type: ignore[assignment]
+    error_handler.setLevel(logging.ERROR)
+    error_handler.addFilter(ErrorLevelFilter())
+
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
     formatter = CustomJsonFormatter(datefmt="%Y-%m-%d %H:%M:%S")
     file_handler.setFormatter(formatter)
+    error_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
 
     return logging.handlers.QueueListener(
-        log_queue, file_handler, console_handler, respect_handler_level=True
+        log_queue,
+        file_handler,
+        console_handler,
+        error_handler,
+        respect_handler_level=True,
     )
+
+
+def _error_log_namer(default_name: str) -> str:
+    """
+    Rename rotated error files to match errors_YYYY-MM-DD.jsonl pattern expected
+    by the dashboard and cleanup tasks.
+    """
+
+    # Default name: /path/errors.jsonl.YYYY-MM-DD
+    base_without_suffix, date_part = default_name.rsplit(".", 1)
+    base_path = Path(base_without_suffix)
+    return str(base_path.with_name(f"errors_{date_part}.jsonl"))
 
 
 def _register_logging_shutdown() -> None:

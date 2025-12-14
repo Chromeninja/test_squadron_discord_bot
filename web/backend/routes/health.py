@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/health", tags=["health"])
 async def health_check():
     """
     Simple health check endpoint (public).
-    
+
     Returns basic service status without requiring authentication.
     Use /overview for detailed health metrics (admin only).
     """

@@ -3,7 +3,7 @@
 import json
 import time
 
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -30,23 +30,21 @@ async def log_admin_action(
     """
     try:
         details_json = json.dumps(details) if details else None
-        async with Database.get_connection() as db:
-            await db.execute(
-                """INSERT INTO admin_action_log
-                   (timestamp, admin_user_id, guild_id, action,
-                    target_user_id, details, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    int(time.time()),
-                    admin_user_id,
-                    guild_id,
-                    action,
-                    target_user_id,
-                    details_json,
-                    status,
-                ),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            """INSERT INTO admin_action_log
+               (timestamp, admin_user_id, guild_id, action,
+                target_user_id, details, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                int(time.time()),
+                admin_user_id,
+                guild_id,
+                action,
+                target_user_id,
+                details_json,
+                status,
+            ),
+        )
         logger.debug(
             f"Logged admin action: {action}",
             extra={

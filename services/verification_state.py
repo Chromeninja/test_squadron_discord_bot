@@ -192,10 +192,15 @@ async def compute_global_state(
             error="RSI fetch/parse failure — please complete verification again",
         )
 
+    # Filter out REDACTED entries for status computation
+    # (REDACTED orgs are unknown to the bot, so treat as non_member)
+    non_redacted_main = [s for s in (main_orgs or []) if s != "REDACTED"]
+    non_redacted_affiliate = [s for s in (affiliate_orgs or []) if s != "REDACTED"]
+
     status: VerificationStatus
-    if main_orgs:
+    if non_redacted_main:
         status = "main"
-    elif affiliate_orgs:
+    elif non_redacted_affiliate:
         status = "affiliate"
     else:
         status = "non_member"
@@ -228,6 +233,21 @@ async def store_global_state(state: GlobalVerificationState) -> None:
             f"RSI handle '{state.rsi_handle}' is already verified by another user: {conflict}"
         )
 
+    # Log what we're about to persist for observability
+    from utils.logging import get_logger
+    _logger = get_logger(__name__)
+    _logger.info(
+        "Persisting verification state",
+        extra={
+            "user_id": state.user_id,
+            "rsi_handle": state.rsi_handle,
+            "main_orgs": state.main_orgs,
+            "affiliate_orgs": state.affiliate_orgs,
+            "community_moniker": state.community_moniker,
+            "last_updated": state.checked_at,
+        },
+    )
+
     await Database.update_global_verification_state(
         state.user_id,
         {
@@ -248,10 +268,14 @@ async def get_global_state(user_id: int) -> GlobalVerificationState | None:
     if not row:
         return None
 
+    # Filter out REDACTED entries for status computation
+    non_redacted_main = [s for s in (row["main_orgs"] or []) if s != "REDACTED"]
+    non_redacted_affiliate = [s for s in (row["affiliate_orgs"] or []) if s != "REDACTED"]
+
     status: VerificationStatus
-    if row["main_orgs"]:
+    if non_redacted_main:
         status = "main"
-    elif row["affiliate_orgs"]:
+    elif non_redacted_affiliate:
         status = "affiliate"
     else:
         status = "non_member"

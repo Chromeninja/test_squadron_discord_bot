@@ -1,6 +1,7 @@
 import time
 
 from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -176,7 +177,7 @@ async def cleanup_attempts() -> None:
 
     now = int(time.time())
     try:
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             await db.execute(
                 "DELETE FROM rate_limits WHERE action = 'recheck' AND (? - first_attempt) > ?",
                 (now, recheck_window),
@@ -185,7 +186,6 @@ async def cleanup_attempts() -> None:
                 "DELETE FROM rate_limits WHERE action != 'recheck' AND (? - first_attempt) > ?",
                 (now, verify_window),
             )
-            await db.commit()
     except Exception:
         logger.exception("Failed to cleanup rate limit attempts")
     logger.debug("Cleaned up expired rate-limiting data.")

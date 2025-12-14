@@ -71,21 +71,29 @@ def _build_changeset(diff: dict, event: EventType, guild_id: int, initiator: dic
 def _maybe_announce(sync_result, diff: dict, bot) -> None:
     old_status = diff.get("status_before")
     new_status = diff.get("status_after")
-    if old_status == "non_member" and new_status == "main":
-        try:
-            # Use existing announcement queue; errors are non-fatal
-            bot.loop.create_task(
-                enqueue_announcement_for_guild(
-                    bot,
-                    sync_result.member,
-                    diff.get("main_orgs_after"),
-                    diff.get("affiliate_orgs_after"),
-                    diff.get("main_orgs_before"),
-                    diff.get("affiliate_orgs_before"),
-                )
+    try:
+        # Delegate announcement decision to _classify_event (DRY, single source of truth)
+        bot.loop.create_task(
+            enqueue_announcement_for_guild(
+                bot,
+                sync_result.member,
+                diff.get("main_orgs_after"),
+                diff.get("affiliate_orgs_after"),
+                diff.get("main_orgs_before"),
+                diff.get("affiliate_orgs_before"),
             )
-        except Exception as e:
-            logger.warning("Failed to queue public announcement: %s", e)
+        )
+        logger.info(
+            "Announcement enqueue requested",
+            extra={
+                "user_id": sync_result.user_id,
+                "guild_id": sync_result.guild_id,
+                "old_status": old_status,
+                "new_status": new_status,
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to queue public announcement: %s", e)
 
 
 async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None) -> None:

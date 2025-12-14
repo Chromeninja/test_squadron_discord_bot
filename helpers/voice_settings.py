@@ -3,13 +3,15 @@ Voice settings helper functions for managing and fetching voice channel settings
 
 This module provides utilities for fetching voice channel settings that can be
 shared between different voice commands.
+
+Note: Database imports are done lazily inside functions to avoid circular imports
+through services/__init__.py -> VoiceService -> voice_settings.
 """
 
 from typing import TYPE_CHECKING, Any
 
 import discord
 
-from services.db.database import Database
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -104,6 +106,8 @@ async def get_voice_settings_snapshots(
     using guild role/member lookups).
     """
 
+    # Lazy import to avoid circular dependency through services/__init__.py
+    from services.db.repository import BaseRepository
     from utils.types import (
         PermissionOverride,
         PrioritySpeakerSetting,
@@ -114,17 +118,15 @@ async def get_voice_settings_snapshots(
 
     snapshots: list[VoiceSettingsSnapshot] = []
 
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT DISTINCT jtc_channel_id
-            FROM channel_settings
-            WHERE guild_id = ? AND user_id = ?
-            ORDER BY jtc_channel_id
-            """,
-            (guild_id, user_id),
-        )
-        jtc_rows = await cursor.fetchall()
+    jtc_rows = await BaseRepository.fetch_all(
+        """
+        SELECT DISTINCT jtc_channel_id
+        FROM channel_settings
+        WHERE guild_id = ? AND user_id = ?
+        ORDER BY jtc_channel_id
+        """,
+        (guild_id, user_id),
+    )
 
     for (jtc_channel_id,) in jtc_rows:
         settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
@@ -232,43 +234,43 @@ async def fetch_channel_settings(
 
             # Try to get settings for active channel
             # First check if this is a managed voice channel
-            async with Database.get_connection() as db:
-                cursor = await db.execute(
-                    """
-                    SELECT jtc_channel_id FROM voice_channels
-                    WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1
+            from services.db.repository import BaseRepository
+
+            row = await BaseRepository.fetch_one(
+                """
+                SELECT jtc_channel_id FROM voice_channels
+                WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1
                 """,
-                    (user.voice.channel.id, user.id),
-                )
-                row = await cursor.fetchone()
+                (user.voice.channel.id, user.id),
+            )
 
-                if row:
-                    jtc_channel_id = row[0]
-                    result["jtc_channel_id"] = jtc_channel_id
+            if row:
+                jtc_channel_id = row[0]
+                result["jtc_channel_id"] = jtc_channel_id
 
-                    # Get settings for this active channel
-                    if guild_id is not None:
-                        settings = await _get_all_user_settings(
-                            guild_id, jtc_channel_id, user.id
-                        )
-                        if settings:
-                            result["settings"] = settings
-                            if interaction.guild and isinstance(user, discord.Member):
-                                # Type narrow active_channel to VoiceChannel
-                                active_chan = result["active_channel"]
-                                voice_chan = (
-                                    active_chan
-                                    if isinstance(active_chan, discord.VoiceChannel)
-                                    else None
-                                )
-                                embed = await _create_settings_embed(
-                                    user,
-                                    settings,
-                                    interaction.guild,
-                                    voice_chan,
-                                    is_active=True,
-                                )
-                                result["embeds"].append(embed)
+                # Get settings for this active channel
+                if guild_id is not None:
+                    settings = await _get_all_user_settings(
+                        guild_id, jtc_channel_id, user.id
+                    )
+                    if settings:
+                        result["settings"] = settings
+                        if interaction.guild and isinstance(user, discord.Member):
+                            # Type narrow active_channel to VoiceChannel
+                            active_chan = result["active_channel"]
+                            voice_chan = (
+                                active_chan
+                                if isinstance(active_chan, discord.VoiceChannel)
+                                else None
+                            )
+                            embed = await _create_settings_embed(
+                                user,
+                                settings,
+                                interaction.guild,
+                                voice_chan,
+                                is_active=True,
+                            )
+                            result["embeds"].append(embed)
 
         # If not active or allow_inactive is True, also check for saved settings
         if not result["is_active"] or allow_inactive:
@@ -355,10 +357,13 @@ async def _get_all_user_settings(
     guild_id: int, jtc_channel_id: int, user_id: int
 ) -> dict[str, Any]:
     """Get all settings for a user's channel in a specific JTC."""
+    # Lazy import to avoid circular dependency
+    from services.db.repository import BaseRepository
+
     settings = {}
 
     try:
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             # Get basic channel settings
             cursor = await db.execute(
                 """
@@ -442,27 +447,27 @@ async def _get_all_user_jtc_settings(
     guild_id: int, user_id: int
 ) -> dict[int, dict[str, Any]]:
     """Get all settings for a user across all JTC channels."""
+    # Lazy import to avoid circular dependency
+    from services.db.repository import BaseRepository
+
     all_settings = {}
 
     try:
-        async with Database.get_connection() as db:
-            # Get all JTC channel IDs where this user has settings
-            cursor = await db.execute(
-                """
-                SELECT DISTINCT jtc_channel_id
-                FROM channel_settings
-                WHERE guild_id = ? AND user_id = ?
+        jtc_rows = await BaseRepository.fetch_all(
+            """
+            SELECT DISTINCT jtc_channel_id
+            FROM channel_settings
+            WHERE guild_id = ? AND user_id = ?
             """,
-                (guild_id, user_id),
-            )
-            jtc_rows = await cursor.fetchall()
+            (guild_id, user_id),
+        )
 
-            for (jtc_channel_id,) in jtc_rows:
-                settings = await _get_all_user_settings(
-                    guild_id, jtc_channel_id, user_id
-                )
-                if settings:
-                    all_settings[jtc_channel_id] = settings
+        for (jtc_channel_id,) in jtc_rows:
+            settings = await _get_all_user_settings(
+                guild_id, jtc_channel_id, user_id
+            )
+            if settings:
+                all_settings[jtc_channel_id] = settings
 
     except Exception as e:
         logger.exception("Error getting all user JTC settings", exc_info=e)
@@ -472,18 +477,19 @@ async def _get_all_user_jtc_settings(
 
 async def _get_last_used_jtc_channel(guild_id: int, user_id: int) -> int | None:
     """Get the last used JTC channel for a user in a guild."""
+    # Lazy import to avoid circular dependency
+    from services.db.repository import BaseRepository
+
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT last_used_jtc_channel_id
-                FROM user_jtc_preferences
-                WHERE guild_id = ? AND user_id = ?
-                """,
-                (guild_id, user_id),
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        row = await BaseRepository.fetch_one(
+            """
+            SELECT last_used_jtc_channel_id
+            FROM user_jtc_preferences
+            WHERE guild_id = ? AND user_id = ?
+            """,
+            (guild_id, user_id),
+        )
+        return row[0] if row else None
     except Exception as e:
         logger.exception("Error getting last used JTC channel", exc_info=e)
         return None
@@ -491,19 +497,20 @@ async def _get_last_used_jtc_channel(guild_id: int, user_id: int) -> int | None:
 
 async def _get_available_jtc_channels(guild_id: int, user_id: int) -> list[int]:
     """Get all JTC channels where a user has settings."""
+    # Lazy import to avoid circular dependency
+    from services.db.repository import BaseRepository
+
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT DISTINCT jtc_channel_id
-                FROM channel_settings
-                WHERE guild_id = ? AND user_id = ?
-                ORDER BY jtc_channel_id
-                """,
-                (guild_id, user_id),
-            )
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+        rows = await BaseRepository.fetch_all(
+            """
+            SELECT DISTINCT jtc_channel_id
+            FROM channel_settings
+            WHERE guild_id = ? AND user_id = ?
+            ORDER BY jtc_channel_id
+            """,
+            (guild_id, user_id),
+        )
+        return [row[0] for row in rows]
     except Exception as e:
         logger.exception("Error getting available JTC channels", exc_info=e)
         return []
@@ -513,17 +520,18 @@ async def update_last_used_jtc_channel(
     guild_id: int, user_id: int, jtc_channel_id: int
 ) -> None:
     """Update the last used JTC channel for a user."""
+    # Lazy import to avoid circular dependency
+    from services.db.repository import BaseRepository
+
     try:
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO user_jtc_preferences
-                (guild_id, user_id, last_used_jtc_channel_id, updated_at)
-                VALUES (?, ?, ?, strftime('%s','now'))
-                """,
-                (guild_id, user_id, jtc_channel_id),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            """
+            INSERT OR REPLACE INTO user_jtc_preferences
+            (guild_id, user_id, last_used_jtc_channel_id, updated_at)
+            VALUES (?, ?, ?, strftime('%s','now'))
+            """,
+            (guild_id, user_id, jtc_channel_id),
+        )
     except Exception as e:
         logger.exception("Error updating last used JTC channel", exc_info=e)
 

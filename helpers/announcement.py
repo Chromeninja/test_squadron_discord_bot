@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands, tasks
 
 from helpers.discord_api import channel_send_message
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -381,14 +381,31 @@ async def enqueue_announcement_for_guild(
         )
         new_status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
 
-        # Log for debugging
-        logger.debug(
-            f"Guild {member.guild.id} announcement check: {old_status} → {new_status} "
-            f"(org: {guild_org_sid})",
-            extra={"user_id": member.id},
+        # Business-level visibility: record the derived transition for this guild
+        logger.info(
+            "Announcement status check",
+            extra={
+                "user_id": member.id,
+                "guild_id": member.guild.id,
+                "old_status": old_status,
+                "new_status": new_status,
+                "org_sid": guild_org_sid,
+            },
         )
 
-        # Enqueue if it's a promotion
+        # Enqueue if it's a promotion; also log classification decision
+        et = _classify_event(old_status, new_status)
+        logger.info(
+            "Announcement classification",
+            extra={
+                "user_id": member.id,
+                "guild_id": member.guild.id,
+                "old_status": old_status,
+                "new_status": new_status,
+                "event_type": et,
+            },
+        )
+
         await enqueue_verification_event(member, old_status, new_status)
 
     except Exception as e:
@@ -415,7 +432,10 @@ async def enqueue_verification_event(
     if not et:
         logger.debug(
             f"Status transition not announceable: {old_status} → {new_status}",
-            extra={"user_id": member.id},
+            extra={
+                "user_id": member.id,
+                "guild_id": member.guild.id if member.guild else None,
+            },
         )
         return
 
@@ -429,7 +449,7 @@ async def enqueue_verification_event(
         return
 
     try:
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             # Coalesce: drop older pending events for this user in this guild
             await db.execute(
                 "DELETE FROM announcement_events WHERE user_id = ? AND guild_id = ? AND announced_at IS NULL",
@@ -452,6 +472,14 @@ async def enqueue_verification_event(
                 ),
             )
             await db.commit()
+            logger.info(
+                "Announcement queued",
+                extra={
+                    "user_id": member.id,
+                    "guild_id": guild_id,
+                    "event_type": et,
+                },
+            )
     except Exception as e:
         logger.warning(
             f"Failed to enqueue announcement event for user {member.id} in guild {guild_id}: {e}"
@@ -554,14 +582,11 @@ class BulkAnnouncer(commands.Cog):
           • Use SID in headers, full name in footers
         Returns True if anything was sent.
         """
-        async with Database.get_connection() as db:
-            # Fetch all pending events with guild_id
-            cur = await db.execute(
-                "SELECT id, user_id, guild_id, event_type, created_at FROM announcement_events "
-                "WHERE announced_at IS NULL AND guild_id IS NOT NULL "
-                "ORDER BY guild_id ASC, created_at ASC"
-            )
-            rows = await cur.fetchall()
+        rows = await BaseRepository.fetch_all(
+            "SELECT id, user_id, guild_id, event_type, created_at FROM announcement_events "
+            "WHERE announced_at IS NULL AND guild_id IS NOT NULL "
+            "ORDER BY guild_id ASC, created_at ASC"
+        )
 
         if not rows:
             logger.info("BulkAnnouncer: no pending announcements to flush.")
@@ -719,7 +744,7 @@ class BulkAnnouncer(commands.Cog):
         # Delete all announced events
         if announced_ids:
             try:
-                async with Database.get_connection() as db:
+                async with BaseRepository.transaction() as db:
                     CHUNK = 500
                     for i in range(0, len(announced_ids), CHUNK):
                         chunk = announced_ids[i : i + CHUNK]
@@ -728,7 +753,6 @@ class BulkAnnouncer(commands.Cog):
                             f"DELETE FROM announcement_events WHERE id IN ({qmarks})",
                             (*chunk,),
                         )
-                    await db.commit()
             except Exception as e:
                 logger.warning(f"BulkAnnouncer: failed to delete announced events: {e}")
 
@@ -807,12 +831,11 @@ class BulkAnnouncer(commands.Cog):
         return batches
 
     async def _count_pending(self) -> int:
-        async with Database.get_connection() as db:
-            cur = await db.execute(
-                "SELECT COUNT(1) FROM announcement_events WHERE announced_at IS NULL"
-            )
-            row = await cur.fetchone()
-            return int(row[0] if row and row[0] is not None else 0)
+        count = await BaseRepository.fetch_value(
+            "SELECT COUNT(1) FROM announcement_events WHERE announced_at IS NULL",
+            default=0,
+        )
+        return int(count)
 
             # ---------- Tasks ----------
 

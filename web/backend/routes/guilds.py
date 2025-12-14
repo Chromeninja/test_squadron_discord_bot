@@ -65,6 +65,10 @@ from core.schemas import (
     UserProfile,
     VoiceSelectableRoles,
 )
+from core.validation import (
+    ensure_guild_match,
+    safe_int,
+)
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 if TYPE_CHECKING:
@@ -72,22 +76,6 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/api/guilds", tags=["guilds"])
 logger = logging.getLogger(__name__)
-
-
-def _ensure_active_guild(current_user: UserProfile, guild_id: int) -> None:
-    """Ensure the user has selected and is accessing their active guild."""
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
-
-    if str(guild_id) != str(current_user.active_guild_id):
-        raise HTTPException(status_code=403, detail="Active guild mismatch")
-
-
-def _safe_int(value) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _coerce_role(role_data: dict) -> DiscordRole | None:
@@ -99,13 +87,13 @@ def _coerce_role(role_data: dict) -> DiscordRole | None:
     role_id_str = str(role_id)
     name = role_data.get("name") or "Unnamed Role"
     color_value = role_data.get("color")
-    color = _safe_int(color_value) if color_value is not None else None
+    color = safe_int(color_value) if color_value is not None else None
 
     return DiscordRole(id=role_id_str, name=name, color=color)
 
 
 def _coerce_member(member_data: dict) -> GuildMember | None:
-    user_id = _safe_int(member_data.get("user_id"))
+    user_id = safe_int(member_data.get("user_id"))
     if user_id is None:
         return None
 
@@ -138,7 +126,7 @@ async def get_discord_roles(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return roles for a guild sourced from the bot's internal API."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     try:
         roles_payload = await internal_api.get_guild_roles(guild_id)
     except Exception as exc:  # pragma: no cover - transport errors
@@ -164,7 +152,7 @@ async def get_discord_channels(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return text channels for a guild sourced from the bot's internal API."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     try:
         channels_payload = await internal_api.get_guild_channels(guild_id)
     except Exception as exc:  # pragma: no cover - transport errors
@@ -197,7 +185,7 @@ async def get_bot_roles_settings(
     current_user: UserProfile = Depends(require_staff()),
 ):
     """Fetch stored bot role assignments for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     settings = await get_bot_role_settings(db, guild_id)
     policies = [
         RoleDelegationPolicy(**policy)
@@ -229,7 +217,7 @@ async def update_bot_roles_settings(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Persist admin, moderator, and member category role assignments for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     await set_bot_role_settings(
         db,
         guild_id,
@@ -281,7 +269,7 @@ async def get_bot_channels_settings(
     current_user: UserProfile = Depends(require_moderator()),
 ):
     """Fetch stored bot channel assignments for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     settings = await get_bot_channel_settings(db, guild_id)
     return BotChannelSettings(**settings)
 
@@ -298,7 +286,7 @@ async def update_bot_channels_settings(
     current_user: UserProfile = Depends(require_moderator()),
 ):
     """Persist bot channel assignments for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     await set_bot_channel_settings(
         db,
         guild_id,
@@ -322,7 +310,7 @@ async def get_voice_selectable_roles_endpoint(
     current_user: UserProfile = Depends(require_staff()),
 ):
     """Return selectable roles that voice automations can target for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     role_ids = await get_voice_selectable_roles(db, guild_id)
     return VoiceSelectableRoles(selectable_roles=role_ids)
 
@@ -339,7 +327,7 @@ async def update_voice_selectable_roles_settings(
     current_user: UserProfile = Depends(require_moderator()),
 ):
     """Persist selectable voice role IDs for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     await set_voice_selectable_roles(db, guild_id, payload.selectable_roles)
     updated = await get_voice_selectable_roles(db, guild_id)
     return VoiceSelectableRoles(selectable_roles=updated)
@@ -358,7 +346,7 @@ async def list_guild_members(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Proxy paginated Discord member data from the bot's internal API."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     try:
         payload = await internal_api.get_guild_members(
@@ -398,7 +386,7 @@ async def get_guild_member_detail(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Proxy a single Discord member lookup via the internal API."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     try:
         payload = await internal_api.get_guild_member(guild_id, user_id)
@@ -461,7 +449,7 @@ async def get_organization_settings_endpoint(
     current_user: UserProfile = Depends(require_staff()),
 ):
     """Fetch organization settings for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     settings = await get_organization_settings(db, guild_id)
     return OrganizationSettings(**settings)
 
@@ -478,7 +466,7 @@ async def update_organization_settings_endpoint(
     current_user: UserProfile = Depends(require_moderator()),
 ):
     """Update organization settings for a guild."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
     await set_organization_settings(
         db,
         guild_id,
@@ -500,7 +488,7 @@ async def validate_organization_sid_endpoint(
     current_user: UserProfile = Depends(require_staff()),
 ):
     """Validate an organization SID by fetching from RSI."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     from core.rsi_utils import validate_organization_sid
 
@@ -531,7 +519,7 @@ async def get_guild_info(
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Return basic guild identity (name, icon) for UI header."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     try:
         guilds = await internal_api.get_guilds()
@@ -579,7 +567,7 @@ async def get_guild_config(
     config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """Return merged guild configuration (DB-backed + read-only YAML subset)."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     roles = await get_bot_role_settings(db, guild_id)
     channels = await get_bot_channel_settings(db, guild_id)
@@ -645,7 +633,7 @@ async def patch_guild_config(
     config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """Update DB-backed guild settings. YAML-only fields remain read-only."""
-    _ensure_active_guild(current_user, guild_id)
+    ensure_guild_match(guild_id, current_user)
 
     try:
         actor_user_id = int(current_user.user_id)

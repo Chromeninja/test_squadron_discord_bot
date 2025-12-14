@@ -7,7 +7,7 @@ on user-created voice channels.
 
 import discord  # type: ignore[import-not-found]
 
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -188,40 +188,37 @@ async def _apply_permit_reject_settings(
     jtc_channel_id: int,
 ) -> None:
     """Apply permit/reject settings from channel_permissions table."""
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT target_id, target_type, permission
-            FROM channel_permissions
-            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+    permissions = await BaseRepository.fetch_all(
+        """
+        SELECT target_id, target_type, permission
+        FROM channel_permissions
+        WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
         """,
-            (user_id, guild_id, jtc_channel_id),
-        )
+        (user_id, guild_id, jtc_channel_id),
+    )
 
-        permissions = await cursor.fetchall()
+    for target_id, target_type, permission in permissions:
+        target = None
 
-        for target_id, target_type, permission in permissions:
-            target = None
+        if target_type == "user":
+            target = guild.get_member(target_id)
+        elif target_type == "role":
+            target = guild.get_role(target_id)
+        elif target_type == "everyone":
+            target = guild.default_role
 
-            if target_type == "user":
-                target = guild.get_member(target_id)
-            elif target_type == "role":
-                target = guild.get_role(target_id)
-            elif target_type == "everyone":
-                target = guild.default_role
+        if target:
+            # Get or create overwrite for this target
+            overwrite = overwrites.get(target, discord.PermissionOverwrite())
 
-            if target:
-                # Get or create overwrite for this target
-                overwrite = overwrites.get(target, discord.PermissionOverwrite())
+            # Apply permission
+            if permission == "permit":
+                overwrite.connect = True
+            elif permission == "reject":
+                overwrite.connect = False
 
-                # Apply permission
-                if permission == "permit":
-                    overwrite.connect = True
-                elif permission == "reject":
-                    overwrite.connect = False
-
-                overwrites[target] = overwrite
-                logger.debug(f"Applied {permission} for {target_type} {target_id}")
+            overwrites[target] = overwrite
+            logger.debug(f"Applied {permission} for {target_type} {target_id}")
 
 
 async def _apply_voice_feature_settings(
@@ -238,40 +235,37 @@ async def _apply_voice_feature_settings(
         overwrite_property = config["overwrite_property"]
         inverted = config.get("inverted", False)
 
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                f"""
-                SELECT target_id, target_type, {column_name}
-                FROM {table_name}
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+        settings = await BaseRepository.fetch_all(
+            f"""
+            SELECT target_id, target_type, {column_name}
+            FROM {table_name}
+            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
             """,
-                (user_id, guild_id, jtc_channel_id),
-            )
+            (user_id, guild_id, jtc_channel_id),
+        )
 
-            settings = await cursor.fetchall()
+        for target_id, target_type, enabled in settings:
+            target = None
 
-            for target_id, target_type, enabled in settings:
-                target = None
+            if target_type == "user":
+                target = guild.get_member(target_id)
+            elif target_type == "role":
+                target = guild.get_role(target_id)
+            elif target_type == "everyone":
+                target = guild.default_role
 
-                if target_type == "user":
-                    target = guild.get_member(target_id)
-                elif target_type == "role":
-                    target = guild.get_role(target_id)
-                elif target_type == "everyone":
-                    target = guild.default_role
+            if target:
+                # Get or create overwrite for this target
+                overwrite = overwrites.get(target, discord.PermissionOverwrite())
 
-                if target:
-                    # Get or create overwrite for this target
-                    overwrite = overwrites.get(target, discord.PermissionOverwrite())
+                # Apply the feature setting
+                value = not enabled if inverted else enabled
+                setattr(overwrite, overwrite_property, value)
 
-                    # Apply the feature setting
-                    value = not enabled if inverted else enabled
-                    setattr(overwrite, overwrite_property, value)
-
-                    overwrites[target] = overwrite
-                    logger.debug(
-                        f"Applied {feature_name}={enabled} for {target_type} {target_id}"
-                    )
+                overwrites[target] = overwrite
+                logger.debug(
+                    f"Applied {feature_name}={enabled} for {target_type} {target_id}"
+                )
 
 
 async def _apply_lock_setting(
@@ -282,21 +276,18 @@ async def _apply_lock_setting(
     jtc_channel_id: int,
 ) -> None:
     """Apply lock setting from channel_settings table."""
-    async with Database.get_connection() as db:
-        cursor = await db.execute(
-            """
-            SELECT lock FROM channel_settings
-            WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
+    row = await BaseRepository.fetch_one(
+        """
+        SELECT lock FROM channel_settings
+        WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
         """,
-            (user_id, guild_id, jtc_channel_id),
-        )
+        (user_id, guild_id, jtc_channel_id),
+    )
 
-        row = await cursor.fetchone()
-
-        if row and row[0]:  # lock = 1 means locked
-            # Lock the channel by denying connect to @everyone
-            default_role = guild.default_role
-            overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
-            overwrite.connect = False
-            overwrites[default_role] = overwrite
-            logger.debug("Applied lock setting to channel")
+    if row and row[0]:  # lock = 1 means locked
+        # Lock the channel by denying connect to @everyone
+        default_role = guild.default_role
+        overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
+        overwrite.connect = False
+        overwrites[default_role] = overwrite
+        logger.debug("Applied lock setting to channel")

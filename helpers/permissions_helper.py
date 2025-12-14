@@ -21,7 +21,7 @@ import discord  # type: ignore[import-not-found]
 from aiosqlite import Row
 
 from helpers.discord_api import edit_channel
-from services.db.database import Database
+from services.db.repository import BaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -67,27 +67,16 @@ async def store_permit_reject_in_db(
         jtc_channel_id: Optional join-to-create channel ID to filter by
     """
     if guild_id and jtc_channel_id:
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO channel_permissions
-                (guild_id, jtc_channel_id, user_id, target_id, target_type, permission)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (guild_id, jtc_channel_id, user_id, target_id, target_type, action),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            "INSERT OR REPLACE INTO channel_permissions (guild_id, jtc_channel_id, user_id, target_id, target_type, permission) VALUES (?, ?, ?, ?, ?, ?)",
+            (guild_id, jtc_channel_id, user_id, target_id, target_type, action),
+        )
     else:
         # Fallback for records without guild/JTC scoping
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission)
-                VALUES (?, ?, ?, ?)
-                """,
-                (user_id, target_id, target_type, action),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            "INSERT OR REPLACE INTO channel_permissions (user_id, target_id, target_type, permission) VALUES (?, ?, ?, ?)",
+            (user_id, target_id, target_type, action),
+        )
 
 
 async def fetch_permit_reject_entries(
@@ -102,24 +91,16 @@ async def fetch_permit_reject_entries(
         jtc_channel_id: Optional join-to-create channel ID to filter by
     """
     if guild_id and jtc_channel_id:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT target_id, target_type, permission
-                FROM channel_permissions
-                WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?
-                """,
-                (user_id, guild_id, jtc_channel_id),
-            )
-            return await cursor.fetchall()
+        return await BaseRepository.fetch_all(
+            "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ? AND guild_id = ? AND jtc_channel_id = ?",
+            (user_id, guild_id, jtc_channel_id),
+        )
     else:
         # Fallback for records without guild/JTC scoping
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
-                (user_id,),
-            )
-            return await cursor.fetchall()
+        return await BaseRepository.fetch_all(
+            "SELECT target_id, target_type, permission FROM channel_permissions WHERE user_id = ?",
+            (user_id,),
+        )
 
 
 async def apply_permissions_changes(
@@ -171,19 +152,17 @@ async def apply_permissions_changes(
 
     # Ensure channel owner retains manage/connect
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1",
-                (channel.id,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                owner = channel.guild.get_member(row[0])
-                if owner:
-                    ow = overwrites.get(owner, discord.PermissionOverwrite())
-                    ow.manage_channels = True
-                    ow.connect = True
-                    overwrites[owner] = ow
+        owner_id = await BaseRepository.fetch_value(
+            "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ? AND is_active = 1",
+            (channel.id,),
+        )
+        if owner_id:
+            owner = channel.guild.get_member(owner_id)
+            if owner:
+                ow = overwrites.get(owner, discord.PermissionOverwrite())
+                ow.manage_channels = True
+                ow.connect = True
+                overwrites[owner] = ow
     except Exception as exc:
         logger.exception("Failed to ensure owner permissions: %s", exc)
 
@@ -244,16 +223,10 @@ async def update_channel_owner(
     )
 
     # Update database record
-    async with Database.get_connection() as db:
-        await db.execute(
-            """
-            UPDATE voice_channels
-            SET owner_id = ?
-            WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1
-            """,
-            (new_owner_id, channel.id, guild_id, jtc_channel_id),
-        )
-        await db.commit()
+    await BaseRepository.execute(
+        "UPDATE voice_channels SET owner_id = ? WHERE voice_channel_id = ? AND guild_id = ? AND jtc_channel_id = ? AND is_active = 1",
+        (new_owner_id, channel.id, guild_id, jtc_channel_id),
+    )
 
 
 async def apply_permit_reject_settings(
@@ -555,6 +528,31 @@ async def get_permission_level(
     return PermissionLevel.USER
 
 
+async def has_permission_level(
+    bot,
+    member: discord.Member,
+    min_level: PermissionLevel,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """
+    Check if user has at least the specified permission level.
+
+    This is the unified permission check that replaces individual is_* functions.
+    Use this for new code instead of is_bot_admin, is_moderator, etc.
+
+    Args:
+        bot: Bot instance with owner_id and services
+        member: Discord member to check
+        min_level: Minimum required permission level
+        guild: Guild context (optional, derived from member if not provided)
+
+    Returns:
+        True if user has at least min_level permission
+    """
+    level = await get_permission_level(bot, member, guild)
+    return level >= min_level
+
+
 async def is_bot_owner(
     bot,
     member: discord.Member,
@@ -632,6 +630,7 @@ __all__ = [
     "fetch_permit_reject_entries",
     "get_permission_level",
     "get_role_display_name",
+    "has_permission_level",
     "is_bot_admin",
     "is_bot_owner",
     "is_discord_manager",

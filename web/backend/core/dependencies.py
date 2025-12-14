@@ -432,10 +432,9 @@ async def _validate_guild_membership(
         except (TypeError, ValueError):
             return None
 
-    from .guild_settings import get_bot_role_settings
+    from .guild_settings import fetch_bot_role_settings
 
-    async with Database.get_connection() as db:
-        role_settings = await get_bot_role_settings(db, guild_id_int)
+    role_settings = await fetch_bot_role_settings(guild_id_int)
 
     user_roles_int = {rid for rid in (_to_int(r) for r in role_ids) if rid is not None}
     bot_admin_ids = {int(r) for r in role_settings.get("bot_admins", [])}

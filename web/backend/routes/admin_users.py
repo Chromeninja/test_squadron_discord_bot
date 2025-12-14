@@ -12,11 +12,17 @@ from core.dependencies import (
     require_moderator,
 )
 from core.schemas import UserProfile
+from core.validation import (
+    ensure_active_guild,
+    ensure_user_and_guild_ids,
+    parse_snowflake_id,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from helpers.audit import log_admin_action
 from helpers.bulk_check import StatusRow, write_csv
+from services.db.database import derive_membership_status
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -66,16 +72,8 @@ async def recheck_user(
     Returns:
         RecheckUserResponse with verification results
     """
-    # Ensure user has an active guild selected
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
-
-    # Convert identifiers to ints for downstream calls
-    try:
-        user_id_int = int(user_id)
-        guild_id_int = int(current_user.active_guild_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user or guild ID format")
+    # Use validation utilities for consistent ID parsing and guild validation
+    user_id_int, guild_id_int = ensure_user_and_guild_ids(user_id, current_user)
 
     # Get user's current verification status before recheck
     cursor = await db.execute(
@@ -93,26 +91,15 @@ async def recheck_user(
     org_settings = await get_organization_settings(db, guild_id_int)
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 
-    def _derive_status(main_orgs_json, affiliate_orgs_json, sid):
+    # Helper to derive status from JSON org lists
+    def _get_status_from_json(main_orgs_json, affiliate_orgs_json, sid):
         if main_orgs_json is None and affiliate_orgs_json is None:
             return "unknown"
         mo = json.loads(main_orgs_json) if main_orgs_json else []
         ao = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
-        mo = [s.upper() for s in mo]
-        ao = [s.upper() for s in ao]
-        if sid:
-            s2 = sid.upper()
-            if s2 in mo:
-                return "main"
-            if s2 in ao:
-                return "affiliate"
-        if mo:
-            return "main"
-        if ao:
-            return "affiliate"
-        return "non_member"
+        return derive_membership_status(mo, ao, sid or "TEST")
 
-    old_status = _derive_status(
+    old_status = _get_status_from_json(
         row[1] if row else None,
         row[2] if row else None,
         organization_sid,
@@ -144,7 +131,7 @@ async def recheck_user(
     )
     row = await cursor.fetchone()
     new_rsi_handle = row[0] if row else None
-    new_status = _derive_status(
+    new_status = _get_status_from_json(
         row[1] if row else None,
         row[2] if row else None,
         organization_sid,
@@ -197,15 +184,8 @@ async def reset_reverify_timer(
     Returns:
         ResetTimerResponse with operation result
     """
-    # Ensure user has an active guild selected
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
-
-    # Convert user_id to int for database
-    try:
-        user_id_int = int(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user ID format")
+    # Use validation utilities for consistent ID parsing and guild validation
+    user_id_int, _ = ensure_user_and_guild_ids(user_id, current_user)
 
     # Check if user exists in verification table
     cursor = await db.execute(
@@ -281,9 +261,8 @@ async def bulk_recheck_users(
     Returns:
         BulkRecheckResponse with operation results
     """
-    # Ensure user has an active guild selected
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
+    # Use validation utility for consistent guild validation
+    guild_id_int = ensure_active_guild(current_user)
 
     if not request.user_ids:
         raise HTTPException(status_code=400, detail="No user IDs provided")
@@ -302,8 +281,7 @@ async def bulk_recheck_users(
 
     for user_id in request.user_ids:
         try:
-            user_id_int = int(user_id)
-            guild_id_int = int(current_user.active_guild_id)
+            user_id_int = parse_snowflake_id(user_id, "User ID")
             recheck_result = await internal_api.recheck_user(
                 guild_id=guild_id_int,
                 user_id=user_id_int,
@@ -434,7 +412,7 @@ async def bulk_recheck_users(
             # Post to leadership channel via internal API
             # The internal API will build the embed using the same helper as Discord bulk verification
             response = await internal_api.post_bulk_recheck_summary(
-                guild_id=int(current_user.active_guild_id),
+                guild_id=guild_id_int,
                 admin_user_id=int(current_user.user_id),
                 scope_label="web bulk recheck",
                 status_rows=status_rows_data,

@@ -11,7 +11,8 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
-from services.db.database import Database, derive_membership_status
+from services.db.database import derive_membership_status
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,32 +65,26 @@ class CheckUserCommands(app_commands.Group):
 
     async def _fetch_verification_row(self, user_id: int) -> tuple[Any, ...] | None:
         """Fetch verification data (handle, moniker, timestamps, org lists)."""
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT rsi_handle, community_moniker, last_updated, main_orgs, affiliate_orgs
-                FROM verification
-                WHERE user_id = ?
-                """,
-                (user_id,),
-            )
-            row = await cursor.fetchone()
-            return tuple(row) if row else None
+        row = await BaseRepository.fetch_one(
+            """
+            SELECT rsi_handle, community_moniker, last_updated, main_orgs, affiliate_orgs
+            FROM verification WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        return tuple(row) if row else None
 
     async def _get_guild_org_sid(self, guild_id: int) -> str:
         """Return the guild's configured org SID (default TEST)."""
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT json_extract(value, '$')
-                FROM guild_settings
-                WHERE guild_id = ? AND key = 'organization.sid'
-                """,
-                (guild_id,),
-            )
-            row = await cursor.fetchone()
-        if row and row[0]:
-            return str(row[0]).strip('"').upper()
+        result = await BaseRepository.fetch_value(
+            """
+            SELECT json_extract(value, '$') FROM guild_settings
+            WHERE guild_id = ? AND key = 'organization.sid'
+            """,
+            (guild_id,),
+        )
+        if result:
+            return str(result).strip('"').upper()
         return "TEST"
 
     def _build_user_embed(

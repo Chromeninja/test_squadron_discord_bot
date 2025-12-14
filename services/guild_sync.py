@@ -90,7 +90,13 @@ async def apply_state_to_guild(
     # Flush queued Discord tasks for timely state
     await flush_tasks()
 
-    after = await snapshot_member_state(bot, member)
+    # Use global_state org lists for "after" snapshot since DB isn't updated yet
+    after = await snapshot_member_state(
+        bot,
+        member,
+        main_orgs_override=global_state.main_orgs,
+        affiliate_orgs_override=global_state.affiliate_orgs,
+    )
     return GuildSyncResult(
         guild_id=guild.id,
         user_id=member.id,

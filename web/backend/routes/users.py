@@ -22,6 +22,8 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from services.db.database import derive_membership_status
+
 MEMBER_CACHE_TTL_SECONDS = 60
 MEMBER_CACHE_MAX_ENTRIES = 2000
 _member_cache: "OrderedDict[tuple[int, int], tuple[float, dict]]" = OrderedDict()
@@ -129,25 +131,12 @@ def _derive_status_from_orgs(
 
     - If SID provided, match exactly; else fallback to non-empty list heuristic.
     - Both lists empty => non_member; both None => unknown.
+    - REDACTED entries are filtered out (treated as unknown orgs).
     """
     if main_orgs is None and affiliate_orgs is None:
         return "unknown"
 
-    mo = [s.upper() for s in (main_orgs or [])]
-    ao = [s.upper() for s in (affiliate_orgs or [])]
-
-    if organization_sid:
-        sid = organization_sid.upper()
-        if sid in mo:
-            return "main"
-        if sid in ao:
-            return "affiliate"
-
-    if mo:
-        return "main"
-    if ao:
-        return "affiliate"
-    return "non_member"
+    return derive_membership_status(main_orgs or [], affiliate_orgs or [], organization_sid or "TEST")
 
 
 @router.get(

@@ -31,10 +31,12 @@ from core.schemas import (
     VoiceSettingsResetResponse,
     VoiceUserSettingsSearchResponse,
 )
+from core.validation import ensure_active_guild, parse_snowflake_id
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from helpers.audit import log_admin_action
 from helpers.voice_settings import _get_last_used_jtc_channel
+from services.db.database import derive_membership_status
 from services.voice_service import VoiceService
 from utils.logging import get_logger
 
@@ -292,24 +294,15 @@ async def list_active_voice_channels(
                 org_settings.get("organization_sid") if org_settings else None
             )
 
-            def _derive(owner_main, owner_aff, sid):
-                if owner_main is None and owner_aff is None:
-                    return "unknown"
-                mo = [s.upper() for s in (owner_main or [])]
-                ao = [s.upper() for s in (owner_aff or [])]
-                if sid:
-                    s2 = sid.upper()
-                    if s2 in mo:
-                        return "main"
-                    if s2 in ao:
-                        return "affiliate"
-                if mo:
-                    return "main"
-                if ao:
-                    return "affiliate"
-                return "non_member"
-
-            owner_status = _derive(owner_main_orgs, owner_aff_orgs, organization_sid)
+            # Derive owner status using standard logic (filters REDACTED)
+            if owner_main_orgs is None and owner_aff_orgs is None:
+                owner_status = "unknown"
+            else:
+                owner_status = derive_membership_status(
+                    owner_main_orgs or [],
+                    owner_aff_orgs or [],
+                    organization_sid or "TEST"
+                )
 
             try:
                 # Get channel info from Discord API (for channel name)
@@ -415,10 +408,13 @@ async def list_active_voice_channels(
                                 or username
                                 or f"User {user_id}",
                                 "rsi_handle": verification.get("rsi_handle"),
-                                "membership_status": _derive(
-                                    verification.get("main_orgs"),
-                                    verification.get("affiliate_orgs"),
-                                    organization_sid,
+                                "membership_status": (
+                                    "unknown" if verification.get("main_orgs") is None and verification.get("affiliate_orgs") is None
+                                    else derive_membership_status(
+                                        verification.get("main_orgs") or [],
+                                        verification.get("affiliate_orgs") or [],
+                                        organization_sid or "TEST"
+                                    )
                                 ),
                                 "is_owner": user_id == owner_id,
                             }
@@ -768,23 +764,20 @@ async def reset_user_voice_settings(
     Returns:
         VoiceSettingsResetResponse with deletion summary
     """
-    # Ensure user has an active guild selected
-    if not current_user.active_guild_id:
-        raise HTTPException(status_code=400, detail="No active guild selected")
+    # Use validation utilities for consistent guild and ID validation
+    guild_id = ensure_active_guild(current_user)
+    user_id_int = parse_snowflake_id(user_id, "User ID")
 
     # Require admin role for destructive operations (following bot pattern)
-    def _is_admin_for_guild(user: UserProfile, guild_id: int) -> bool:
+    def _is_admin_for_guild(user: UserProfile, gid: int) -> bool:
         perm = user.authorized_guilds.get(str(guild_id)) if user else None
         return bool(perm and perm.role_level in {"bot_owner", "bot_admin", "discord_manager"})
 
-    if not _is_admin_for_guild(current_user, int(current_user.active_guild_id)):
+    if not _is_admin_for_guild(current_user, guild_id):
         raise HTTPException(
             status_code=403,
             detail="Admin role required for voice settings reset operations",
         )
-
-    guild_id = int(current_user.active_guild_id)
-    user_id_int = int(user_id)
 
     action_type = "RESET_USER_VOICE_SETTINGS"
 

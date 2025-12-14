@@ -43,7 +43,7 @@ from helpers.voice_utils import (
     set_voice_feature_setting,
     update_channel_settings,
 )
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
@@ -60,13 +60,10 @@ async def _get_guild_and_jtc_for_user_channel(
     guild_id = channel.guild.id if channel and channel.guild else None
     jtc_channel_id = None
     if guild_id is not None:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
-                (user.id, guild_id, channel.id),
-            )
-            row = await cursor.fetchone()
-            jtc_channel_id = row[0] if row else None
+        jtc_channel_id = await BaseRepository.fetch_value(
+            "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
+            (user.id, guild_id, channel.id),
+        )
     return guild_id, jtc_channel_id
 
 
@@ -432,13 +429,10 @@ class ChannelSettingsView(View):
             return
 
         # Get the JTC channel ID from the database
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
-                (interaction.user.id, guild_id, channel.id),
-            )
-            row = await cursor.fetchone()
-            jtc_channel_id = row[0] if row else None
+        jtc_channel_id = await BaseRepository.fetch_value(
+            "SELECT jtc_channel_id FROM voice_channels WHERE owner_id = ? AND guild_id = ? AND voice_channel_id = ? AND is_active = 1",
+            (interaction.user.id, guild_id, channel.id),
+        )
 
         selected = self.channel_settings_select.values[0]
 

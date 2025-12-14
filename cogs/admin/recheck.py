@@ -96,18 +96,20 @@ class AutoRecheck(commands.Cog):
                 )
                 continue
 
-            try:
-                await store_global_state(global_state)
-            except ValueError as e:
-                logger.warning("Handle conflict for user %s: %s", user_id, e)
-                continue
-
+            # Apply to guilds first so snapshot 'before' reflects prior DB state
             results = await sync_user_to_all_guilds(
                 global_state,
                 self.bot,
                 batch_size=max(3, self.max_users_per_run // 5),
                 max_concurrency=3,
             )
+
+            # Persist updated global verification state after guild sync
+            try:
+                await store_global_state(global_state)
+            except ValueError as e:
+                logger.warning("Handle conflict for user %s: %s", user_id, e)
+                continue
 
             for res in results:
                 await log_guild_sync(res, EventType.AUTO_CHECK, self.bot)

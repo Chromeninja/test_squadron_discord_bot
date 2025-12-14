@@ -517,6 +517,17 @@ class Database:
         cls, user_id: int, state: dict
     ) -> None:
         """Upsert the global verification state in the verification table."""
+        logger.info(
+            "DB: update_global_verification_state",
+            extra={
+                "user_id": user_id,
+                "rsi_handle": state.get("rsi_handle"),
+                "main_orgs": state.get("main_orgs"),
+                "affiliate_orgs": state.get("affiliate_orgs"),
+                "community_moniker": state.get("community_moniker"),
+                "last_updated": state.get("last_updated"),
+            },
+        )
         async with cls.get_connection() as db:
             await db.execute(
                 """

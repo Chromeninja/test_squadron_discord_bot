@@ -7,7 +7,8 @@ from typing import NamedTuple
 
 import discord
 
-from services.db.database import Database, derive_membership_status
+from services.db.database import derive_membership_status
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -146,7 +147,7 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     member_list = list(members)
     user_ids = [m.id for m in member_list]
 
-    async with Database.get_connection() as db:
+    async with BaseRepository.transaction() as db:
         # Determine target organization SID for this guild
         target_sid = "TEST"
         try:

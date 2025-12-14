@@ -27,8 +27,15 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
   - **`admin.py`**: Administrative commands
 - **`helpers/`**: Utility modules for common functionality
   - **`http_helper.py`**: HTTP client with retry mechanisms
-  - **`embeds.py`**: Discord embed creation utilities
+  - **`embeds.py`**: Discord embed creation utilities with factory patterns
+  - **`discord_reply.py`**: Unified interaction response helpers
+  - **`permissions_helper.py`**: Permission level checking with hierarchy support
   - **`error_messages.py`**: User-facing error message formatting
+- **`services/db/`**: Database access layer
+  - **`repository.py`**: BaseRepository pattern for unified DB access
+  - **`database.py`**: Connection management and schema
+- **`docs/`**: Developer documentation
+  - **`DRY_PATTERNS.md`**: Code patterns and utilities reference
 - **`prompts/`**: AI-agent friendly templates and schemas
   - **`schemas/`**: JSON schemas for data validation
   - **`messages/`**: User-facing message templates

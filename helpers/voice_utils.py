@@ -4,7 +4,7 @@ import discord
 
 from helpers.discord_api import edit_channel
 from helpers.permissions_helper import FEATURE_CONFIG
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -23,7 +23,7 @@ async def get_user_channel(
         guild_id: Optional guild ID to filter by
         jtc_channel_id: Optional join-to-create channel ID to filter by
     """
-    async with Database.get_connection() as db:
+    async with BaseRepository.transaction() as db:
         if guild_id and jtc_channel_id:
             # Query for specific guild and JTC channel - get the most recent active channel
             cursor = await db.execute(
@@ -70,7 +70,6 @@ async def get_user_channel(
                             delete_query += " AND guild_id = ? AND jtc_channel_id = ?"
                             delete_params = (channel_id, guild_id, jtc_channel_id)
                         await db.execute(delete_query, delete_params)
-                        await db.commit()
                     return None
                 except discord.HTTPException:
                     logger.exception(f"Failed to fetch channel {channel_id}")
@@ -142,10 +141,9 @@ async def update_channel_settings(
     )
     update_values = (*tuple(values), user_id, guild_id, jtc_channel_id)
 
-    async with Database.get_connection() as db:
+    async with BaseRepository.transaction() as db:
         await db.execute(insert_query, insert_values)
         await db.execute(update_query, update_values)
-        await db.commit()
 
 
 async def set_voice_feature_setting(
@@ -191,11 +189,9 @@ async def set_voice_feature_setting(
         (guild_id, jtc_channel_id, user_id, target_id, target_type, {db_column})
         VALUES (?, ?, ?, ?, ?, ?)
     """
-    async with Database.get_connection() as db:
-        await db.execute(
-            query, (guild_id, jtc_channel_id, user_id, t_id, target_type, enable)
-        )
-        await db.commit()
+    await BaseRepository.execute(
+        query, (guild_id, jtc_channel_id, user_id, t_id, target_type, enable)
+    )
 
 
 async def ensure_owner_overwrites(
@@ -209,19 +205,17 @@ async def ensure_owner_overwrites(
         overwrites: Dictionary of overwrites to modify in-place
     """
     try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ?",
-                (channel.id,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                owner_id = row[0]
-                if owner := channel.guild.get_member(owner_id):
-                    ow = overwrites.get(owner, discord.PermissionOverwrite())
-                    ow.manage_channels = True
-                    ow.connect = True
-                    overwrites[owner] = ow
+        row = await BaseRepository.fetch_one(
+            "SELECT owner_id FROM voice_channels WHERE voice_channel_id = ?",
+            (channel.id,),
+        )
+        if row:
+            owner_id = row[0]
+            if owner := channel.guild.get_member(owner_id):
+                ow = overwrites.get(owner, discord.PermissionOverwrite())
+                ow.manage_channels = True
+                ow.connect = True
+                overwrites[owner] = ow
     except Exception:
         logger.exception("Failed to set owner perms")
 
