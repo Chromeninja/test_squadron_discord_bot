@@ -28,7 +28,7 @@ def project_root() -> Path:
     Compute and return the project root directory.
 
     Resolution order:
-    1. PROJECT_ROOT environment variable (if set and valid)
+    1. PROJECT_ROOT environment variable (dev/test only, if set and valid)
     2. Derived from this file's location: web/backend/core/dependencies.py -> project root
 
     Returns:
@@ -39,9 +39,14 @@ def project_root() -> Path:
         - Logs INFO if PROJECT_ROOT env override is used
         - Logs WARNING if PROJECT_ROOT env points to non-existent directory
     """
-    # Check for environment override first
+    # Derive from file location: web/backend/core/dependencies.py
+    # parents[0] = core/, [1] = backend/, [2] = web/, [3] = project root
+    derived = Path(__file__).resolve().parents[3]
+
+    # Allow override only in non-production environments to avoid sys.path injection risks
+    env = os.environ.get("ENV", "").lower()
     env_root = os.environ.get("PROJECT_ROOT")
-    if env_root:
+    if env_root and env in {"dev", "test"}:
         env_path = Path(env_root).resolve()
         if env_path.is_dir():
             logging.getLogger(__name__).info(
@@ -49,15 +54,11 @@ def project_root() -> Path:
                 extra={"project_root": str(env_path)},
             )
             return env_path
-        else:
-            logging.getLogger(__name__).warning(
-                "PROJECT_ROOT env points to non-existent directory; falling back to derived path",
-                extra={"invalid_path": str(env_path)},
-            )
+        logging.getLogger(__name__).warning(
+            "PROJECT_ROOT env points to non-existent directory; falling back to derived path",
+            extra={"invalid_path": str(env_path)},
+        )
 
-    # Derive from file location: web/backend/core/dependencies.py
-    # parents[0] = core/, [1] = backend/, [2] = web/, [3] = project root
-    derived = Path(__file__).resolve().parents[3]
     return derived
 
 
@@ -725,17 +726,15 @@ class InternalAPIClient:
         self.api_key = os.getenv("INTERNAL_API_KEY", "")
         self._client: httpx.AsyncClient | None = None
 
-        # Debug logging for API key
+        # Avoid leaking any secret-related info to logs
         import logging
 
         logger = logging.getLogger(__name__)
         if self.api_key:
-            logger.info(
-                f"InternalAPIClient initialized with API key (length: {len(self.api_key)})"
-            )
+            logger.debug("InternalAPIClient initialized with authentication enabled")
         else:
             logger.warning(
-                "InternalAPIClient initialized WITHOUT API key - requests will fail with 401"
+                "InternalAPIClient initialized without INTERNAL_API_KEY; internal API calls may be unauthorized"
             )
 
     async def _get_client(self) -> httpx.AsyncClient:

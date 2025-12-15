@@ -25,7 +25,7 @@ async def assert_base_permissions(
     This ensures that:
     1. The default role can connect and use voice activation
     2. The bot has manage_channels and connect permissions
-    3. The owner has manage_channels and connect permissions
+    3. The owner has connect permissions (channel management is via bot commands)
 
     Args:
         channel: The voice channel to update
@@ -39,12 +39,12 @@ async def assert_base_permissions(
             connect=True, use_voice_activation=True
         )
 
-        # Set up overwrites for bot
+        # Set up overwrites for bot (bot needs manage_channels to control on behalf of users)
         bot_overwrite = discord.PermissionOverwrite(manage_channels=True, connect=True)
 
-        # Set up overwrites for owner
+        # Set up overwrites for owner (connect only - management via bot commands)
         owner_overwrite = discord.PermissionOverwrite(
-            manage_channels=True, connect=True
+            connect=True
         )
 
         # Get existing overwrites

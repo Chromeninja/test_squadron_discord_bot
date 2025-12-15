@@ -406,8 +406,22 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 )
                 return
 
-            # Use provided name or default
-            final_channel_name = channel_name or "Join to Create"
+            # Use provided name or default, with basic sanitization
+            if channel_name:
+                candidate_name = channel_name.strip()
+                if not candidate_name:
+                    await send_user_error(
+                        interaction, "❌ Channel name cannot be empty."
+                    )
+                    return
+                if len(candidate_name) > 100:
+                    await send_user_error(
+                        interaction, "❌ Channel name must be 100 characters or less."
+                    )
+                    return
+                final_channel_name = candidate_name
+            else:
+                final_channel_name = "Join to Create"
 
             # Create the voice channel via the voice service helper
             jtc_channel, error = await self.voice_service.create_jtc_channel(

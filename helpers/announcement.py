@@ -109,10 +109,10 @@ async def send_admin_recheck_notification(
     guild = member.guild
     guild_config = bot.services.guild_config
 
-    # DEBUG: Log member guild context
-    logger.info(
-        f"send_admin_recheck_notification called: member.id={member.id}, "
-        f"member.guild.id={guild.id}, member.guild.name={guild.name}"
+    # Debug-only context without sensitive names
+    logger.debug(
+        "send_admin_recheck_notification called",
+        extra={"user_id": member.id, "guild_id": guild.id},
     )
 
     # Get leadership announcement channel via config service
@@ -406,6 +406,9 @@ async def enqueue_announcement_for_guild(
             },
         )
 
+        if not et:
+            return
+
         await enqueue_verification_event(member, old_status, new_status)
 
     except Exception as e:
@@ -522,24 +525,40 @@ class BulkAnnouncer(commands.Cog):
         if self._config_loaded:
             return
 
+        def _to_int(value, default: int) -> int:
+            """Safely coerce to int with a fallback default."""
+            try:
+                return int(value)
+            except Exception:
+                return default
+
         try:
             config_service = self.bot.services.config
 
-            # Get bulk announcement settings (global)
-            self.hour_utc = await config_service.get_global_setting(
-                "bulk_announcement.hour_utc", 18
+            # Get bulk announcement settings (global) with defensive coercion
+            self.hour_utc = _to_int(
+                await config_service.get_global_setting("bulk_announcement.hour_utc", 18),
+                18,
             )
-            self.minute_utc = await config_service.get_global_setting(
-                "bulk_announcement.minute_utc", 0
+            self.minute_utc = _to_int(
+                await config_service.get_global_setting("bulk_announcement.minute_utc", 0),
+                0,
             )
-            self.threshold = await config_service.get_global_setting(
-                "bulk_announcement.threshold", 50
+            self.threshold = _to_int(
+                await config_service.get_global_setting("bulk_announcement.threshold", 50),
+                50,
             )
-            self.max_mentions_per_message = await config_service.get_global_setting(
-                "bulk_announcement.max_mentions_per_message", 50
+            self.max_mentions_per_message = _to_int(
+                await config_service.get_global_setting(
+                    "bulk_announcement.max_mentions_per_message", 50
+                ),
+                50,
             )
-            self.max_chars_per_message = await config_service.get_global_setting(
-                "bulk_announcement.max_chars_per_message", 1800
+            self.max_chars_per_message = _to_int(
+                await config_service.get_global_setting(
+                    "bulk_announcement.max_chars_per_message", 1800
+                ),
+                1800,
             )
 
             # Validate & clamp
@@ -565,7 +584,7 @@ class BulkAnnouncer(commands.Cog):
 
         except Exception as e:
             logger.exception(f"Failed to load BulkAnnouncer config: {e}")
-            self._config_loaded = True  # Prevent infinite retries
+            # Leave _config_loaded as False so a subsequent attempt can retry
 
     def cog_unload(self) -> None:
         self.daily_flush.cancel()
@@ -716,7 +735,7 @@ class BulkAnnouncer(commands.Cog):
                         continue
 
                     # Send batched messages
-                    for _batch_ids, batch_mentions in self._build_batches(
+                    for batch_ids, batch_mentions in self._build_batches(
                         id_mention_pairs,
                         header=header,
                         footer=footer,
@@ -727,13 +746,11 @@ class BulkAnnouncer(commands.Cog):
                         try:
                             await channel.send(content, allowed_mentions=allowed)
                             sent_any = True
+                            announced_ids.extend(batch_ids)
                         except Exception as e:
                             logger.warning(
                                 f"BulkAnnouncer: failed sending batch for {key} in guild {guild_id}: {e}"
                             )
-
-                    # Track announced event IDs
-                    announced_ids.extend([ev_id for ev_id, _ in id_mention_pairs])
 
             except Exception as e:
                 logger.exception(

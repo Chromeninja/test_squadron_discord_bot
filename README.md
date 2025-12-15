@@ -7,7 +7,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 - **Token-Based Verification:** Users receive a unique token to verify their membership.
 - **Role Assignment:** Automatically assigns roles based on verification status.
 - **Cooldown System:** Limits verification attempts to prevent spam and abuse.
-- **Voice Channel Management:** Users can create, manage, and customize their own voice channels.
+- **Voice Channel Management:** Users can create and customize their voice channels via bot commands (the bot retains channel management permissions; users manage through the bot).
 - **Persistent Settings:** User channel settings are stored in a database for a consistent experience.
 - **Interactive Modals and Views:** Provides an interactive user experience with Discord's UI components.
 - **Persistent Verification Message:** The bot keeps a single verification message in the verification channel — it stores the message ID in `verification_message_id.json` and will reuse that message instead of creating duplicates. It does not currently delete old messages on startup.
@@ -100,7 +100,7 @@ The bot includes several administrative commands for configuration and managemen
 
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
-| `/status` | Show detailed bot health and status information | Moderator+ | `/status detailed:true` |
+| `/status` | Show detailed bot health and status information | Bot Admin | `/status detailed:true` |
 | `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Moderator+ | `/guild-config` |
 | `/set-config` | Set a guild configuration value | Bot Admin | `/set-config key:"voice.cooldown_seconds" value:"30"` |
 | `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |

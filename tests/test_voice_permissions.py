@@ -50,7 +50,7 @@ async def test_assert_base_permissions() -> None:
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
 
-    assert overwrites[owner_member].manage_channels is True
+    # Owner only gets connect - channel management is via bot commands
     assert overwrites[owner_member].connect is True
 
 

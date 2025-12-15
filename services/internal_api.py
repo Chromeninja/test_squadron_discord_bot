@@ -975,5 +975,3 @@ class InternalAPIServer:
             return web.json_response(
                 {"error": f"Failed to post to leadership channel: {e!s}"}, status=500
             )
-
-            return web.json_response({"error": f"Recheck failed: {e!s}"}, status=500)

@@ -492,19 +492,34 @@ class VoiceService(BaseService):
         """Perform orphaning or deletion for an old channel and return orphaned channel if applicable."""
 
         if action == "orphan":
-            await db.execute(
-                """
-                UPDATE voice_channels
-                SET owner_id = ?, previous_owner_id = ?, last_activity = ?, is_active = 1
-                WHERE voice_channel_id = ?
-                """,
-                (
-                    self.ORPHAN_OWNER_ID,
-                    user_id,
-                    int(time.time()),
-                    old_channel_id,
-                ),
-            )
+            try:
+                await db.execute(
+                    """
+                    UPDATE voice_channels
+                    SET owner_id = ?, previous_owner_id = ?, last_activity = ?, is_active = 1
+                    WHERE voice_channel_id = ?
+                    """,
+                    (
+                        self.ORPHAN_OWNER_ID,
+                        user_id,
+                        int(time.time()),
+                        old_channel_id,
+                    ),
+                )
+            except sqlite3.OperationalError:
+                # Backward compatibility for schemas without previous_owner_id
+                await db.execute(
+                    """
+                    UPDATE voice_channels
+                    SET owner_id = ?, last_activity = ?, is_active = 1
+                    WHERE voice_channel_id = ?
+                    """,
+                    (
+                        self.ORPHAN_OWNER_ID,
+                        int(time.time()),
+                        old_channel_id,
+                    ),
+                )
 
             if isinstance(old_channel, discord.VoiceChannel):
                 return old_channel
@@ -1170,11 +1185,31 @@ class VoiceService(BaseService):
             )
 
             if not can_create:
-                # The reason is already an error code from can_create_voice_channel
                 return VoiceChannelResult(False, error=reason)
 
-            # Create the channel using the authoritative path
-            channel = await self._create_user_channel(guild, jtc_channel, user)
+            # Serialize creation per user to avoid duplicate channels from concurrent calls
+            lock = await self._get_creation_lock(guild.id, user.id)
+            creation_marked = False
+            channel: discord.VoiceChannel | None = None
+
+            async with lock:
+                if self._is_user_creating(guild.id, user.id):
+                    return VoiceChannelResult(False, error="CREATING")
+
+                self._mark_user_creating(guild.id, user.id)
+                creation_marked = True
+                try:
+                    channel = await self._create_user_channel(guild, jtc_channel, user)
+                finally:
+                    if creation_marked:
+                        self._spawn_background_task(
+                            self._delayed_unmark_user_creating(
+                                guild.id,
+                                user.id,
+                                delay=self._creation_unmark_delay,
+                            ),
+                            name=f"voice.unmark_user.{guild.id}.{user.id}",
+                        )
 
             if channel:
                 return VoiceChannelResult(
@@ -1865,7 +1900,6 @@ class VoiceService(BaseService):
                         perm_result = set_perms(
                             member,
                             connect=True,
-                            manage_channels=True,
                         )
                         if isawaitable(perm_result):
                             await perm_result
@@ -1878,36 +1912,20 @@ class VoiceService(BaseService):
                             getattr(channel, "id", "unknown"),
                         )
                 else:
-                    # Bot role is too low to grant owner permissions - abort channel creation
-                    self.logger.error(
-                        f"Cannot grant owner permissions to {member.display_name} - bot role '{bot_member.top_role.name}' "
-                        f"is not higher than member role '{member.top_role.name}'. Aborting channel creation."
+                    # Bot role is too low to grant owner permissions - skip but continue
+                    self.logger.warning(
+                        f"Skipping permission override for {member.display_name} - bot role '{bot_member.top_role.name}' "
+                        f"is not higher than member role '{member.top_role.name}'"
                     )
-                    # Clean up the unusable channel
-                    try:
-                        await channel.delete(reason="Bot role too low to grant owner permissions")
-                    except Exception as cleanup_err:
-                        self.logger.warning(f"Failed to cleanup unusable channel {channel.id}: {cleanup_err}")
-                    return None
             except discord.Forbidden as e:
-                # Permission error during set_permissions - abort and cleanup
-                self.logger.exception(
-                    f"Cannot set permissions for {member.display_name}: {e}. Aborting channel creation."
+                # Permission error during set_permissions - log warning but continue
+                self.logger.warning(
+                    f"Could not set permissions for {member.display_name}: {e}"
                 )
-                try:
-                    await channel.delete(reason="Failed to set owner permissions - Forbidden")
-                except Exception as cleanup_err:
-                    self.logger.warning(f"Failed to cleanup channel after permission error {channel.id}: {cleanup_err}")
-                return None
             except Exception as e:
                 self.logger.exception(
-                    f"Unexpected error setting permissions for {member.display_name}: {e}. Aborting channel creation."
+                    f"Unexpected error setting permissions for {member.display_name}: {e}"
                 )
-                try:
-                    await channel.delete(reason="Failed to set owner permissions - unexpected error")
-                except Exception as cleanup_err:
-                    self.logger.warning(f"Failed to cleanup channel after error {channel.id}: {cleanup_err}")
-                return None
 
             # Apply all saved settings from database after creation
             if self.bot:

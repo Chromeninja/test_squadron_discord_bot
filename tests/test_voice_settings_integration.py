@@ -578,13 +578,13 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
 
 
 class TestChannelCreationRoleCheck:
-    """Tests for channel creation failure when bot role is too low."""
+    """Tests for channel creation behavior when bot role hierarchy varies."""
 
     @pytest.mark.asyncio
-    async def test_create_channel_aborts_when_bot_role_too_low(
+    async def test_create_channel_continues_when_bot_role_too_low(
         self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
     ):
-        """Test that channel creation aborts and cleans up when bot role < member role."""
+        """Test that channel creation continues (skipping permission override) when bot role < member role."""
         # Configure database response - no saved settings
         mock_db_connection.set_fetchone_result(None)
 
@@ -592,12 +592,14 @@ class TestChannelCreationRoleCheck:
         created_channel = AsyncMock(spec=discord.VoiceChannel)
         created_channel.id = 99999
         created_channel.name = "TestUser's Channel"
-        created_channel.delete = AsyncMock()
+        created_channel.set_permissions = AsyncMock()
+        created_channel.send = AsyncMock()
         mock_guild.create_voice_channel.return_value = created_channel
 
         # Mock member's voice state (still connected)
         mock_member.voice = MagicMock()
         mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
 
         # Mock bot member with LOWER role than member (role check fails)
         mock_bot_member = MagicMock()
@@ -617,12 +619,12 @@ class TestChannelCreationRoleCheck:
                 mock_guild, mock_jtc_channel, mock_member
             )
 
-        # Verify: channel was deleted due to role check failure
-        created_channel.delete.assert_called_once_with(
-            reason="Bot role too low to grant owner permissions"
-        )
-        # Verify: returns None to indicate failure
-        assert result is None
+        # Verify: channel was NOT deleted - creation continues
+        created_channel.delete.assert_not_called() if hasattr(created_channel, 'delete') else None
+        # Verify: set_permissions was NOT called (skipped due to role check)
+        created_channel.set_permissions.assert_not_called()
+        # Verify: returns the channel (success, just without owner perms)
+        assert result == created_channel
 
     @pytest.mark.asyncio
     async def test_create_channel_succeeds_when_bot_role_higher(

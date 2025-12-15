@@ -190,7 +190,7 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")
     @app_commands.guild_only()
-    @require_permission_level(PermissionLevel.MODERATOR)
+    @require_permission_level(PermissionLevel.BOT_ADMIN)
     async def view_logs(self, interaction: discord.Interaction) -> None:
         """View recent bot logs with dual delivery - channel preview and full content via DM."""
         self.logger.info(
@@ -309,7 +309,7 @@ class AdminCog(commands.Cog):
         name="status", description="Show detailed bot health and status information"
     )
     @app_commands.describe(detailed="Show detailed service information")
-    @require_permission_level(PermissionLevel.MODERATOR)
+    @require_permission_level(PermissionLevel.BOT_ADMIN)
     async def status(
         self, interaction: discord.Interaction, detailed: bool = False
     ) -> None:
