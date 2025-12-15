@@ -4,7 +4,6 @@ Authentication routes for Discord OAuth2 flow.
 
 import logging
 import os
-import secrets
 
 import httpx
 from core.dependencies import (
@@ -34,8 +33,10 @@ from core.security import (
     SESSION_MAX_AGE,
     clear_session_cookie,
     create_session_token,
+    generate_oauth_state,
     get_discord_authorize_url,
     set_session_cookie,
+    validate_oauth_state,
 )
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
@@ -86,10 +87,8 @@ async def login():
 
     Redirects user to Discord authorization page.
     """
-    # Generate CSRF state token for OAuth security
-    # TODO: Store state in session/redis and validate in callback for production security
-    # See: https://datatracker.ietf.org/doc/html/rfc6749#section-10.12
-    state = secrets.token_urlsafe(16)
+    # Generate CSRF state token for OAuth security (stored in-memory, validated in callback)
+    state = generate_oauth_state()
     auth_url = get_discord_authorize_url(state)
 
     return RedirectResponse(url=auth_url)
@@ -105,7 +104,7 @@ async def callback(code: str, state: str | None = None):
 
     Args:
         code: Authorization code from Discord
-        state: CSRF state token (not validated in MVP)
+        state: CSRF state token (validated against stored state)
 
     Returns:
         Redirect to frontend with session cookie set
@@ -113,6 +112,11 @@ async def callback(code: str, state: str | None = None):
     try:
         if not code:
             raise HTTPException(status_code=400, detail="Missing authorization code")
+
+        # Validate CSRF state token (one-time use, expires after 5 minutes)
+        if not state or not validate_oauth_state(state):
+            logger.warning("OAuth callback with invalid or expired state token")
+            raise HTTPException(status_code=400, detail="Invalid or expired state token")
 
         # Exchange code for access token
         async with httpx.AsyncClient() as client:

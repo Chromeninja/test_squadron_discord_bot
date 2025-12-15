@@ -3,7 +3,7 @@ Tests for authentication endpoints.
 """
 
 import pytest
-from core.security import decode_session_token
+from core.security import decode_session_token, generate_oauth_state
 from httpx import AsyncClient
 
 
@@ -65,6 +65,92 @@ async def test_login_redirect(client: AsyncClient):
     assert response.status_code == 307  # Redirect
     assert "discord.com" in response.headers["location"]
     assert "oauth2/authorize" in response.headers["location"]
+    # Verify state parameter is included for CSRF protection
+    assert "state=" in response.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_invalid_state(client: AsyncClient):
+    """Test that callback rejects requests with invalid or missing state token."""
+    # Test with missing state
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "state" in response.text.lower()
+
+    # Test with invalid state
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code", "state": "invalid_state_token"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "state" in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_is_one_time_use(client: AsyncClient):
+    """Test that OAuth state tokens can only be used once (prevents replay attacks)."""
+    from core.security import generate_oauth_state, validate_oauth_state
+
+    # Generate a state
+    state = generate_oauth_state()
+
+    # First validation should succeed
+    assert validate_oauth_state(state) is True
+
+    # Second validation with same state should fail (already consumed)
+    assert validate_oauth_state(state) is False
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_expires_after_5_minutes(client: AsyncClient, monkeypatch):
+    """Test that OAuth state tokens expire after 5 minutes."""
+    from datetime import UTC, datetime
+
+    from core.security import _oauth_states, generate_oauth_state, validate_oauth_state
+
+    # Generate a state
+    state = generate_oauth_state()
+
+    # Manually backdate the state timestamp to simulate expiration
+    # State was created "6 minutes ago" (360 seconds)
+    _oauth_states[state] = datetime.now(UTC).timestamp() - 360
+
+    # Validation should fail due to expiration
+    assert validate_oauth_state(state) is False
+
+
+@pytest.mark.asyncio
+async def test_cleanup_expired_states():
+    """Test that expired OAuth states are properly cleaned up."""
+    from datetime import UTC, datetime
+
+    from core.security import (
+        _oauth_states,
+        cleanup_expired_states,
+        generate_oauth_state,
+    )
+
+    # Generate some states
+    fresh_state = generate_oauth_state()
+    old_state = generate_oauth_state()
+
+    # Backdate one state to make it expired
+    _oauth_states[old_state] = datetime.now(UTC).timestamp() - 400  # >5 minutes
+
+    # Run cleanup
+    cleanup_expired_states()
+
+    # Fresh state should still exist, old state should be removed
+    assert fresh_state in _oauth_states
+    assert old_state not in _oauth_states
+
+    # Clean up the fresh state for test isolation
+    _oauth_states.pop(fresh_state, None)
 
 
 @pytest.mark.asyncio
@@ -206,9 +292,12 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
         "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
     )
 
+    # Generate valid OAuth state for CSRF validation
+    valid_state = generate_oauth_state()
+
     response = await client.get(
         "/auth/callback",
-        params={"code": "test_code"},
+        params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
     )
 
@@ -286,9 +375,12 @@ async def test_callback_grants_access_to_administrator(
         "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
     )
 
+    # Generate valid OAuth state for CSRF validation
+    valid_state = generate_oauth_state()
+
     response = await client.get(
         "/auth/callback",
-        params={"code": "test_code"},
+        params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
     )
 
@@ -369,12 +461,112 @@ async def test_callback_denies_access_without_permissions(
         "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
     )
 
+    # Generate valid OAuth state for CSRF validation
+    valid_state = generate_oauth_state()
+
     response = await client.get(
         "/auth/callback",
-        params={"code": "test_code"},
+        params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
     )
 
     # Should return 403 Access Denied
     assert response.status_code == 403
     assert "Access Denied" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Session Expiration Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_token_contains_expiration():
+    """Test that session tokens contain expiration claim."""
+    from core.security import create_session_token, decode_session_token
+
+    user_data = {"user_id": "123", "username": "test"}
+    token = create_session_token(user_data)
+
+    decoded = decode_session_token(token)
+    assert decoded is not None
+    assert "exp" in decoded
+    assert "iat" in decoded
+    assert decoded["user_id"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_expired_session_token_rejected():
+    """Test that expired session tokens are properly rejected."""
+    from datetime import UTC, datetime, timedelta  # noqa: I001
+
+    from jose import jwt
+
+    from core.security import JWT_ALGORITHM, SESSION_SECRET, decode_session_token
+
+    # Create an expired token manually
+    expired_payload = {
+        "user_id": "123",
+        "username": "test",
+        "exp": datetime.now(UTC) - timedelta(hours=1),  # Expired 1 hour ago
+        "iat": datetime.now(UTC) - timedelta(hours=2),
+    }
+    expired_token = jwt.encode(expired_payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
+
+    # Decoding should return None for expired token
+    result = decode_session_token(expired_token)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_expired_session_returns_null_user(client: AsyncClient):
+    """Test that API returns null user for expired session cookie."""
+    from datetime import UTC, datetime, timedelta  # noqa: I001
+
+    from jose import jwt
+
+    from core.security import JWT_ALGORITHM, SESSION_SECRET
+
+    # Create an expired token
+    expired_payload = {
+        "user_id": "123",
+        "username": "test",
+        "exp": datetime.now(UTC) - timedelta(hours=1),
+        "iat": datetime.now(UTC) - timedelta(hours=2),
+    }
+    expired_token = jwt.encode(expired_payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
+
+    # Request with expired session should return null user (graceful degradation)
+    response = await client.get(
+        "/api/auth/me",
+        cookies={"session": expired_token},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["user"] is None
+
+
+@pytest.mark.asyncio
+async def test_tampered_session_token_rejected():
+    """Test that tampered/invalid signature tokens are rejected."""
+    from core.security import decode_session_token
+
+    # Token with invalid signature (tampered)
+    tampered_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMTIzIn0.INVALID_SIGNATURE"
+
+    result = decode_session_token(tampered_token)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_session_max_age_is_7_days():
+    """Test that session configuration uses 7-day expiration."""
+    from core.security import JWT_EXPIRATION_HOURS, SESSION_MAX_AGE
+
+    # Cookie max age should be 7 days in seconds
+    assert SESSION_MAX_AGE == 86400 * 7  # 604800 seconds
+
+    # JWT expiration should be 7 days in hours
+    assert JWT_EXPIRATION_HOURS == 24 * 7  # 168 hours

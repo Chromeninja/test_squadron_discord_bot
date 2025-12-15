@@ -8,6 +8,7 @@ Note: Database imports are done lazily inside functions to avoid circular import
 through services/__init__.py -> VoiceService -> voice_repo.py
 """
 
+import sqlite3
 from typing import Any
 
 from utils.logging import get_logger
@@ -445,6 +446,13 @@ async def transfer_channel_owner(
             # Transaction auto-commits on success
             return True
 
+    except sqlite3.OperationalError as exc:
+        logger.warning(
+            "Voice tables unavailable while transferring ownership (channel=%s): %s",
+            voice_channel_id,
+            exc,
+        )
+        return False
     except Exception:
         logger.exception("Error transferring channel ownership")
         return False

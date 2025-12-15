@@ -102,7 +102,8 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     )
     monkeypatch.setattr(bot_mod.MyBot, "application_info", lambda self: app_info_future)
 
-    bot_instance = bot_mod.MyBot(command_prefix=bot_mod.PREFIX, intents=bot_mod.intents)
+    # Use get_prefix() for lazy-loaded prefix access
+    bot_instance = bot_mod.MyBot(command_prefix=bot_mod.get_prefix(), intents=bot_mod.intents)
 
     # Stub tree methods on the existing command tree instance
     monkeypatch.setattr(bot_instance.tree, "sync", async_noop)

@@ -4,8 +4,10 @@ Voice service for managing voice channels and related functionality.
 
 import asyncio
 import contextlib
+import sqlite3
 import time
 from collections.abc import Coroutine, Iterable
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import discord  # type: ignore[import-not-found]
@@ -258,8 +260,13 @@ class VoiceService(BaseService):
                     log_msg += f"; {empty_immediate_count} empty channels immediately cleaned per startup_cleanup_mode"
                 self.logger.info(log_msg)
 
-        except Exception as e:
-            self.logger.exception("Error loading managed channels", exc_info=e)
+        except sqlite3.OperationalError as exc:
+            # Handle missing tables gracefully (e.g., migrations not yet applied)
+            self.logger.warning(
+                "Voice tables unavailable while loading managed channels: %s", exc
+            )
+        except Exception as exc:
+            self.logger.exception("Error loading managed channels", exc_info=exc)
 
     async def _cleanup_orphaned_jtc_data(self) -> None:
         """
@@ -1407,8 +1414,10 @@ class VoiceService(BaseService):
     async def _is_join_to_create_channel(self, guild_id: int, channel_id: int) -> bool:
         """Check if a channel is a join-to-create channel."""
         try:
-            jtc_channels = await self.config_service.get_guild_jtc_channels(guild_id)
-            return channel_id in jtc_channels
+            guild_id_int = int(guild_id)
+            channel_id_int = int(channel_id)
+            jtc_channels = await self.config_service.get_guild_jtc_channels(guild_id_int)
+            return channel_id_int in jtc_channels
         except Exception as e:
             self.logger.exception("Error checking if channel is JTC", exc_info=e)
             return False
@@ -1472,10 +1481,20 @@ class VoiceService(BaseService):
             )
 
         try:
-            await voice_channel.send(
+            send_fn = getattr(voice_channel, "send", None)
+            if not callable(send_fn):
+                self.logger.warning(
+                    "Voice channel %s does not support send(); skipping settings message",
+                    getattr(voice_channel, "id", "unknown"),
+                )
+                return
+
+            send_result = send_fn(
                 f"{member.mention}, configure your channel settings:",
                 view=view,
             )
+            if isawaitable(send_result):
+                await send_result
 
             if self.debug_logging_enabled:
                 self.logger.debug(
@@ -1500,12 +1519,22 @@ class VoiceService(BaseService):
     ) -> None:
         """Immediately cleanup an empty managed channel."""
         # Determine channel_id and channel object
+        channel = None
+        channel_id = None
+
         if isinstance(channel_or_id, int):
             channel_id = channel_or_id
             channel = self.bot.get_channel(channel_id) if self.bot else None
         else:
             channel = channel_or_id
-            channel_id = channel.id
+            channel_id = getattr(channel_or_id, "id", None)
+
+        if channel_id is None:
+            self.logger.warning(
+                "Cleanup requested for channel without id (type=%s); skipping deletion",
+                type(channel_or_id).__name__,
+            )
+            return
 
         # If channel is None (already deleted), just clean up DB and cache
         if channel is None:
@@ -1528,6 +1557,7 @@ class VoiceService(BaseService):
         try:
             # Delete the channel - handle idempotent 404 errors gracefully
             try:
+                delete_method = getattr(channel, "delete", None)
                 if isinstance(
                     channel,
                     (
@@ -1536,19 +1566,30 @@ class VoiceService(BaseService):
                         discord.TextChannel,
                         discord.CategoryChannel,
                     ),
-                ):
-                    await channel.delete(reason="Empty managed voice channel cleanup")
-                    self.logger.info(f"Successfully deleted empty channel {channel_id}")
-                elif hasattr(channel, "delete"):
-                    await cast("Any", channel).delete(
+                ) and callable(delete_method):
+                    delete_result = delete_method(
                         reason="Empty managed voice channel cleanup"
                     )
+                    if isawaitable(delete_result):
+                        await delete_result
+                    self.logger.info(f"Successfully deleted empty channel {channel_id}")
+                elif callable(delete_method):
+                    delete_result = delete_method(
+                        reason="Empty managed voice channel cleanup"
+                    )
+                    if isawaitable(delete_result):
+                        await delete_result
+                    else:
+                        # Non-awaitable delete (e.g., simple mock); just invoke
+                        self.logger.debug(
+                            "Delete method for channel %s returned non-awaitable; considered cleaned",
+                            channel_id,
+                        )
                     self.logger.info(f"Successfully deleted empty channel {channel_id}")
                 else:
                     self.logger.warning(
                         f"Channel {channel_id} is not a deletable guild channel type, skipping"
                     )
-                    return
             except discord.NotFound:
                 # Channel already deleted - this is fine, no stack trace needed
                 self.logger.info(f"Channel {channel_id} already deleted during cleanup")
@@ -1815,14 +1856,23 @@ class VoiceService(BaseService):
                     role_check = True
 
                 if role_check:
-                    await channel.set_permissions(
-                        member,
-                        connect=True,
-                        manage_channels=True,
-                    )
-                    self.logger.debug(
-                        f"Set user permissions for {member.display_name} on channel {channel.name}"
-                    )
+                    set_perms = getattr(channel, "set_permissions", None)
+                    if callable(set_perms):
+                        perm_result = set_perms(
+                            member,
+                            connect=True,
+                            manage_channels=True,
+                        )
+                        if isawaitable(perm_result):
+                            await perm_result
+                        self.logger.debug(
+                            f"Set user permissions for {member.display_name} on channel {channel.name}"
+                        )
+                    else:
+                        self.logger.warning(
+                            "Channel %s has no set_permissions; skipping permission override",
+                            getattr(channel, "id", "unknown"),
+                        )
                 else:
                     self.logger.warning(
                         f"Skipping permission override for {member.display_name} - bot role '{bot_member.top_role.name}' "

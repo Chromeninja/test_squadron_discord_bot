@@ -298,6 +298,7 @@ async def fetch_channel_settings(
                                 result["jtc_channel_id"] = jtc_channel_id
             # For user list: get saved settings using last used JTC for deterministic behavior
             elif guild_id is not None:
+                available_jtcs: list[int] = []
                 last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
                 if last_used_jtc:
                     # Load settings for last used JTC

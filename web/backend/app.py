@@ -66,6 +66,27 @@ from routes import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and cleanup services on app startup/shutdown."""
+    # Security validation: Ensure SESSION_SECRET is properly configured in production
+    env = os.getenv("ENV", "development").lower()
+    session_secret = os.getenv("SESSION_SECRET", "")
+    default_secret = "dev_only_change_me_in_production"
+
+    if env == "production" and (not session_secret or session_secret == default_secret):
+        logger.critical(
+            "SECURITY: SESSION_SECRET must be set to a secure value in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+        raise RuntimeError(
+            "SESSION_SECRET not configured for production. "
+            "Set a secure random value in your environment."
+        )
+
+    if session_secret == default_secret:
+        logger.warning(
+            "SESSION_SECRET is using default development value. "
+            "Set a secure value before deploying to production."
+        )
+
     await initialize_services()
     yield
     await shutdown_services()
@@ -122,18 +143,6 @@ if frontend_dist.exists():
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "test-squadron-admin-api"}
-
-
-@app.get("/debug/env")
-async def debug_env():
-    """Debug endpoint to check environment configuration."""
-    import os
-
-    return {
-        "internal_api_url": os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082"),
-        "internal_api_key_set": bool(os.getenv("INTERNAL_API_KEY")),
-        "internal_api_key_length": len(os.getenv("INTERNAL_API_KEY", "")),
-    }
 
 
 @app.exception_handler(401)

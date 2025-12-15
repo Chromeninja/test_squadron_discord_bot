@@ -17,39 +17,79 @@ from utils.tasks import spawn
 # Initialize logger
 logger = get_logger(__name__)
 
-# Load environment variables
-load_dotenv()
-
-# Load configuration using ConfigLoader
-config = ConfigLoader.load_config()
-
-# Load sensitive information from .env
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    logger.critical("DISCORD_TOKEN not found in environment variables.")
-    raise ValueError("DISCORD_TOKEN not set.")
-
 # ---------------------------------------------------------------------------
-# Prefix Normalization with Observability
+# Lazy Initialization
 # ---------------------------------------------------------------------------
-# Get prefix normalization mode from env (shadow/enforce), default to enforce
-_PREFIX_MODE = os.environ.get("PREFIX_NORMALIZATION_MODE", "enforce")
+# Configuration and token are loaded lazily via create_bot() to avoid
+# import-time side effects. This enables safe importing for type hints
+# and testing without triggering file I/O or environment validation.
+# ---------------------------------------------------------------------------
 
-# Access configuration values from config.yaml
-raw_prefix = config.get("bot", {}).get("prefix")
+# Type alias for prefix (list of strings or the when_mentioned callable)
+PrefixType = list | type(commands.when_mentioned)
 
-# Normalize the prefix with validation and warnings
-_normalized_prefixes, _prefix_warnings = normalize_prefix(raw_prefix, mode=_PREFIX_MODE)
+# Module-level cache for lazy-loaded values
+_config: dict | None = None
+_token: str | None = None
+_prefix: PrefixType | None = None
+_prefix_warnings: list[str] = []
 
-# Track prefix warnings for admin channel alerting on bot ready
-PREFIX_WARNINGS: list[str] = _prefix_warnings
 
-# Set the actual prefix: use normalized list or fall back to mention-only
-if _normalized_prefixes:
-    PREFIX = _normalized_prefixes
-else:
-    PREFIX = commands.when_mentioned
-    logger.info("Bot will respond to mentions only (no text prefix configured)")
+def _load_config() -> dict:
+    """Lazy-load configuration on first access."""
+    global _config
+    if _config is None:
+        load_dotenv()
+        _config = ConfigLoader.load_config()
+    return _config
+
+
+def _load_token() -> str:
+    """Lazy-load Discord token on first access."""
+    global _token
+    if _token is None:
+        load_dotenv()
+        _token = os.getenv("DISCORD_TOKEN")
+        if not _token:
+            logger.critical("DISCORD_TOKEN not found in environment variables.")
+            raise ValueError("DISCORD_TOKEN not set.")
+    return _token
+
+
+def _load_prefix() -> tuple[PrefixType, list[str]]:
+    """Lazy-load and normalize prefix on first access."""
+    global _prefix, _prefix_warnings
+    if _prefix is None:
+        config = _load_config()
+        mode = os.environ.get("PREFIX_NORMALIZATION_MODE", "enforce")
+        raw_prefix = config.get("bot", {}).get("prefix")
+        normalized, warnings = normalize_prefix(raw_prefix, mode=mode)
+        _prefix_warnings = warnings
+        if normalized:
+            _prefix = normalized
+        else:
+            _prefix = commands.when_mentioned
+            logger.info("Bot will respond to mentions only (no text prefix configured)")
+    return _prefix, _prefix_warnings
+
+
+# For backward compatibility, expose PREFIX_WARNINGS as a property-like access
+# Tests and cogs that check PREFIX_WARNINGS will get the loaded value
+def get_prefix_warnings() -> list[str]:
+    """Get prefix warnings (triggers lazy load if needed)."""
+    _load_prefix()
+    return _prefix_warnings
+
+
+def get_prefix() -> PrefixType:
+    """Get configured prefix (triggers lazy load if needed)."""
+    prefix, _ = _load_prefix()
+    return prefix
+
+
+# Backward compatibility: expose as module-level for existing imports
+# These trigger lazy loading when accessed
+PREFIX_WARNINGS: list[str] = []  # Populated by create_bot()
 
 
 # Configure intents - start from none and enable only what's required
@@ -78,11 +118,11 @@ initial_extensions = [
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, config: dict | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        # Assign the entire config to the bot instance
-        self.config = config
+        # Assign the entire config to the bot instance (passed from factory or lazy-loaded)
+        self.config = config if config is not None else _load_config()
 
 
         # Initialize uptime tracking
@@ -303,14 +343,19 @@ class MyBot(commands.Bot):
                     description="The command prefix configuration had issues during startup.",
                     color=discord.Color.orange(),
                 )
+                current_prefix = get_prefix()
+                warnings = get_prefix_warnings()
+
                 embed.add_field(
                     name="Warnings",
-                    value="\n".join(f"• {w}" for w in PREFIX_WARNINGS[:10]),
+                    value="\n".join(f"• {w}" for w in warnings[:10]),
                     inline=False,
                 )
                 embed.add_field(
                     name="Current Mode",
-                    value="Mention-only" if commands.when_mentioned == PREFIX else f"Prefixes: {PREFIX}",
+                    value="Mention-only"
+                    if commands.when_mentioned == current_prefix
+                    else f"Prefixes: {current_prefix}",
                     inline=False,
                 )
                 embed.set_footer(text="Check config.yaml prefix settings")
@@ -509,7 +554,10 @@ class MyBot(commands.Bot):
         await self.wait_until_ready()
 
         # Get cleanup hour from config (default to 3 AM UTC)
-        cleanup_hour_utc = config.get("log_retention", {}).get("cleanup_hour_utc", 3)
+        cleanup_cfg = getattr(self, "config", {}) or {}
+        cleanup_hour_utc = cleanup_cfg.get("log_retention", {}).get(
+            "cleanup_hour_utc", 3
+        )
 
         while not self.is_closed():
             try:
@@ -537,7 +585,7 @@ class MyBot(commands.Bot):
 
                 # Run cleanup
                 logger.info("Starting scheduled log cleanup")
-                cleanup_service = LogCleanupService(config)
+                cleanup_service = LogCleanupService(cleanup_cfg)
                 summary = await cleanup_service.cleanup_all()
 
                 logger.info(
@@ -666,10 +714,45 @@ class MyBot(commands.Bot):
         # Call parent close
         await super().close()
 
-        # Initialize the bot
 
-bot = MyBot(command_prefix=PREFIX, intents=intents)
+# ---------------------------------------------------------------------------
+# Bot Factory Function
+# ---------------------------------------------------------------------------
+def create_bot() -> MyBot:
+    """
+    Create and configure a new bot instance.
 
-# Only auto-run if not in explicit dry-run context (TESTBOT_DRY_RUN)
-if os.getenv("TESTBOT_DRY_RUN") != "1":
-    bot.run(TOKEN)
+    This factory function handles all initialization that was previously
+    done at module import time, enabling:
+    - Safe importing for type hints without side effects
+    - Testability without triggering config/env loading
+    - Explicit control over when initialization occurs
+
+    Returns:
+        Configured MyBot instance ready to run
+    """
+    global PREFIX_WARNINGS
+
+    # Load configuration lazily
+    config = _load_config()
+    _ = _load_token()
+    prefix, warnings = _load_prefix()
+
+    # Update module-level PREFIX_WARNINGS for backward compatibility
+    PREFIX_WARNINGS.clear()
+    PREFIX_WARNINGS.extend(warnings)
+
+    # Create bot instance
+    return MyBot(command_prefix=prefix, intents=intents, config=config)
+
+
+# ---------------------------------------------------------------------------
+# Module Execution
+# ---------------------------------------------------------------------------
+# Only create and run bot when executed directly (not imported)
+if __name__ == "__main__" or os.getenv("TESTBOT_DRY_RUN") != "1":
+    # For backward compatibility, also create module-level bot instance
+    # This allows existing code that imports `from bot import bot` to work
+    if os.getenv("TESTBOT_DRY_RUN") != "1":
+        bot = create_bot()
+        bot.run(_load_token())
