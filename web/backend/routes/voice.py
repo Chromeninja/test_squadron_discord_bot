@@ -3,10 +3,8 @@ Voice channel search endpoints.
 """
 
 import json
-import os
 from typing import TYPE_CHECKING
 
-import httpx
 from core.dependencies import (
     InternalAPIClient,
     get_db,
@@ -46,17 +44,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 router = APIRouter()
-
-# Discord API configuration
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_TOKEN", "")
-DISCORD_API_BASE = "https://discord.com/api/v10"
-
-# Internal API configuration (bot-to-web communication)
-# This points to the bot's internal API server (no Discord API calls)
-INTERNAL_API_URL = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
-INTERNAL_API_KEY = os.getenv(
-    "INTERNAL_API_KEY", "dev_internal_api_key_change_in_production"
-)
 
 
 async def _resolve_snapshot_targets_internal(
@@ -235,6 +222,7 @@ async def list_active_voice_channels(
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_staff()),
     voice_service: VoiceService = Depends(get_voice_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     List all active voice channels with owner information and current members.
@@ -277,187 +265,163 @@ async def list_active_voice_channels(
     if not rows:
         return ActiveVoiceChannelsResponse(items=[], total=0)
 
-    # Fetch channel details and members from Discord API and internal bot API
-    async with httpx.AsyncClient() as client:
-        items = []
+    # Fetch channel details and members via internal bot API (no direct Discord calls)
+    items = []
 
-        for row in rows:
-            voice_channel_id = row[0]
-            guild_id = row[1]
-            owner_id = row[3]
-            # Derive owner membership status from org lists
-            owner_main_orgs = json.loads(row[7]) if row[7] else None
-            owner_aff_orgs = json.loads(row[8]) if row[8] else None
-            # Fetch org SID for guild if available
-            org_settings = await get_organization_settings(db, guild_id)
-            organization_sid = (
-                org_settings.get("organization_sid") if org_settings else None
+    for row in rows:
+        voice_channel_id = row[0]
+        guild_id = row[1]
+        owner_id = row[3]
+        # Derive owner membership status from org lists
+        owner_main_orgs = json.loads(row[7]) if row[7] else None
+        owner_aff_orgs = json.loads(row[8]) if row[8] else None
+        # Fetch org SID for guild if available
+        org_settings = await get_organization_settings(db, guild_id)
+        organization_sid = (
+            org_settings.get("organization_sid") if org_settings else None
+        )
+
+        # Derive owner status using standard logic (filters REDACTED)
+        if owner_main_orgs is None and owner_aff_orgs is None:
+            owner_status = "unknown"
+        else:
+            owner_status = derive_membership_status(
+                owner_main_orgs or [],
+                owner_aff_orgs or [],
+                organization_sid or "TEST"
             )
 
-            # Derive owner status using standard logic (filters REDACTED)
-            if owner_main_orgs is None and owner_aff_orgs is None:
-                owner_status = "unknown"
-            else:
-                owner_status = derive_membership_status(
-                    owner_main_orgs or [],
-                    owner_aff_orgs or [],
-                    organization_sid or "TEST"
-                )
-
+        try:
+            # Get channel info from internal API (cached via bot's gateway)
+            channel_name = f"Channel {voice_channel_id}"
             try:
-                # Get channel info from Discord API (for channel name)
-                channel_response = await client.get(
-                    f"{DISCORD_API_BASE}/channels/{voice_channel_id}",
-                    headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}"},
-                    timeout=5.0,
+                all_channels = await internal_api.get_guild_channels(guild_id)
+                channel_data = next(
+                    (c for c in all_channels if str(c.get("id")) == str(voice_channel_id)),
+                    None,
                 )
-
-                channel_name = f"Channel {voice_channel_id}"
-                if channel_response.status_code == 200:
-                    channel_data = channel_response.json()
+                if channel_data:
                     channel_name = channel_data.get("name", channel_name)
-
-                # Prefer saved channel settings name if available via snapshot logic
-                snapshot = await voice_service.get_voice_settings_snapshot(
-                    guild_id=guild_id,
-                    jtc_channel_id=row[2],
-                    owner_id=owner_id,
-                    voice_channel_id=voice_channel_id,
-                )
-                if snapshot and snapshot.channel_name:
-                    channel_name = snapshot.channel_name
-
-                # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
-                member_ids = []
-                try:
-                    headers = {}
-                    if INTERNAL_API_KEY:
-                        headers["Authorization"] = f"Bearer {INTERNAL_API_KEY}"
-
-                    internal_response = await client.get(
-                        f"{INTERNAL_API_URL}/voice/members/{voice_channel_id}",
-                        headers=headers,
-                        timeout=3.0,
-                    )
-
-                    if internal_response.status_code == 200:
-                        internal_data = internal_response.json()
-                        member_ids = internal_data.get("member_ids", [])
-                    else:
-                        logger.warning(
-                            "Internal API non-200 for voice channel",
-                            extra={
-                                "status": internal_response.status_code,
-                                "voice_channel_id": voice_channel_id,
-                            },
-                        )
-                        # Fall back to just showing owner
-                        member_ids = [owner_id]
-                except Exception:
-                    logger.exception(
-                        "Error querying internal API for channel %s", voice_channel_id
-                    )
-                    # Fall back to just showing owner
-                    member_ids = [owner_id]
-
-                # Ensure owner is always in the list
-                if owner_id not in member_ids:
-                    member_ids.append(owner_id)
-
-                # Get verification info for members (status derived from org lists)
-                members_in_channel = []
-                if member_ids:
-                    placeholders = ",".join("?" * len(member_ids))
-                    members_cursor = await db.execute(
-                        f"""
-                        SELECT user_id, rsi_handle, main_orgs, affiliate_orgs
-                        FROM verification
-                        WHERE user_id IN ({placeholders})
-                        """,
-                        tuple(member_ids),
-                    )
-                    fetched = await members_cursor.fetchall()
-                    verification_data = {
-                        r[0]: {
-                            "rsi_handle": r[1],
-                            "main_orgs": json.loads(r[2]) if r[2] else None,
-                            "affiliate_orgs": json.loads(r[3]) if r[3] else None,
-                        }
-                        for r in fetched
-                    }
-
-                    # Build members list
-                    for user_id in member_ids:
-                        verification = verification_data.get(user_id, {})
-
-                        # Fetch Discord user info for username
-                        username = None
-                        try:
-                            user_response = await client.get(
-                                f"{DISCORD_API_BASE}/users/{user_id}",
-                                headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}"},
-                                timeout=3.0,
-                            )
-                            if user_response.status_code == 200:
-                                user_data = user_response.json()
-                                username = user_data.get("username")
-                        except Exception:
-                            pass
-
-                        members_in_channel.append(
-                            {
-                                "user_id": user_id,
-                                "username": username,
-                                "display_name": verification.get("rsi_handle")
-                                or username
-                                or f"User {user_id}",
-                                "rsi_handle": verification.get("rsi_handle"),
-                                "membership_status": (
-                                    "unknown" if verification.get("main_orgs") is None and verification.get("affiliate_orgs") is None
-                                    else derive_membership_status(
-                                        verification.get("main_orgs") or [],
-                                        verification.get("affiliate_orgs") or [],
-                                        organization_sid or "TEST"
-                                    )
-                                ),
-                                "is_owner": user_id == owner_id,
-                            }
-                        )
-
-                items.append(
-                    ActiveVoiceChannel(
-                        voice_channel_id=row[0],
-                        guild_id=row[1],
-                        jtc_channel_id=row[2],
-                        owner_id=row[3],
-                        created_at=row[4],
-                        last_activity=row[5],
-                        owner_rsi_handle=row[6],
-                        owner_membership_status=owner_status,
-                        channel_name=channel_name,
-                        members=members_in_channel,
-                    )
-                )
-
             except Exception:
-                logger.exception(
-                    "Error fetching Discord data for channel %s", voice_channel_id
+                logger.debug(
+                    "Could not fetch channel info from internal API for %s",
+                    voice_channel_id,
                 )
-                # Add channel with minimal data
-                items.append(
-                    ActiveVoiceChannel(
-                        voice_channel_id=row[0],
-                        guild_id=row[1],
-                        jtc_channel_id=row[2],
-                        owner_id=row[3],
-                        created_at=row[4],
-                        last_activity=row[5],
-                        owner_rsi_handle=row[6],
-                        owner_membership_status=owner_status,
-                        channel_name=f"Channel {row[0]}",
-                        members=[],
+
+            # Prefer saved channel settings name if available via snapshot logic
+            snapshot = await voice_service.get_voice_settings_snapshot(
+                guild_id=guild_id,
+                jtc_channel_id=row[2],
+                owner_id=owner_id,
+                voice_channel_id=voice_channel_id,
+            )
+            if snapshot and snapshot.channel_name:
+                channel_name = snapshot.channel_name
+
+            # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
+            member_ids = []
+            try:
+                member_ids = await internal_api.get_voice_channel_members(voice_channel_id)
+            except Exception:
+                logger.debug(
+                    "Could not fetch voice members from internal API for channel %s",
+                    voice_channel_id,
+                )
+                # Fall back to just showing owner
+                member_ids = [owner_id]
+
+            # Ensure owner is always in the list
+            if owner_id not in member_ids:
+                member_ids.append(owner_id)
+
+            # Get verification info for members (status derived from org lists)
+            members_in_channel = []
+            if member_ids:
+                placeholders = ",".join("?" * len(member_ids))
+                members_cursor = await db.execute(
+                    f"""
+                    SELECT user_id, rsi_handle, main_orgs, affiliate_orgs
+                    FROM verification
+                    WHERE user_id IN ({placeholders})
+                    """,
+                    tuple(member_ids),
+                )
+                fetched = await members_cursor.fetchall()
+                verification_data = {
+                    r[0]: {
+                        "rsi_handle": r[1],
+                        "main_orgs": json.loads(r[2]) if r[2] else None,
+                        "affiliate_orgs": json.loads(r[3]) if r[3] else None,
+                    }
+                    for r in fetched
+                }
+
+                # Build members list
+                for user_id in member_ids:
+                    verification = verification_data.get(user_id, {})
+
+                    # Get Discord user info via internal API (cached via bot's gateway)
+                    username = None
+                    try:
+                        member_data = await internal_api.get_guild_member(guild_id, user_id)
+                        username = member_data.get("username")
+                    except Exception:
+                        pass
+
+                    members_in_channel.append(
+                        {
+                            "user_id": user_id,
+                            "username": username,
+                            "display_name": verification.get("rsi_handle")
+                            or username
+                            or f"User {user_id}",
+                            "rsi_handle": verification.get("rsi_handle"),
+                            "membership_status": (
+                                "unknown" if verification.get("main_orgs") is None and verification.get("affiliate_orgs") is None
+                                else derive_membership_status(
+                                    verification.get("main_orgs") or [],
+                                    verification.get("affiliate_orgs") or [],
+                                    organization_sid or "TEST"
+                                )
+                            ),
+                            "is_owner": user_id == owner_id,
+                        }
                     )
+
+            items.append(
+                ActiveVoiceChannel(
+                    voice_channel_id=row[0],
+                    guild_id=row[1],
+                    jtc_channel_id=row[2],
+                    owner_id=row[3],
+                    created_at=row[4],
+                    last_activity=row[5],
+                    owner_rsi_handle=row[6],
+                    owner_membership_status=owner_status,
+                    channel_name=channel_name,
+                    members=members_in_channel,
                 )
+            )
+
+        except Exception:
+            logger.exception(
+                "Error fetching data for channel %s", voice_channel_id
+            )
+            # Add channel with minimal data
+            items.append(
+                ActiveVoiceChannel(
+                    voice_channel_id=row[0],
+                    guild_id=row[1],
+                    jtc_channel_id=row[2],
+                    owner_id=row[3],
+                    created_at=row[4],
+                    last_activity=row[5],
+                    owner_rsi_handle=row[6],
+                    owner_membership_status=owner_status,
+                    channel_name=f"Channel {row[0]}",
+                    members=[],
+                )
+            )
 
     return ActiveVoiceChannelsResponse(items=items, total=len(items))
 

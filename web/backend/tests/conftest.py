@@ -368,6 +368,11 @@ class FakeInternalAPIClient:
         """Return text channels for a guild."""
         return self.channels_by_guild.get(guild_id, [])
 
+    async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
+        """Return member IDs in a voice channel (mock)."""
+        # Return empty list by default - tests can override if needed
+        return []
+
     async def recheck_user(
         self, guild_id: int, user_id: int, admin_user_id: str | None = None
     ) -> dict:

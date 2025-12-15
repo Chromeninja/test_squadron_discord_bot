@@ -894,6 +894,26 @@ class InternalAPIClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
+        """
+        Get member IDs currently in a voice channel via bot's gateway cache.
+
+        Args:
+            voice_channel_id: Discord voice channel ID
+
+        Returns:
+            list of member IDs in the channel
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        response = await client.get(f"/voice/members/{voice_channel_id}")
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("member_ids", [])
+
     async def post_bulk_recheck_summary(
         self,
         guild_id: int,

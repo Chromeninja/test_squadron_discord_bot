@@ -175,20 +175,24 @@ class VoiceService(BaseService):
                 f"Shutting down with {len(self._users_creating_channels)} users still marked as creating channels"
             )
             self._users_creating_channels.clear()
-        # Cancel and await all background tasks
-        for task in list(self._background_tasks):
+
+        # Cancel and await all background tasks (snapshot once to avoid race condition)
+        tasks_to_cancel = list(self._background_tasks)
+        for task in tasks_to_cancel:
             task.cancel()
-        for task in list(self._background_tasks):
-            try:
-                await task
-            except asyncio.CancelledError:
-                continue
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.warning(
-                    "Background task %s raised during shutdown: %s",
-                    task.get_name(),
-                    exc,
-                )
+
+        if tasks_to_cancel:
+            # Await all tasks that were marked for cancellation
+            gathered_results = await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            for i, result in enumerate(gathered_results):
+                if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                    task = tasks_to_cancel[i]
+                    self.logger.warning(
+                        "Background task %s raised during shutdown: %s",
+                        task.get_name(),
+                        result,
+                    )
+
         self._background_tasks.clear()
 
     async def _load_managed_channels(self) -> None:
@@ -1874,18 +1878,36 @@ class VoiceService(BaseService):
                             getattr(channel, "id", "unknown"),
                         )
                 else:
-                    self.logger.warning(
-                        f"Skipping permission override for {member.display_name} - bot role '{bot_member.top_role.name}' "
-                        f"is not higher than member role '{member.top_role.name}'"
+                    # Bot role is too low to grant owner permissions - abort channel creation
+                    self.logger.error(
+                        f"Cannot grant owner permissions to {member.display_name} - bot role '{bot_member.top_role.name}' "
+                        f"is not higher than member role '{member.top_role.name}'. Aborting channel creation."
                     )
+                    # Clean up the unusable channel
+                    try:
+                        await channel.delete(reason="Bot role too low to grant owner permissions")
+                    except Exception as cleanup_err:
+                        self.logger.warning(f"Failed to cleanup unusable channel {channel.id}: {cleanup_err}")
+                    return None
             except discord.Forbidden as e:
-                self.logger.warning(
-                    f"Could not set permissions for {member.display_name}: {e}"
+                # Permission error during set_permissions - abort and cleanup
+                self.logger.exception(
+                    f"Cannot set permissions for {member.display_name}: {e}. Aborting channel creation."
                 )
+                try:
+                    await channel.delete(reason="Failed to set owner permissions - Forbidden")
+                except Exception as cleanup_err:
+                    self.logger.warning(f"Failed to cleanup channel after permission error {channel.id}: {cleanup_err}")
+                return None
             except Exception as e:
                 self.logger.exception(
-                    f"Unexpected error setting permissions for {member.display_name}: {e}"
+                    f"Unexpected error setting permissions for {member.display_name}: {e}. Aborting channel creation."
                 )
+                try:
+                    await channel.delete(reason="Failed to set owner permissions - unexpected error")
+                except Exception as cleanup_err:
+                    self.logger.warning(f"Failed to cleanup channel after error {channel.id}: {cleanup_err}")
+                return None
 
             # Apply all saved settings from database after creation
             if self.bot:

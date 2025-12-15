@@ -153,8 +153,8 @@ class AdminCog(commands.Cog):
 
             # Flush the queue
             self.logger.info(
-                f"flush-announcements: flushing {pending_count} pending events",
-                extra={"user_id": interaction.user.id},
+                "flush-announcements: flushing pending events",
+                extra=get_interaction_extra(interaction, pending_count=pending_count),
             )
 
             sent = await announcer.flush_pending()
@@ -165,8 +165,8 @@ class AdminCog(commands.Cog):
                     ephemeral=True,
                 )
                 self.logger.info(
-                    f"flush-announcements: successfully flushed {pending_count} events",
-                    extra={"user_id": interaction.user.id},
+                    "flush-announcements: successfully flushed events",
+                    extra=get_interaction_extra(interaction, pending_count=pending_count),
                 )
             else:
                 await interaction.followup.send(
@@ -175,17 +175,17 @@ class AdminCog(commands.Cog):
                     ephemeral=True,
                 )
                 self.logger.warning(
-                    f"flush-announcements: flush returned False (no announcements sent) despite {pending_count} pending",
-                    extra={"user_id": interaction.user.id},
+                    "flush-announcements: flush returned False (no announcements sent) despite pending events",
+                    extra=get_interaction_extra(interaction, pending_count=pending_count),
                 )
 
-        except Exception as e:
+        except Exception:
             await interaction.followup.send(
-                f"❌ Failed to flush announcements: {e}", ephemeral=True
+                "❌ Failed to flush announcements. Check logs for details.", ephemeral=True
             )
             self.logger.exception(
-                f"flush-announcements command failed: {e}",
-                extra={"user_id": interaction.user.id},
+                "flush-announcements command failed",
+                extra=get_interaction_extra(interaction),
             )
 
     @app_commands.command(name="view-logs", description="View recent bot logs.")

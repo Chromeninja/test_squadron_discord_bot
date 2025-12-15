@@ -741,20 +741,22 @@ class BulkAnnouncer(commands.Cog):
                 )
                 continue
 
-        # Delete all announced events
+        # Mark all announced events with timestamp (preserve history, prevent re-sending)
         if announced_ids:
             try:
                 async with BaseRepository.transaction() as db:
+                    now = int(time.time())
                     CHUNK = 500
                     for i in range(0, len(announced_ids), CHUNK):
                         chunk = announced_ids[i : i + CHUNK]
                         qmarks = ",".join("?" for _ in chunk)
                         await db.execute(
-                            f"DELETE FROM announcement_events WHERE id IN ({qmarks})",
-                            (*chunk,),
+                            f"UPDATE announcement_events SET announced_at = ? WHERE id IN ({qmarks})",
+                            (now, *chunk),
                         )
+                logger.info(f"BulkAnnouncer: marked {len(announced_ids)} events as announced")
             except Exception as e:
-                logger.warning(f"BulkAnnouncer: failed to delete announced events: {e}")
+                logger.warning(f"BulkAnnouncer: failed to mark announced events: {e}")
 
         return sent_any
 

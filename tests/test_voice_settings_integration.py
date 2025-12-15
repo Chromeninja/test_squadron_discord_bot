@@ -575,3 +575,91 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
 
         # 4. Settings view is sent to the voice channel via send()
         fake_created_channel.send.assert_called_once()
+
+
+class TestChannelCreationRoleCheck:
+    """Tests for channel creation failure when bot role is too low."""
+
+    @pytest.mark.asyncio
+    async def test_create_channel_aborts_when_bot_role_too_low(
+        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+    ):
+        """Test that channel creation aborts and cleans up when bot role < member role."""
+        # Configure database response - no saved settings
+        mock_db_connection.set_fetchone_result(None)
+
+        # Mock guild.create_voice_channel
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.delete = AsyncMock()
+        mock_guild.create_voice_channel.return_value = created_channel
+
+        # Mock member's voice state (still connected)
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+
+        # Mock bot member with LOWER role than member (role check fails)
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = MagicMock()
+        mock_bot_member.top_role.name = "BotRole"
+        # __gt__ returns False -> bot role is NOT higher than member role
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=False)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        # Mock member's top role
+        mock_member.top_role = MagicMock()
+        mock_member.top_role.name = "AdminRole"
+
+        # Execute
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        # Verify: channel was deleted due to role check failure
+        created_channel.delete.assert_called_once_with(
+            reason="Bot role too low to grant owner permissions"
+        )
+        # Verify: returns None to indicate failure
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_create_channel_succeeds_when_bot_role_higher(
+        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+    ):
+        """Test that channel creation succeeds when bot role > member role."""
+        # Configure database response - no saved settings
+        mock_db_connection.set_fetchone_result(None)
+
+        # Mock guild.create_voice_channel
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.set_permissions = AsyncMock()
+        created_channel.send = AsyncMock()
+        mock_guild.create_voice_channel.return_value = created_channel
+
+        # Mock member's voice state (still connected)
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
+
+        # Mock bot member with HIGHER role than member (role check passes)
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = MagicMock()
+        mock_bot_member.top_role.name = "BotRole"
+        # __gt__ returns True -> bot role IS higher than member role
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        # Execute
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        # Verify: permissions were set (not deleted)
+        created_channel.set_permissions.assert_called_once()
+        # Verify: returns the channel (success)
+        assert result == created_channel
