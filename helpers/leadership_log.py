@@ -100,9 +100,38 @@ class ChangeSet:
 
 MD_ESCAPE_CHARS = ["`", "*", "_", "~", "|", ">", "\\"]
 
-# In‑memory short window dedupe store: (user_id, signature) -> last_post_ts
-_DEDUP_CACHE: dict[tuple[int, str], float] = {}
+# In‑memory short window dedupe store: (guild_id, user_id, signature) -> last_post_ts
+_DEDUP_CACHE: dict[tuple[int, int, str], float] = {}
 _DEDUP_TTL_SECONDS = 20  # within 20s identical change suppressed
+
+
+async def resolve_leadership_channel(bot, guild_id: int | None):
+    """Resolve the leadership log channel for a guild using config with static fallback."""
+    if not guild_id:
+        return None
+
+    channel = None
+    try:
+        if hasattr(bot, "services") and bot.services:
+            guild_config = bot.services.guild_config
+            guild = bot.get_guild(guild_id)
+            if guild:
+                channel = await guild_config.get_channel(
+                    guild_id, "leadership_announcement_channel_id", guild
+                )
+
+        if not channel and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
+            channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
+            if channel_id:
+                channel = bot.get_channel(int(channel_id))
+
+    except Exception as e:  # pragma: no cover - defensive fallback
+        logger.debug(f"Failed to resolve leadership log channel: {e}")
+        channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
+        if channel_id:
+            channel = bot.get_channel(int(channel_id))
+
+    return channel
 
 
 def escape_md(value: str) -> str:
@@ -277,6 +306,7 @@ async def _verbosity(bot) -> str:
 
 def _normalize_signature(cs: ChangeSet) -> str:
     parts = [
+        str(cs.guild_id or ""),
         cs.status_before or "",
         cs.status_after or "",
         (cs.moniker_before or "").lower(),
@@ -641,7 +671,7 @@ async def post_if_changed(bot, cs: ChangeSet):
 
     # Dedupe short window
     sig = _normalize_signature(cs)
-    key = (cs.user_id, sig)
+    key = (cs.guild_id or 0, cs.user_id, sig)
     now = time.time()
     # Purge expired keys opportunistically
     if len(_DEDUP_CACHE) > 1000:  # safety bound
@@ -655,36 +685,7 @@ async def post_if_changed(bot, cs: ChangeSet):
     _DEDUP_CACHE[key] = now
 
     # Channel resolution via config service
-    channel = None
-    try:
-        if hasattr(bot, "services") and bot.services:
-            # Use guild_id from changeset if available, otherwise fall back to first guild
-            guild_id = (
-                cs.guild_id
-                if cs.guild_id
-                else (bot.guilds[0].id if bot.guilds else None)
-            )
-            if guild_id:
-                guild_config = bot.services.guild_config
-                # Try to get the guild object
-                guild = bot.get_guild(guild_id)
-                if guild:
-                    channel = await guild_config.get_channel(
-                        guild_id, "leadership_announcement_channel_id", guild
-                    )
-
-        # Fallback to static attribute if config service unavailable
-        if not channel and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
-            channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
-            if channel_id:
-                channel = bot.get_channel(int(channel_id))
-
-    except Exception as e:
-        logger.debug(f"Failed to resolve leadership log channel: {e}")
-        # Try static attribute fallback
-        channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
-        if channel_id:
-            channel = bot.get_channel(int(channel_id))
+    channel = await resolve_leadership_channel(bot, cs.guild_id)
 
     if not channel:
         logger.debug(
@@ -708,5 +709,6 @@ __all__ = [
     "color_for",
     "escape_md",
     "is_effectively_unchanged",
+    "resolve_leadership_channel",
     "post_if_changed",
 ]

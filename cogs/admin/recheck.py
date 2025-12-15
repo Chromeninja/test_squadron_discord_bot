@@ -1,11 +1,15 @@
 import asyncio
+import csv
+import io
+import re
 import time
+from collections import defaultdict
 
 import discord
 from discord.ext import commands, tasks
 
 from helpers.http_helper import NotFoundError
-from helpers.leadership_log import EventType
+from helpers.leadership_log import EventType, resolve_leadership_channel
 from helpers.task_queue import flush_tasks
 from helpers.username_404 import handle_username_404
 from helpers.verification_logging import log_guild_sync
@@ -20,6 +24,82 @@ from services.verification_state import compute_global_state, store_global_state
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _auto_diff_changed(diff: dict) -> bool:
+    if not diff:
+        return False
+
+    return any(
+        [
+            diff.get("status_before") != diff.get("status_after"),
+            diff.get("moniker_before") != diff.get("moniker_after"),
+            diff.get("handle_before") != diff.get("handle_after"),
+            diff.get("username_before") != diff.get("username_after"),
+            diff.get("main_orgs_before") != diff.get("main_orgs_after"),
+            diff.get("affiliate_orgs_before") != diff.get("affiliate_orgs_after"),
+            bool(diff.get("roles_added")),
+            bool(diff.get("roles_removed")),
+        ]
+    )
+
+
+def _build_auto_check_csv(rows: list[dict], guild_name: str) -> tuple[str, bytes]:
+    timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
+    safe_guild = re.sub(r"[^\w\-]", "_", guild_name)[:30] or "guild"
+    filename = f"auto_check_{safe_guild}_{timestamp_str}.csv"
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "user_id",
+            "username",
+            "status_before",
+            "status_after",
+            "handle_before",
+            "handle_after",
+            "moniker_before",
+            "moniker_after",
+            "main_orgs_before",
+            "main_orgs_after",
+            "affiliate_orgs_before",
+            "affiliate_orgs_after",
+            "roles_added",
+            "roles_removed",
+        ]
+    )
+
+    def _fmt_list(val):
+        if not val:
+            return ""
+        if isinstance(val, list):
+            return ";".join(str(x) for x in val)
+        return str(val)
+
+    for row in rows:
+        diff = row.get("diff", {})
+        member = row.get("member")
+        writer.writerow(
+            [
+                getattr(member, "id", ""),
+                getattr(member, "display_name", getattr(member, "name", "")),
+                diff.get("status_before", ""),
+                diff.get("status_after", ""),
+                diff.get("handle_before", ""),
+                diff.get("handle_after", ""),
+                diff.get("moniker_before", ""),
+                diff.get("moniker_after", ""),
+                _fmt_list(diff.get("main_orgs_before")),
+                _fmt_list(diff.get("main_orgs_after")),
+                _fmt_list(diff.get("affiliate_orgs_before")),
+                _fmt_list(diff.get("affiliate_orgs_after")),
+                _fmt_list(diff.get("roles_added")),
+                _fmt_list(diff.get("roles_removed")),
+            ]
+        )
+
+    return filename, output.getvalue().encode("utf-8")
 
 
 class AutoRecheck(commands.Cog):
@@ -54,6 +134,10 @@ class AutoRecheck(commands.Cog):
         if not self.enabled:
             return
         await self.bot.wait_until_ready()
+
+        guild_summaries: dict[int, dict] = defaultdict(
+            lambda: {"checked": 0, "changed": 0, "rows": []}
+        )
 
         # Check if manual bulk check is running - defer if so
         if (
@@ -112,6 +196,12 @@ class AutoRecheck(commands.Cog):
                 continue
 
             for res in results:
+                summary = guild_summaries[res.guild_id]
+                summary["checked"] += 1
+                if _auto_diff_changed(res.diff):
+                    summary["changed"] += 1
+                    summary["rows"].append({"member": res.member, "diff": res.diff})
+
                 await log_guild_sync(res, EventType.AUTO_CHECK, self.bot)
 
             try:
@@ -123,6 +213,8 @@ class AutoRecheck(commands.Cog):
                 await schedule_user_recheck(int(user_id), next_retry)
             except Exception as e:
                 logger.warning("Failed to schedule next retry for %s: %s", user_id, e)
+
+        await self._post_auto_summaries(guild_summaries)
 
     async def _prune_user_from_db(self, user_id: int) -> None:
         """Remove user data only when they have left all managed guilds."""
@@ -178,6 +270,45 @@ class AutoRecheck(commands.Cog):
                     user_id,
                     guild.id,
                     e,
+                )
+
+    async def _post_auto_summaries(self, guild_summaries: dict[int, dict]) -> None:
+        """Post per-guild auto-check summaries to the leadership channel."""
+        for guild_id, data in guild_summaries.items():
+            checked = data.get("checked", 0)
+            changed = data.get("changed", 0)
+            rows = data.get("rows", [])
+
+            if checked == 0:
+                continue
+
+            channel = await resolve_leadership_channel(self.bot, guild_id)
+            if not channel:
+                logger.debug(
+                    "Leadership log channel missing for guild %s; skipping summary",
+                    guild_id,
+                )
+                continue
+
+            content = (
+                f"[Auto Check Summary] Checked {checked} member(s); "
+                f"changes: {changed}."
+            )
+
+            file = None
+            if changed > 0 and rows:
+                guild_name = getattr(channel.guild, "name", str(guild_id))
+                filename, csv_bytes = _build_auto_check_csv(rows, guild_name)
+                file = discord.File(io.BytesIO(csv_bytes), filename=filename)
+
+            try:
+                if file:
+                    await channel.send(content, file=file)
+                else:
+                    await channel.send(content)
+            except Exception as e:
+                logger.warning(
+                    "Failed posting auto-check summary for guild %s: %s", guild_id, e
                 )
 
 

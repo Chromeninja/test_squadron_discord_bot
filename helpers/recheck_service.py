@@ -188,9 +188,15 @@ async def perform_recheck(
         result["diff"] = guild_result.diff
 
         if log_leadership:
+            event = (
+                EventType.ADMIN_CHECK
+                if initiator_kind == InitiatorKind.ADMIN
+                else (EventType.AUTO_CHECK if initiator_kind == InitiatorKind.AUTO else EventType.RECHECK)
+            )
+
             await log_guild_sync(
                 guild_result,
-                EventType.RECHECK,
+                event,
                 bot,
                 initiator={
                     "user_id": member.id,

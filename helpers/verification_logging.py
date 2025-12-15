@@ -28,26 +28,27 @@ def _should_suppress(diff: dict, event: EventType, *, notes: str | None = None) 
     if not diff:
         return True
 
-    # Never suppress events with explicit notes (e.g., "RSI 404")
     if notes:
         return False
 
-    # Check for no-op scenarios (no actual changes)
     status_same = diff.get("status_before") == diff.get("status_after")
     orgs_same = diff.get("main_orgs_before") == diff.get("main_orgs_after") and diff.get(
         "affiliate_orgs_before"
     ) == diff.get("affiliate_orgs_after")
     roles_same = not diff.get("roles_added") and not diff.get("roles_removed")
     username_same = diff.get("username_before") == diff.get("username_after")
+    moniker_same = diff.get("moniker_before") == diff.get("moniker_after")
+    handle_same = diff.get("handle_before") == diff.get("handle_after")
 
-    # Suppress AUTO_CHECK events when nothing changed
     if event == EventType.AUTO_CHECK:
-        if status_same and orgs_same and roles_same:
-            return True
-
-    # Suppress RECHECK events when truly nothing changed (including username)
-    if event == EventType.RECHECK:
-        if status_same and orgs_same and roles_same and username_same:
+        if (
+            status_same
+            and orgs_same
+            and roles_same
+            and username_same
+            and moniker_same
+            and handle_same
+        ):
             return True
 
     return False

@@ -788,9 +788,6 @@ function Users() {
                     User
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Discord ID
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     Status
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
@@ -855,11 +852,11 @@ function Users() {
                           <div className="text-sm text-gray-400">
                             {user.username}#{user.discriminator}
                           </div>
+                          <div className="text-xs text-gray-500 font-mono mt-0.5">
+                            {user.discord_id}
+                          </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm font-mono text-gray-300">
-                      {user.discord_id}
                     </td>
                     <td className="px-4 py-4">
                       <Badge variant={getStatusVariant(user.membership_status)}>
@@ -895,8 +892,8 @@ function Users() {
                             </a>
                           ))}
                           {user.main_orgs.filter(org => org === 'REDACTED').length > 0 && (
-                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Hidden organizations">
-                              +{user.main_orgs.filter(org => org === 'REDACTED').length} hidden
+                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
+                              +{user.main_orgs.filter(org => org === 'REDACTED').length} redacted
                             </span>
                           )}
                         </div>
@@ -924,8 +921,8 @@ function Users() {
                             </span>
                           )}
                           {user.affiliate_orgs.filter(org => org === 'REDACTED').length > 0 && (
-                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Hidden organizations">
-                              +{user.affiliate_orgs.filter(org => org === 'REDACTED').length} hidden
+                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
+                              +{user.affiliate_orgs.filter(org => org === 'REDACTED').length} redacted
                             </span>
                           )}
                         </div>
@@ -949,7 +946,10 @@ function Users() {
                           <span className="text-gray-500">No roles</span>
                         )}
                         {user.roles.length > 3 && (
-                          <span className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400">
+                          <span 
+                            className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400 cursor-help"
+                            title={user.roles.slice(3).map(r => r.name).join(', ')}
+                          >
                             +{user.roles.length - 3}
                           </span>
                         )}
