@@ -4,6 +4,7 @@ import SearchableMultiSelect, { MultiSelectOption } from '../components/Searchab
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
 import AccordionSection from '../components/AccordionSection';
 import { handleApiError } from '../utils/toast';
+import { Alert, Button, Card, CardBody, Input } from '../components/ui';
 
 interface DashboardBotSettingsProps {
   guildId: string;
@@ -310,7 +311,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   };
 
   if (loading) {
-    return <div className="text-gray-400">Loading bot settings...</div>;
+    return (
+      <Card variant="default" className="animate-pulse">
+        <CardBody>
+          <div className="text-gray-400">Loading bot settings...</div>
+        </CardBody>
+      </Card>
+    );
   }
 
   return (
@@ -337,67 +344,39 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       {readOnly && (
         <AccordionSection title="🛡️ Global YAML (Read-Only)" level={1}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
-              <h5 className="text-sm font-semibold text-white mb-2">RSI Config</h5>
-              <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
-                {JSON.stringify(readOnly.rsi ?? {}, null, 2)}
-              </pre>
-            </div>
-            <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
-              <h5 className="text-sm font-semibold text-white mb-2">Voice (Global)</h5>
-              <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words mb-2">
-                {JSON.stringify(readOnly.voice ?? {}, null, 2)}
-              </pre>
-              <div className="text-xs text-gray-200">
-                <span className="font-semibold">voice_debug_logging_enabled:</span>{' '}
-                <span>{String(readOnly.voice_debug_logging_enabled ?? false)}</span>
-              </div>
-            </div>
+            <Card variant="default">
+              <CardBody>
+                <h5 className="text-sm font-semibold text-white mb-2">RSI Config</h5>
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words">
+                  {JSON.stringify(readOnly.rsi ?? {}, null, 2)}
+                </pre>
+              </CardBody>
+            </Card>
+            <Card variant="default">
+              <CardBody>
+                <h5 className="text-sm font-semibold text-white mb-2">Voice (Global)</h5>
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words mb-2">
+                  {JSON.stringify(readOnly.voice ?? {}, null, 2)}
+                </pre>
+                <div className="text-xs text-gray-200">
+                  <span className="font-semibold">voice_debug_logging_enabled:</span>{' '}
+                  <span>{String(readOnly.voice_debug_logging_enabled ?? false)}</span>
+                </div>
+              </CardBody>
+            </Card>
           </div>
         </AccordionSection>
       )}
 
       {/* Status Messages */}
-      {error && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-200">
-          {error}
-        </div>
-      )}
-      {statusMessage && (
-        <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 text-green-200">
-          {statusMessage}
-        </div>
-      )}
-      {voiceError && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-200">
-          {voiceError}
-        </div>
-      )}
-      {voiceStatusMessage && (
-        <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 text-green-200">
-          {voiceStatusMessage}
-        </div>
-      )}
-      {channelError && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-200">
-          {channelError}
-        </div>
-      )}
-      {channelStatusMessage && (
-        <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 text-green-200">
-          {channelStatusMessage}
-        </div>
-      )}
-      {orgError && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-200">
-          {orgError}
-        </div>
-      )}
-      {orgStatusMessage && (
-        <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 text-green-200">
-          {orgStatusMessage}
-        </div>
-      )}
+      {error && <Alert variant="error">{error}</Alert>}
+      {statusMessage && <Alert variant="success">{statusMessage}</Alert>}
+      {voiceError && <Alert variant="error">{voiceError}</Alert>}
+      {voiceStatusMessage && <Alert variant="success">{voiceStatusMessage}</Alert>}
+      {channelError && <Alert variant="error">{channelError}</Alert>}
+      {channelStatusMessage && <Alert variant="success">{channelStatusMessage}</Alert>}
+      {orgError && <Alert variant="error">{orgError}</Alert>}
+      {orgStatusMessage && <Alert variant="success">{orgStatusMessage}</Alert>}
 
       {/* Organization Settings - Top Level Accordion */}
       <AccordionSection title="🏢 Organization Verification" level={1}>
@@ -412,40 +391,39 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               Enter your organization's Spectrum ID (e.g., "TEST"). This is used to verify member status.
             </p>
             <div className="flex gap-2">
-              <input
-                type="text"
+              <Input
                 value={orgSidInput}
                 onChange={(e) => setOrgSidInput(e.target.value.toUpperCase())}
                 placeholder="Enter SID (e.g., TEST)"
-                className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="flex-1"
                 maxLength={20}
               />
-              <button
+              <Button
                 onClick={handleOrgValidate}
                 disabled={orgValidating || !orgSidInput.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+                variant="primary"
               >
                 {orgValidating ? 'Validating...' : 'Validate'}
-              </button>
+              </Button>
             </div>
           </div>
 
           {organizationName && (
-            <div className="rounded-lg border border-green-700 bg-green-900/20 p-4">
+            <Alert variant="success">
               <h5 className="text-sm font-semibold text-green-200 mb-1">Organization Found</h5>
               <p className="text-sm text-green-100">{organizationName}</p>
               <p className="text-xs text-green-300 mt-1">SID: {orgSidInput || organizationSid}</p>
-            </div>
+            </Alert>
           )}
 
           <div className="flex justify-end pt-2">
-            <button
+            <Button
               onClick={handleOrgSave}
               disabled={orgSaving || !organizationName}
-              className="rounded-md bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+              variant="success"
             >
               {orgSaving ? 'Saving...' : 'Save Organization Settings'}
-            </button>
+            </Button>
           </div>
         </div>
       </AccordionSection>
@@ -456,7 +434,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           {/* Bot Administration - Second Level Accordion */}
           <AccordionSection title="📁 Bot Administration" level={2}>
             <div className="space-y-4">
-              <div className="rounded-lg border border-indigo-700 bg-indigo-900/20 p-3 mb-4">
+              <Alert variant="info" className="mb-4">
                 <h5 className="text-sm font-semibold text-indigo-200 mb-1">Permission Hierarchy</h5>
                 <p className="text-xs text-indigo-100">
                   Permissions are inherited from higher levels. Bot Admins have all permissions, 
@@ -465,7 +443,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                 <div className="mt-2 text-xs text-indigo-200 font-mono">
                   Bot Owner &gt; Bot Admin &gt; Discord Manager &gt; Moderator &gt; Staff &gt; User
                 </div>
-              </div>
+              </Alert>
 
               <div>
                 <h5 className="text-sm font-semibold text-white mb-1">Bot Admin Roles</h5>
@@ -599,27 +577,30 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               </p>
 
               {delegationPolicies.map((policy, index) => (
-                <div key={index} className="rounded-lg border border-slate-700 bg-slate-800/60 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h5 className="text-sm font-semibold text-white">Policy #{index + 1}</h5>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-2 text-xs text-gray-200">
-                        <input
-                          type="checkbox"
-                          checked={policy.enabled}
-                          onChange={(e) => updateDelegationPolicy(index, { enabled: e.target.checked })}
-                          className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
-                        />
-                        Enabled
-                      </label>
-                      <button
-                        onClick={() => removeDelegationPolicy(index)}
-                        className="text-xs text-red-300 hover:text-red-200"
-                      >
-                        Remove
-                      </button>
+                <Card key={index} variant="default" className="space-y-3">
+                  <CardBody className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-sm font-semibold text-white">Policy #{index + 1}</h5>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-2 text-xs text-gray-200">
+                          <input
+                            type="checkbox"
+                            checked={policy.enabled}
+                            onChange={(e) => updateDelegationPolicy(index, { enabled: e.target.checked })}
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+                          />
+                          Enabled
+                        </label>
+                        <Button
+                          onClick={() => removeDelegationPolicy(index)}
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-300 hover:text-red-200"
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </div>
-                  </div>
 
                   <div>
                     <h6 className="text-xs font-semibold text-white mb-1">Grantor Roles</h6>
@@ -677,25 +658,21 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                     </div>
                   </div>
 
-                  <div>
-                    <h6 className="text-xs font-semibold text-white mb-1">Note</h6>
-                    <input
-                      type="text"
-                      value={policy.note ?? ''}
-                      onChange={(e) => updateDelegationPolicy(index, { note: e.target.value })}
-                      placeholder="Optional note"
-                      className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
+                    <div>
+                      <h6 className="text-xs font-semibold text-white mb-1">Note</h6>
+                      <Input
+                        value={policy.note ?? ''}
+                        onChange={(e) => updateDelegationPolicy(index, { note: e.target.value })}
+                        placeholder="Optional note"
+                      />
+                    </div>
+                  </CardBody>
+                </Card>
               ))}
 
-              <button
-                onClick={addDelegationPolicy}
-                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500"
-              >
+              <Button onClick={addDelegationPolicy} variant="success">
                 Add Delegation Policy
-              </button>
+              </Button>
             </div>
           </AccordionSection>
 
@@ -716,13 +693,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               </div>
 
               <div className="flex justify-end">
-                <button
+                <Button
                   onClick={handleVoiceRolesSave}
                   disabled={voiceSaving}
-                  className="rounded-md bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+                  variant="success"
                 >
                   {voiceSaving ? 'Saving...' : 'Save Voice Roles'}
-                </button>
+                </Button>
               </div>
             </div>
           </AccordionSection>
@@ -785,26 +762,27 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           </div>
 
           <div className="flex justify-end">
-            <button
+            <Button
               onClick={handleChannelsSave}
               disabled={channelSaving}
-              className="rounded-md bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-60"
+              variant="success"
             >
               {channelSaving ? 'Saving...' : 'Save Channel Settings'}
-            </button>
+            </Button>
           </div>
         </div>
       </AccordionSection>
 
       {/* Save Button */}
       <div className="flex justify-end pt-4 border-t border-slate-700">
-        <button
+        <Button
           onClick={handleSave}
           disabled={saving}
-          className="rounded-lg bg-indigo-600 px-8 py-3 font-semibold text-white shadow-lg transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:opacity-50"
+          variant="primary"
+          size="lg"
         >
           {saving ? 'Saving Changes...' : 'Save Configuration'}
-        </button>
+        </Button>
       </div>
     </div>
   );

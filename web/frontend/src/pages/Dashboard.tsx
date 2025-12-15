@@ -11,6 +11,7 @@ import {
 } from '../api/endpoints';
 import { handleApiError, showSuccess } from '../utils/toast';
 import { hasPermission, RoleLevel } from '../utils/permissions';
+import { Button, Card, Alert } from '../components/ui';
 
 function Dashboard() {
   const [stats, setStats] = useState<StatsOverview | null>(null);
@@ -152,15 +153,12 @@ function Dashboard() {
 
   if (error) {
     return (
-      <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
-        <p className="text-red-400">{error}</p>
-        <button
-          onClick={handleRefresh}
-          className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors"
-        >
+      <Alert variant="error">
+        <p>{error}</p>
+        <Button variant="secondary" onClick={handleRefresh} className="mt-4">
           Retry
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
   }
 
@@ -172,48 +170,39 @@ function Dashboard() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Dashboard Overview</h2>
-        <button
+        <Button
           onClick={handleRefresh}
-          disabled={refreshing}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-md transition-colors flex items-center gap-2"
+          loading={refreshing}
+          leftIcon={
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          }
         >
-          <svg
-            className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
           {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        </Button>
       </div>
 
       {/* Main Stats - Visible to all authenticated users */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
         {/* Total Verified */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <Card padding="lg">
           <h3 className="text-sm font-medium text-gray-400 mb-2">
             Total Verified
           </h3>
           <p className="text-3xl font-bold">{stats.total_verified}</p>
-        </div>
+        </Card>
 
         {/* Voice Active */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <Card padding="lg">
           <h3 className="text-sm font-medium text-gray-400 mb-2">
             Active Voice Channels
           </h3>
           <p className="text-3xl font-bold">{stats.voice_active_count}</p>
-        </div>
+        </Card>
 
         {/* Status Breakdown */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 md:col-span-2 lg:col-span-1">
+        <Card padding="lg" className="md:col-span-2 lg:col-span-1">
           <h3 className="text-sm font-medium text-gray-400 mb-4">
             Membership Status
           </h3>
@@ -235,7 +224,7 @@ function Dashboard() {
               <span className="font-semibold">{stats.by_status.unknown}</span>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Admin Section - Only visible to bot admins and bot owners */}
@@ -245,7 +234,7 @@ function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Bot Health Card */}
             {health && (
-              <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+              <Card padding="lg">
                 <h3 className="text-sm font-medium text-gray-400 mb-3">
                   Bot Health
                 </h3>
@@ -306,11 +295,11 @@ function Dashboard() {
                     </details>
                   </div>
                 </div>
-              </div>
+              </Card>
             )}
 
             {/* Last Error Card */}
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <Card padding="lg">
               <h3 className="text-sm font-medium text-gray-400 mb-3">
                 Last Error
               </h3>
@@ -347,73 +336,55 @@ function Dashboard() {
                   <p className="text-green-400 text-sm">No recent errors</p>
                 </div>
               )}
-            </div>
+            </Card>
 
             {/* Admin Actions Card */}
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <Card padding="lg">
               <h3 className="text-sm font-medium text-gray-400 mb-3">
                 Actions
               </h3>
               <div className="space-y-3">
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
                   onClick={handleExportLogs}
-                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors text-sm flex items-center justify-center gap-2"
+                  leftIcon={
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  }
                 >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
                   Export Bot Logs
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
                   onClick={handleExportBackendLogs}
-                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors text-sm flex items-center justify-center gap-2"
+                  leftIcon={
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  }
                 >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
                   Export Backend Logs
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
                   onClick={handleExportAuditLogs}
-                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md transition-colors text-sm flex items-center justify-center gap-2"
+                  leftIcon={
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  }
                 >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
                   Export Audit Logs
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           </div>
         </>
       )}

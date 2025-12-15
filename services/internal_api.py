@@ -8,7 +8,7 @@ without hitting Discord API rate limits.
 import base64
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from aiohttp import web
 
@@ -19,6 +19,7 @@ from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
+    from bot import MyBot
     from services.service_container import ServiceContainer
 
 logger = get_logger(__name__)
@@ -953,7 +954,7 @@ class InternalAPIServer:
         # Send to leadership channel using existing helper
         try:
             channel_name = await send_admin_bulk_check_summary(
-                self.bot,
+                cast("MyBot", self.bot),
                 guild=guild,
                 invoker=invoker,
                 scope_label=scope_label,

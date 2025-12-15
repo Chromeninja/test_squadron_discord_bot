@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authApi, GuildSummary } from '../api/endpoints';
 import { handleApiError } from '../utils/toast';
+import { Button, Card, Alert } from '../components/ui';
 
 interface SelectServerProps {
   onSelected: () => Promise<void> | void;
@@ -92,45 +93,47 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
 
         {/* Action buttons */}
         <div className="flex gap-4 mb-6">
-          <button
+          <Button
+            variant="secondary"
             onClick={handleRefresh}
-            disabled={refreshing}
-            className="rounded-md bg-slate-700 px-4 py-2 font-semibold transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800"
+            loading={refreshing}
           >
-            {refreshing ? 'Refreshing...' : '🔄 Refresh Guild List'}
-          </button>
-          <button
+            🔄 Refresh Guild List
+          </Button>
+          <Button
+            variant="success"
             onClick={handleAddBot}
-            className="rounded-md bg-green-700 px-4 py-2 font-semibold transition hover:bg-green-600"
           >
             ➕ Add Bot to Server
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
             onClick={handleLogout}
-            disabled={loggingOut}
-            className="rounded-md bg-red-700 px-4 py-2 font-semibold transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-900"
+            loading={loggingOut}
           >
-            {loggingOut ? 'Logging out...' : '🚪 Logout'}
-          </button>
+            🚪 Logout
+          </Button>
         </div>
 
         {error && (
-          <div className="mb-6 rounded-lg border border-red-700 bg-red-900/30 p-4 text-red-300">
+          <Alert variant="error" className="mb-6">
             {error}
-          </div>
+          </Alert>
         )}
 
         {guilds.length === 0 ? (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-8 text-center text-gray-400">
+          <Card variant="ghost" padding="lg" className="text-center text-gray-400">
             <p className="mb-4">No servers available. Make sure the bot is installed in your Discord server.</p>
             <p className="text-sm">Click "Add Bot to Server" above to invite the bot to your server.</p>
-          </div>
+          </Card>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
             {guilds.map((guild) => (
-              <div
+              <Card
                 key={guild.guild_id}
-                className="rounded-xl border border-slate-700 bg-slate-800/60 p-6 shadow hover:border-indigo-500 transition"
+                padding="lg"
+                hoverable
+                className="shadow hover:border-indigo-500"
               >
                 <div className="flex items-center gap-4 mb-4">
                   {guild.icon_url ? (
@@ -149,14 +152,14 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
                     <p className="text-sm text-gray-400">Guild ID: {guild.guild_id}</p>
                   </div>
                 </div>
-                <button
+                <Button
+                  fullWidth
                   onClick={() => handleSelect(guild.guild_id)}
-                  disabled={selectingId === guild.guild_id}
-                  className="w-full rounded-md bg-indigo-600 py-2 font-semibold transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-600"
+                  loading={selectingId === guild.guild_id}
                 >
                   {selectingId === guild.guild_id ? 'Selecting...' : 'Go'}
-                </button>
-              </div>
+                </Button>
+              </Card>
             ))}
           </div>
         )}

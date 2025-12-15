@@ -11,6 +11,7 @@ import {
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { handleApiError } from '../utils/toast';
 import { hasPermission } from '../utils/permissions';
+import { Alert, Button, Card, Badge, Input } from '../components/ui';
 
 function Users() {
   // State
@@ -483,17 +484,17 @@ function Users() {
     if (page < totalPages) setPage(page + 1);
   };
 
-  // Get status badge color
-  const getStatusColor = (status: string | null) => {
+  // Get status badge variant
+  const getStatusVariant = (status: string | null): 'success' | 'info' | 'warning' | 'neutral' => {
     switch (status) {
       case 'main':
-        return 'bg-green-900 text-green-200';
+        return 'success';
       case 'affiliate':
-        return 'bg-blue-900 text-blue-200';
+        return 'info';
       case 'non_member':
-        return 'bg-yellow-900 text-yellow-200';
+        return 'warning';
       default:
-        return 'bg-gray-900 text-gray-400';
+        return 'neutral';
     }
   };
 
@@ -536,25 +537,23 @@ function Users() {
       
       {/* Success Message */}
       {recheckSuccess && (
-        <div className="bg-green-900/20 border border-green-800 rounded-lg p-4 mb-6">
-          <p className="text-green-400">{recheckSuccess}</p>
-        </div>
+        <Alert variant="success" className="mb-6">
+          {recheckSuccess}
+        </Alert>
       )}
 
       {/* Filter Bar */}
-      <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700">
+      <Card padding="md" className="mb-6">
         <div className="flex flex-wrap gap-4 items-start">
           {/* Search Box */}
           <div className="flex-1 min-w-[250px]">
             <label className="block text-sm font-medium text-gray-400 mb-2">
               Search
             </label>
-            <input
-              type="text"
+            <Input
               placeholder="Search by username, RSI handle, or UUID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
           
@@ -651,12 +650,12 @@ function Users() {
           {/* Clear Filters Button */}
           {(selectedStatuses.length > 0 || searchQuery.trim() || selectedOrgs.length > 0) && (
             <div className="self-end">
-              <button
+              <Button
+                variant="secondary"
                 onClick={clearFilters}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded border border-slate-600"
               >
                 Clear Filters
-              </button>
+              </Button>
             </div>
           )}
 
@@ -682,84 +681,91 @@ function Users() {
 
           {/* Apply Filters Button */}
           <div className="flex items-end">
-            <button
+            <Button
               onClick={fetchUsers}
-              disabled={loading}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 px-4 py-2 rounded font-medium transition"
+              loading={loading}
             >
               {loading ? 'Loading...' : 'Apply Filters'}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Export Bar */}
       {(total > 0 || hasSelection) && (
-        <div className="bg-slate-800 rounded-lg p-4 mb-6 border border-slate-700 flex flex-wrap gap-4 justify-between items-center">
-          <div>
-            <div className="text-sm text-gray-300">{selectionSummary}</div>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={handleSelectAllFiltered}
-                disabled={selectAllFiltered || total === 0}
-                className="px-3 py-1 text-xs rounded border border-slate-600 text-gray-200 hover:bg-slate-700 disabled:opacity-50"
-              >
-                Select All Filtered
-              </button>
-              <button
-                onClick={resetSelection}
+        <Card padding="md" className="mb-6">
+          <div className="flex flex-wrap gap-4 justify-between items-center">
+            <div>
+              <div className="text-sm text-gray-300">{selectionSummary}</div>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSelectAllFiltered}
+                  disabled={selectAllFiltered || total === 0}
+                  className="border border-slate-600"
+                >
+                  Select All Filtered
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetSelection}
+                  disabled={!hasSelection}
+                  className="border border-slate-600"
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              {canRecheck && (
+                <Button
+                  onClick={handleBulkRecheck}
+                  loading={bulkRechecking}
+                  disabled={!hasSelection}
+                  title="Re-verify selected users' RSI membership and update roles"
+                >
+                  {bulkRechecking ? 'Rechecking...' : 'Recheck Selected'}
+                </Button>
+              )}
+              <Button
+                variant="success"
+                onClick={handleExportSelected}
+                loading={exporting}
                 disabled={!hasSelection}
-                className="px-3 py-1 text-xs rounded border border-slate-600 text-gray-200 hover:bg-slate-700 disabled:opacity-50"
               >
-                Clear Selection
-              </button>
+                {exporting ? 'Exporting...' : 'Export Selected'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleExportFiltered}
+                loading={exporting}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {exporting ? 'Exporting...' : 'Export All Filtered'}
+              </Button>
             </div>
           </div>
-          <div className="flex gap-3">
-            {canRecheck && (
-              <button
-                onClick={handleBulkRecheck}
-                disabled={bulkRechecking || !hasSelection}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
-                title="Re-verify selected users' RSI membership and update roles"
-              >
-                {bulkRechecking ? 'Rechecking...' : 'Recheck Selected'}
-              </button>
-            )}
-            <button
-              onClick={handleExportSelected}
-              disabled={exporting || !hasSelection}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium transition"
-            >
-              {exporting ? 'Exporting...' : 'Export Selected'}
-            </button>
-            <button
-              onClick={handleExportFiltered}
-              disabled={exporting}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 px-4 py-2 rounded text-sm font-medium transition"
-            >
-              {exporting ? 'Exporting...' : 'Export All Filtered'}
-            </button>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Error */}
       {error && (
-        <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 mb-6">
-          <p className="text-red-400">{error}</p>
-        </div>
+        <Alert variant="error" className="mb-6">
+          {error}
+        </Alert>
       )}
 
       {/* Loading Skeleton */}
       {loading && (
-        <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+        <Card padding="lg">
           <div className="animate-pulse space-y-4">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="h-16 bg-slate-700 rounded"></div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Users Table */}
@@ -856,13 +862,9 @@ function Users() {
                       {user.discord_id}
                     </td>
                     <td className="px-4 py-4">
-                      <span
-                        className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(
-                          user.membership_status
-                        )}`}
-                      >
+                      <Badge variant={getStatusVariant(user.membership_status)}>
                         {user.membership_status || 'unknown'}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-300">
                       {user.rsi_handle ? (
@@ -964,14 +966,14 @@ function Users() {
                     </td>
                     <td className="px-4 py-4">
                       {canRecheck ? (
-                        <button
+                        <Button
+                          size="sm"
                           onClick={() => handleRecheckUser(user.discord_id)}
-                          disabled={recheckingUserId === user.discord_id}
-                          className="px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded transition"
+                          loading={recheckingUserId === user.discord_id}
                           title="Re-verify this user's RSI membership and update roles"
                         >
                           {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
-                        </button>
+                        </Button>
                       ) : (
                         <span className="text-xs text-gray-500">-</span>
                       )}
@@ -995,23 +997,23 @@ function Users() {
               )}
             </div>
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="secondary"
                 onClick={handlePrevPage}
                 disabled={page === 1}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded transition"
               >
                 Previous
-              </button>
+              </Button>
               <div className="px-4 py-2 bg-slate-700 rounded">
                 Page {page} of {totalPagesDisplay}
               </div>
-              <button
+              <Button
+                variant="secondary"
                 onClick={handleNextPage}
                 disabled={page >= totalPages || total === 0}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded transition"
               >
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1019,7 +1021,7 @@ function Users() {
 
       {/* Empty State */}
       {!loading && filteredUsers.length === 0 && (
-        <div className="bg-slate-800 rounded-lg border border-slate-700 p-12 text-center">
+        <Card padding="lg" className="text-center py-12">
           <div className="text-gray-400 text-lg">
             {searchQuery.trim() ? 'No members match your search' : 'No members found'}
           </div>
@@ -1029,7 +1031,7 @@ function Users() {
               : 'Try adjusting your filters or check back later'
             }
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Recheck Results Modal */}
