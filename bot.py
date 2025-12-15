@@ -90,6 +90,7 @@ def get_prefix() -> PrefixType:
 # Backward compatibility: expose as module-level for existing imports
 # These trigger lazy loading when accessed
 PREFIX_WARNINGS: list[str] = []  # Populated by create_bot()
+bot: commands.Bot | None = None  # Set only when executed as a script
 
 
 # Configure intents - start from none and enable only what's required
@@ -750,9 +751,9 @@ def create_bot() -> MyBot:
 # Module Execution
 # ---------------------------------------------------------------------------
 # Only create and run bot when executed directly (not imported)
-if __name__ == "__main__" or os.getenv("TESTBOT_DRY_RUN") != "1":
-    # For backward compatibility, also create module-level bot instance
-    # This allows existing code that imports `from bot import bot` to work
-    if os.getenv("TESTBOT_DRY_RUN") != "1":
+if __name__ == "__main__":
+    if os.getenv("TESTBOT_DRY_RUN") == "1":
+        logger.info("TESTBOT_DRY_RUN=1 set; skipping bot startup")
+    else:
         bot = create_bot()
         bot.run(_load_token())

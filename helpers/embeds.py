@@ -88,8 +88,8 @@ def create_verification_embed() -> discord.Embed:
     description = (
         "Welcome! To get started, please **click the 'Get Token' button below**.\n\n"
         "After obtaining your token, verify your RSI / Star Citizen account by using the provided buttons.\n\n"
-        "If you don't have an account, feel free to enlist here: "
-        "https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G"
+        "If you don't have an RSI account, you can [sign-up here]"
+        "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)"
     )
     color = 0xFFBB00  # Yellow
     thumbnail_url = (
@@ -264,15 +264,14 @@ def build_welcome_description(role_type: str) -> str:
         return base + "\n\nWe set your Discord nickname to your RSI handle."
     elif role_type == "affiliate":
         base = (
-            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
+            "<:testSquad:1332572066804928633> **Welcome to TEST Squadron - "
             "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-            "Your support helps us grow and excel. We encourage you to set **TEST** as "
-            "your MAIN Org to show your loyalty.\n\n"
-            "**Instructions:**\n"
+            "Thanks for being an affiliate! We encourage you to set **TEST** as "
+            "your MAIN org to show your loyalty.\n\n"
+            "**Make TEST your main:**\n"
             ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
             "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
-            "Join our voice chats, explore events, and engage in our text channels to get "
-            "involved!\n\n"
+            "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
             "<:o7:1332572027877593148>"
         )
         return base + "\n\nWe set your Discord nickname to your RSI handle."

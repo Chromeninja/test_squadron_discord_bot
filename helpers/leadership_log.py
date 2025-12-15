@@ -709,6 +709,6 @@ __all__ = [
     "color_for",
     "escape_md",
     "is_effectively_unchanged",
-    "resolve_leadership_channel",
     "post_if_changed",
+    "resolve_leadership_channel",
 ]

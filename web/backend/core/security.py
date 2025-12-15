@@ -162,6 +162,8 @@ def get_discord_authorize_url(state: str) -> str:
     Returns:
         Full authorization URL
     """
+    from urllib.parse import urlencode
+
     params = {
         "client_id": DISCORD_CLIENT_ID,
         "redirect_uri": DISCORD_REDIRECT_URI,
@@ -170,7 +172,7 @@ def get_discord_authorize_url(state: str) -> str:
         "state": state,
     }
 
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
+    query_string = urlencode(params)
     return f"{DISCORD_OAUTH_URL}?{query_string}"
 
 

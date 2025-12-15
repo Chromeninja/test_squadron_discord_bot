@@ -344,14 +344,18 @@ async def list_active_voice_channels(
                         internal_data = internal_response.json()
                         member_ids = internal_data.get("member_ids", [])
                     else:
-                        print(
-                            f"Internal API returned {internal_response.status_code} for channel {voice_channel_id}"
+                        logger.warning(
+                            "Internal API non-200 for voice channel",
+                            extra={
+                                "status": internal_response.status_code,
+                                "voice_channel_id": voice_channel_id,
+                            },
                         )
                         # Fall back to just showing owner
                         member_ids = [owner_id]
-                except Exception as e:
-                    print(
-                        f"Error querying internal API for channel {voice_channel_id}: {e}"
+                except Exception:
+                    logger.exception(
+                        "Error querying internal API for channel %s", voice_channel_id
                     )
                     # Fall back to just showing owner
                     member_ids = [owner_id]
@@ -435,13 +439,10 @@ async def list_active_voice_channels(
                     )
                 )
 
-            except Exception as e:
-                print(
-                    f"Error fetching Discord data for channel {voice_channel_id}: {e}"
+            except Exception:
+                logger.exception(
+                    "Error fetching Discord data for channel %s", voice_channel_id
                 )
-                import traceback
-
-                traceback.print_exc()
                 # Add channel with minimal data
                 items.append(
                     ActiveVoiceChannel(
@@ -578,11 +579,8 @@ async def search_user_voice_settings(
             for role in guild_roles
             if (role_name := role.get("name")) is not None
         }
-    except Exception as e:
-        import traceback
-
-        print(f"Error fetching guild roles: {e}")
-        print(traceback.format_exc())
+    except Exception:
+        logger.exception("Error fetching guild roles")
         roles_map = {}
 
     # Cache for member data

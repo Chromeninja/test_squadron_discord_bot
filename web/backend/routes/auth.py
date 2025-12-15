@@ -30,9 +30,7 @@ from core.security import (
     DISCORD_REDIRECT_URI,
     DISCORD_TOKEN_URL,
     SESSION_COOKIE_NAME,
-    SESSION_MAX_AGE,
     clear_session_cookie,
-    create_session_token,
     generate_oauth_state,
     get_discord_authorize_url,
     set_session_cookie,
@@ -171,7 +169,9 @@ async def callback(code: str, state: str | None = None):
             user_guilds = guilds_response.json()
             user_guild_ids = [g["id"] for g in user_guilds]
 
-            print(f"User is member of guilds: {user_guild_ids}")
+            logger.debug(
+                "OAuth user is member of %d guild(s)", len(user_guild_ids)
+            )
 
             # Get list of guilds where the bot is installed (from database)
             from services.db.repository import BaseRepository
@@ -333,8 +333,11 @@ async def callback(code: str, state: str | None = None):
                             f"User granted {role_level} access to guild {guild_id} via {source}"
                         )
 
-                except Exception as e:
-                    print(f"Error checking roles for guild {guild_id}: {e}")
+                except Exception:
+                    logger.exception(
+                        "Error checking roles for guild %s during OAuth role evaluation",
+                        guild_id,
+                    )
                     continue
 
         # Extract user information
@@ -397,28 +400,15 @@ async def callback(code: str, state: str | None = None):
             "roles_validated_at": {},  # Per-guild validation timestamps
         }
 
-        session_token = create_session_token(session_data)
-
-        # Create response with session cookie
+        # Create response with session cookie using centralized helper
         response = RedirectResponse(url=FRONTEND_URL)
-        response.set_cookie(
-            key=SESSION_COOKIE_NAME,
-            value=session_token,
-            max_age=SESSION_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=False,  # Set to True in production with HTTPS
-        )
-
+        set_session_cookie(response, session_data)
         return response
 
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-
-        print(f"Error in OAuth callback: {e}")
-        print(traceback.format_exc())
+        logger.exception("Unhandled error in OAuth callback")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}")
 
 

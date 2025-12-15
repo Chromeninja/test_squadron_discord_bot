@@ -13,7 +13,7 @@ import sys
 
 def main():
     """Main entry point for bot startup."""
-    print("🤖 Starting Discord bot...")
+    print("Starting Discord bot...")
     subprocess.run([sys.executable, "bot.py"], check=False)
 
 
