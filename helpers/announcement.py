@@ -586,7 +586,7 @@ class BulkAnnouncer(commands.Cog):
             logger.exception(f"Failed to load BulkAnnouncer config: {e}")
             # Leave _config_loaded as False so a subsequent attempt can retry
 
-    def cog_unload(self) -> None:
+    async def cog_unload(self) -> None:
         self.daily_flush.cancel()
         self.threshold_watch.cancel()
 

@@ -52,8 +52,8 @@ VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build
 cd ../..
 
 # Fix permissions so nginx (www-data) can serve frontend files
-chmod 755 /home/chrome
-chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
+sudo chmod 755 /home/chrome
+sudo chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
 ```
 
 ## 5. Environment File
@@ -70,8 +70,6 @@ Create .env in the project root (use nano or the heredoc below). Replace `YOUR_P
 nano .env
 # paste the contents below, then save/exit
 
-# or use heredoc:
-cat <<'EOF' > .env
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
@@ -89,10 +87,6 @@ COOKIE_SAMESITE=lax
 
 # Optional: set a bot owner ID for global access
 # BOT_OWNER_ID=your_discord_user_id
-EOF
-
-chmod 600 .env
-```
 
 Notes:
 - Use at least 32 random bytes for SESSION_SECRET and INTERNAL_API_KEY (for example: `openssl rand -hex 32`).
@@ -168,13 +162,13 @@ sudo systemctl status test_squadron_backend test_squadron_bot
 
 ## 8. nginx
 
-Create nginx site config (replace `your-domain.com` with your public IP or domain):
+Create nginx site config (replace `YOUR_PUBLIC_IP_OR_DOMAIN` with your public IP or domain, and add your LAN IP if you want local testing):
 
 ```bash
 sudo tee /etc/nginx/sites-available/test_squadron > /dev/null <<'EOF'
 server {
     listen 80;
-    server_name YOUR_PUBLIC_IP_OR_DOMAIN 192.168.1.236;
+    server_name YOUR_PUBLIC_IP_OR_DOMAIN;
 
     root /home/chrome/test_squadron_discord_bot/web/frontend/dist;
     index index.html;
@@ -206,7 +200,7 @@ server {
 EOF
 ```
 
-Note: The `server_name` directive accepts multiple space-separated values (public IP, internal LAN IP, domain). Replace `192.168.1.236` with your actual internal IP if testing from LAN. Remove it for production.
+Note: The `server_name` directive accepts multiple space-separated values (public IP, internal LAN IP, domain). Add your LAN IP if testing from inside your network (for example `server_name YOUR_PUBLIC_IP_OR_DOMAIN 192.168.1.236;`).
 
 Enable site and remove default:
 
@@ -248,7 +242,7 @@ Check that services are running and ports are accessible:
 sudo systemctl status test_squadron_backend test_squadron_bot
 
 # Check listening ports (backend on 8081, nginx on 80/443)
-sudo netstat -tlnp | grep -E ':(80|443|8081)'
+sudo ss -tlnp | grep -E ':(80|443|8081)'
 
 # Test backend health (internal only)
 curl http://127.0.0.1:8081/api/health/liveness

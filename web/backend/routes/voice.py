@@ -827,10 +827,10 @@ async def reset_user_voice_settings(
         # Log admin action to audit table
         scope_desc = f"JTC {jtc_channel_id}" if jtc_channel_id else "guild-wide"
         await log_admin_action(
-            admin_user_id=str(current_user.user_id),
-            guild_id=str(guild_id),
+            admin_user_id=int(current_user.user_id),
+            guild_id=guild_id,
             action=action_type,
-            target_user_id=str(user_id),
+            target_user_id=user_id_int,
             details={
                 "scope": scope_desc,
                 "total_rows_deleted": total_rows,
@@ -860,10 +860,10 @@ async def reset_user_voice_settings(
         logger.exception("Error resetting user voice settings", exc_info=e)
         # Log failed action
         await log_admin_action(
-            admin_user_id=str(current_user.user_id),
-            guild_id=str(guild_id),
+            admin_user_id=int(current_user.user_id),
+            guild_id=guild_id,
             action=action_type,
-            target_user_id=str(user_id),
+            target_user_id=user_id_int,
             details={
                 "error": str(e),
             },

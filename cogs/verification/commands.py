@@ -76,19 +76,26 @@ class VerificationCog(commands.Cog):
         await self.bot.wait_until_ready()
         await self.send_verification_message()
 
-    async def send_verification_message(self) -> None:
+    async def send_verification_message(
+        self, guilds: list[discord.Guild] | None = None
+    ) -> None:
         """
-        Sends verification messages to all guilds with configured verification channels.
+        Send verification messages to provided guilds (all guilds by default).
+
         If a message already exists for a guild, it will not send a new one.
         """
-        logger.info("Starting to send verification messages to all guilds...")
+        target_guilds = guilds or list(self.bot.guilds)
 
-        if not self.bot.guilds:
+        logger.info(
+            "Starting to send verification messages to %s guild(s)...",
+            len(target_guilds),
+        )
+
+        if not target_guilds:
             logger.error("Bot has no guilds, cannot send verification messages")
             return
 
-        logger.info(f"Bot is in {len(self.bot.guilds)} guild(s)")
-        for idx, g in enumerate(self.bot.guilds, 1):
+        for idx, g in enumerate(target_guilds, 1):
             logger.info(f"  Guild {idx}: {g.name} (ID: {g.id})")
 
         guild_config = self.bot.services.guild_config  # type: ignore[attr-defined]

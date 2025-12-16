@@ -284,9 +284,11 @@ async def update_bot_channels_settings(
     payload: BotChannelSettings,
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_moderator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Persist bot channel assignments for a guild."""
     ensure_guild_match(guild_id, current_user)
+    current_channels = (await get_bot_channel_settings(db, guild_id)) or {}
     await set_bot_channel_settings(
         db,
         guild_id,
@@ -296,6 +298,18 @@ async def update_bot_channels_settings(
         payload.leadership_announcement_channel_id,
     )
     updated = await get_bot_channel_settings(db, guild_id)
+    # Push refresh and resend verification message if channel changed
+    try:
+        await _notify_refresh(internal_api, guild_id, source="bot_channels")
+        if (
+            payload.verification_channel_id
+            and payload.verification_channel_id
+            != current_channels.get("verification_channel_id")
+        ):
+            await internal_api.resend_verification_message(guild_id)
+    except Exception:
+        # Already logged inside helpers; proceed with response
+        pass
     return BotChannelSettings(**updated)
 
 
@@ -325,11 +339,13 @@ async def update_voice_selectable_roles_settings(
     payload: VoiceSelectableRoles,
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_moderator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Persist selectable voice role IDs for a guild."""
     ensure_guild_match(guild_id, current_user)
     await set_voice_selectable_roles(db, guild_id, payload.selectable_roles)
     updated = await get_voice_selectable_roles(db, guild_id)
+    await _notify_refresh(internal_api, guild_id, source="voice_selectable_roles")
     return VoiceSelectableRoles(selectable_roles=updated)
 
 
@@ -464,6 +480,7 @@ async def update_organization_settings_endpoint(
     payload: OrganizationSettings,
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_moderator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Update organization settings for a guild."""
     ensure_guild_match(guild_id, current_user)
@@ -474,6 +491,7 @@ async def update_organization_settings_endpoint(
         payload.organization_name,
     )
     updated = await get_organization_settings(db, guild_id)
+    await _notify_refresh(internal_api, guild_id, source="organization")
     return OrganizationSettings(**updated)
 
 
@@ -555,6 +573,18 @@ def _read_only_yaml_snapshot(config_loader: ConfigLoader) -> dict:
     }
 
 
+async def _notify_refresh(
+    internal_api: InternalAPIClient, guild_id: int, source: str | None = None
+) -> None:
+    """Best-effort push refresh to the bot after config changes."""
+    try:
+        await internal_api.notify_guild_settings_refresh(guild_id, source=source)
+    except Exception as exc:  # pragma: no cover - transport errors
+        logger.warning(
+            "Failed to notify bot about guild %s config change: %s", guild_id, exc
+        )
+
+
 @router.get(
     "/{guild_id}/config",
     response_model=GuildConfigResponse,
@@ -631,6 +661,7 @@ async def patch_guild_config(
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_bot_admin()),
     config_loader: ConfigLoader = Depends(get_config_loader),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Update DB-backed guild settings. YAML-only fields remain read-only."""
     ensure_guild_match(guild_id, current_user)
@@ -645,6 +676,9 @@ async def patch_guild_config(
     current_channels = await get_bot_channel_settings(db, guild_id)
     current_voice = await get_voice_selectable_roles(db, guild_id)
     current_org = await get_organization_settings(db, guild_id)
+
+    # Track whether verification channel changed for resend trigger
+    verification_channel_changed = False
 
     # Apply updates if provided
     if payload.roles is not None:
@@ -748,6 +782,13 @@ async def patch_guild_config(
         if (
             current_channels.get("verification_channel_id")
             != payload.channels.verification_channel_id
+            and payload.channels.verification_channel_id is not None
+        ):
+            verification_channel_changed = True
+
+        if (
+            current_channels.get("verification_channel_id")
+            != payload.channels.verification_channel_id
         ):
             await _audit_change(
                 db,
@@ -838,6 +879,18 @@ async def patch_guild_config(
 
     # Commit any pending audit inserts
     await db.commit()
+
+    # Best-effort push refresh to bot and resend verification message if needed
+    await _notify_refresh(internal_api, guild_id, source="guild_config_patch")
+    if verification_channel_changed:
+        try:
+            await internal_api.resend_verification_message(guild_id)
+        except Exception as exc:  # pragma: no cover - transport errors
+            logger.warning(
+                "Failed to resend verification message for guild %s: %s",
+                guild_id,
+                exc,
+            )
 
     # Return updated merged view
     return await get_guild_config(

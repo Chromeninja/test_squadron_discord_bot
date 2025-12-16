@@ -44,7 +44,7 @@ async def perform_recheck(
     *,
     initiator_kind: InitiatorKind = InitiatorKind.USER,
     initiator_source: InitiatorSource | None = None,
-    admin_user_id: str | None = None,
+    admin_user_id: int | str | None = None,
     admin_display_name: str | None = None,
     enforce_rate_limit: bool = True,
     log_leadership: bool = True,
@@ -69,7 +69,7 @@ async def perform_recheck(
         bot: Bot instance with config and services
         initiator_kind: InitiatorKind.USER (button), InitiatorKind.ADMIN (dashboard/bulk), or InitiatorKind.AUTO
         initiator_source: Optional InitiatorSource to distinguish command/web/bulk/voice/auto/button/system
-        admin_user_id: Required if initiator_kind="Admin" for audit logging
+        admin_user_id: Required if initiator_kind="Admin" for audit logging (int or str)
         admin_display_name: Optional human-friendly admin name for leadership log (not a mention)
         enforce_rate_limit: If True, check and log rate limit attempts
         log_leadership: If True, post leadership log with before/after diff
@@ -109,10 +109,10 @@ async def perform_recheck(
             # Log rate-limited admin action
             if log_audit and admin_user_id:
                 await log_admin_action(
-                    admin_user_id=admin_user_id,
-                    guild_id=str(member.guild.id),
+                    admin_user_id=int(admin_user_id),
+                    guild_id=member.guild.id,
                     action="RECHECK_USER",
-                    target_user_id=str(member.id),
+                    target_user_id=member.id,
                     details={"rsi_handle": rsi_handle, "rate_limited": True},
                     status="rate_limited",
                 )
@@ -127,7 +127,8 @@ async def perform_recheck(
             rsi_handle,
             bot.http_client,  # type: ignore[attr-defined]
             config=getattr(bot, "config", {}),
-            force_refresh=initiator_kind == InitiatorKind.ADMIN,
+            # Always bypass cache on recheck to honor the user's intent to refresh
+            force_refresh=True,
         )
     except NotFoundError:
         result["remediated"] = True
@@ -141,10 +142,10 @@ async def perform_recheck(
         result["error"] = "RSI handle not found. User may have changed their handle."
         if log_audit and admin_user_id:
             await log_admin_action(
-                admin_user_id=admin_user_id,
-                guild_id=str(member.guild.id),
+                admin_user_id=int(admin_user_id),
+                guild_id=member.guild.id,
                 action="RECHECK_USER",
-                target_user_id=str(member.id),
+                target_user_id=member.id,
                 details={"rsi_handle": rsi_handle, "remediated": True},
                 status="error",
             )
@@ -154,10 +155,10 @@ async def perform_recheck(
         result["error"] = str(e)
         if log_audit and admin_user_id:
             await log_admin_action(
-                admin_user_id=admin_user_id,
-                guild_id=str(member.guild.id),
+                admin_user_id=int(admin_user_id),
+                guild_id=member.guild.id,
                 action="RECHECK_USER",
-                target_user_id=str(member.id),
+                target_user_id=member.id,
                 details={"rsi_handle": rsi_handle, "error": str(e)},
                 status="error",
             )
@@ -217,10 +218,10 @@ async def perform_recheck(
 
     if log_audit and admin_user_id:
         await log_admin_action(
-            admin_user_id=admin_user_id,
-            guild_id=str(member.guild.id),
+            admin_user_id=int(admin_user_id),
+            guild_id=member.guild.id,
             action="RECHECK_USER",
-            target_user_id=str(member.id),
+            target_user_id=member.id,
             details={
                 "rsi_handle": rsi_handle,
                 "status": result.get("status"),

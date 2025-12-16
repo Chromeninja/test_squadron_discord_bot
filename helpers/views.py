@@ -225,16 +225,14 @@ class VerificationView(View):
             if e.code == 10062:  # Unknown interaction (expired)
                 logger.warning(
                     "Interaction expired - user may have taken too long to click button",
-                    extra=get_interaction_extra(interaction),
+                    extra={**get_interaction_extra(interaction), "error_code": e.code},
                 )
-                # Try to send an ephemeral message explaining the issue
                 try:
                     await interaction.followup.send(
                         "⚠️ This verification button has expired. Please request a new verification message.",
                         ephemeral=True,
                     )
                 except Exception:
-                    # If even the followup fails, log it but don't crash
                     logger.debug(
                         "Could not send expiration notice to user",
                         extra=get_interaction_extra(interaction),
@@ -242,9 +240,8 @@ class VerificationView(View):
             elif e.code == 40060:  # Interaction already acknowledged
                 logger.warning(
                     "Interaction already acknowledged - user may have double-clicked button",
-                    extra=get_interaction_extra(interaction),
+                    extra={**get_interaction_extra(interaction), "error_code": e.code},
                 )
-                # Try to send followup with helpful message
                 try:
                     await interaction.followup.send(
                         "⚠️ Please enter your RSI handle in one attempt. If you clicked multiple times, please wait and try again.",
@@ -256,7 +253,6 @@ class VerificationView(View):
                         extra=get_interaction_extra(interaction),
                     )
             else:
-                # Re-raise unknown errors
                 raise
 
     async def recheck_button_callback(self, interaction: Interaction) -> None:

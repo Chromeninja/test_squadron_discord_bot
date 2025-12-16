@@ -270,11 +270,16 @@ class HandleModal(Modal, title="Verification"):
                 )
             return
 
-        # Verification successful - persist global state
+        # Preflight: ensure RSI handle isn't already claimed before we apply roles
         try:
-            await store_global_state(global_state)
+            from services.db.database import Database
+
+            conflict = await Database.check_rsi_handle_conflict(
+                global_state.rsi_handle, global_state.user_id
+            )
+            if conflict:
+                raise ValueError("RSI handle is already verified by another Discord account.")
         except ValueError as e:
-            # Handle duplicate RSI handle or other validation errors
             error_msg = str(e)
             if "already verified by another Discord account" in error_msg:
                 error_msg = (
@@ -292,14 +297,40 @@ class HandleModal(Modal, title="Verification"):
             )
             return
         except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Failed to validate verification state: %s", e)
+            embed = create_error_embed("Failed to validate verification. Please try again.")
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        # Apply to current guild before persisting so leadership log can diff old vs new
+        result = await apply_state_to_guild(global_state, member.guild, self.bot)
+        await flush_tasks()
+
+        # Persist global state after Discord updates to preserve correct before/after snapshots
+        try:
+            await store_global_state(global_state)
+        except ValueError as e:
+            error_msg = str(e)
+            if "already verified by another Discord account" in error_msg:
+                error_msg = (
+                    "❌ **This RSI handle is already verified by another Discord user.**\n\n"
+                    "Each RSI handle can only be linked to one Discord account.\n\n"
+                    "If you believe this is an error, please contact a moderator."
+                )
+            embed = create_error_embed(error_msg)
+            await followup_send_message(
+                interaction, "", embed=embed, ephemeral=True
+            )
+            logger.warning(
+                f"Verification failed during persistence: {e!s}",
+                extra={"user_id": member.id, "rsi_handle": cased_handle_used},
+            )
+            return
+        except Exception as e:  # pragma: no cover - defensive
             logger.warning("Failed to persist verification state: %s", e)
             embed = create_error_embed("Failed to save verification. Please try again.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
-
-        # Apply to current guild
-        result = await apply_state_to_guild(global_state, member.guild, self.bot)
-        await flush_tasks()
 
         # Log the change with proper initiator metadata
         if result:

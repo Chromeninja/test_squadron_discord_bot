@@ -12,7 +12,7 @@ INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);
 -- Verification (membership_status removed; org data stored as JSON text)
 CREATE TABLE IF NOT EXISTS verification (
     user_id INTEGER PRIMARY KEY,
-    rsi_handle TEXT NOT NULL,
+    rsi_handle TEXT NOT NULL UNIQUE,
     last_updated INTEGER DEFAULT 0,
     verification_payload TEXT,
     needs_reverify INTEGER DEFAULT 0,
@@ -141,12 +141,6 @@ CREATE TABLE IF NOT EXISTS channel_soundboard_settings (
 );
 CREATE INDEX IF NOT EXISTS idx_soundboard_scope_user_target ON channel_soundboard_settings(guild_id, jtc_channel_id, user_id, target_id, target_type);
 
--- Global settings
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
 -- Missing role warnings
 CREATE TABLE IF NOT EXISTS missing_role_warnings (
     guild_id INTEGER PRIMARY KEY,
@@ -201,13 +195,15 @@ CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at ON announcement_
 CREATE TABLE IF NOT EXISTS admin_action_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    admin_user_id TEXT NOT NULL,
-    guild_id TEXT NOT NULL,
+    admin_user_id INTEGER NOT NULL,
+    guild_id INTEGER NOT NULL,
     action TEXT NOT NULL,
-    target_user_id TEXT,
+    target_user_id INTEGER,
     details TEXT,
     status TEXT DEFAULT 'success'
 );
 CREATE INDEX IF NOT EXISTS idx_admin_action_log_guild ON admin_action_log(guild_id);
 CREATE INDEX IF NOT EXISTS idx_admin_action_log_timestamp ON admin_action_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_admin_action_log_admin ON admin_action_log(admin_user_id);
+-- Composite index for pending announcements by guild
+CREATE INDEX IF NOT EXISTS idx_announcement_events_pending ON announcement_events(guild_id, announced_at) WHERE announced_at IS NULL;

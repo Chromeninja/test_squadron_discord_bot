@@ -10,10 +10,10 @@ logger = get_logger(__name__)
 
 
 async def log_admin_action(
-    admin_user_id: str,
-    guild_id: str,
+    admin_user_id: int,
+    guild_id: int,
     action: str,
-    target_user_id: str | None = None,
+    target_user_id: int | None = None,
     details: dict | None = None,
     status: str = "success",
 ) -> None:
@@ -21,10 +21,10 @@ async def log_admin_action(
     Log an admin action to the audit table.
 
     Args:
-        admin_user_id: Discord user ID of the admin performing the action
-        guild_id: Discord guild ID where action occurred
+        admin_user_id: Discord user ID of the admin performing the action (integer)
+        guild_id: Discord guild ID where action occurred (integer)
         action: Action type (e.g., "RECHECK_USER", "RESET_USER_TIMER")
-        target_user_id: Optional target user ID if action affects specific user
+        target_user_id: Optional target user ID if action affects specific user (integer)
         details: Optional dictionary of additional details (JSON encoded)
         status: Action status ("success", "error", "rate_limited", etc.)
     """
@@ -37,10 +37,10 @@ async def log_admin_action(
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 int(time.time()),
-                admin_user_id,
-                guild_id,
+                int(admin_user_id),
+                int(guild_id),
                 action,
-                target_user_id,
+                int(target_user_id) if target_user_id is not None else None,
                 details_json,
                 status,
             ),

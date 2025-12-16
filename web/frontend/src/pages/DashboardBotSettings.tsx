@@ -30,21 +30,14 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [leadershipAnnouncementChannelId, setLeadershipAnnouncementChannelId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [voiceSaving, setVoiceSaving] = useState(false);
-  const [channelSaving, setChannelSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [voiceStatusMessage, setVoiceStatusMessage] = useState<string | null>(null);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [channelStatusMessage, setChannelStatusMessage] = useState<string | null>(null);
-  const [channelError, setChannelError] = useState<string | null>(null);
   
   // Organization settings
   const [organizationSid, setOrganizationSid] = useState<string>('');
   const [organizationName, setOrganizationName] = useState<string>('');
   const [orgSidInput, setOrgSidInput] = useState<string>('');
   const [orgValidating, setOrgValidating] = useState(false);
-  const [orgSaving, setOrgSaving] = useState(false);
   const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
 
@@ -154,7 +147,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     loadData();
   }, [guildId]);
 
-  const handleSave = async () => {
+  const handleSaveAll = async () => {
     setSaving(true);
     setStatusMessage(null);
     setError(null);
@@ -167,27 +160,45 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
           prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
         }));
-      const payload = {
-        bot_admins: botAdmins,
-        discord_managers: discordManagers,
-        moderators: moderators,
-        staff: staff,
-        bot_verified_role: botVerifiedRole,
-        main_role: mainRole,
-        affiliate_role: affiliateRole,
-        nonmember_role: nonmemberRole,
-        delegation_policies: cleanedPolicies,
+
+      const requestPayload = {
+        roles: {
+          bot_admins: botAdmins,
+          discord_managers: discordManagers,
+          moderators: moderators,
+          staff: staff,
+          bot_verified_role: botVerifiedRole,
+          main_role: mainRole,
+          affiliate_role: affiliateRole,
+          nonmember_role: nonmemberRole,
+          delegation_policies: cleanedPolicies,
+        },
+        channels: {
+          verification_channel_id: verificationChannelId,
+          bot_spam_channel_id: botSpamChannelId,
+          public_announcement_channel_id: publicAnnouncementChannelId,
+          leadership_announcement_channel_id: leadershipAnnouncementChannelId,
+        },
+        voice: { selectable_roles: voiceSelectableRoles },
+        organization: {
+          organization_sid: orgSidInput.trim() || null,
+          organization_name: organizationName || null,
+        },
       };
-      const updated = await guildApi.updateBotRoleSettings(guildId, payload);
-      setBotAdmins(updated.bot_admins);
-      setDiscordManagers(updated.discord_managers || []);
-      setModerators(updated.moderators || []);
-      setStaff(updated.staff || []);
-      setBotVerifiedRole(updated.bot_verified_role || []);
-      setMainRole(updated.main_role || []);
-      setAffiliateRole(updated.affiliate_role || []);
-      setNonmemberRole(updated.nonmember_role || []);
-      const normalizedUpdated = (updated.delegation_policies || []).map((p) => ({
+
+      const response = await guildApi.patchGuildConfig(guildId, requestPayload);
+      const updated = response.data;
+
+      // Roles
+      setBotAdmins(updated.roles.bot_admins || []);
+      setDiscordManagers(updated.roles.discord_managers || []);
+      setModerators(updated.roles.moderators || []);
+      setStaff(updated.roles.staff || []);
+      setBotVerifiedRole(updated.roles.bot_verified_role || []);
+      setMainRole(updated.roles.main_role || []);
+      setAffiliateRole(updated.roles.affiliate_role || []);
+      setNonmemberRole(updated.roles.nonmember_role || []);
+      const normalizedUpdated = (updated.roles.delegation_policies || []).map((p) => ({
         ...p,
         prerequisite_role_ids_all:
           p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
@@ -195,60 +206,27 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         prerequisite_role_ids: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
       }));
       setDelegationPolicies(normalizedUpdated);
-      setStatusMessage('Settings saved successfully.');
+
+      // Channels
+      setVerificationChannelId(updated.channels.verification_channel_id);
+      setBotSpamChannelId(updated.channels.bot_spam_channel_id);
+      setPublicAnnouncementChannelId(updated.channels.public_announcement_channel_id);
+      setLeadershipAnnouncementChannelId(updated.channels.leadership_announcement_channel_id);
+
+      // Voice selectable roles
+      setVoiceSelectableRoles(updated.voice.selectable_roles || []);
+
+      // Organization
+      setOrganizationSid(updated.organization.organization_sid || '');
+      setOrganizationName(updated.organization.organization_name || '');
+      setOrgSidInput(updated.organization.organization_sid || '');
+
+      setStatusMessage('Settings saved and applied.');
     } catch (err) {
       handleApiError(err, 'Failed to save settings.');
       setError('Failed to save settings.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleVoiceRolesSave = async () => {
-    setVoiceSaving(true);
-    setVoiceStatusMessage(null);
-    setVoiceError(null);
-
-    try {
-      const response = await guildApi.patchGuildConfig(guildId, {
-        voice: { selectable_roles: voiceSelectableRoles },
-      });
-      const updated = response.data.voice;
-      setVoiceSelectableRoles(updated.selectable_roles || []);
-      setVoiceStatusMessage('Selectable roles updated successfully.');
-    } catch (err) {
-      handleApiError(err, 'Failed to save selectable roles.');
-      setVoiceError('Failed to save selectable roles.');
-    } finally {
-      setVoiceSaving(false);
-    }
-  };
-
-  const handleChannelsSave = async () => {
-    setChannelSaving(true);
-    setChannelStatusMessage(null);
-    setChannelError(null);
-
-    try {
-      const response = await guildApi.patchGuildConfig(guildId, {
-        channels: {
-          verification_channel_id: verificationChannelId,
-          bot_spam_channel_id: botSpamChannelId,
-          public_announcement_channel_id: publicAnnouncementChannelId,
-          leadership_announcement_channel_id: leadershipAnnouncementChannelId,
-        },
-      });
-      const updated = response.data.channels;
-      setVerificationChannelId(updated.verification_channel_id);
-      setBotSpamChannelId(updated.bot_spam_channel_id);
-      setPublicAnnouncementChannelId(updated.public_announcement_channel_id);
-      setLeadershipAnnouncementChannelId(updated.leadership_announcement_channel_id);
-      setChannelStatusMessage('Channel settings saved successfully.');
-    } catch (err) {
-      handleApiError(err, 'Failed to save channel settings.');
-      setChannelError('Failed to save channel settings.');
-    } finally {
-      setChannelSaving(false);
     }
   };
 
@@ -277,36 +255,6 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setOrgError('Failed to validate organization SID. Please try again.');
     } finally {
       setOrgValidating(false);
-    }
-  };
-
-  const handleOrgSave = async () => {
-    if (!organizationName) {
-      setOrgError('Please validate the organization SID first');
-      return;
-    }
-
-    setOrgSaving(true);
-    setOrgError(null);
-    setOrgStatusMessage(null);
-
-    try {
-      const response = await guildApi.patchGuildConfig(guildId, {
-        organization: {
-          organization_sid: orgSidInput.trim().toUpperCase() || null,
-          organization_name: organizationName || null,
-        },
-      });
-      const updated = response.data.organization;
-      setOrganizationSid(updated.organization_sid || '');
-      setOrganizationName(updated.organization_name || '');
-      setOrgSidInput(updated.organization_sid || '');
-      setOrgStatusMessage('Organization settings saved successfully!');
-    } catch (err) {
-      handleApiError(err, 'Failed to save organization settings.');
-      setOrgError('Failed to save organization settings.');
-    } finally {
-      setOrgSaving(false);
     }
   };
 
@@ -371,10 +319,6 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       {/* Status Messages */}
       {error && <Alert variant="error">{error}</Alert>}
       {statusMessage && <Alert variant="success">{statusMessage}</Alert>}
-      {voiceError && <Alert variant="error">{voiceError}</Alert>}
-      {voiceStatusMessage && <Alert variant="success">{voiceStatusMessage}</Alert>}
-      {channelError && <Alert variant="error">{channelError}</Alert>}
-      {channelStatusMessage && <Alert variant="success">{channelStatusMessage}</Alert>}
       {orgError && <Alert variant="error">{orgError}</Alert>}
       {orgStatusMessage && <Alert variant="success">{orgStatusMessage}</Alert>}
 
@@ -416,14 +360,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             </Alert>
           )}
 
-          <div className="flex justify-end pt-2">
-            <Button
-              onClick={handleOrgSave}
-              disabled={orgSaving || !organizationName}
-              variant="success"
-            >
-              {orgSaving ? 'Saving...' : 'Save Organization Settings'}
-            </Button>
+          <div className="flex justify-end pt-2 text-xs text-gray-400">
+            Changes are saved with the main Save button below.
           </div>
         </div>
       </AccordionSection>
@@ -692,14 +630,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                 />
               </div>
 
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleVoiceRolesSave}
-                  disabled={voiceSaving}
-                  variant="success"
-                >
-                  {voiceSaving ? 'Saving...' : 'Save Voice Roles'}
-                </Button>
+              <div className="flex justify-end text-xs text-gray-400">
+                Changes are saved with the main Save button below.
               </div>
             </div>
           </AccordionSection>
@@ -761,14 +693,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             />
           </div>
 
-          <div className="flex justify-end">
-            <Button
-              onClick={handleChannelsSave}
-              disabled={channelSaving}
-              variant="success"
-            >
-              {channelSaving ? 'Saving...' : 'Save Channel Settings'}
-            </Button>
+          <div className="flex justify-end text-xs text-gray-400">
+            Changes are saved with the main Save button below.
           </div>
         </div>
       </AccordionSection>
@@ -776,12 +702,12 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       {/* Save Button */}
       <div className="flex justify-end pt-4 border-t border-slate-700">
         <Button
-          onClick={handleSave}
+          onClick={handleSaveAll}
           disabled={saving}
-          variant="primary"
+          variant="success"
           size="lg"
         >
-          {saving ? 'Saving Changes...' : 'Save Configuration'}
+          {saving ? 'Saving Changes...' : 'Save All Changes'}
         </Button>
       </div>
     </div>

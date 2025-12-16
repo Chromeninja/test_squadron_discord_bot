@@ -115,10 +115,10 @@ async def recheck_user(
     except Exception as e:
         # Log failed action
         await log_admin_action(
-            admin_user_id=current_user.user_id,
-            guild_id=str(current_user.active_guild_id),
+            admin_user_id=int(current_user.user_id),
+            guild_id=guild_id_int,
             action="RECHECK_USER",
-            target_user_id=user_id,
+            target_user_id=user_id_int,
             details={"error": str(e)},
             status="error",
         )
@@ -142,10 +142,10 @@ async def recheck_user(
 
     # Log successful action
     await log_admin_action(
-        admin_user_id=current_user.user_id,
-        guild_id=str(current_user.active_guild_id),
+        admin_user_id=int(current_user.user_id),
+        guild_id=guild_id_int,
         action="RECHECK_USER",
-        target_user_id=user_id,
+        target_user_id=user_id_int,
         details={
             "rsi_handle": new_rsi_handle,
             "old_status": old_status,
@@ -185,7 +185,7 @@ async def reset_reverify_timer(
         ResetTimerResponse with operation result
     """
     # Use validation utilities for consistent ID parsing and guild validation
-    user_id_int, _ = ensure_user_and_guild_ids(user_id, current_user)
+    user_id_int, guild_id_int = ensure_user_and_guild_ids(user_id, current_user)
 
     # Check if user exists in verification table
     cursor = await db.execute(
@@ -207,10 +207,10 @@ async def reset_reverify_timer(
 
     # Log the action
     await log_admin_action(
-        admin_user_id=current_user.user_id,
-        guild_id=str(current_user.active_guild_id),
+        admin_user_id=int(current_user.user_id),
+        guild_id=guild_id_int,
         action="RESET_REVERIFY_TIMER",
-        target_user_id=user_id,
+        target_user_id=user_id_int,
         details={"success": True},
         status="success",
     )
@@ -350,8 +350,8 @@ async def bulk_recheck_users(
 
     # Log the bulk action
     await log_admin_action(
-        admin_user_id=current_user.user_id,
-        guild_id=str(current_user.active_guild_id),
+        admin_user_id=int(current_user.user_id),
+        guild_id=guild_id_int,
         action="BULK_RECHECK",
         details={
             "total": len(request.user_ids),

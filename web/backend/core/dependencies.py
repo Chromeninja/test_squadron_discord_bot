@@ -894,6 +894,13 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
+    async def resend_verification_message(self, guild_id: int) -> dict:
+        """Trigger the bot to resend the verification message for a guild."""
+        client = await self._get_client()
+        response = await client.post(f"/guilds/{guild_id}/verification/resend")
+        response.raise_for_status()
+        return response.json()
+
     async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
         """
         Get member IDs currently in a voice channel via bot's gateway cache.

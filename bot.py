@@ -1,6 +1,8 @@
 import asyncio
 import os
 import time
+from collections.abc import Callable
+from typing import TypeAlias
 
 import discord
 from discord.ext import commands
@@ -26,7 +28,8 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # Type alias for prefix (list of strings or the when_mentioned callable)
-PrefixType = list | type(commands.when_mentioned)
+PrefixCallable: TypeAlias = Callable[[commands.Bot, discord.Message], list[str]]
+PrefixType: TypeAlias = list[str] | PrefixCallable
 
 # Module-level cache for lazy-loaded values
 _config: dict | None = None

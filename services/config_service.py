@@ -244,6 +244,8 @@ class ConfigService(BaseService):
         self.logger.debug(f"Cache MISS for guild {guild_id} - loading from database")
 
         # Load from database
+        import json
+
         settings = {}
         rows = await BaseRepository.fetch_all(
             "SELECT key, value FROM guild_settings WHERE guild_id = ?", (guild_id,)
@@ -251,8 +253,6 @@ class ConfigService(BaseService):
         for row in rows:
             key, value_json = row
             try:
-                import json
-
                 settings[key] = json.loads(value_json)
                 self.logger.debug(f"  Loaded setting: {key} = {settings[key]}")
             except (json.JSONDecodeError, TypeError):

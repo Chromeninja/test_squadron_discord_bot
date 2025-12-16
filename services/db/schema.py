@@ -45,7 +45,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS verification (
             user_id INTEGER PRIMARY KEY,
-            rsi_handle TEXT NOT NULL,
+            rsi_handle TEXT NOT NULL UNIQUE,
             last_updated INTEGER DEFAULT 0,
             verification_payload TEXT,
             needs_reverify INTEGER DEFAULT 0,
@@ -261,16 +261,6 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_soundboard_scope_user_target ON channel_soundboard_settings(guild_id, jtc_channel_id, user_id, target_id, target_type)"
     )
 
-    # Settings table (global)
-    await db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-        """
-    )
-
     # Missing role warnings table
     await db.execute(
         """
@@ -359,10 +349,10 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         CREATE TABLE IF NOT EXISTS admin_action_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-            admin_user_id TEXT NOT NULL,
-            guild_id TEXT NOT NULL,
+            admin_user_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
             action TEXT NOT NULL,
-            target_user_id TEXT,
+            target_user_id INTEGER,
             details TEXT,
             status TEXT DEFAULT 'success'
         )
@@ -376,6 +366,10 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_admin_action_log_admin ON admin_action_log(admin_user_id)"
+    )
+    # Composite index for common query pattern: pending announcements by guild
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_announcement_events_pending ON announcement_events(guild_id, announced_at) WHERE announced_at IS NULL"
     )
 
     # Record that the canonical schema has been applied

@@ -82,6 +82,9 @@ class InternalAPIServer:
             "/guilds/{guild_id}/config/refresh", self.refresh_guild_config
         )
         self.app.router.add_post(
+            "/guilds/{guild_id}/verification/resend", self.resend_verification_message
+        )
+        self.app.router.add_post(
             "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
 
@@ -291,6 +294,37 @@ class InternalAPIServer:
             )
             return web.json_response({"error": "Internal server error"}, status=500)
 
+    async def resend_verification_message(self, request: web.Request) -> web.Response:
+        """Send the verification message for a specific guild after channel updates."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info.get("guild_id", "0"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid guild id"}, status=400)
+
+        guild = self.bot.get_guild(guild_id) if self.bot else None
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            cog = self.bot.get_cog("VerificationCog")
+            if not cog or not hasattr(cog, "send_verification_message"):
+                return web.json_response({"error": "Verification cog unavailable"}, status=503)
+
+            # Reuse existing send_verification_message with a single-guild list
+            await cog.send_verification_message([guild])  # type: ignore[misc]
+            return web.json_response({"success": True})
+        except Exception as exc:  # pragma: no cover - runtime safeguard
+            logger.exception(
+                "Failed to resend verification message for guild %s", guild_id, exc_info=exc
+            )
+            return web.json_response({"error": "Internal server error"}, status=500)
+
     async def logs_export(self, request: web.Request) -> web.Response:
         """
         Export bot logs (admin only).
@@ -367,6 +401,7 @@ class InternalAPIServer:
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
+        channel_id: int | None = None
         try:
             channel_id = int(request.match_info["channel_id"])
 
