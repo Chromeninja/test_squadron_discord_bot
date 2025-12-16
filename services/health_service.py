@@ -48,6 +48,10 @@ class HealthService(BaseService):
                 "errors_encountered": 0,
                 "voice_channels_created": 0,
                 "verifications_completed": 0,
+                # Auto-check metrics
+                "auto_check_runs": 0,
+                "auto_check_users_processed": 0,
+                "auto_check_circuit_pauses": 0,
             }
 
     async def record_metric(self, metric_name: str, increment: int = 1) -> None:

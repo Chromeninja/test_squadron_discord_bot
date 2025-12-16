@@ -39,6 +39,7 @@ from core.security import (
 )
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 router = APIRouter()
 api_router = APIRouter()
@@ -540,6 +541,50 @@ async def get_available_guilds(
     return GuildListResponse(guilds=summaries)
 
 
+class AllGuildsMetadataResponse(BaseModel):
+    """Response for /api/auth/all-guilds-metadata endpoint (bot owner only)."""
+
+    success: bool = True
+    guilds: dict[str, GuildSummary]  # guild_id -> GuildSummary map for fast lookup
+
+
+@api_router.get("/all-guilds-metadata", response_model=AllGuildsMetadataResponse)
+async def get_all_guilds_metadata(
+    current_user: UserProfile = Depends(require_is_bot_owner),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Get metadata for all guilds where the bot is installed.
+
+    Bot owner only - designed for client-side caching of guild labels
+    when viewing cross-guild data.
+
+    Returns a map of guild_id -> GuildSummary for fast lookup.
+    """
+    try:
+        guilds = await internal_api.get_guilds()
+    except Exception as exc:
+        raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
+
+    guild_map = {}
+    for guild in guilds:
+        normalized_id = _normalize_guild_id(guild.get("guild_id"))
+        if normalized_id is None:
+            continue
+
+        guild_map[normalized_id] = GuildSummary(
+            guild_id=normalized_id,
+            guild_name=guild.get("guild_name", "Unnamed Guild"),
+            icon_url=guild.get("icon_url"),
+        )
+
+    logger.info(
+        "All guilds metadata requested by bot owner",
+        extra={"user_id": current_user.user_id, "guild_count": len(guild_map)},
+    )
+
+    return AllGuildsMetadataResponse(guilds=guild_map)
+
+
 @api_router.post("/select-guild", response_model=SelectGuildResponse)
 async def select_active_guild(
     payload: SelectGuildRequest,
@@ -547,7 +592,30 @@ async def select_active_guild(
     current_user: UserProfile = Depends(require_any_guild_access),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
-    """Persist the active guild in the session cookie."""
+    """Persist the active guild in the session cookie.
+
+    Special case: Bot owners can select guild_id="*" (ALL_GUILDS_SENTINEL)
+    to enter "All Guilds" cross-guild view mode.
+    """
+    from core.pagination import ALL_GUILDS_SENTINEL
+
+    # Allow bot owners to select "All Guilds" mode
+    if payload.guild_id == ALL_GUILDS_SENTINEL:
+        if not current_user.is_bot_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="All Guilds mode is only available to bot owners",
+            )
+        # Set active_guild_id to sentinel and return early
+        session_payload = current_user.model_dump()
+        session_payload["active_guild_id"] = ALL_GUILDS_SENTINEL
+        set_session_cookie(response, session_payload)
+        logger.info(
+            "Bot owner entered All Guilds mode",
+            extra={"user_id": current_user.user_id},
+        )
+        return SelectGuildResponse()
+
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors

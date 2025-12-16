@@ -35,6 +35,19 @@ rsi:
   user_agent: "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
   # Global cap for ALL RSI HTTP calls (manual + auto)
   requests_per_minute: 30
+  # Rate limiting settings
+  cache_ttl_seconds: 300          # Cache RSI responses for 5 minutes
+  max_concurrent_requests: 3      # Max concurrent RSI requests
+  min_interval_seconds: 0.5       # Minimum spacing between RSI requests
+
+  # Circuit breaker for 403 Forbidden responses
+  # When RSI blocks us (anti-bot, rate limit), the circuit opens and
+  # requests fail fast until a cooldown period expires.
+  circuit_breaker:
+    threshold: 3                  # Consecutive 403s before opening circuit
+    reset_timeout: 300            # Seconds before allowing a probe request (5 min)
+    backoff_base: 60              # Base backoff in seconds for exponential growth
+    backoff_max: 3600             # Maximum backoff cap (1 hour)
 
 web_dashboard:
   url: "http://your_public_ip_or_domain"  # Production frontend URL
@@ -54,7 +67,10 @@ auto_recheck:
   # Batch processing
   batch:
     run_every_minutes: 60       # wake up hourly
-    max_users_per_run: 50       # re-check at most 50 users per run
+    max_users_per_run: 30       # re-check at most 30 users per run (safe margin under RSI limits)
+    startup_delay_minutes: 5    # wait after bot start before first auto-check run
+    per_user_delay_seconds: 1.5 # delay between processing each user (pacing)
+    ramp_up_runs: 3             # number of runs before reaching full batch size
 
   # Backoff when RSI fetch fails (network, 5xx, etc.)
   backoff:

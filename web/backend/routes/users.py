@@ -300,6 +300,9 @@ class EnrichedUser(BaseModel):
     roles: list[dict] = []
     main_orgs: list[str] | None = None
     affiliate_orgs: list[str] | None = None
+    # Cross-guild fields (populated in All Guilds mode)
+    guild_id: str | None = None
+    guild_name: str | None = None
 
 
 class UsersListResponse(BaseModel):
@@ -311,6 +314,7 @@ class UsersListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+    is_cross_guild: bool = False  # True when in All Guilds mode
 
 
 class ExportUsersRequest(BaseModel):
@@ -326,7 +330,7 @@ class ExportUsersRequest(BaseModel):
 @router.get("", response_model=UsersListResponse)
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(25, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(25, ge=1, le=200, description="Items per page (max 200)"),
     membership_status: str | None = Query(
         None,
         description="Single membership status filter (deprecated in favor of membership_statuses)",
@@ -339,23 +343,39 @@ async def list_users(
     current_user: UserProfile = Depends(require_staff()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
-    """
-    Get paginated list of users with Discord enrichment.
+    """Get paginated list of users with Discord enrichment.
 
     Combines verification table data with Discord member information.
     When 'unknown' status is selected, fetches all Discord members and filters out verified ones.
+    Bot owners in "All Guilds" mode can view users across all guilds (read-only).
 
     Query params:
     - page: Page number (1-indexed)
-    - page_size: Items per page (10, 25, 50, or 100)
+    - page_size: Items per page (default 50, max 200)
     - membership_statuses: Comma-separated list (e.g., "main,affiliate,unknown")
-    - role_ids: Comma-separated Discord role IDs (e.g., "123,456")
+
+    Note: In single-guild mode, results are filtered to only include users who are
+    current members of the guild. In cross-guild mode (bot owner only), all verified
+    users are returned without guild membership filtering, and status derivation uses
+    a default org SID since no specific guild context is available.
 
     Requires: Staff role or higher
 
     Returns:
         UsersListResponse with enriched user data
     """
+    from core.pagination import (
+        DEFAULT_PAGE_SIZE_USERS,
+        MAX_PAGE_SIZE_USERS,
+        clamp_page_size,
+        is_all_guilds_mode,
+    )
+
+    # Apply pagination caps
+    page_size = clamp_page_size(page_size, DEFAULT_PAGE_SIZE_USERS, MAX_PAGE_SIZE_USERS)
+
+    is_cross_guild = is_all_guilds_mode(current_user.active_guild_id)
+
     if not current_user.active_guild_id:
         return UsersListResponse(
             success=True,
@@ -364,9 +384,9 @@ async def list_users(
             page=page,
             page_size=page_size,
             total_pages=0,
+            is_cross_guild=False,
         )
 
-    guild_id = int(current_user.active_guild_id)
     offset = (page - 1) * page_size
 
     # Parse filters
@@ -375,11 +395,7 @@ async def list_users(
         single_value=membership_status,
     )
 
-    # Fetch all and filter in Python using derived status
-    count_cursor = await db.execute("SELECT COUNT(*) FROM verification")
-    count_row = await count_cursor.fetchone()
-    count_row[0] if count_row else 0
-
+    # Fetch verification data
     cursor = await db.execute(
         """
         SELECT
@@ -393,13 +409,143 @@ async def list_users(
 
     rows_all = await cursor.fetchall()
 
-    # Get org SID
+    if is_cross_guild:
+        # Cross-guild mode: Fetch all guilds and build guild metadata map
+        try:
+            guilds_list = await internal_api.get_guilds()
+            _ = {
+                str(g.get("guild_id")): g.get("guild_name", f"Guild {g.get('guild_id')}")
+                for g in guilds_list
+            }  # Reserved for future per-guild enrichment
+        except Exception:
+            pass  # Guild names not critical for cross-guild view
+
+        # For cross-guild, we show all verified users without guild filtering
+        # But we need to figure out which guilds they're in for display purposes
+        # For now, we'll show all users with "Multiple" as guild context
+        derived_rows: list[tuple] = []
+        for row in rows_all:
+            main_orgs = json.loads(row[5]) if row[5] else None
+            affiliate_orgs = json.loads(row[6]) if row[6] else None
+            # Use a default status derivation (no specific guild org SID)
+            status = _derive_status_from_orgs(main_orgs, affiliate_orgs, None)
+            if status_filters and status not in status_filters:
+                continue
+            derived_rows.append(
+                (
+                    row[0],  # user_id
+                    row[1],  # rsi_handle
+                    status,  # derived status
+                    row[2],  # community_moniker
+                    row[3],  # last_updated
+                    row[4],  # needs_reverify
+                    main_orgs,
+                    affiliate_orgs,
+                    None,  # guild_id (will be determined per-user)
+                    None,  # guild_name
+                )
+            )
+
+        total_filtered = len(derived_rows)
+        start = offset
+        end = offset + page_size
+        rows = derived_rows[start:end]
+
+        # Build items without Discord enrichment (cross-guild can't query member data)
+        items: list[EnrichedUser] = []
+        for row in rows:
+            items.append(
+                EnrichedUser(
+                    discord_id=str(row[0]),
+                    username="Unknown",  # Can't fetch Discord data across guilds
+                    discriminator="0000",
+                    global_name=None,
+                    avatar_url=None,
+                    membership_status=row[2],
+                    rsi_handle=row[1],
+                    community_moniker=row[3],
+                    joined_at=None,
+                    created_at=None,
+                    last_updated=row[4],
+                    needs_reverify=bool(row[5]),
+                    roles=[],
+                    main_orgs=row[6],
+                    affiliate_orgs=row[7],
+                    guild_id=None,  # Cross-guild: user may be in multiple guilds
+                    guild_name="All Guilds",
+                )
+            )
+
+        total_pages = (
+            (total_filtered + page_size - 1) // page_size if total_filtered > 0 else 0
+        )
+
+        return UsersListResponse(
+            success=True,
+            items=items,
+            total=total_filtered,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            is_cross_guild=True,
+        )
+
+    # Single-guild mode: Only show users who are actually IN the guild
+    guild_id = int(current_user.active_guild_id)
+
+    # First, get the set of user IDs who are actually members of this guild
+    try:
+        # Fetch all guild member IDs (paginated fetches to get all)
+        guild_member_ids: set[int] = set()
+        page_num = 1
+        fetch_size = 1000  # Max supported by API
+        while True:
+            members_data = await internal_api.get_guild_members(
+                guild_id, page=page_num, page_size=fetch_size
+            )
+            members_list = members_data.get("members", [])
+            for m in members_list:
+                if m.get("user_id"):
+                    guild_member_ids.add(int(m["user_id"]))
+            # Check if we got all members
+            if len(members_list) < fetch_size:
+                break
+            page_num += 1
+    except Exception:
+        # If we can't fetch members, return empty (fail safe)
+        return UsersListResponse(
+            success=True,
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            total_pages=0,
+            is_cross_guild=False,
+        )
+
+    if not guild_member_ids:
+        return UsersListResponse(
+            success=True,
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            total_pages=0,
+            is_cross_guild=False,
+        )
+
+    # Get org SID for the specific guild
     org_settings = await get_organization_settings(db, guild_id)
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 
-    # Build derived rows with status and apply filters
-    derived_rows: list[tuple] = []
+    # Filter verification rows to only include guild members
+    derived_rows = []
     for row in rows_all:
+        user_id = row[0]
+        # Skip users not in this guild
+        if user_id not in guild_member_ids:
+            continue
+
         main_orgs = json.loads(row[5]) if row[5] else None
         affiliate_orgs = json.loads(row[6]) if row[6] else None
         status = _derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
@@ -407,7 +553,7 @@ async def list_users(
             continue
         derived_rows.append(
             (
-                row[0],  # user_id
+                user_id,  # user_id
                 row[1],  # rsi_handle
                 status,  # derived status
                 row[2],  # community_moniker
@@ -424,7 +570,7 @@ async def list_users(
     rows = derived_rows[start:end]
 
     # Enrich with Discord data
-    items: list[EnrichedUser] = []
+    items = []
     for row in rows:
         user_id = row[0]
         main_orgs = row[6]
@@ -453,6 +599,8 @@ async def list_users(
                 roles=member_data.get("roles", []),
                 main_orgs=main_orgs,
                 affiliate_orgs=affiliate_orgs,
+                guild_id=None,  # Single guild mode doesn't need this
+                guild_name=None,
             )
         )
 
@@ -468,6 +616,7 @@ async def list_users(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+        is_cross_guild=False,
     )
 
 

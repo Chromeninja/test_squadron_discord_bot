@@ -2,6 +2,8 @@
 Utility functions for RSI (Roberts Space Industries) API integration.
 
 Handles organization validation by fetching and parsing org pages.
+Uses the shared circuit breaker from helpers/circuit_breaker.py to prevent
+cascading failures when RSI blocks requests.
 """
 
 import asyncio
@@ -11,6 +13,12 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 from bs4 import BeautifulSoup
+
+# Import the shared circuit breaker implementation
+from helpers.circuit_breaker import (
+    CircuitBreakerState,
+    get_rsi_circuit_breaker,
+)
 
 if TYPE_CHECKING:
     from bs4 import Tag
@@ -23,6 +31,31 @@ HTTP_FORBIDDEN = 403
 HTTP_NOT_FOUND = 404
 HTTP_TIMEOUT = 408
 HTTP_SERVER_ERROR = 500
+
+
+# ---------------------------------------------------------------------------
+# Circuit Breaker for Web Backend RSI Requests
+#
+# Uses the shared CircuitBreakerState from helpers/circuit_breaker.py which
+# provides exponential backoff, status monitoring, and consistent behavior
+# across both the bot and web backend.
+# ---------------------------------------------------------------------------
+
+
+def get_web_circuit_breaker() -> CircuitBreakerState:
+    """
+    Get the shared RSI circuit breaker instance.
+
+    This is an alias for get_rsi_circuit_breaker() to maintain API compatibility.
+    The circuit breaker is shared between the bot and web backend to ensure
+    consistent rate limiting behavior.
+    """
+    return get_rsi_circuit_breaker()
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiter
+# ---------------------------------------------------------------------------
 
 
 class RSIRateLimiter:
@@ -83,15 +116,21 @@ class RSIClient:
 
     async def fetch_html(self, url: str) -> tuple[str | None, int]:
         """
-        Fetch HTML from URL with rate limiting.
+        Fetch HTML from URL with rate limiting and circuit breaker protection.
 
         Args:
             url: URL to fetch
 
         Returns:
             Tuple of (html_content, status_code)
-            html_content is None if request failed
+            html_content is None if request failed or circuit is open
         """
+        # Check circuit breaker first
+        circuit_breaker = get_web_circuit_breaker()
+        if circuit_breaker.is_open():
+            logger.info("Web RSI circuit breaker OPEN, failing fast for %s", url)
+            return None, HTTP_FORBIDDEN
+
         await self.rate_limiter.acquire()
 
         session = await self._get_session()
@@ -103,9 +142,15 @@ class RSIClient:
                 if status == HTTP_OK:
                     text = await resp.text()
                     logger.debug(f"Successfully fetched {url} ({len(text)} bytes)")
+                    circuit_breaker.record_success()
                     return text, status
+                elif status == HTTP_FORBIDDEN:
+                    logger.warning(f"403 Forbidden for {url}")
+                    circuit_breaker.record_failure()
+                    return None, status
                 else:
                     logger.warning(f"Failed to fetch {url}: HTTP {status}")
+                    # Non-403 errors don't affect circuit breaker
                     return None, status
         except TimeoutError:
             logger.warning(f"Timeout while fetching {url}")

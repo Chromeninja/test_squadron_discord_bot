@@ -212,6 +212,16 @@ class ActiveVoiceChannel(BaseModel):
     last_activity: int
     channel_name: str | None = None
     members: list[VoiceChannelMember] = []
+    # Cross-guild mode: guild name for display
+    guild_name: str | None = None
+
+
+class GuildVoiceGroup(BaseModel):
+    """Voice channels grouped by guild for cross-guild view."""
+
+    guild_id: str
+    guild_name: str
+    items: list[ActiveVoiceChannel] = Field(default_factory=list)
 
 
 class ActiveVoiceChannelsResponse(BaseModel):
@@ -220,6 +230,8 @@ class ActiveVoiceChannelsResponse(BaseModel):
     success: bool = True
     items: list[ActiveVoiceChannel]
     total: int
+    is_cross_guild: bool = False
+    guild_groups: list[GuildVoiceGroup] | None = None  # Populated in cross-guild mode
 
 
 class PermissionEntry(BaseModel):
@@ -290,6 +302,17 @@ class UserJTCSettings(BaseModel):
         None  # Changed to str to preserve 64-bit Discord snowflake precision
     )
     jtcs: list[JTCChannelSettings] = Field(default_factory=list)
+    # Cross-guild mode: guild info for grouping
+    guild_id: str | None = None
+    guild_name: str | None = None
+
+
+class GuildUserSettingsGroup(BaseModel):
+    """User voice settings grouped by guild for cross-guild view."""
+
+    guild_id: str
+    guild_name: str
+    items: list[UserJTCSettings] = Field(default_factory=list)
 
 
 class VoiceUserSettingsSearchResponse(BaseModel):
@@ -301,6 +324,8 @@ class VoiceUserSettingsSearchResponse(BaseModel):
     page: int = 1
     page_size: int = 20
     message: str | None = None
+    is_cross_guild: bool = False
+    guild_groups: list[GuildUserSettingsGroup] | None = None  # Populated in cross-guild mode
 
 
 class VoiceSettingsResetResponse(BaseModel):

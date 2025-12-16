@@ -14,9 +14,17 @@ from core.dependencies import (
     require_staff,
 )
 from core.guild_settings import get_organization_settings
+from core.pagination import (
+    DEFAULT_PAGE_SIZE_VOICE,
+    MAX_PAGE_SIZE_VOICE,
+    clamp_page_size,
+    is_all_guilds_mode,
+)
 from core.schemas import (
     ActiveVoiceChannel,
     ActiveVoiceChannelsResponse,
+    GuildUserSettingsGroup,
+    GuildVoiceGroup,
     JTCChannelSettings,
     PermissionEntry,
     PrioritySpeakerEntry,
@@ -219,26 +227,143 @@ async def voice_integrity_audit(
 
 @router.get("/active", response_model=ActiveVoiceChannelsResponse)
 async def list_active_voice_channels(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page (max 100)"),
     db=Depends(get_db),
     current_user: UserProfile = Depends(require_staff()),
     voice_service: VoiceService = Depends(get_voice_service),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
-    """
-    List all active voice channels with owner information and current members.
+    """List all active voice channels with owner information and current members.
 
     Returns active voice channels with real-time member data from Discord API.
     Filters by the user's currently active guild.
+    Bot owners in "All Guilds" mode can view channels across all guilds (grouped by guild).
 
     Requires: Staff role or higher
 
     Returns:
         ActiveVoiceChannelsResponse with active channel list
     """
+    # Apply pagination caps
+    page_size = clamp_page_size(page_size, DEFAULT_PAGE_SIZE_VOICE, MAX_PAGE_SIZE_VOICE)
+
+    is_cross_guild = is_all_guilds_mode(current_user.active_guild_id)
+
     # Ensure user has an active guild selected
     if not current_user.active_guild_id:
-        return ActiveVoiceChannelsResponse(items=[], total=0)
+        return ActiveVoiceChannelsResponse(items=[], total=0, is_cross_guild=False)
 
+    if is_cross_guild:
+        # Cross-guild mode: fetch active voice channels with database-level pagination
+        offset = (page - 1) * page_size
+
+        # First, get the total count for pagination metadata
+        count_cursor = await db.execute(
+            "SELECT COUNT(*) FROM voice_channels WHERE is_active = 1"
+        )
+        count_row = await count_cursor.fetchone()
+        total = count_row[0] if count_row else 0
+
+        if total == 0:
+            return ActiveVoiceChannelsResponse(
+                items=[], total=0, is_cross_guild=True, guild_groups=[]
+            )
+
+        cursor = await db.execute(
+            """
+            SELECT
+                vc.voice_channel_id,
+                vc.guild_id,
+                vc.jtc_channel_id,
+                vc.owner_id,
+                vc.created_at,
+                vc.last_activity,
+                v.rsi_handle,
+                v.main_orgs,
+                v.affiliate_orgs
+            FROM voice_channels vc
+            LEFT JOIN verification v ON vc.owner_id = v.user_id
+            WHERE vc.is_active = 1
+            ORDER BY vc.guild_id, vc.last_activity DESC
+            LIMIT ? OFFSET ?
+            """,
+            (page_size, offset),
+        )
+        rows_paged = await cursor.fetchall()
+
+        if not rows_paged:
+            return ActiveVoiceChannelsResponse(
+                items=[], total=total, is_cross_guild=True, guild_groups=[]
+            )
+
+        # Get guild metadata for names
+        try:
+            guilds_list = await internal_api.get_guilds()
+            guild_map = {
+                str(g.get("guild_id")): g.get("guild_name", f"Guild {g.get('guild_id')}")
+                for g in guilds_list
+            }
+        except Exception:
+            guild_map = {}
+
+        # Build items with minimal enrichment (no Discord API calls in cross-guild mode)
+        items = []
+        guild_items: dict[str, list[ActiveVoiceChannel]] = {}
+
+        for row in rows_paged:
+            guild_id = row[1]
+            guild_id_str = str(guild_id)
+            guild_name = guild_map.get(guild_id_str, f"Guild {guild_id}")
+
+            owner_main_orgs = json.loads(row[7]) if row[7] else None
+            owner_aff_orgs = json.loads(row[8]) if row[8] else None
+
+            if owner_main_orgs is None and owner_aff_orgs is None:
+                owner_status = "unknown"
+            else:
+                owner_status = derive_membership_status(
+                    owner_main_orgs or [], owner_aff_orgs or []
+                )
+
+            channel = ActiveVoiceChannel(
+                voice_channel_id=row[0],
+                guild_id=row[1],
+                jtc_channel_id=row[2],
+                owner_id=row[3],
+                created_at=row[4],
+                last_activity=row[5],
+                owner_rsi_handle=row[6],
+                owner_membership_status=owner_status,
+                channel_name=f"Channel {row[0]}",  # No Discord enrichment in cross-guild
+                members=[],  # No member enrichment in cross-guild
+                guild_name=guild_name,
+            )
+
+            items.append(channel)
+
+            if guild_id_str not in guild_items:
+                guild_items[guild_id_str] = []
+            guild_items[guild_id_str].append(channel)
+
+        # Build guild groups
+        guild_groups = [
+            GuildVoiceGroup(
+                guild_id=gid,
+                guild_name=guild_map.get(gid, f"Guild {gid}"),
+                items=channels,
+            )
+            for gid, channels in guild_items.items()
+        ]
+
+        return ActiveVoiceChannelsResponse(
+            items=items,
+            total=total,
+            is_cross_guild=True,
+            guild_groups=guild_groups,
+        )
+
+    # Single-guild mode (original behavior)
     # Query active voice channels with owner verification info
     # FILTER BY GUILD ID to only show channels for the active guild
     cursor = await db.execute(
@@ -263,7 +388,7 @@ async def list_active_voice_channels(
     rows = await cursor.fetchall()
 
     if not rows:
-        return ActiveVoiceChannelsResponse(items=[], total=0)
+        return ActiveVoiceChannelsResponse(items=[], total=0, is_cross_guild=False)
 
     # Fetch channel details and members via internal bot API (no direct Discord calls)
     items = []
@@ -423,7 +548,7 @@ async def list_active_voice_channels(
                 )
             )
 
-    return ActiveVoiceChannelsResponse(items=items, total=len(items))
+    return ActiveVoiceChannelsResponse(items=items, total=len(items), is_cross_guild=False)
 
 
 @router.get("/search", response_model=VoiceSearchResponse)
@@ -510,6 +635,7 @@ async def search_user_voice_settings(
     - RSI handle (case-insensitive partial match)
 
     Returns all saved JTC settings for each matched user in the currently active guild.
+    In "All Guilds" mode, returns settings across all guilds grouped by guild.
 
     Requires: Staff role or higher
 
@@ -521,6 +647,11 @@ async def search_user_voice_settings(
     Returns:
         VoiceUserSettingsSearchResponse with paginated user settings
     """
+    # Apply pagination caps
+    page_size = clamp_page_size(page_size, DEFAULT_PAGE_SIZE_VOICE, MAX_PAGE_SIZE_VOICE)
+
+    is_cross_guild = is_all_guilds_mode(current_user.active_guild_id)
+
     # Ensure user has an active guild selected
     if not current_user.active_guild_id:
         return VoiceUserSettingsSearchResponse(
@@ -530,10 +661,156 @@ async def search_user_voice_settings(
             page=page,
             page_size=page_size,
             message="No active guild selected",
+            is_cross_guild=False,
+        )
+
+    if is_cross_guild:
+        # Cross-guild mode: search across all guilds
+        offset = (page - 1) * page_size
+
+        # Get guild metadata for names
+        try:
+            guilds_list = await internal_api.get_guilds()
+            guild_map = {
+                str(g.get("guild_id")): g.get("guild_name", f"Guild {g.get('guild_id')}")
+                for g in guilds_list
+            }
+            guild_ids = [int(gid) for g in guilds_list if (gid := g.get("guild_id")) is not None]
+        except Exception:
+            guild_map = {}
+            guild_ids = []
+
+        if not guild_ids:
+            return VoiceUserSettingsSearchResponse(
+                success=True,
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                message="No guilds available",
+                is_cross_guild=True,
+                guild_groups=[],
+            )
+
+        # Search for users by query
+        try:
+            user_id_int = int(query)
+            # Exact user ID search
+            verification_cursor = await db.execute(
+                "SELECT user_id, rsi_handle, community_moniker FROM verification WHERE user_id = ?",
+                (user_id_int,),
+            )
+            verification_rows = await verification_cursor.fetchall()
+        except ValueError:
+            # RSI handle search
+            search_pattern = f"%{query}%"
+            verification_cursor = await db.execute(
+                """
+                SELECT user_id, rsi_handle, community_moniker
+                FROM verification
+                WHERE rsi_handle LIKE ?
+                ORDER BY rsi_handle
+                LIMIT ? OFFSET ?
+                """,
+                (search_pattern, page_size, offset),
+            )
+            verification_rows = await verification_cursor.fetchall()
+
+        # Build items with settings from all guilds
+        items = []
+        guild_items: dict[str, list[UserJTCSettings]] = {}
+
+        for ver_row in verification_rows:
+            user_id = ver_row[0]
+            rsi_handle = ver_row[1]
+            community_moniker = ver_row[2]
+
+            # Check each guild for voice settings
+            for gid in guild_ids:
+                gid_str = str(gid)
+                snapshots = await voice_service.get_user_settings_snapshots(gid, user_id)
+
+                if not snapshots:
+                    continue
+
+                primary_jtc_id = await _get_last_used_jtc_channel(gid, user_id)
+
+                # Minimal resolution (no Discord API calls in cross-guild)
+                resolved_jtcs = [
+                    snapshot_to_jtc_settings(s, jtc_channel_name=f"JTC {s.jtc_channel_id}")
+                    for s in snapshots
+                ]
+
+                user_settings = UserJTCSettings(
+                    user_id=str(user_id),
+                    rsi_handle=rsi_handle,
+                    community_moniker=community_moniker,
+                    primary_jtc_id=str(primary_jtc_id) if primary_jtc_id else None,
+                    jtcs=resolved_jtcs,
+                    guild_id=gid_str,
+                    guild_name=guild_map.get(gid_str, f"Guild {gid}"),
+                )
+
+                items.append(user_settings)
+
+                if gid_str not in guild_items:
+                    guild_items[gid_str] = []
+                guild_items[gid_str].append(user_settings)
+
+        # Build guild groups
+        guild_groups = [
+            GuildUserSettingsGroup(
+                guild_id=gid,
+                guild_name=guild_map.get(gid, f"Guild {gid}"),
+                items=settings,
+            )
+            for gid, settings in guild_items.items()
+        ]
+
+        return VoiceUserSettingsSearchResponse(
+            success=True,
+            items=items,
+            total=len(items),
+            page=page,
+            page_size=page_size,
+            is_cross_guild=True,
+            guild_groups=guild_groups,
         )
 
     guild_id = int(current_user.active_guild_id)
     offset = (page - 1) * page_size
+
+    # First, get the set of user IDs who are actually members of this guild
+    # This prevents privacy issues where users can see settings for users not in their guild
+    # Use None as sentinel for "no filtering needed", empty set means "no members found"
+    guild_member_ids: set[int] | None = None
+    try:
+        guild_member_ids = set()
+        page_num = 1
+        fetch_size = 1000  # Max supported by API
+        while True:
+            members_data = await internal_api.get_guild_members(
+                guild_id, page=page_num, page_size=fetch_size
+            )
+            members_list = members_data.get("members", [])
+            for m in members_list:
+                if m.get("user_id"):
+                    guild_member_ids.add(int(m["user_id"]))
+            if len(members_list) < fetch_size:
+                break
+            page_num += 1
+    except Exception:
+        logger.warning("Failed to fetch guild members for privacy filtering, returning empty results (fail closed)")
+        # Fail closed: return empty results rather than exposing settings for non-members
+        return VoiceUserSettingsSearchResponse(
+            success=True,
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            message="Unable to verify guild membership",
+            is_cross_guild=False,
+        )
 
     # Fetch guild roles for name resolution (per snapshot helper)
     try:
@@ -604,6 +881,10 @@ async def search_user_voice_settings(
         if voice_row:
             candidate_user_ids.add(user_id_int)
 
+        # Filter to only include users who are actually members of this guild
+        # guild_member_ids is always a set here (we return early on fetch failure)
+        candidate_user_ids = candidate_user_ids & guild_member_ids
+
         total = len(candidate_user_ids)
 
         candidate_user_ids_sorted = sorted(candidate_user_ids)
@@ -622,24 +903,24 @@ async def search_user_voice_settings(
         # Not a valid integer, search by RSI handle with LIKE (verification-only)
         search_pattern = f"%{query}%"
 
-        count_cursor = await db.execute(
-            "SELECT COUNT(*) FROM verification WHERE rsi_handle LIKE ?",
-            (search_pattern,),
-        )
-        count_row = await count_cursor.fetchone()
-        total = count_row[0] if count_row else 0
-
+        # Fetch all matching rows first, then filter by guild membership
         cursor = await db.execute(
             """
             SELECT user_id, rsi_handle, community_moniker
             FROM verification
             WHERE rsi_handle LIKE ?
             ORDER BY rsi_handle
-            LIMIT ? OFFSET ?
             """,
-            (search_pattern, page_size, offset),
+            (search_pattern,),
         )
-        rows = await cursor.fetchall()
+        all_rows = await cursor.fetchall()
+
+        # Filter to only include users who are actually members of this guild
+        # guild_member_ids is always a set here (we return early on fetch failure)
+        rows_filtered = [r for r in all_rows if int(r[0]) in guild_member_ids]
+
+        total = len(rows_filtered)
+        rows = rows_filtered[offset : offset + page_size]
 
     items = []
 
@@ -692,6 +973,7 @@ async def search_user_voice_settings(
         total=total,
         page=page,
         page_size=page_size,
+        is_cross_guild=False,
     )
 
 
@@ -767,7 +1049,7 @@ async def reset_user_voice_settings(
         if row:
             channel_id = row[0]
             # Deleting the live Discord channel requires an internal endpoint.
-            # This API currently performs DB cleanup only; channel deletion is a best-effort TODO.
+            # This API currently performs DB cleanup only
             # We keep the channel_id in response for transparency.
             channel_deleted = False
 

@@ -6,7 +6,9 @@ import {
   EnrichedUser,
   ExportUsersRequest,
   BulkRecheckResponse,
+  BulkRecheckProgress,
   UserProfile,
+  ALL_GUILDS_SENTINEL,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { handleApiError } from '../utils/toast';
@@ -20,6 +22,7 @@ function Users() {
   const [error, setError] = useState<string | null>(null);
   const [activeGuildId, setActiveGuildId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isCrossGuild, setIsCrossGuild] = useState(false);
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -39,11 +42,13 @@ function Users() {
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Admin actions
   const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
   const [recheckSuccess, setRecheckSuccess] = useState<string | null>(null);
   const [bulkRechecking, setBulkRechecking] = useState(false);
+  const [recheckProgress, setRecheckProgress] = useState<BulkRecheckProgress | null>(null);
   
   // Recheck results modal
   const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
@@ -88,6 +93,7 @@ function Users() {
     setBulkRechecking(true);
     setRecheckSuccess(null);
     setError(null);
+    setRecheckProgress(null);
     
     try {
       // Get the list of selected user IDs
@@ -112,22 +118,96 @@ function Users() {
         return;
       }
       
-      const response = await adminApi.bulkRecheckUsers(userIdsToRecheck);
+      // Kick off async bulk recheck and poll progress. If start endpoint is unavailable (404/405), fall back to synchronous flow.
+      try {
+        const startResp = await adminApi.startBulkRecheckUsers(userIdsToRecheck);
+
+        const jobId = startResp.job_id;
+        setRecheckProgress({
+          job_id: jobId,
+          total: userIdsToRecheck.length,
+          processed: 0,
+          successful: 0,
+          failed: 0,
+          status: 'running',
+          current_user: null,
+          final_response: null,
+        });
+
+        pollIntervalRef.current = setInterval(async () => {
+          try {
+            const progress = await adminApi.getBulkRecheckProgress(jobId);
+            setRecheckProgress(progress);
+
+            if (progress.status === 'complete' || progress.status === 'error') {
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
+
+              if (progress.final_response) {
+                setRecheckResults(progress.final_response as BulkRecheckResponse);
+                setShowResultsModal(true);
+              }
+
+              // Refresh users after completion
+              await fetchUsers();
+
+              // Clear selection and progress after showing results
+              resetSelection();
+              setBulkRechecking(false);
+            }
+          } catch (err) {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setBulkRechecking(false);
+          }
+        }, 1200);
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 404 || status === 405) {
+          // Fallback to synchronous bulk recheck
+          setRecheckProgress({
+            job_id: 'sync',
+            total: userIdsToRecheck.length,
+            processed: 0,
+            successful: 0,
+            failed: 0,
+            status: 'running',
+            current_user: null,
+            final_response: null,
+          });
+
+          const resp = await adminApi.bulkRecheckUsers(userIdsToRecheck);
+
+          setRecheckProgress({
+            job_id: 'sync',
+            total: resp.total,
+            processed: resp.total,
+            successful: resp.successful,
+            failed: resp.failed,
+            status: 'complete',
+            current_user: null,
+            final_response: resp,
+          });
+
+          setRecheckResults(resp);
+          setShowResultsModal(true);
+          await fetchUsers();
+          resetSelection();
+          setBulkRechecking(false);
+        } else {
+          throw err;
+        }
+      }
       
-      // Show results modal
-      setRecheckResults(response);
-      setShowResultsModal(true);
-      
-      // Refresh the users list
-      await fetchUsers();
-      
-      // Clear selection
-      resetSelection();
     } catch (err: any) {
       const status = err.response?.status;
       const message = status === 403 ? 'No access - moderator role required' : (err.response?.data?.detail || 'Failed to bulk recheck users');
       setError(message);
-    } finally {
+      setRecheckProgress(null);
       setBulkRechecking(false);
     }
   };
@@ -221,6 +301,16 @@ function Users() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [orgDropdownOpen]);
 
+  // Cleanup interval on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // Load user profile to get active guild
   useEffect(() => {
     const loadUserProfile = async () => {
@@ -253,6 +343,8 @@ function Users() {
     }
     setPage(1);
     resetSelection();
+    // Check if we're in cross-guild mode
+    setIsCrossGuild(activeGuildId === ALL_GUILDS_SENTINEL);
   }, [activeGuildId]);
 
   // Fetch users
@@ -261,6 +353,7 @@ function Users() {
       setUsers([]);
       setTotal(0);
       setTotalPages(0);
+      setIsCrossGuild(false);
       return;
     }
 
@@ -276,6 +369,7 @@ function Users() {
       setUsers(data.items);
       setTotal(data.total);
       setTotalPages(data.total_pages);
+      setIsCrossGuild(data.is_cross_guild === true);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load users');
     } finally {
@@ -691,8 +785,16 @@ function Users() {
         </div>
       </Card>
 
-      {/* Export Bar */}
-      {(total > 0 || hasSelection) && (
+      {/* Cross-Guild Mode Alert */}
+      {isCrossGuild && (
+        <Alert variant="info" className="mb-6">
+          <strong>🌐 All Guilds Mode</strong> — Viewing users across all servers. 
+          Bulk actions are disabled in cross-guild view. Switch to a specific server to perform actions.
+        </Alert>
+      )}
+
+      {/* Export Bar - Hide bulk actions in cross-guild mode */}
+      {(total > 0 || hasSelection) && !isCrossGuild && (
         <Card padding="md" className="mb-6">
           <div className="flex flex-wrap gap-4 justify-between items-center">
             <div>
@@ -719,6 +821,18 @@ function Users() {
               </div>
             </div>
             <div className="flex gap-3">
+              {/* Progress Overlay */}
+              {recheckProgress && recheckProgress.status === 'running' && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/50 border border-blue-500 rounded-lg">
+                  <svg className="animate-spin h-4 w-4 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-blue-300 text-sm font-medium">
+                    Checking {recheckProgress.processed}/{recheckProgress.total}...
+                  </span>
+                </div>
+              )}
               {canRecheck && (
                 <Button
                   onClick={handleBulkRecheck}
@@ -775,15 +889,24 @@ function Users() {
             <table className="w-full">
               <thead className="bg-slate-900">
                 <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input
-                      ref={headerCheckboxRef}
-                      type="checkbox"
-                      checked={filteredUsers.length > 0 && pageSelectionInfo.allSelected}
-                      onChange={handleSelectAllOnPage}
-                      className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
-                    />
-                  </th>
+                  {/* Hide checkbox column in cross-guild mode (no bulk actions) */}
+                  {!isCrossGuild && (
+                    <th className="px-4 py-3 text-left">
+                      <input
+                        ref={headerCheckboxRef}
+                        type="checkbox"
+                        checked={filteredUsers.length > 0 && pageSelectionInfo.allSelected}
+                        onChange={handleSelectAllOnPage}
+                        className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                      />
+                    </th>
+                  )}
+                  {/* Show guild column in cross-guild mode */}
+                  {isCrossGuild && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      Guild
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     User
                   </th>
@@ -811,9 +934,12 @@ function Users() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                     Last Verified
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Actions
-                  </th>
+                  {/* Hide actions column in cross-guild mode */}
+                  {!isCrossGuild && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      Actions
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
@@ -824,14 +950,25 @@ function Users() {
 
                   return (
                     <tr key={user.discord_id} className="hover:bg-slate-700/50">
-                    <td className="px-4 py-4">
-                      <input
-                        type="checkbox"
-                        checked={isRowSelected}
-                        onChange={() => handleSelectUser(user.discord_id)}
-                        className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
-                      />
-                    </td>
+                    {/* Hide checkbox in cross-guild mode */}
+                    {!isCrossGuild && (
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={isRowSelected}
+                          onChange={() => handleSelectUser(user.discord_id)}
+                          className="rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      </td>
+                    )}
+                    {/* Show guild in cross-guild mode */}
+                    {isCrossGuild && (
+                      <td className="px-4 py-4">
+                        <Badge variant="purple" className="text-xs">
+                          {user.guild_name || user.guild_id || 'Unknown'}
+                        </Badge>
+                      </td>
+                    )}
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
                         {user.avatar_url ? (
@@ -964,20 +1101,23 @@ function Users() {
                     <td className="px-4 py-4 text-sm text-gray-400">
                       {formatDateValue(user.last_updated)}
                     </td>
-                    <td className="px-4 py-4">
-                      {canRecheck ? (
-                        <Button
-                          size="sm"
-                          onClick={() => handleRecheckUser(user.discord_id)}
-                          loading={recheckingUserId === user.discord_id}
-                          title="Re-verify this user's RSI membership and update roles"
-                        >
-                          {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-gray-500">-</span>
-                      )}
-                    </td>
+                    {/* Hide actions in cross-guild mode */}
+                    {!isCrossGuild && (
+                      <td className="px-4 py-4">
+                        {canRecheck ? (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRecheckUser(user.discord_id)}
+                            loading={recheckingUserId === user.discord_id}
+                            title="Re-verify this user's RSI membership and update roles"
+                          >
+                            {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-500">-</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                   );
                 })}

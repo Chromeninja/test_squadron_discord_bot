@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { authApi, adminApi, GuildSummary, UserProfile } from '../api/endpoints';
+import { authApi, adminApi, GuildSummary, UserProfile, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { handleApiError, showSuccess } from '../utils/toast';
 import { Button, Card, Alert } from '../components/ui';
 
@@ -17,6 +17,7 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
   const [loggingOut, setLoggingOut] = useState(false);
   const [leavingId, setLeavingId] = useState<string | null>(null);
   const [confirmLeaveId, setConfirmLeaveId] = useState<string | null>(null);
+  const [selectingAllGuilds, setSelectingAllGuilds] = useState(false);
 
   const isBotOwner = user?.is_bot_owner === true;
 
@@ -54,6 +55,19 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
       setError('Failed to select server. Please try again.');
     } finally {
       setSelectingId(null);
+    }
+  };
+
+  const handleSelectAllGuilds = async () => {
+    setSelectingAllGuilds(true);
+    try {
+      await authApi.selectGuild(ALL_GUILDS_SENTINEL);
+      await onSelected();
+    } catch (err) {
+      handleApiError(err, 'Failed to enter All Guilds mode');
+      setError('Failed to enter All Guilds mode. Please try again.');
+    } finally {
+      setSelectingAllGuilds(false);
     }
   };
 
@@ -169,6 +183,39 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
           </Card>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
+            {/* Bot Owner: All Guilds Mode Card */}
+            {isBotOwner && (
+              <Card
+                padding="lg"
+                hoverable
+                className="shadow hover:border-purple-500 border-2 border-purple-700 bg-purple-900/20"
+              >
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="h-16 w-16 rounded-full bg-purple-700 flex items-center justify-center text-2xl text-white">
+                    🌐
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-xl font-semibold text-purple-300">All Guilds</h2>
+                    <p className="text-sm text-purple-400">View all users & voice data across all servers</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    fullWidth
+                    variant="secondary"
+                    onClick={handleSelectAllGuilds}
+                    loading={selectingAllGuilds}
+                    disabled={selectingId !== null || leavingId !== null}
+                  >
+                    {selectingAllGuilds ? 'Entering...' : '🔍 View All Guilds'}
+                  </Button>
+                </div>
+                <p className="text-xs text-purple-400 mt-2 text-center">
+                  Bot Owner Only • Read-only cross-guild view
+                </p>
+              </Card>
+            )}
+            
             {guilds.map((guild) => (
               <Card
                 key={guild.guild_id}

@@ -908,9 +908,11 @@ class InternalAPIServer:
 
         # Parse optional admin_user_id from request body
         admin_user_id = None
+        log_leadership = True  # Default to True for backwards compatibility
         try:
             body = await request.json()
             admin_user_id = body.get("admin_user_id")
+            log_leadership = body.get("log_leadership", True)
         except Exception:
             pass  # No body or invalid JSON, proceed without admin_user_id
 
@@ -964,7 +966,7 @@ class InternalAPIServer:
                 initiator_source=InitiatorSource.WEB,
                 admin_user_id=admin_user_id,
                 enforce_rate_limit=False,  # Admin actions bypass rate limits
-                log_leadership=True,  # Always log leadership changes
+                log_leadership=log_leadership,  # Configurable for bulk operations
                 log_audit=True,  # Always audit admin actions
             )
 
@@ -981,8 +983,19 @@ class InternalAPIServer:
                     {"error": result["error"], "remediated": True}, status=404
                 )
 
-            # Handle other errors
-            if not result["success"]:
+            # Handle circuit breaker (service temporarily unavailable)
+            if not result["success"] and result.get("error"):
+                error_msg = result["error"].lower()
+                if "temporarily unavailable" in error_msg or "circuit" in error_msg:
+                    return web.json_response(
+                        {
+                            "error": result["error"],
+                            "circuit_breaker": True,
+                            "retry_after": 300,
+                        },
+                        status=503,
+                    )
+                # Other errors
                 return web.json_response({"error": result["error"]}, status=500)
 
             # Success!
