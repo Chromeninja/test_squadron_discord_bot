@@ -1,5 +1,3 @@
-# Helpers/task_queue.py
-
 import asyncio
 import random
 import time
@@ -13,6 +11,9 @@ logger = get_logger(__name__)
 
 
 task_queue = asyncio.Queue()
+
+# Track worker tasks for clean shutdown
+_worker_tasks: set[asyncio.Task] = set()
 
 api_limiter = AsyncLimiter(max_rate=45, time_period=1)
 
@@ -88,15 +89,26 @@ async def enqueue_task(task) -> None:
     loop = asyncio.get_event_loop()
     future = loop.create_future()
 
+    # If no workers are running (e.g., during isolated tests), run immediately
+    # to avoid hanging on an unresolved future.
+    if not _worker_tasks:
+        try:
+            result = await task()
+            if not future.done():
+                future.set_result(result)
+        except Exception as exc:  # pragma: no cover - defensive safety
+            if not future.done():
+                future.set_exception(exc)
+        return future  # type: ignore[return-value]
+
     async def wrapped_task() -> None:
         result = await task()
         if not future.done():
             future.set_result(result)
-        return result
 
     await task_queue.put(wrapped_task)
     logger.debug("Task enqueued.")
-    return future
+    return future  # type: ignore[return-value]
 
 
 async def start_task_workers(num_workers=2) -> None:
@@ -106,9 +118,41 @@ async def start_task_workers(num_workers=2) -> None:
     Args:
         num_workers (int): Number of worker coroutines to start.
     """
-    for _ in range(num_workers):
-        asyncio.create_task(worker())
+    for idx in range(num_workers):
+        task = asyncio.create_task(worker(), name=f"task_queue_worker_{idx}")
+        _worker_tasks.add(task)
+
+        def _cleanup(done: asyncio.Task) -> None:
+            _worker_tasks.discard(done)
+            try:
+                exc = done.exception()
+                if exc:
+                    logger.exception(
+                        "Task queue worker %s failed", done.get_name(), exc_info=exc
+                    )
+            except asyncio.CancelledError:
+                logger.debug("Task queue worker %s cancelled", done.get_name())
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Error inspecting worker task %s: %s", done.get_name(), exc
+                )
+
+        task.add_done_callback(_cleanup)
     logger.info(f"Started {num_workers} task queue worker(s).")
+
+
+async def stop_task_workers() -> None:
+    """Signal all worker tasks to exit and await completion."""
+
+    if not _worker_tasks:
+        return
+
+    for _ in range(len(_worker_tasks)):
+        await task_queue.put(None)
+
+    await task_queue.join()
+    await asyncio.gather(*_worker_tasks, return_exceptions=True)
+    _worker_tasks.clear()
 
 
 async def flush_tasks(max_wait: float = 2.0) -> None:
@@ -128,4 +172,10 @@ async def flush_tasks(max_wait: float = 2.0) -> None:
         await asyncio.sleep(0.05)
 
 
-__all__ = ["enqueue_task", "flush_tasks", "start_task_workers", "task_queue"]
+__all__ = [
+    "enqueue_task",
+    "flush_tasks",
+    "start_task_workers",
+    "stop_task_workers",
+    "task_queue",
+]

@@ -46,25 +46,21 @@ ai_hints:
 ### Error Handling Pattern
 
 ```python
-from helpers.defensive_retry import discord_retry
-from helpers.structured_errors import report_error
+import logging
 
-@discord_retry
+logger = logging.getLogger(__name__)
+
 async def risky_discord_operation(member: discord.Member) -> bool:
     try:
         # Discord API operation here
         await member.edit(roles=[role])
         return True
     except Exception as e:
-        report_error(
-            error=e,
-            component='role_management',
-            context={
-                'member_id': member.id,
-                'guild_id': member.guild.id,
-                'operation': 'edit_roles'
-            },
-            severity='error'
+        logger.exception(
+            "Failed to edit roles for member %s in guild %s",
+            member.id,
+            member.guild.id,
+            exc_info=e
         )
         return False
 ```
@@ -72,31 +68,29 @@ async def risky_discord_operation(member: discord.Member) -> bool:
 ### Database Access Pattern
 
 ```python
-from helpers.database import Database
+import json
+from services.db.database import Database
 
 async def update_verification_status(
     user_id: int, 
     rsi_handle: str, 
-    status: str
+    payload: dict
 ) -> bool:
-    """Update verification status with proper error handling."""
+    """Update verification payload with proper error handling (status derived from org lists)."""
     try:
         async with Database.get_connection() as db:
             await db.execute(
-                "UPDATE verification SET membership_status = ?, last_updated = ? WHERE user_id = ?",
-                (status, int(time.time()), user_id)
+                "UPDATE verification SET verification_payload = ?, last_updated = ? WHERE user_id = ?",
+                (json.dumps(payload), int(time.time()), user_id)
             )
             await db.commit()
         return True
     except Exception as e:
-        report_error(
-            error=e,
-            component='database',
-            context={
-                'operation': 'update_verification',
-                'user_id': user_id,
-                'rsi_handle': rsi_handle
-            }
+        logger.exception(
+            "Failed to update verification for user %s",
+            user_id,
+            exc_info=e
+        )
         )
         return False
 ```
@@ -148,11 +142,12 @@ async def test_verification_success(temp_db, monkeypatch) -> None:
     # Verify database state
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT membership_status FROM verification WHERE user_id = ?",
+            "SELECT main_orgs FROM verification WHERE user_id = ?",
             (12345,)
         )
         row = await cursor.fetchone()
-        assert row[0] == "main"
+        main_orgs = json.loads(row[0]) if row and row[0] else []
+        assert main_orgs  # User was marked as a member of at least one org
 ```
 
 ### Mock Discord Objects
@@ -337,6 +332,8 @@ async def verify_member_with_logging(member: discord.Member, handle: str) -> boo
 ### AI-Readable Error Context
 
 ```python
+from datetime import datetime, timezone
+
 def create_error_context(
     operation: str,
     inputs: dict[str, Any],
@@ -347,7 +344,7 @@ def create_error_context(
         'operation': operation,
         'inputs': inputs,
         'system_state': state,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'ai_debug_hints': [
             f"Operation '{operation}' failed with given inputs",
             "Check input validation and external service availability",

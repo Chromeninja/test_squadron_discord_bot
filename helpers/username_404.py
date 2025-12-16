@@ -1,44 +1,61 @@
-# helpers/username_404.py
-
 import contextlib
 import time
 
 import discord
 
 from helpers.discord_api import channel_send_message
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.snapshots import diff_snapshots, snapshot_member_state
+from helpers.leadership_log import (
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+)
+from helpers.snapshots import snapshot_member_state
 from helpers.task_queue import enqueue_task, flush_tasks
+from helpers.verification_logging import log_guild_sync
 from services.db.database import Database
+from services.guild_sync import GuildSyncResult
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-MANAGED_ROLE_KEYS = [
-    "BOT_VERIFIED_ROLE_ID",
-    "MAIN_ROLE_ID",
-    "AFFILIATE_ROLE_ID",
-    "NON_MEMBER_ROLE_ID",
-]
 
-
-def _gather_managed_roles(bot, member: discord.Member) -> None:
+async def _gather_managed_roles(bot, member: discord.Member) -> list:
+    """Gather all managed verification roles from guild configuration."""
     roles = []
-    for key in MANAGED_ROLE_KEYS:
-        rid = getattr(bot, key, None)
-        if not rid:
-            continue
-        role = bot.role_cache.get(rid) or (
-            member.guild.get_role(rid) if member.guild else None
-        )
-        if role:
-            roles.append(role)
+
+    if not hasattr(bot, "services") or not bot.services:
+        return roles
+
+    try:
+        # Get all managed role IDs from config
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role",
+        ]
+
+        for role_key in role_keys:
+            role_ids = await bot.services.config.get_guild_setting(
+                member.guild.id, role_key, []
+            )
+            if role_ids:
+                role_id = role_ids[0]  # Get first role from list
+                role = bot.role_cache.get(role_id) or member.guild.get_role(role_id)
+                if role:
+                    roles.append(role)
+    except Exception as e:
+        from utils.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.warning(f"Error gathering managed roles: {e}")
+
     return roles
 
 
-async def remove_bot_roles(member: discord.Member, bot) -> None:
+async def remove_bot_roles(member: discord.Member, bot) -> bool:
     """Remove managed roles from member if present (idempotent)."""
-    managed_roles = _gather_managed_roles(bot, member)
+    managed_roles = await _gather_managed_roles(bot, member)
     roles_to_remove = [r for r in managed_roles if r in member.roles]
 
     if not roles_to_remove:
@@ -46,7 +63,9 @@ async def remove_bot_roles(member: discord.Member, bot) -> None:
 
     # Optimistically update member.roles immediately so test assertions observe removal
     try:
-        member.roles = [r for r in member.roles if r not in roles_to_remove]
+        # Note: member.roles is read-only, this assignment is for local tracking only
+        # Actual role changes happen via member.remove_roles() below
+        pass
     except Exception as e:
         logger.warning(
             f"Failed to optimistically update roles for {member.id}: {e}",
@@ -72,7 +91,7 @@ async def remove_bot_roles(member: discord.Member, bot) -> None:
     return True
 
 
-async def handle_username_404(bot, member: discord.Member, old_handle: str) -> None:
+async def handle_username_404(bot, member: discord.Member, old_handle: str) -> bool:
     """Unified, idempotent handler when an RSI Handle starts returning 404.
 
     Terms:
@@ -121,12 +140,14 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
     roles_removed = await remove_bot_roles(member, bot)
 
     # Announcements
-    spam_channel = (
-        bot.get_channel(getattr(bot, "BOT_SPAM_CHANNEL_ID", None))
-        if getattr(bot, "BOT_SPAM_CHANNEL_ID", None)
-        else None
+    guild = member.guild
+    spam_channel = await bot.services.guild_config.get_channel(
+        guild.id, "bot_spam_channel_id", guild
     )
-    verification_channel_id = getattr(bot, "VERIFICATION_CHANNEL_ID", 0)
+    verification_channel = await bot.services.guild_config.get_channel(
+        guild.id, "verification_channel_id", guild
+    )
+    verification_channel_id = verification_channel.id if verification_channel else 0
     spam_msg = (
         f"{member.mention} it seems your RSI Handle has changed or is no longer accessible. "
         f"Please navigate to <#{verification_channel_id}> and reverify your account. Your roles have been revoked."
@@ -138,22 +159,30 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
             logger.warning(f"Failed sending spam alert for {member.id}: {e}")
     # Leadership announcement removed (standardized in leadership_log.post_if_changed)
 
-    # Leadership snapshot AFTER and post log (always, error path)
+    # Leadership snapshot AFTER and post log via unified log_guild_sync
     try:
         with contextlib.suppress(Exception):
             await flush_tasks()
         after_snap = await snapshot_member_state(bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        cs = ChangeSet(
+        # Create a GuildSyncResult for unified logging
+        sync_result = GuildSyncResult(
+            guild_id=member.guild.id if member.guild else 0,
             user_id=member.id,
-            event=EventType.RECHECK,
-            initiator_kind="Auto",
-            initiator_name=None,
-            notes="RSI 404",
+            member=member,
+            before=before_snap,
+            after=after_snap,
         )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-        await post_if_changed(bot, cs)
+        await log_guild_sync(
+            sync_result,
+            EventType.RECHECK,
+            bot,
+            initiator={
+                "user_id": member.id,
+                "kind": InitiatorKind.AUTO,
+                "source": InitiatorSource.AUTO,
+                "notes": "RSI 404",
+            },
+        )
     except Exception:
         logger.debug("Leadership log 404 post failed")
 
@@ -170,7 +199,7 @@ async def handle_username_404(bot, member: discord.Member, old_handle: str) -> N
                 "leadership_alert" if False else "leadership_missing",
             ],
             "channels": {
-                "spam": getattr(bot, "BOT_SPAM_CHANNEL_ID", None),
+                "spam": spam_channel.id if spam_channel else None,
                 "leadership": None,
                 "verification": verification_channel_id,
             },

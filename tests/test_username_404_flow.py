@@ -1,10 +1,15 @@
+"""Tests for RSI 404 username handling and remediation.
+
+Tests the 404 handling behavior using the unified verification pipeline.
+"""
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from helpers.http_helper import NotFoundError
-from helpers.role_helper import reverify_member
+from helpers.recheck_service import perform_recheck
 from helpers.username_404 import handle_username_404
 from services.db.database import Database
 
@@ -32,14 +37,15 @@ class FakeRole:
 class FakeGuild:
     def __init__(self, member) -> None:
         self._member = member
+        self.id = 123  # Add guild ID for config service
 
-    def get_member(self, uid) -> None:
+    def get_member(self, uid):
         return self._member if self._member.id == uid else None
 
-    async def fetch_member(self, uid) -> None:
+    async def fetch_member(self, uid):
         return self.get_member(uid)
 
-    def get_channel(self, cid) -> None:
+    def get_channel(self, cid):
         return SimpleNamespace(id=cid, send=AsyncMock())
 
 
@@ -48,7 +54,7 @@ class FakeMember:
         self.id = uid
         self.display_name = display_name
         self.mention = f"@{display_name}"
-        self.guild = None  # will be set
+        self.guild: FakeGuild | None = None  # will be set
         self.roles = []
 
     async def remove_roles(self, *roles, reason=None) -> None:
@@ -60,9 +66,8 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     # Seed verification + auto state
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (101, "OldHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (101, "OldHandle", 1),
         )
         await db.execute(
             "INSERT INTO auto_recheck_state(user_id, last_auto_recheck, "
@@ -76,8 +81,6 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     bot.MAIN_ROLE_ID = 2
     bot.AFFILIATE_ROLE_ID = 3
     bot.NON_MEMBER_ROLE_ID = 4
-    bot.BOT_SPAM_CHANNEL_ID = 999
-    bot.VERIFICATION_CHANNEL_ID = 1234
     bot.config = {"channels": {"leadership_announcement_channel_id": 555}}
 
     role_cache = {
@@ -95,6 +98,35 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(999)
+    verification_chan = guild.get_channel(1234)
+    mock_guild_config.get_channel = AsyncMock(
+        side_effect=lambda gid, key, g: {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+    )
+    bot.services.guild_config = mock_guild_config
+
+    # Mock config service for get_guild_setting (used by _gather_managed_roles)
+    # Return the actual role IDs so roles can be found and removed
+    mock_config = AsyncMock()
+
+    async def mock_get_guild_setting(guild_id, key, default=None):
+        role_map = {
+            "roles.bot_verified_role": [1],
+            "roles.main_role": [2],
+            "roles.affiliate_role": [3],
+            "roles.nonmember_role": [4],
+        }
+        return role_map.get(key, default or [])
+
+    mock_config.get_guild_setting = mock_get_guild_setting
+    bot.services.config = mock_config
+
     # Patch channel_send_message to avoid network and run queued tasks immediately
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
@@ -105,7 +137,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
 
     # First call should flag + remove roles + unschedule
-    changed = await handle_username_404(bot, member, "OldHandle")
+    changed = await handle_username_404(bot, member, "OldHandle")  # type: ignore[arg-type]
     assert changed is True
     # Roles removed
     assert member.roles == []  # Removed synchronously via patched enqueue_task
@@ -115,6 +147,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
             "SELECT needs_reverify FROM verification WHERE user_id=?", (101,)
         )
         val = await cur.fetchone()
+        assert val is not None
         assert val[0] == 1
         cur = await db.execute(
             "SELECT 1 FROM auto_recheck_state WHERE user_id=?", (101,)
@@ -132,9 +165,8 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     (distinct 404 cause)."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (111, "FirstHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (111, "FirstHandle", 1),
         )
         await db.commit()
 
@@ -143,8 +175,6 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     bot.MAIN_ROLE_ID = 2
     bot.AFFILIATE_ROLE_ID = 3
     bot.NON_MEMBER_ROLE_ID = 4
-    bot.BOT_SPAM_CHANNEL_ID = 999
-    bot.VERIFICATION_CHANNEL_ID = 1234
     bot.config = {"channels": {"leadership_announcement_channel_id": 555}}
     role_cache = {
         1: FakeRole(1, "BotVerified"),
@@ -160,6 +190,21 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(999)
+    verification_chan = guild.get_channel(1234)
+
+    async def get_channel_mock(gid, key, g):
+        return {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+
+    mock_guild_config.get_channel = get_channel_mock
+    bot.services.guild_config = mock_guild_config
+
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
 
@@ -169,7 +214,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
 
     # First 404
-    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
     assert changed1 is True
     # Simulate successful re-verification clearing the flag & storing a new handle
     async with Database.get_connection() as db:
@@ -179,7 +224,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
         )
         await db.commit()
     await Database.clear_needs_reverify(111)
-    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    changed2 = await handle_username_404(bot, member, "SecondHandle")  # type: ignore[arg-type]
     assert changed2 is True  # distinct handle should not dedupe
     # Two spam alerts
     assert send_mock.await_count == 2
@@ -191,28 +236,51 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     ChangeSet with 404 note."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (222, "GoneHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (222, "GoneHandle", 1),
         )
         await db.commit()
     bot = SimpleNamespace()
-    bot.BOT_SPAM_CHANNEL_ID = 777
-    bot.VERIFICATION_CHANNEL_ID = 555
-    bot.config = {"channels": {"leadership_announcement_channel_id": 999}}
     bot.role_cache = {}
     # Channel mocks
     spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    verification_chan = SimpleNamespace(id=555, send=AsyncMock())
     leader_chan = SimpleNamespace(id=999, send=AsyncMock())
 
-    def get_channel(cid) -> None:
-        return leader_chan if cid == 999 else (spam_chan if cid == 777 else None)
+    def get_channel(cid):
+        if cid == 999:
+            return leader_chan
+        elif cid == 777:
+            return spam_chan
+        elif cid == 555:
+            return verification_chan
+        return None
 
     bot.get_channel = get_channel
+
+    # Mock services
+    bot.services = SimpleNamespace()
+    mock_config = AsyncMock()
+    mock_config.get_global_setting = AsyncMock(return_value="compact")
+    bot.services.config = mock_config
+
+    mock_guild_config = AsyncMock()
+
+    async def get_channel_mock(gid, key, g):
+        return {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+            "leadership_announcement_channel_id": leader_chan,
+        }.get(key)
+
+    mock_guild_config.get_channel = get_channel_mock
+    bot.services.guild_config = mock_guild_config
+
     member = FakeMember(uid=222, display_name="UserGone")
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
+    bot.get_guild = lambda gid: guild if gid == guild.id else None
 
     # Force flag pass through real function; patch enqueue_task immediate
     async def immediate(task_func) -> None:
@@ -235,68 +303,106 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
     # Run 404 handler (simulating admin path already catching NotFound)
 
-    await handle_username_404(bot, member, "GoneHandle")
+    await handle_username_404(bot, member, "GoneHandle")  # type: ignore[arg-type]
     # Leadership message posted (header only, no explicit 404 text per current renderer)
     assert leader_chan.send.await_count == 1
     leadership_msg = leader_chan.send.await_args_list[0][0][0]
-    assert leadership_msg.startswith("[RECHECK]")
+    assert leadership_msg.startswith("[Recheck • Auto]")
     # Spam alert also
     assert spam_chan.send.await_count == 1
     spam_msg = spam_chan.send.await_args_list[0][0][0]
     assert member.mention in spam_msg
-    assert f"<#{bot.VERIFICATION_CHANNEL_ID}>" in spam_msg
+    assert f"<#{verification_chan.id}>" in spam_msg
     assert "reverify your account" in spam_msg.lower()
 
 
 @pytest.mark.asyncio
 async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
+    """Test that perform_recheck handles 404 errors with unified pipeline."""
+    from unittest.mock import MagicMock
+
+    import discord
+
     # Seed verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (202, "HandleX", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (202, "HandleX", 1),
         )
         await db.commit()
 
-    # Fake bot + member with proper HTTP client
+    # Create mock member with full attributes needed by perform_recheck
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 123
+    mock_guild.name = "Test Guild"
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 202
+    member.display_name = "UserX"
+    member.mention = "@UserX"
+    member.guild = mock_guild
+    member.roles = []
+
+    # Fake bot with HTTP client
     bot = SimpleNamespace()
     bot.http_client = FakeHTTPClient("recheck_test_client")
-    bot.VERIFICATION_CHANNEL_ID = 42
     bot.role_cache = {}
+    bot.config = {}
+    bot.services = SimpleNamespace()
+    bot.services.config = AsyncMock()
+    bot.services.config.get_guild_setting = AsyncMock(return_value=[])
+    bot.services.guild_config = AsyncMock()
+    bot.services.guild_config.get_channel = AsyncMock(return_value=None)
+    bot.services.guild_config.get_setting = AsyncMock(return_value=None)
 
-    member = SimpleNamespace(id=202, mention="@UserX", guild=None)
-
-    # Track the HTTP client passed to is_valid_rsi_handle
+    # Track the HTTP client passed to compute_global_state
     captured_http_client = None
 
-    async def fake_is_valid(handle: str, http_client) -> None:
+    # Mock compute_global_state to raise NotFoundError (simulating 404)
+    async def fake_compute_global_state(user_id, handle, http_client, **kwargs):
         nonlocal captured_http_client
         captured_http_client = http_client
-        raise NotFoundError
+        raise NotFoundError("RSI handle not found")
 
     monkeypatch.setattr(
-        "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
+        "helpers.recheck_service.compute_global_state", fake_compute_global_state
     )
 
-    # Call reverify_member and expect it to return failure result (not raise)
-    result = await reverify_member(member, "HandleX", bot)
-    success, status_info, _message = result
+    # Mock the 404 handler
+    handle_404_called = False
+    async def mock_handle_404(b, m, h):
+        nonlocal handle_404_called
+        handle_404_called = True
+    monkeypatch.setattr("helpers.recheck_service.handle_username_404", mock_handle_404)
+    monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
 
-    # Should return failure due to NotFoundError
-    assert not success, "reverify_member should return False for NotFoundError"
-    assert status_info == "error", "Status should be 'error'"
+    # Call perform_recheck - should handle 404 gracefully
+    result = await perform_recheck(
+        member,
+        "HandleX",
+        bot,  # type: ignore[arg-type]
+        enforce_rate_limit=False,
+        log_leadership=False,
+    )
 
-    # Verify that the correct HTTP client was passed
-    assert (
-        captured_http_client is not None
-    ), "HTTP client should have been passed to is_valid_rsi_handle"
-    assert (
-        captured_http_client is bot.http_client
-    ), "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(
-        captured_http_client, FakeHTTPClient
-    ), "Should receive FakeHTTPClient instance"
+    # Should return failure result with remediated flag
+    assert not result["success"], "perform_recheck should return success=False for 404"
+    assert result["remediated"] is True, "Should flag as remediated"
+    assert "not found" in result["error"].lower(), "Error should mention not found"
+
+    # Verify 404 handler was called
+    assert handle_404_called, "Should call handle_username_404"
+
+    # Verify HTTP client was passed correctly
+    assert captured_http_client is not None, (
+        "HTTP client should have been passed to compute_global_state"
+    )
+    assert captured_http_client is bot.http_client, (
+        "Should pass bot.http_client to compute_global_state"
+    )
+    assert isinstance(captured_http_client, FakeHTTPClient), (
+        "Should receive FakeHTTPClient instance"
+    )
 
 
 @pytest.mark.asyncio
@@ -305,30 +411,47 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     leadership channel configured."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (555, "LostOne", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (555, "LostOne", 1),
         )
         await db.commit()
 
     # Bot with leadership channel
     leader_chan = SimpleNamespace(id=888, send=AsyncMock())
     spam_chan = SimpleNamespace(id=777, send=AsyncMock())
+    verification_chan = SimpleNamespace(id=42, send=AsyncMock())
     bot = SimpleNamespace(
-        BOT_SPAM_CHANNEL_ID=777,
-        VERIFICATION_CHANNEL_ID=42,
-        config={"channels": {"leadership_announcement_channel_id": 888}},
         role_cache={},
     )
+
+    # Mock services
+    bot.services = SimpleNamespace()
+    mock_config = AsyncMock()
+    mock_config.get_global_setting = AsyncMock(return_value="compact")
+    bot.services.config = mock_config
+
+    mock_guild_config = AsyncMock()
+
+    async def get_channel_mock(gid, key, g):
+        return {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+            "leadership_announcement_channel_id": leader_chan,
+        }.get(key)
+
+    mock_guild_config.get_channel = get_channel_mock
+    bot.services.guild_config = mock_guild_config
+
     member = FakeMember(uid=555, display_name="LostUser")
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
 
-    def get_channel(cid) -> None:
+    def get_channel(cid):
         return leader_chan if cid == 888 else (spam_chan if cid == 777 else None)
 
     bot.get_channel = get_channel
+    bot.get_guild = lambda gid: guild if gid == guild.id else None
 
     # Patch enqueue_task to run immediately
     async def immediate(task_func) -> None:
@@ -350,73 +473,114 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
 
     monkeypatch.setattr("helpers.username_404.channel_send_message", spam_send_patch)
 
-    await handle_username_404(bot, member, "LostOne")
+    await handle_username_404(bot, member, "LostOne")  # type: ignore[arg-type]
 
     # Leadership log should have one post containing header with
-    # RECHECK and 404 note suppressed to header only
+    # Recheck • Auto and 404 note suppressed to header only
     assert leader_chan.send.await_count == 1
     msg = leader_chan.send.await_args_list[0][0][0]
-    assert msg.startswith("[RECHECK]")
+    assert msg.startswith("[Recheck • Auto]")
     # Spam alert also fires
     assert spam_chan.send.await_count == 1
 
 
 @pytest.mark.asyncio
-async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> None:
+async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) -> None:
+    """Test that successful verification clears the needs_reverify flag via unified pipeline."""
+    import time as time_module
+    from unittest.mock import MagicMock
+
+    import discord
+
+    from services.verification_state import GlobalVerificationState
+
     # Seed flagged verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated, needs_reverify, "
-            "needs_reverify_at) VALUES (?,?,?,?,1,1)",
-            (303, "OldOne", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated, needs_reverify, needs_reverify_at) VALUES (?,?,?,1,1)",
+            (303, "OldOne", 1),
         )
         await db.commit()
+
+    # Create mock member with full attributes
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 123
+    mock_guild.name = "Test Guild"
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 303
+    member.display_name = "UserReverify"
+    member.mention = "@UserReverify"
+    member.guild = mock_guild
+    member.roles = []
+    member.nick = None
 
     bot = SimpleNamespace()
     bot.http_client = FakeHTTPClient("reverify_test_client")
     bot.role_cache = {}
     bot.config = {"auto_recheck": {"cadence_days": {}}}
-    # Provide required role ID attrs for assign_roles path (even if cache empty)
-    bot.BOT_VERIFIED_ROLE_ID = 1
-    bot.MAIN_ROLE_ID = 2
-    bot.AFFILIATE_ROLE_ID = 3
-    bot.NON_MEMBER_ROLE_ID = 4
-    member = SimpleNamespace(
-        id=303,
-        display_name="UserReverify",
-        roles=[],
-        guild=SimpleNamespace(me=SimpleNamespace(top_role=1), owner_id=999),
-    )
-    # Avoid nickname path complexity
-    monkeypatch.setattr("helpers.role_helper.can_modify_nickname", lambda m: False)
+    bot.services = SimpleNamespace()
+    bot.services.config = AsyncMock()
+    bot.services.config.get_guild_setting = AsyncMock(return_value=[])
+    bot.services.guild_config = AsyncMock()
+    bot.services.guild_config.get_channel = AsyncMock(return_value=None)
+    bot.services.guild_config.get_setting = AsyncMock(return_value=None)
 
-    # Track the HTTP client passed to is_valid_rsi_handle
+    # Track the HTTP client passed to compute_global_state
     captured_http_client = None
 
-    # Return successful verification
-    async def fake_is_valid(handle: str, http_client) -> None:
+    # Create a mock GlobalVerificationState for successful verification
+    async def fake_compute_global_state(user_id, handle, http_client, **kwargs):
         nonlocal captured_http_client
         captured_http_client = http_client
-        return 1, "NewHandle", None
+        return GlobalVerificationState(
+            user_id=user_id,
+            rsi_handle="NewHandle",
+            status="main",
+            main_orgs=["TEST"],
+            affiliate_orgs=[],
+            community_moniker=None,
+            checked_at=int(time_module.time()),
+            error=None,
+        )
 
     monkeypatch.setattr(
-        "verification.rsi_verification.is_valid_rsi_handle", fake_is_valid
+        "helpers.recheck_service.compute_global_state", fake_compute_global_state
     )
 
-    ok, _role_type, _err = await reverify_member(member, "OldOne", bot)
-    assert ok is True
+    # Mock store_global_state to clear the flag (as it would in real code)
+    async def mock_store_global_state(state):
+        # The real store_global_state clears needs_reverify
+        await Database.clear_needs_reverify(state.user_id)
+
+    monkeypatch.setattr(
+        "helpers.recheck_service.store_global_state", mock_store_global_state
+    )
+
+    # Mock apply_state_to_guild to return None (no changes)
+    monkeypatch.setattr("helpers.recheck_service.apply_state_to_guild", AsyncMock(return_value=None))
+    monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
+    monkeypatch.setattr("helpers.recheck_service.schedule_user_recheck", AsyncMock())
+
+    result = await perform_recheck(
+        member,
+        "OldOne",
+        bot,  # type: ignore[arg-type]
+        enforce_rate_limit=False,
+        log_leadership=False,
+    )
+    assert result["success"] is True
 
     # Verify that the correct HTTP client was passed
-    assert (
-        captured_http_client is not None
-    ), "HTTP client should have been passed to is_valid_rsi_handle"
-    assert (
-        captured_http_client is bot.http_client
-    ), "Should pass bot.http_client to is_valid_rsi_handle"
-    assert isinstance(
-        captured_http_client, FakeHTTPClient
-    ), "Should receive FakeHTTPClient instance"
+    assert captured_http_client is not None, (
+        "HTTP client should have been passed to compute_global_state"
+    )
+    assert captured_http_client is bot.http_client, (
+        "Should pass bot.http_client to compute_global_state"
+    )
+    assert isinstance(captured_http_client, FakeHTTPClient), (
+        "Should receive FakeHTTPClient instance"
+    )
 
     # needs_reverify cleared
     async with Database.get_connection() as db:
@@ -424,6 +588,7 @@ async def test_reverification_clears_needs_reverify(temp_db, monkeypatch) -> Non
             "SELECT needs_reverify FROM verification WHERE user_id=?", (303,)
         )
         val = await cur.fetchone()
+        assert val is not None
         assert val[0] == 0
 
 
@@ -436,15 +601,12 @@ async def test_handle_username_404_new_handle_triggers_again(
     # Seed initial verification row
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification(user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?,?,?,?)",
-            (909, "FirstHandle", "main", 1),
+            "INSERT INTO verification(user_id, rsi_handle, last_updated) VALUES (?,?,?)",
+            (909, "FirstHandle", 1),
         )
         await db.commit()
 
     bot = SimpleNamespace()
-    bot.BOT_SPAM_CHANNEL_ID = 321
-    bot.VERIFICATION_CHANNEL_ID = 654
     bot.config = {"channels": {"leadership_announcement_channel_id": 777}}
     bot.role_cache = {}
 
@@ -454,6 +616,21 @@ async def test_handle_username_404_new_handle_triggers_again(
     bot.guilds = [guild]
     bot.get_channel = lambda cid: guild.get_channel(cid)
 
+    # Mock services for channel access
+    bot.services = SimpleNamespace()
+    mock_guild_config = AsyncMock()
+    spam_chan = guild.get_channel(321)
+    verification_chan = guild.get_channel(654)
+
+    async def get_channel_mock(gid, key, g):
+        return {
+            "bot_spam_channel_id": spam_chan,
+            "verification_channel_id": verification_chan,
+        }.get(key)
+
+    mock_guild_config.get_channel = get_channel_mock
+    bot.services.guild_config = mock_guild_config
+
     send_mock = AsyncMock()
     monkeypatch.setattr("helpers.username_404.channel_send_message", send_mock)
 
@@ -461,9 +638,8 @@ async def test_handle_username_404_new_handle_triggers_again(
         await task_func()
 
     monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
-
     # First 404 (FirstHandle)
-    changed1 = await handle_username_404(bot, member, "FirstHandle")
+    changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
     assert changed1 is True
     assert send_mock.await_count == 1
 
@@ -479,6 +655,6 @@ async def test_handle_username_404_new_handle_triggers_again(
         await db.commit()
 
     # Second 404 with different handle
-    changed2 = await handle_username_404(bot, member, "SecondHandle")
+    changed2 = await handle_username_404(bot, member, "SecondHandle")  # type: ignore[arg-type]
     assert changed2 is True  # should process again
     assert send_mock.await_count == 2  # second notification

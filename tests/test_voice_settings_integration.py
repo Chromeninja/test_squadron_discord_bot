@@ -96,16 +96,23 @@ class TestVoiceSettingsHelper:
         self, mock_bot, mock_interaction
     ):
         """Test fetch_channel_settings when user has no active voice and no saved settings."""
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            # Mock no active channel
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = None
-            cursor.fetchall.return_value = []
-            mock_conn.execute.return_value = cursor
-
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_value",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "services.db.repository.BaseRepository.fetch_all",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
             result = await fetch_channel_settings(
                 mock_bot, mock_interaction, allow_inactive=True
             )
@@ -125,23 +132,39 @@ class TestVoiceSettingsHelper:
         mock_interaction.user.voice = MagicMock()
         mock_interaction.user.voice.channel = mock_voice_channel
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
+        # Mock Database.get_connection for the transaction in _get_all_user_settings
+        mock_conn = AsyncMock()
+        cursor = AsyncMock()
+        # The queries:
+        # 1. channel_settings query - fetchone
+        # 2. permissions query - fetchall
+        # 3. ptt_settings query - fetchall
+        # 4. priority_speaker_settings query - fetchall
+        # 5. soundboard_settings query - fetchall
+        cursor.fetchone.return_value = ("Test Channel", 5, 1)  # channel_settings
+        cursor.fetchall.side_effect = [
+            [(1001, "user", "permit")],  # permissions
+            [(1001, "user", 1)],  # ptt_settings
+            [],  # priority_settings
+            [],  # soundboard_settings
+        ]
+        mock_conn.execute.return_value = cursor
 
-            cursor = AsyncMock()
-            # Mock finding the JTC channel for active voice
-            cursor.fetchone.side_effect = [
-                (55555,),  # jtc_channel_id from user_voice_channels
-                ("Test Channel", 5, 1),  # channel_settings
-            ]
-            cursor.fetchall.side_effect = [
-                [(1001, "user", "permit")],  # permissions
-                [(1001, "user", 1)],  # ptt_settings
-                [],  # priority_settings
-                [],  # soundboard_settings
-            ]
-            mock_conn.execute.return_value = cursor
+        # Return jtc_channel_id from voice_channels lookup
+        async def mock_fetch_one(query, params=None):
+            if "voice_channels" in query:
+                return (55555,)  # jtc_channel_id
+            return None
+
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                side_effect=mock_fetch_one,
+            ),
+            patch("services.db.database.Database.get_connection") as mock_db,
+        ):
+            mock_db.return_value.__aenter__.return_value = mock_conn
 
             result = await fetch_channel_settings(
                 mock_bot, mock_interaction, allow_inactive=True
@@ -157,19 +180,19 @@ class TestVoiceSettingsHelper:
     @pytest.mark.asyncio
     async def test_get_all_user_settings_comprehensive(self):
         """Test _get_all_user_settings returns comprehensive settings."""
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
+        mock_conn = AsyncMock()
+        cursor = AsyncMock()
+        cursor.fetchone.return_value = ("Custom Channel", 8, 1)  # channel_settings
+        cursor.fetchall.side_effect = [
+            [(1001, "user", "permit"), (1002, "role", "reject")],  # permissions
+            [(1001, "user", 1)],  # ptt_settings
+            [(1001, "user", 1)],  # priority_settings
+            [(1002, "role", 0)],  # soundboard_settings
+        ]
+        mock_conn.execute.return_value = cursor
 
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = ("Custom Channel", 8, 1)  # channel_settings
-            cursor.fetchall.side_effect = [
-                [(1001, "user", "permit"), (1002, "role", "reject")],  # permissions
-                [(1001, "user", 1)],  # ptt_settings
-                [(1001, "user", 1)],  # priority_settings
-                [(1002, "role", 0)],  # soundboard_settings
-            ]
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.database.Database.get_connection") as mock_db:
+            mock_db.return_value.__aenter__.return_value = mock_conn
 
             settings = await _get_all_user_settings(12345, 55555, 67890)
 
@@ -185,19 +208,37 @@ class TestVoiceSettingsHelper:
 class TestVoiceServiceChannelCreation:
     """Tests for voice service channel creation with settings loading."""
 
-    @pytest.mark.parametrize("channel_name,user_limit,lock,expected_name,expected_limit", [
-        # Test with saved settings
-        ("My Custom Channel", 5, 1, "My Custom Channel", 5),
-        ("🎮 Gaming Room", 10, 0, "🎮 Gaming Room", 10),
-        ("Valid Channel", 0, 1, "Valid Channel", 0),  # Edge case: zero limit but valid name
-        ("Unicode Channel 你好", 99, 0, "Unicode Channel 你好", 99),
-        # Test with no saved settings (None values)
-        (None, None, None, "TestUser's Channel", 0),  # Should use defaults
-    ])
+    @pytest.mark.parametrize(
+        "channel_name,user_limit,lock,expected_name,expected_limit",
+        [
+            # Test with saved settings
+            ("My Custom Channel", 5, 1, "My Custom Channel", 5),
+            ("🎮 Gaming Room", 10, 0, "🎮 Gaming Room", 10),
+            (
+                "Valid Channel",
+                0,
+                1,
+                "Valid Channel",
+                0,
+            ),  # Edge case: zero limit but valid name
+            ("Unicode Channel 你好", 99, 0, "Unicode Channel 你好", 99),
+            # Test with no saved settings (None values)
+            (None, None, None, "TestUser's Channel", 0),  # Should use defaults
+        ],
+    )
     @pytest.mark.asyncio
     async def test_create_user_channel_parametrized(
-        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection,
-        channel_name, user_limit, lock, expected_name, expected_limit
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
+        channel_name,
+        user_limit,
+        lock,
+        expected_name,
+        expected_limit,
     ):
         """Test _create_user_channel with various saved settings and defaults."""
         import discord
@@ -225,12 +266,10 @@ class TestVoiceServiceChannelCreation:
         mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
         mock_guild.get_member.return_value = mock_bot_member
 
-        # Mock enforce_permission_changes and channel_send_message
-        with patch("services.voice_service.enforce_permission_changes") as mock_enforce, \
-             patch("services.voice_service.channel_send_message") as mock_send:
-
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
-            mock_send.return_value = None
 
             await voice_service._create_user_channel(
                 mock_guild, mock_jtc_channel, mock_member
@@ -250,7 +289,12 @@ class TestVoiceServiceChannelCreation:
 
     @pytest.mark.asyncio
     async def test_create_user_channel_empty_name_fallback(
-        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
     ):
         """Test that empty channel names fall back to default."""
         import discord
@@ -273,12 +317,10 @@ class TestVoiceServiceChannelCreation:
         mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
         mock_guild.get_member.return_value = mock_bot_member
 
-        # Mock enforce_permission_changes and channel_send_message
-        with patch("services.voice_service.enforce_permission_changes") as mock_enforce, \
-             patch("services.voice_service.channel_send_message") as mock_send:
-
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
-            mock_send.return_value = None
 
             await voice_service._create_user_channel(
                 mock_guild, mock_jtc_channel, mock_member
@@ -288,12 +330,19 @@ class TestVoiceServiceChannelCreation:
             mock_guild.create_voice_channel.assert_called_once()
             create_args = mock_guild.create_voice_channel.call_args
 
-            assert create_args.kwargs["name"] == "TestUser's Channel"  # Should fallback to default
+            assert (
+                create_args.kwargs["name"] == "TestUser's Channel"
+            )  # Should fallback to default
             assert create_args.kwargs["user_limit"] == 5  # Should use saved limit
 
     @pytest.mark.asyncio
     async def test_create_user_channel_applies_saved_settings(
-        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
     ):
         """Test that _create_user_channel applies saved settings during creation."""
         import discord
@@ -311,35 +360,35 @@ class TestVoiceServiceChannelCreation:
         mock_member.move_to = AsyncMock()
 
         # Mock enforce_permission_changes
-        with patch(
-            "services.voice_service.enforce_permission_changes"
-        ) as mock_enforce:
+        created_channel.send = AsyncMock()
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
 
-            # Mock channel_send_message
-            with patch("services.voice_service.channel_send_message") as mock_send:
-                mock_send.return_value = None
+            await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
 
-                await voice_service._create_user_channel(
-                    mock_guild, mock_jtc_channel, mock_member
-                )
+            # Verify channel was created with saved settings
+            mock_guild.create_voice_channel.assert_called_once()
+            create_args = mock_guild.create_voice_channel.call_args
 
-                # Verify channel was created with saved settings
-                mock_guild.create_voice_channel.assert_called_once()
-                create_args = mock_guild.create_voice_channel.call_args
+            assert create_args.kwargs["name"] == "My Custom Channel"
+            assert create_args.kwargs["user_limit"] == 5
 
-                assert create_args.kwargs["name"] == "My Custom Channel"
-                assert create_args.kwargs["user_limit"] == 5
+            # Verify settings were applied
+            mock_enforce.assert_called_once()
 
-                # Verify settings were applied
-                mock_enforce.assert_called_once()
-
-                # Verify ChannelSettingsView was posted
-                mock_send.assert_called_once()
+            # Verify the settings message was sent via voice_channel.send()
+            created_channel.send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_user_channel_uses_defaults_no_saved_settings(
-        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
     ):
         """Test that _create_user_channel uses defaults when no saved settings exist."""
         import discord
@@ -355,43 +404,61 @@ class TestVoiceServiceChannelCreation:
         # Mock member move
         mock_member.move_to = AsyncMock()
 
-        # Mock enforce_permission_changes
+        # Mock enforce_permission_changes and channel.send()
+        created_channel.send = AsyncMock()
         with patch("services.voice_service.enforce_permission_changes"):
-            # Mock channel_send_message
-            with patch("services.voice_service.channel_send_message"):
-                await voice_service._create_user_channel(
-                    mock_guild, mock_jtc_channel, mock_member
-                )
+            await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
 
-                # Verify channel was created with default settings
-                mock_guild.create_voice_channel.assert_called_once()
-                create_args = mock_guild.create_voice_channel.call_args
+            # Verify channel was created with default settings
+            mock_guild.create_voice_channel.assert_called_once()
+            create_args = mock_guild.create_voice_channel.call_args
 
-                # Should use default name format
-                assert (
-                    create_args.kwargs["name"]
-                    == f"{mock_member.display_name}'s Channel"
-                )
-                # Should use JTC channel's user_limit
-                assert (
-                    create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
-                )
+            # Should use default name format
+            assert create_args.kwargs["name"] == f"{mock_member.display_name}'s Channel"
+            # Should use JTC channel's user_limit
+            assert create_args.kwargs["user_limit"] == mock_jtc_channel.user_limit
 
-    @pytest.mark.parametrize("channel_name,user_limit,lock,expected_name,expected_limit,expected_lock", [
-        # Test various valid settings
-        ("Custom Name", 10, 0, "Custom Name", 10, False),
-        ("🎮 Gaming Channel", 5, 1, "🎮 Gaming Channel", 5, True),
-        ("Test Channel with Unicode 你好", 99, 0, "Test Channel with Unicode 你好", 99, False),
-        # Test edge cases
-        ("", 0, 1, "", 0, True),  # Empty name, zero limit
-        ("Very Long Channel Name That Exceeds Normal Limits", 1, 0, "Very Long Channel Name That Exceeds Normal Limits", 1, False),
-        # Test defaults/None handling
-        (None, None, None, None, None, None),  # All None values
-    ])
+    @pytest.mark.parametrize(
+        "channel_name,user_limit,lock,expected_name,expected_limit,expected_lock",
+        [
+            # Test various valid settings
+            ("Custom Name", 10, 0, "Custom Name", 10, False),
+            ("🎮 Gaming Channel", 5, 1, "🎮 Gaming Channel", 5, True),
+            (
+                "Test Channel with Unicode 你好",
+                99,
+                0,
+                "Test Channel with Unicode 你好",
+                99,
+                False,
+            ),
+            # Test edge cases
+            ("", 0, 1, "", 0, True),  # Empty name, zero limit
+            (
+                "Very Long Channel Name That Exceeds Normal Limits",
+                1,
+                0,
+                "Very Long Channel Name That Exceeds Normal Limits",
+                1,
+                False,
+            ),
+            # Test defaults/None handling
+            (None, None, None, None, None, None),  # All None values
+        ],
+    )
     @pytest.mark.asyncio
     async def test_load_channel_settings_parametrized(
-        self, voice_service, mock_db_connection,
-        channel_name, user_limit, lock, expected_name, expected_limit, expected_lock
+        self,
+        voice_service,
+        mock_db_connection,
+        channel_name,
+        user_limit,
+        lock,
+        expected_name,
+        expected_limit,
+        expected_lock,
     ):
         """Test _load_channel_settings with various parameter combinations."""
         if channel_name is None:
@@ -409,7 +476,9 @@ class TestVoiceServiceChannelCreation:
             assert settings["lock"] == expected_lock
 
     @pytest.mark.asyncio
-    async def test_load_channel_settings_success(self, voice_service, mock_db_connection):
+    async def test_load_channel_settings_success(
+        self, voice_service, mock_db_connection
+    ):
         """Test _load_channel_settings returns settings when they exist."""
         mock_db_connection.set_fetchone_result(("Custom Name", 10, 0))
 
@@ -420,7 +489,9 @@ class TestVoiceServiceChannelCreation:
         assert settings["lock"] == 0
 
     @pytest.mark.asyncio
-    async def test_load_channel_settings_no_settings(self, voice_service, mock_db_connection):
+    async def test_load_channel_settings_no_settings(
+        self, voice_service, mock_db_connection
+    ):
         """Test _load_channel_settings returns None when no settings exist."""
         mock_db_connection.set_fetchone_result(None)
 
@@ -478,15 +549,15 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
     # Set up database mock - no saved settings for this test
     mock_db_connection.set_fetchone_result(None)
 
-    # Mock permission enforcement and messaging
-    with patch("services.voice_service.enforce_permission_changes") as mock_enforce, \
-         patch("services.voice_service.channel_send_message") as mock_send:
-
+    # Mock permission enforcement and messaging (voice_channel.send() instead of channel_send_message)
+    fake_created_channel.send = AsyncMock()
+    with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
         mock_enforce.return_value = None
-        mock_send.return_value = None
 
         # Execute the voice service flow: join-to-create → create channel → move member
-        await voice_service._create_user_channel(fake_guild, fake_jtc_channel, fake_member)
+        await voice_service._create_user_channel(
+            fake_guild, fake_jtc_channel, fake_member
+        )
 
         # Verify the integration flow worked
         # 1. Channel was created with default name (no saved settings)
@@ -502,5 +573,95 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
         # 3. Permissions were enforced
         mock_enforce.assert_called_once()
 
-        # 4. Settings view was sent to channel
-        mock_send.assert_called_once()
+        # 4. Settings view is sent to the voice channel via send()
+        fake_created_channel.send.assert_called_once()
+
+
+class TestChannelCreationRoleCheck:
+    """Tests for channel creation behavior when bot role hierarchy varies."""
+
+    @pytest.mark.asyncio
+    async def test_create_channel_continues_when_bot_role_too_low(
+        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+    ):
+        """Test that channel creation continues (skipping permission override) when bot role < member role."""
+        # Configure database response - no saved settings
+        mock_db_connection.set_fetchone_result(None)
+
+        # Mock guild.create_voice_channel
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.set_permissions = AsyncMock()
+        created_channel.send = AsyncMock()
+        mock_guild.create_voice_channel.return_value = created_channel
+
+        # Mock member's voice state (still connected)
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
+
+        # Mock bot member with LOWER role than member (role check fails)
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = MagicMock()
+        mock_bot_member.top_role.name = "BotRole"
+        # __gt__ returns False -> bot role is NOT higher than member role
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=False)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        # Mock member's top role
+        mock_member.top_role = MagicMock()
+        mock_member.top_role.name = "AdminRole"
+
+        # Execute
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        # Verify: channel was NOT deleted - creation continues
+        created_channel.delete.assert_not_called() if hasattr(created_channel, 'delete') else None
+        # Verify: set_permissions was NOT called (skipped due to role check)
+        created_channel.set_permissions.assert_not_called()
+        # Verify: returns the channel (success, just without owner perms)
+        assert result == created_channel
+
+    @pytest.mark.asyncio
+    async def test_create_channel_succeeds_when_bot_role_higher(
+        self, voice_service, mock_guild, mock_jtc_channel, mock_member, mock_db_connection
+    ):
+        """Test that channel creation succeeds when bot role > member role."""
+        # Configure database response - no saved settings
+        mock_db_connection.set_fetchone_result(None)
+
+        # Mock guild.create_voice_channel
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.set_permissions = AsyncMock()
+        created_channel.send = AsyncMock()
+        mock_guild.create_voice_channel.return_value = created_channel
+
+        # Mock member's voice state (still connected)
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
+
+        # Mock bot member with HIGHER role than member (role check passes)
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = MagicMock()
+        mock_bot_member.top_role.name = "BotRole"
+        # __gt__ returns True -> bot role IS higher than member role
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        # Execute
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        # Verify: permissions were set (not deleted)
+        created_channel.set_permissions.assert_called_once()
+        # Verify: returns the channel (success)
+        assert result == created_channel

@@ -21,7 +21,7 @@ async def test_db():
 
     try:
         # Reset the Database singleton to ensure clean state
-        Database._instance = None
+        Database._instance = None  # type: ignore[attr-defined]
 
         # Initialize the database with the test path - this will set up all tables
         await Database.initialize(test_db_path)
@@ -34,7 +34,7 @@ async def test_db():
         if test_path.exists():
             test_path.unlink()
         # Reset singleton for next test
-        Database._instance = None
+        Database._instance = None  # type: ignore[attr-defined]
 
 
 @pytest_asyncio.fixture
@@ -133,9 +133,8 @@ class TestOwnershipTransferSanity:
                 (voice_channel_id,),
             )
             row = await cursor.fetchone()
-            assert (
-                row[0] == new_owner_id
-            ), "voice_channels.owner_id should be updated"
+            assert row is not None
+            assert row[0] == new_owner_id, "voice_channels.owner_id should be updated"
 
             # Verify settings transferred
             cursor = await db.execute(
@@ -145,16 +144,19 @@ class TestOwnershipTransferSanity:
             row = await cursor.fetchone()
             assert row is not None, f"New owner {new_owner_id} should have settings"
             assert row[0] == new_owner_id, "Settings should belong to new owner"
-            assert (
-                row[1] == "Old Owner's Channel"
-            ), "Settings should be transferred from old owner"
+            assert row[1] == "Old Owner's Channel", (
+                "Settings should be transferred from old owner"
+            )
 
     @pytest.mark.asyncio
     async def test_transfer_handles_missing_channel_gracefully(self, test_db):
         """Test that transfer handles missing channel records gracefully."""
         # Test with non-existent channel (correct function signature)
         result = await transfer_channel_owner(
-            99999, 22222, 12345, 54321  # Non-existent voice_channel_id
+            99999,
+            22222,
+            12345,
+            54321,  # Non-existent voice_channel_id
         )
 
         assert result is False, "Transfer should fail gracefully for missing channel"

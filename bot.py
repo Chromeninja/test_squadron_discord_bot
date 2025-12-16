@@ -1,69 +1,118 @@
-# Bot.py
-
 import asyncio
 import os
 import time
+from collections.abc import Callable
+from typing import TypeAlias
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config.config_loader import ConfigLoader
-from helpers.announcement import BulkAnnouncer
+from config.config_loader import ConfigLoader, normalize_prefix
 from helpers.http_helper import HTTPClient
-from helpers.rate_limiter import cleanup_attempts
-from helpers.task_queue import start_task_workers, task_queue
+from helpers.task_queue import start_task_workers, stop_task_workers
 from helpers.token_manager import cleanup_tokens
-from helpers.views import ChannelSettingsView, VerificationView
-from services.db.database import Database
+from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
 from utils.tasks import spawn
 
 # Initialize logger
 logger = get_logger(__name__)
 
-# Load environment variables
-load_dotenv()
+# ---------------------------------------------------------------------------
+# Lazy Initialization
+# ---------------------------------------------------------------------------
+# Configuration and token are loaded lazily via create_bot() to avoid
+# import-time side effects. This enables safe importing for type hints
+# and testing without triggering file I/O or environment validation.
+# ---------------------------------------------------------------------------
 
-# Load configuration using ConfigLoader
-config = ConfigLoader.load_config()
+# Type alias for prefix (list of strings or the when_mentioned callable)
+PrefixCallable: TypeAlias = Callable[[commands.Bot, discord.Message], list[str]]
+PrefixType: TypeAlias = list[str] | PrefixCallable
 
-# Load sensitive information from .env
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    logger.critical("DISCORD_TOKEN not found in environment variables.")
-    raise ValueError("DISCORD_TOKEN not set.")
+# Module-level cache for lazy-loaded values
+_config: dict | None = None
+_token: str | None = None
+_prefix: PrefixType | None = None
+_prefix_warnings: list[str] = []
 
-# Access configuration values from config.yaml (kept at module scope so dev tools can import PREFIX safely)
-# Some deployments may accidentally supply an empty list / string; fall back to mention‑only behavior.
-raw_prefix = config["bot"].get("prefix")
-PREFIX = (
-    raw_prefix if raw_prefix else commands.when_mentioned
-)  # empty list, empty string, None -> default
-VERIFICATION_CHANNEL_ID = config["channels"]["verification_channel_id"]
-BOT_SPAM_CHANNEL_ID = config["channels"].get("bot_spam_channel_id")
-BOT_VERIFIED_ROLE_ID = config["roles"]["bot_verified_role_id"]
-MAIN_ROLE_ID = config["roles"]["main_role_id"]
-AFFILIATE_ROLE_ID = config["roles"]["affiliate_role_id"]
-NON_MEMBER_ROLE_ID = config["roles"]["non_member_role_id"]
-BOT_ADMIN_ROLE_IDS = [int(role_id) for role_id in config["roles"].get("bot_admins", [])]
-LEAD_MODERATOR_ROLE_IDS = [
-    int(role_id) for role_id in config["roles"].get("lead_moderators", [])
-]
 
-intents = discord.Intents.default()
-intents.guilds = True  # Needed for guild-related events
-intents.members = True  # Needed for member-related events
-intents.message_content = True  # Needed for reading message content
-intents.voice_states = True  # Needed for voice state updates
-intents.presences = True  # Needed for member presence updates
+def _load_config() -> dict:
+    """Lazy-load configuration on first access."""
+    global _config
+    if _config is None:
+        load_dotenv()
+        _config = ConfigLoader.load_config()
+    return _config
+
+
+def _load_token() -> str:
+    """Lazy-load Discord token on first access."""
+    global _token
+    if _token is None:
+        load_dotenv()
+        _token = os.getenv("DISCORD_TOKEN")
+        if not _token:
+            logger.critical("DISCORD_TOKEN not found in environment variables.")
+            raise ValueError("DISCORD_TOKEN not set.")
+    return _token
+
+
+def _load_prefix() -> tuple[PrefixType, list[str]]:
+    """Lazy-load and normalize prefix on first access."""
+    global _prefix, _prefix_warnings
+    if _prefix is None:
+        config = _load_config()
+        mode = os.environ.get("PREFIX_NORMALIZATION_MODE", "enforce")
+        raw_prefix = config.get("bot", {}).get("prefix")
+        normalized, warnings = normalize_prefix(raw_prefix, mode=mode)
+        _prefix_warnings = warnings
+        if normalized:
+            _prefix = normalized
+        else:
+            _prefix = commands.when_mentioned
+            logger.info("Bot will respond to mentions only (no text prefix configured)")
+    return _prefix, _prefix_warnings
+
+
+# For backward compatibility, expose PREFIX_WARNINGS as a property-like access
+# Tests and cogs that check PREFIX_WARNINGS will get the loaded value
+def get_prefix_warnings() -> list[str]:
+    """Get prefix warnings (triggers lazy load if needed)."""
+    _load_prefix()
+    return _prefix_warnings
+
+
+def get_prefix() -> PrefixType:
+    """Get configured prefix (triggers lazy load if needed)."""
+    prefix, _ = _load_prefix()
+    return prefix
+
+
+# Backward compatibility: expose as module-level for existing imports
+# These trigger lazy loading when accessed
+PREFIX_WARNINGS: list[str] = []  # Populated by create_bot()
+bot: commands.Bot | None = None  # Set only when executed as a script
+
+
+# Configure intents - start from none and enable only what's required
+intents = discord.Intents.none()
+intents.guilds = True  # Required: Guild events, channels, roles
+intents.members = True  # Required: Member join/leave, role updates for verification
+intents.voice_states = True  # Required: Voice channel join/leave for voice system
 
 # List of initial extensions to load
 initial_extensions = [
     "cogs.verification.commands",
     "cogs.admin.commands",
+    "cogs.admin.check_user",
     "cogs.admin.recheck",
+    "cogs.admin.role_delegation",
     "cogs.admin.verify_bulk",
+    "cogs.admin.member_lifecycle",
+    "cogs.info.about",
+    "cogs.info.dashboard",
     "cogs.voice.commands",
     "cogs.voice.events",
     "cogs.voice.service_bridge",
@@ -73,21 +122,12 @@ initial_extensions = [
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, config: dict | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        # Assign the entire config to the bot instance
-        self.config = config
+        # Assign the entire config to the bot instance (passed from factory or lazy-loaded)
+        self.config = config if config is not None else _load_config()
 
-        # Pass role and channel IDs to the bot for use in cogs
-        self.VERIFICATION_CHANNEL_ID = VERIFICATION_CHANNEL_ID
-        self.BOT_SPAM_CHANNEL_ID = BOT_SPAM_CHANNEL_ID
-        self.BOT_VERIFIED_ROLE_ID = BOT_VERIFIED_ROLE_ID
-        self.MAIN_ROLE_ID = MAIN_ROLE_ID
-        self.AFFILIATE_ROLE_ID = AFFILIATE_ROLE_ID
-        self.NON_MEMBER_ROLE_ID = NON_MEMBER_ROLE_ID
-        self.BOT_ADMIN_ROLE_IDS = BOT_ADMIN_ROLE_IDS
-        self.LEAD_MODERATOR_ROLE_IDS = LEAD_MODERATOR_ROLE_IDS
 
         # Initialize uptime tracking
         self.start_time = time.monotonic()
@@ -101,10 +141,54 @@ class MyBot(commands.Bot):
         # Initialize role cache and warning tracking
         self.role_cache = {}
         self._missing_role_warned_guilds = set()
+        self._guild_role_expectations: dict[int, set[str]] = {}
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
+        """Track a background task for clean shutdown and log exceptions."""
+
+        name = label or task.get_name()
+        self._background_tasks.add(task)
+
+        def _cleanup(done: asyncio.Task) -> None:
+            self._background_tasks.discard(done)
+            try:
+                exc = done.exception()
+                if exc:
+                    logger.exception("Background task %s failed", name, exc_info=exc)
+            except asyncio.CancelledError:
+                logger.debug("Background task %s cancelled", name)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Error inspecting background task %s: %s", name, exc)
+
+        task.add_done_callback(_cleanup)
 
     async def setup_hook(self) -> None:
         """Load cogs, initialize services, and sync commands."""
+        # Get bot owner ID from application info
+        try:
+            app_info = await self.application_info()
+            if app_info.owner:
+                self.owner_id = app_info.owner.id
+                logger.info(
+                    f"Bot owner detected: {app_info.owner.name} (ID: {self.owner_id})"
+                )
+            elif app_info.team:
+                # If bot is owned by a team, use team owner
+                self.owner_id = app_info.team.owner_id
+                logger.info(f"Bot owned by team, team owner ID: {self.owner_id}")
+            else:
+                logger.warning("Could not determine bot owner from application info")
+                self.owner_id = None
+        except Exception as e:
+            logger.exception(
+                "Failed to fetch application info for owner detection", exc_info=e
+            )
+            self.owner_id = None
+
         # Initialize the database
+        from services.db.database import Database
+
         await Database.initialize()
 
         # Initialize services container
@@ -114,15 +198,19 @@ class MyBot(commands.Bot):
         await self.services.initialize()
         logger.info("ServiceContainer initialized")
 
-        # Run application-driven voice data migration (safe, idempotent)
+        # Start internal API server for web dashboard
         try:
-            from helpers.voice_migration import run_voice_data_migration
+            from services.internal_api import InternalAPIServer
 
-            await run_voice_data_migration(self)
+            self.internal_api = InternalAPIServer(self.services)
+            await self.internal_api.start()
         except Exception as e:
-            logger.exception("Voice data migration failed", exc_info=e)
+            logger.exception("Failed to start internal API server", exc_info=e)
+            # Don't fail bot startup if internal API fails
+            self.internal_api = None
 
-        # Add the BulkAnnouncer cog after DB is initialized
+        from helpers.announcement import BulkAnnouncer
+
         await self.add_cog(BulkAnnouncer(self))
 
         # Start the task queue workers
@@ -134,21 +222,40 @@ class MyBot(commands.Bot):
         # We use _get_session to ensure the HTTP client is initialized
         await self.http_client._get_session()
 
-        for extension in initial_extensions:
-            try:
-                await self.load_extension(extension)
-                logger.info(f"Loaded extension: {extension}")
-            except Exception as e:
-                logger.exception(f"Failed to load extension {extension}", exc_info=e)
+        # Load cogs with validation (observability-instrumented)
+        from helpers.cog_loader import get_cog_health_status, load_all_cogs
+
+        cog_results = await load_all_cogs(
+            self,
+            initial_extensions,
+            strict=os.environ.get("COG_VALIDATION_STRICT", "true").lower() == "true",
+        )
+
+        # Store cog health for later access
+        self._cog_health = get_cog_health_status()
+
+        # Log individual cog results for backward compatibility
+        for ext, result in cog_results.items():
+            if result.loaded:
+                logger.info(f"Loaded extension: {ext}")
+            elif result.skipped:
+                logger.warning(f"Skipped extension {ext}: {result.error}")
+            else:
+                logger.error(f"Failed to load extension {ext}: {result.error}")
 
         # Cache roles after bot is ready
-        spawn(self.cache_roles())
+        self._track_task(spawn(self.cache_roles()), "cache_roles")
+        self._track_task(spawn(self.role_refresh_task()), "role_refresh")
 
         # Start cleanup tasks
-        spawn(self.token_cleanup_task())
-        spawn(self.attempts_cleanup_task())
+        self._track_task(spawn(self.token_cleanup_task()), "token_cleanup")
+        self._track_task(spawn(self.attempts_cleanup_task()), "attempts_cleanup")
+        self._track_task(spawn(self.log_cleanup_task()), "log_cleanup")
 
         # Register persistent views (must happen every startup for persistence to work)
+        # Import here to avoid circular import issues
+        from helpers.views import ChannelSettingsView, VerificationView
+
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
 
@@ -159,10 +266,6 @@ class MyBot(commands.Bot):
         except Exception as e:
             logger.exception("Failed to sync commands", exc_info=e)
 
-        # Set command permissions for each guild (always attempt regardless of sync result)
-        for guild in self.guilds:
-            await self.set_admin_command_permissions(guild)
-
         # Log all loaded commands after the setup (deterministic ordering)
         logger.info("Registered commands: ")
         for command in self.tree.walk_commands():
@@ -170,10 +273,48 @@ class MyBot(commands.Bot):
                 f"- Command: {command.name}, Description: {command.description}"
             )
 
+        # Validate that all required attributes are initialized before cogs access them
+        self._validate_required_attributes()
+
+    def _validate_required_attributes(self) -> None:
+        """Ensure all required bot attributes are initialized and accessible.
+
+        This method is called at the end of setup_hook to catch initialization
+        issues early and provide clear error messages.
+
+        Raises:
+            RuntimeError: If any required attribute is missing or uninitialized.
+        """
+        required_attrs = {
+            "config": self.config,
+            "services": self.services,
+            "http_client": self.http_client,
+        }
+
+        missing = []
+        for attr_name, attr_value in required_attrs.items():
+            if attr_value is None:
+                missing.append(attr_name)
+
+        if missing:
+            raise RuntimeError(
+                f"Bot initialization incomplete: missing {missing}. "
+                "These attributes must be initialized before cogs can access them."
+            )
+
+        logger.info("All required bot attributes validated and initialized.")
+
     async def on_ready(self) -> None:
         """Called when the bot is ready."""
+        if not self.user:
+            logger.warning("Bot user is not initialized")
+            return
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("Bot is ready and online!")
+
+        # Alert admin channel about prefix warnings if any
+        await self._alert_prefix_warnings()
+
         for guild in self.guilds:
             try:
                 await guild.chunk(cache=True)
@@ -183,12 +324,51 @@ class MyBot(commands.Bot):
         for guild in self.guilds:
             await self.check_bot_permissions(guild)
 
-        # Run legacy settings migration after bot is ready and guilds are loaded
-        if hasattr(self, "services") and self.services.config:
+    async def _alert_prefix_warnings(self) -> None:
+        """Send admin channel alert if there were prefix normalization warnings."""
+        if not PREFIX_WARNINGS:
+            return
+
+        for guild in self.guilds:
             try:
-                await self.services.config.maybe_migrate_legacy_settings(self)
+                # Get admin channel from config
+                bot_spam_id = await self.services.config.get_guild_setting(
+                    guild.id, "channels.bot_spam_channel_id"
+                )
+                if not bot_spam_id:
+                    continue
+
+                channel = guild.get_channel(int(bot_spam_id))
+                if not channel or not isinstance(channel, discord.abc.Messageable):
+                    continue
+
+                embed = discord.Embed(
+                    title="⚠️ Prefix Configuration Warning",
+                    description="The command prefix configuration had issues during startup.",
+                    color=discord.Color.orange(),
+                )
+                current_prefix = get_prefix()
+                warnings = get_prefix_warnings()
+
+                embed.add_field(
+                    name="Warnings",
+                    value="\n".join(f"• {w}" for w in warnings[:10]),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Current Mode",
+                    value="Mention-only"
+                    if commands.when_mentioned == current_prefix
+                    else f"Prefixes: {current_prefix}",
+                    inline=False,
+                )
+                embed.set_footer(text="Check config.yaml prefix settings")
+
+                await channel.send(embed=embed)
+                logger.info(f"Sent prefix warning alert to guild {guild.name}")
+
             except Exception as e:
-                logger.exception("Legacy settings migration failed", exc_info=e)
+                logger.warning(f"Failed to send prefix warning to guild {guild.name}: {e}")
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
@@ -227,153 +407,133 @@ class MyBot(commands.Bot):
             )
 
     async def cache_roles(self) -> None:
-        """Cache commonly used Role objects from the first guild."""
+        """Cache commonly used Role objects from all guilds based on DB config."""
         await self.wait_until_ready()
         if not self.guilds:
             logger.warning("Bot is not in any guild. Skipping role cache.")
             return
 
-        guild = self.guilds[0]
-        role_ids = [
-            self.BOT_VERIFIED_ROLE_ID,
-            self.MAIN_ROLE_ID,
-            self.AFFILIATE_ROLE_ID,
-            self.NON_MEMBER_ROLE_ID,
+        if (
+            not hasattr(self, "services")
+            or not self.services
+            or not self.services.config
+        ):
+            logger.warning("Services not initialized yet. Skipping role cache.")
+            return
+
+        for guild in self.guilds:
+            try:
+                await self.refresh_guild_roles(guild.id, source="startup")
+            except Exception as e:
+                logger.warning(f"Failed to cache roles for guild '{guild.name}': {e}")
+
+    async def refresh_guild_roles(
+        self, guild_id: int, source: str | None = None
+    ) -> None:
+        """Refresh cached discord.Role objects for a single guild."""
+        await self.wait_until_ready()
+        if (
+            not hasattr(self, "services")
+            or not self.services
+            or not self.services.config
+        ):
+            logger.debug("Config service unavailable; skipping role refresh")
+            return
+
+        guild = self.get_guild(guild_id)
+        if not guild:
+            logger.debug("Guild %s not found for role refresh", guild_id)
+            return
+
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role",
         ]
-        for role_id in role_ids:
-            if role := guild.get_role(role_id):
+
+        expected_ids: set[str] = set()
+        for key in role_keys:
+            ids = await self.services.config.get_guild_setting(guild_id, key, [])
+            if isinstance(ids, list) and ids:
+                role_id = str(ids[0])
+                if role_id:
+                    expected_ids.add(role_id)
+
+        previous_ids = self._guild_role_expectations.get(guild_id, set())
+        removed_ids = previous_ids - expected_ids
+        for stale_id in removed_ids:
+            self.role_cache.pop(stale_id, None)
+
+        for role_id in expected_ids:
+            role = guild.get_role(int(role_id))
+            if role:
                 self.role_cache[role_id] = role
             else:
-                # Persist suppression across restarts: only WARN the first time
-                # Across all runs unless DB entry is cleared.
-                try:
-                    reported = await Database.has_reported_missing_roles(guild.id)
-                except Exception:
-                    reported = False
-                if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(
-                        f"Role with ID {role_id} not found in guild '{guild.name}'."
-                    )
-                    self._missing_role_warned_guilds.add(guild.id)
-                    try:
-                        await Database.mark_reported_missing_roles(guild.id)
-                    except Exception:
-                        # Non-fatal: if DB write fails, continue but don't raise
-                        logger.debug(
-                            "Failed to persist missing-role warning for guild %s",
-                            guild.id,
-                        )
-                else:
-                    logger.info(
-                        f"Role with ID {role_id} not found in guild '{guild.name}' (already reported)."
-                    )
+                await self._warn_missing_role(guild, role_id)
 
-    async def set_admin_command_permissions(self, guild: discord.Guild) -> None:
-        """Attempt per-command role permissions; fall back to runtime checks."""
+        self._guild_role_expectations[guild_id] = expected_ids
+        logger.info(
+            "Refreshed %s role mappings for guild %s (%s)",
+            len(expected_ids),
+            guild.name,
+            source or "manual",
+        )
 
-        # Define the restricted commands and combine role IDs
-        restricted_commands = [
-            "reset-all",
-            "reset-user",
-            "status",
-            "view-logs",
-            "recheck-user",
-        ]
-        combined_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
+    async def role_refresh_task(self) -> None:
+        """Background task that periodically refreshes guild role caches."""
+        await self.wait_until_ready()
+        interval_seconds = 300  # 5 minutes
 
-        # Build list of configured role IDs that exist in this guild; log missing.
-        valid_roles = []
-        for role_id in combined_role_ids:
-            if guild.get_role(role_id):
-                valid_roles.append(role_id)
-            else:
-                # Missing configured role is not fatal; log for operator visibility.
-                try:
-                    reported = await Database.has_reported_missing_roles(guild.id)
-                except Exception:
-                    reported = False
-                if not reported and guild.id not in self._missing_role_warned_guilds:
-                    logger.warning(
-                        f"Configured role ID {role_id} not found in guild '{guild.name}'."
-                    )
-                    self._missing_role_warned_guilds.add(guild.id)
-                    try:
-                        await Database.mark_reported_missing_roles(guild.id)
-                    except Exception:
-                        logger.debug(
-                            "Failed to persist missing-role warning for guild %s",
-                            guild.id,
-                        )
-                else:
-                    logger.info(
-                        f"Configured role ID {role_id} not found in guild '{guild.name}' (already reported)."
-                    )
+        while not self.is_closed():
+            try:
+                if (
+                    not hasattr(self, "services")
+                    or not self.services
+                    or not self.services.config
+                ):
+                    await asyncio.sleep(interval_seconds)
+                    continue
 
-                    # If there are no valid role IDs, nothing to apply. The runtime checks still protect commands.
-        if not valid_roles:
-            logger.info(
-                f"No valid configured admin/lead-moderator roles present in guild '{guild.name}'. "
-                "Skipping App Command permission setup and relying on runtime checks."
-            )
-            return
+                for guild in list(self.guilds):
+                    refreshed = await self.services.config.maybe_refresh_guild(guild.id)
+                    if refreshed:
+                        await self.refresh_guild_roles(guild.id, source="scheduled")
+            except asyncio.CancelledError:
+                logger.info("Role refresh task cancelled")
+                break
+            except Exception as exc:
+                logger.exception("Error during scheduled role refresh", exc_info=exc)
 
-            # Only attempt App Command permission flow if the discord module and tree
-            # Expose the required API. In many runtime environments this API is not
-            # Present; in that case we skip attempting to set per-command permissions
-            # And rely on runtime decorator checks instead. This avoids noisy warnings
-            # During normal operation.
-        if not (
-            hasattr(discord, "AppCommandPermission")
-            and hasattr(discord, "AppCommandPermissionType")
-            and hasattr(self.tree, "set_permissions")
-        ):
-            logger.info(
-                "Per-command App Command permission API not available in this environment; "
-                "skipping and relying on runtime decorator checks."
-            )
-            return
+            await asyncio.sleep(interval_seconds)
+
+    async def _warn_missing_role(self, guild: discord.Guild, role_id: str) -> None:
+        from services.db.database import Database
 
         try:
-            permissions = [
-                discord.AppCommandPermission(
-                    type=discord.AppCommandPermissionType.ROLE,
-                    id=role_id,
-                    permission=True,
-                )
-                for role_id in valid_roles
-            ]
+            reported = await Database.has_reported_missing_roles(guild.id)
+        except Exception:
+            reported = False
 
-            for cmd_name in restricted_commands:
-                if command := self.tree.get_command(cmd_name, guild=guild):
-                    try:
-                        # Older discord.py: tree.set_permissions(guild, command, permissions)
-                        await self.tree.set_permissions(guild, command, permissions)
-                        logger.info(
-                            f"App Command permissions set for '{cmd_name}' in guild '{guild.name}'."
-                        )
-                    except discord.HTTPException as e:
-                        # Discord may reject the operation; log at INFO and continue
-                        logger.info(
-                            f"Discord rejected App Command permission update for '{cmd_name}' "
-                            f"in guild '{guild.name}': {e}. Continuing with runtime checks."
-                        )
-                else:
-                    logger.debug(
-                        f"Command '{cmd_name}' not found in guild '{guild.name}'."
-                    )
-        except Exception as e:
-            # Catch-all: don't let permission setup break bot startup.
-            logger.info(
-                f"Failed to set App Command permissions in guild '{guild.name}': {e}. "
-                + "Using runtime decorator checks instead."
-            )
+        if not reported and guild.id not in self._missing_role_warned_guilds:
+            logger.warning(f"Role with ID {role_id} not found in guild '{guild.name}'.")
+            self._missing_role_warned_guilds.add(guild.id)
+            try:
+                await Database.mark_reported_missing_roles(guild.id)
+            except Exception:
+                logger.debug(
+                    "Failed to persist missing-role warning for guild %s",
+                    guild.id,
+                )
+        else:
+            logger.info(f"Role {role_id} missing in '{guild.name}' (already reported).")
 
     async def token_cleanup_task(self) -> None:
         """
         Periodically cleans up expired tokens.
         """
         while not self.is_closed():
-            await asyncio.sleep(600)  # Run every 10 minutes
+            await asyncio.sleep(300)  # Run every 5 minutes
             cleanup_tokens()
             logger.debug("Expired tokens cleaned up.")
 
@@ -381,10 +541,69 @@ class MyBot(commands.Bot):
         """
         Periodically cleans up expired rate-limiting data.
         """
+        # Import here to avoid circular import
+        from helpers.rate_limiter import cleanup_attempts
+
         while not self.is_closed():
-            await asyncio.sleep(600)  # Run every 10 minutes
+            await asyncio.sleep(300)  # Run every 5 minutes
             # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
             await cleanup_attempts()
+
+    async def log_cleanup_task(self) -> None:
+        """
+        Daily cleanup of old logs based on retention policies.
+
+        Runs at the configured cleanup_hour_utc time each day.
+        """
+        await self.wait_until_ready()
+
+        # Get cleanup hour from config (default to 3 AM UTC)
+        cleanup_cfg = getattr(self, "config", {}) or {}
+        cleanup_hour_utc = cleanup_cfg.get("log_retention", {}).get(
+            "cleanup_hour_utc", 3
+        )
+
+        while not self.is_closed():
+            try:
+                # Calculate seconds until next cleanup time
+                from datetime import UTC, datetime, timedelta
+
+                now = datetime.now(UTC)
+                target_time = now.replace(
+                    hour=cleanup_hour_utc, minute=0, second=0, microsecond=0
+                )
+
+                # If target time has passed today, schedule for tomorrow
+                if now >= target_time:
+                    target_time += timedelta(days=1)
+
+                seconds_until_cleanup = (target_time - now).total_seconds()
+
+                logger.info(
+                    f"Log cleanup scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S UTC')} "
+                    f"({seconds_until_cleanup / 3600:.1f} hours from now)"
+                )
+
+                # Wait until cleanup time
+                await asyncio.sleep(seconds_until_cleanup)
+
+                # Run cleanup
+                logger.info("Starting scheduled log cleanup")
+                cleanup_service = LogCleanupService(cleanup_cfg)
+                summary = await cleanup_service.cleanup_all()
+
+                logger.info(
+                    f"Log cleanup completed: {summary}",
+                    extra={"cleanup_summary": summary},
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Log cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.exception("Error in log cleanup task", exc_info=e)
+                # Wait 1 hour before retrying on error
+                await asyncio.sleep(3600)
 
     @property
     def uptime(self) -> str:
@@ -400,23 +619,31 @@ class MyBot(commands.Bot):
         minutes, seconds = divmod(remainder, 60)
         return f"{hours}h {minutes}m {seconds}s"
 
-    async def has_admin_permissions(self, user: discord.Member) -> bool:
+    async def has_admin_permissions(
+        self,
+        user: discord.Member,
+        guild: discord.Guild | None = None,
+    ) -> bool:
         """
-        Check if a user has admin permissions based on configured roles.
+        Check if a user has admin permissions based on configured roles or privileged status.
 
         Args:
             user: Discord member to check
+            guild: Optional guild context (provided by slash-command decorators)
 
         Returns:
-            bool: True if user has bot admin or lead moderator roles
+            bool: True if user has moderator-level access, is bot owner, or has Discord admin
         """
         if not isinstance(user, discord.Member):
             return False
 
-        user_role_ids = [role.id for role in user.roles]
-        admin_role_ids = set(self.BOT_ADMIN_ROLE_IDS + self.LEAD_MODERATOR_ROLE_IDS)
+        from helpers.permissions_helper import (
+            PermissionLevel,
+            get_permission_level,
+        )
 
-        return any(role_id in admin_role_ids for role_id in user_role_ids)
+        level = await get_permission_level(self, user, guild)
+        return level >= PermissionLevel.MODERATOR
 
     async def get_guild_config(self, guild_id: int) -> dict:
         """
@@ -455,25 +682,81 @@ class MyBot(commands.Bot):
 
     async def close(self) -> None:
         """
-        Closes the bot and the HTTP client session.
+        Closes the bot and cleans up all resources.
         """
         logger.info("Shutting down the bot and closing HTTP client session.")
 
-        # Enqueue shutdown signals for workers
-        for _ in range(2):  # Number of workers started
-            await task_queue.put(None)
+        # Stop internal API server if running
+        if hasattr(self, "internal_api") and self.internal_api:
+            try:
+                await self.internal_api.stop()
+                logger.info("Internal API server stopped")
+            except Exception as e:
+                logger.exception("Error stopping internal API server", exc_info=e)
 
-        await task_queue.join()  # Wait until all tasks are processed
+        # Cleanup services
+        if hasattr(self, "services") and self.services:
+            try:
+                await self.services.cleanup()
+                logger.info("Services cleaned up")
+            except Exception as e:
+                logger.exception("Error cleaning up services", exc_info=e)
+
+        # Stop task queue workers
+        await stop_task_workers()
+
+        # Cancel and await tracked background tasks
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
         # Close the HTTP client
         await self.http_client.close()
+
+        # Call parent close
         await super().close()
 
-        # Initialize the bot
+
+# ---------------------------------------------------------------------------
+# Bot Factory Function
+# ---------------------------------------------------------------------------
+def create_bot() -> MyBot:
+    """
+    Create and configure a new bot instance.
+
+    This factory function handles all initialization that was previously
+    done at module import time, enabling:
+    - Safe importing for type hints without side effects
+    - Testability without triggering config/env loading
+    - Explicit control over when initialization occurs
+
+    Returns:
+        Configured MyBot instance ready to run
+    """
+    global PREFIX_WARNINGS
+
+    # Load configuration lazily
+    config = _load_config()
+    _ = _load_token()
+    prefix, warnings = _load_prefix()
+
+    # Update module-level PREFIX_WARNINGS for backward compatibility
+    PREFIX_WARNINGS.clear()
+    PREFIX_WARNINGS.extend(warnings)
+
+    # Create bot instance
+    return MyBot(command_prefix=prefix, intents=intents, config=config)
 
 
-bot = MyBot(command_prefix=PREFIX, intents=intents)
-
-# Only auto-run if not in explicit dry-run context (dev_smoke_startup sets TESTBOT_DRY_RUN)
-if os.getenv("TESTBOT_DRY_RUN") != "1":
-    bot.run(TOKEN)
+# ---------------------------------------------------------------------------
+# Module Execution
+# ---------------------------------------------------------------------------
+# Only create and run bot when executed directly (not imported)
+if __name__ == "__main__":
+    if os.getenv("TESTBOT_DRY_RUN") == "1":
+        logger.info("TESTBOT_DRY_RUN=1 set; skipping bot startup")
+    else:
+        bot = create_bot()
+        bot.run(_load_token())

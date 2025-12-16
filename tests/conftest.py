@@ -14,13 +14,13 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from services.config_service import ConfigService  # noqa: E402
-from services.db.database import Database  # noqa: E402
-from services.voice_service import VoiceService  # noqa: E402
+from services.config_service import ConfigService
+from services.db.database import Database
+from services.voice_service import VoiceService
 
 
 # Ensure pytest-asyncio uses a dedicated loop
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")  # type: ignore[misc]
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
@@ -28,15 +28,13 @@ def event_loop():
 
 
 @pytest.fixture
-def mock_bot() -> None:
+def mock_bot():
     """A minimal bot-like object for cogs/views tests."""
     ns = SimpleNamespace()
     ns.guilds = []
     ns.uptime = "1h"
-    ns.BOT_ADMIN_ROLE_IDS = []
-    ns.LEAD_MODERATOR_ROLE_IDS = []
 
-    def get_cog(name) -> None:
+    def get_cog(name):
         return getattr(ns, f"_cog_{name}", None)
 
     ns.get_cog = get_cog
@@ -52,7 +50,7 @@ async def temp_db(tmp_path):
 
     # Reset and initialize with temp database
     Database._initialized = False
-    Database._db_path = None
+    Database._db_path = None  # type: ignore[assignment]
     db_file = tmp_path / "test.db"
     await Database.initialize(str(db_file))
 
@@ -83,7 +81,7 @@ class FakeResponse:
         self._is_done = False
         self.sent_modal = None
 
-    def is_done(self) -> None:
+    def is_done(self) -> bool:
         return self._is_done
 
     async def send_message(self, *args, **kwargs) -> None:
@@ -99,7 +97,7 @@ class FakeResponse:
 
 class FakeFollowup:
     async def send(self, *args, **kwargs) -> None:
-        return None
+        pass
 
 
 class FakeInteraction:
@@ -110,7 +108,7 @@ class FakeInteraction:
         self.guild = SimpleNamespace(id=123, name="TestGuild")
 
         async def _edit(**kwargs) -> None:
-            return None
+            pass
 
         self.message = SimpleNamespace(edit=_edit)
 
@@ -156,19 +154,22 @@ def mock_db_connection():
     helper = MockDBHelper()
 
     # Patch both possible import paths to ensure compatibility
-    with patch("services.voice_service.Database.get_connection") as mock_db1, \
-         patch("services.db.database.Database.get_connection") as mock_db2:
-
+    with (
+        patch("services.voice_service.Database.get_connection") as mock_db1,
+        patch("services.db.database.Database.get_connection") as mock_db2,
+    ):
         mock_db1.return_value.__aenter__.return_value = helper.mock_conn
         mock_db2.return_value.__aenter__.return_value = helper.mock_conn
         yield helper
 
 
-@pytest.fixture
-def voice_service(mock_bot):
+@pytest_asyncio.fixture
+async def voice_service(mock_bot):
     """Create a VoiceService instance for testing."""
     config_service = MagicMock(spec=ConfigService)
-    service = VoiceService(config_service, mock_bot)
+    service = VoiceService(config_service, mock_bot, test_mode=True)
     # Skip actual initialization to avoid database/network calls
     service._initialized = True
-    return service
+    yield service
+    # Properly shut down the service after test
+    await service.shutdown()

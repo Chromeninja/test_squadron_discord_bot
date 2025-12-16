@@ -1,0 +1,68 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Start Bot (start_bot.py)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/start_bot.py",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Web Backend (FastAPI)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app:app",
+        "--reload",
+        "--port",
+        "8081",
+        "--host",
+        "0.0.0.0"
+      ],
+      "cwd": "${workspaceFolder}/web/backend",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "Web Frontend (Vite Dev Server)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5173"
+      ],
+      "cwd": "${workspaceFolder}/web/frontend",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🚀 Full Stack (Bot + Web Admin)",
+      "configurations": [
+        "Start Bot (start_bot.py)",
+        "Web Backend (FastAPI)",
+        "Web Frontend (Vite Dev Server)"
+      ],
+      "presentation": {
+        "hidden": false,
+        "group": "Full Stack",
+        "order": 1
+      },
+      "stopAll": true
+    }
+  ]
+}

@@ -3,7 +3,37 @@ from unittest.mock import AsyncMock
 import pytest
 
 from helpers.views import FeatureRoleSelectView, FeatureUserSelectView, SelectUserView
-from tests.conftest import FakeInteraction, FakeUser
+from tests.test_helpers import FakeInteraction, FakeUser
+
+
+# Simple mock classes to replace dynamic type() calls
+class FakeSelect:
+    def __init__(self, values):
+        self.values = values
+
+
+class FakeRole:
+    def __init__(self, rid):
+        self.id = int(rid)
+        self.name = "Role"
+        self.mention = f"<@&{rid}>"
+
+
+class FakeGuildForUI:
+    def __init__(self, guild_id, default_role=None):
+        self.id = guild_id
+        self.name = "Guild"
+        self.default_role = default_role
+
+    def get_role(self, rid):
+        return FakeRole(rid)
+
+
+class FakeChannelUI:
+    def __init__(self, channel_id, guild_obj):
+        self.id = channel_id
+        self.name = "TestChannel"
+        self.guild = guild_obj
 
 
 @pytest.mark.asyncio
@@ -12,15 +42,12 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
 
     # Prepare fake selected users
     target = FakeUser(2000, "TargetUser")
-    # discord.ui.Select.values is a read-only property; replace the select
-    # with a simple fake object that exposes a writable `values` attribute.
-    view.user_select = type("S", (), {"values": [target]})()
+    # Replace select with a mock object that has writable values
+    view.user_select = FakeSelect([target])  # type: ignore[assignment]
 
-    # Monkeypatch get_user_channel to return a fake channel
-    fake_channel = type("C", (), {})()
-    fake_channel.guild = type("G", (), {"id": 999, "name": "G", "default_role": None})()
-    fake_channel.id = 42
-    fake_channel.name = "OwnerChannel"
+    # Create fake guild and channel
+    fake_guild = FakeGuildForUI(999, default_role=None)
+    fake_channel = FakeChannelUI(42, fake_guild)
 
     monkeypatch.setattr(
         "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
@@ -39,7 +66,7 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
     monkeypatch.setattr("helpers.views.send_message", fake_send)
 
     ix = FakeInteraction(FakeUser(1000, "Owner"))
-    await view.user_select_callback(ix)
+    await view.user_select_callback(ix)  # type: ignore[arg-type]
 
     # assert DB set called for the selected user
     assert fake_set.await_count == 1
@@ -57,11 +84,10 @@ async def test_select_user_store_permit_calls_db_and_apply(
 
     # selected target user objects
     t1 = FakeUser(3000, "TargetA")
-    view.user_select = type("S", (), {"values": [t1]})()
+    view.user_select = FakeSelect([t1])  # type: ignore[assignment]
 
-    fake_channel = type("C", (), {})()
-    fake_channel.guild = type("G", (), {"id": 111, "name": "Guild"})()
-    fake_channel.id = 99
+    fake_guild = FakeGuildForUI(111)
+    fake_channel = FakeChannelUI(99, fake_guild)
 
     monkeypatch.setattr(
         "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
@@ -79,7 +105,7 @@ async def test_select_user_store_permit_calls_db_and_apply(
     monkeypatch.setattr("helpers.views.send_message", fake_send)
 
     ix = FakeInteraction(FakeUser(5000, "OwnerTwo"))
-    await view.user_select_callback(ix)
+    await view.user_select_callback(ix)  # type: ignore[arg-type]
 
     assert fake_store.await_count == 1
     assert fake_apply.await_count == 1
@@ -91,22 +117,10 @@ async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
     view = FeatureRoleSelectView(mock_bot, feature_name="soundboard", enable=True)
 
     # role select stores strings of ids; replace with a fake select object
-    view.role_select = type("S", (), {"values": ["4444"]})()
+    view.role_select = FakeSelect(["4444"])  # type: ignore[assignment]
 
-    fake_channel = type("C", (), {})()
-    fake_guild = type("G", (), {})()
-
-    # guild.get_role should return a role-like object
-    def get_role(rid) -> None:
-        return type(
-            "R", (), {"id": int(rid), "name": "Role", "mention": f"<@&{rid}>"}
-        )()
-
-    fake_guild.get_role = get_role
-    fake_guild.id = 777
-    fake_channel.guild = fake_guild
-    fake_channel.id = 201
-    fake_channel.name = "Ch"
+    fake_guild = FakeGuildForUI(777)
+    fake_channel = FakeChannelUI(201, fake_guild)
 
     monkeypatch.setattr(
         "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
@@ -125,9 +139,9 @@ async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
 
     ix = FakeInteraction(FakeUser(6000, "OwnerThree"))
     # Ensure interaction.guild is our fake guild object
-    ix.guild = fake_guild
+    ix.guild = fake_guild  # type: ignore[assignment]
 
-    await view.role_select_callback(ix)
+    await view.role_select_callback(ix)  # type: ignore[arg-type]
 
     assert fake_set.await_count == 1
     assert fake_apply.await_count == 1

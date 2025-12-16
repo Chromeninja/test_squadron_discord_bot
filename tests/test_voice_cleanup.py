@@ -66,7 +66,7 @@ class TestVoiceCleanup:
         await config_service.initialize()
 
         mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot)
+        voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
         await voice_service.initialize()
 
         yield voice_service, mock_bot
@@ -118,6 +118,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -166,6 +167,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 1
 
     @pytest.mark.asyncio
@@ -201,25 +203,16 @@ class TestVoiceCleanup:
         # Run reconciliation to properly handle missing channels
         await voice_service.reconcile_all_guilds_on_ready()
 
-        # _load_managed_channels should NOT delete DB rows - it defers to reconciliation
-        # Verify database rows are still there (this is correct behavior)
+        # Reconciliation should remove the stale rows entirely once it confirms the
+        # channels no longer exist on Discord.
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM voice_channels WHERE voice_channel_id IN (?, ?, ?)",
                 missing_channel_ids,
             )
             count = await cursor.fetchone()
-            assert (
-                count[0] == 3
-            )  # Should still be 3 since _load_managed_channels defers to reconciliation
-
-            # Assert that is_active is 0 for missing channels after reconciliation
-            cursor = await db.execute(
-                "SELECT is_active FROM voice_channels WHERE voice_channel_id IN (?, ?, ?)",
-                missing_channel_ids,
-            )
-            is_active_values = await cursor.fetchall()
-            assert all(row[0] == 0 for row in is_active_values), "is_active should be 0 for missing channels after reconciliation"
+            assert count is not None
+            assert count[0] == 0
 
     @pytest.mark.asyncio
     async def test_startup_reconciliation_active_channels(self, voice_service_with_bot):
@@ -262,6 +255,7 @@ class TestVoiceCleanup:
                 [ch.id for ch in active_channels],
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 3
 
     @pytest.mark.asyncio
@@ -428,9 +422,12 @@ class TestVoiceCleanup:
             await db.commit()
 
         # Set very short cleanup delay for testing
-        with patch.object(
-            voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+        with (
+            patch.object(
+                voice_service.config_service, "get_global_setting", return_value=0.1
+            ),
+            patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
+        ):
             # Schedule cleanup and wait
             await voice_service._schedule_channel_cleanup(channel.id)
             await asyncio.sleep(0.2)  # Wait for cleanup to complete
@@ -448,6 +445,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -461,9 +459,12 @@ class TestVoiceCleanup:
         voice_service.managed_voice_channels.add(channel.id)
 
         # Set very short cleanup delay for testing
-        with patch.object(
-            voice_service.config_service, "get_global_setting", return_value=0.1
-        ), patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete:
+        with (
+            patch.object(
+                voice_service.config_service, "get_global_setting", return_value=0.1
+            ),
+            patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
+        ):
             # Schedule cleanup
             await voice_service._schedule_channel_cleanup(channel.id)
 
@@ -522,6 +523,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -569,6 +571,7 @@ class TestVoiceCleanup:
                 (channel.id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0
 
     @pytest.mark.asyncio
@@ -602,4 +605,5 @@ class TestVoiceCleanup:
                 (channel_id,),
             )
             count = await cursor.fetchone()
+            assert count is not None
             assert count[0] == 0

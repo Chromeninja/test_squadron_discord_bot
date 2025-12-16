@@ -13,6 +13,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from helpers.decorators import require_permission_level
+from helpers.permissions_helper import PermissionLevel
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -32,9 +35,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, "services") or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:  # type: ignore[attr-defined]
             raise RuntimeError("Bot services not initialized")
-        return self.bot.services.voice
+        return self.bot.services.voice  # type: ignore[attr-defined]
 
     @app_commands.command(
         name="list",
@@ -45,55 +48,83 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         try:
             await interaction.response.defer(ephemeral=True)
 
-            # Use the new helper to fetch settings
-            from helpers.voice_settings import fetch_channel_settings
-
-            result = await fetch_channel_settings(
-                bot=self.bot,
-                interaction=interaction,
-                target_user=None,  # Use interaction user
-                allow_inactive=True,
-            )
-
-            if not result["settings"] and not result["embeds"]:
-                if result["is_active"]:
-                    await interaction.followup.send(
-                        "❌ You're in a voice channel, but it's not managed by the bot or has no saved settings.",
-                        ephemeral=True,
-                    )
-                else:
-                    await interaction.followup.send(
-                        "❌ You don't have an active voice channel or saved settings. Join a voice channel or configure settings first.",
-                        ephemeral=True,
-                    )
+            if not interaction.guild or not isinstance(
+                interaction.user, discord.Member
+            ):
+                await interaction.followup.send(
+                    "❌ This command must be used in a server.", ephemeral=True
+                )
                 return
 
-            # Send the appropriate embed
-            if result["embeds"]:
-                embed = result["embeds"][
-                    0
-                ]  # Use the first (and usually only) embed for user list
-                await interaction.followup.send(embed=embed, ephemeral=True)
-            else:
-                # Fallback if no embeds but we have settings
-                embed = discord.Embed(
-                    title="🎙️ Your Voice Channel Settings", color=discord.Color.blue()
+            guild = interaction.guild
+            user = interaction.user
+
+            # Check if user is in an active voice channel
+            active_channel = None
+            voice_channel_id = None
+            if user.voice and user.voice.channel:
+                active_channel = user.voice.channel
+                voice_channel_id = active_channel.id
+
+            # Determine JTC channel - use active channel's JTC if available, otherwise last used
+            jtc_channel_id = None
+
+            if voice_channel_id:
+                # Check if this is a managed voice channel
+                jtc_channel_id = await BaseRepository.fetch_value(
+                    "SELECT jtc_channel_id FROM voice_channels WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1",
+                    (voice_channel_id, user.id),
                 )
-                embed.add_field(
-                    name="Settings Found",
-                    value="You have saved settings, but they could not be displayed properly.",
-                    inline=False,
+
+            # If no active channel or not managed, check for last used JTC
+            if not jtc_channel_id:
+                from helpers.voice_settings import _get_last_used_jtc_channel
+
+                jtc_channel_id = await _get_last_used_jtc_channel(guild.id, user.id)
+
+            if not jtc_channel_id:
+                await interaction.followup.send(
+                    "❌ You don't have an active voice channel or saved settings. Join a voice channel or configure settings first.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Get snapshot using the new unified method
+            snapshot = await self.voice_service.get_voice_settings_snapshot(
+                guild_id=guild.id,
+                jtc_channel_id=jtc_channel_id,
+                owner_id=user.id,
+                voice_channel_id=voice_channel_id,
+                guild=guild,
+            )
+
+            if not snapshot:
+                await interaction.followup.send(
+                    "❌ You don't have any saved settings for this voice channel.",
+                    ephemeral=True,
+                )
+                return
+
+            # Build embed using unified renderer
+            from helpers.embeds import build_voice_settings_ui
+
+            embed = build_voice_settings_ui(
+                snapshot=snapshot,
+                user=user,
+                active_channel=active_channel
+                if isinstance(active_channel, discord.VoiceChannel)
+                else None,
+            )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             logger.exception("Error in list_permissions command", exc_info=e)
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="claim",
@@ -116,7 +147,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if result.success:
                 # Format success message
-                message = f"✅ **Channel claimed**\nYou now own {result.channel_mention}."
+                message = (
+                    f"✅ **Channel claimed**\nYou now own {result.channel_mention}."
+                )
                 await send_user_success(interaction, message)
             else:
                 # Format error with metadata if available
@@ -128,9 +161,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in claim_channel command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
                 from helpers.error_messages import format_user_error
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="transfer", description="Transfer channel ownership to another user"
@@ -171,9 +203,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         except Exception as e:
             logger.exception("Error in transfer_ownership command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="help", description="Show help for voice commands")
     async def voice_help(self, interaction: discord.Interaction) -> None:
@@ -236,6 +266,12 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 )
                 return
 
+            if not interaction.guild:
+                await interaction.followup.send(
+                    "❌ This command can only be used in a guild.", ephemeral=True
+                )
+                return
+
             embed = discord.Embed(
                 title="🎙️ Managed Voice Channels",
                 description=f"All voice channels managed by the bot in **{interaction.guild.name}**",
@@ -250,14 +286,20 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 owner = interaction.guild.get_member(channel_info["owner_id"])
 
                 if channel and owner:
-                    member_count = len(channel.members)
-                    channel_list.append(
-                        f"**{channel.name}** - {owner.mention} ({member_count} members)"
-                    )
+                    if isinstance(channel, discord.VoiceChannel):
+                        member_count = len(channel.members)
+                        channel_list.append(
+                            f"**{channel.name}** - {owner.mention} ({member_count} members)"
+                        )
+                    else:
+                        channel_list.append(f"**{channel.name}** - {owner.mention}")
                 elif channel:
-                    channel_list.append(
-                        f"**{channel.name}** - Unknown owner ({len(channel.members)} members)"
-                    )
+                    if isinstance(channel, discord.VoiceChannel):
+                        channel_list.append(
+                            f"**{channel.name}** - Unknown owner ({len(channel.members)} members)"
+                        )
+                    else:
+                        channel_list.append(f"**{channel.name}** - Unknown owner")
 
             if channel_list:
                 # Split into chunks if too long
@@ -281,16 +323,16 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in list_owners command", exc_info=e)
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
-                await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
-                )
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="setup", description="Set up the voice channel system")
     @app_commands.describe(
         category="Category to place voice channels in",
         num_channels="Number of 'Join to Create' channels",
     )
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def setup_voice_system(
         self,
         interaction: discord.Interaction,
@@ -301,11 +343,9 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         from helpers.discord_reply import send_user_error, send_user_success
         from helpers.error_messages import format_user_error
 
-        # Check permissions
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
-        if all(role.id not in admin_role_ids for role in interaction.user.roles):
+        if not interaction.guild:
             await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
+                "This command must be used in a server.", ephemeral=True
             )
             return
 
@@ -332,9 +372,94 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         except Exception as e:
             logger.exception("Error in setup_voice_system command", exc_info=e)
             with contextlib.suppress(builtins.BaseException):
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
+
+    @app_commands.command(name="add", description="Add a new Join-to-Create channel")
+    @app_commands.describe(
+        category="Category to create the new voice channel in",
+        channel_name="Name for the new Join-to-Create channel (optional)",
+    )
+    @require_permission_level(PermissionLevel.MODERATOR)
+    async def add_jtc_channel(
+        self,
+        interaction: discord.Interaction,
+        category: discord.CategoryChannel,
+        channel_name: str | None = None,
+    ) -> None:
+        """Create and add a JTC channel without affecting existing ones (Moderator+)."""
+        from helpers.discord_reply import send_user_error, send_user_success
+        from helpers.error_messages import format_user_error
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command must be used in a server.", ephemeral=True
+            )
+            return
+
+        try:
+            await interaction.response.defer(ephemeral=True)
+
+            # Validate category
+            if not isinstance(category, discord.CategoryChannel):
                 await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
+                    interaction, "❌ You must select a valid category."
                 )
+                return
+
+            # Use provided name or default, with basic sanitization
+            if channel_name:
+                candidate_name = channel_name.strip()
+                if not candidate_name:
+                    await send_user_error(
+                        interaction, "❌ Channel name cannot be empty."
+                    )
+                    return
+                if len(candidate_name) > 100:
+                    await send_user_error(
+                        interaction, "❌ Channel name must be 100 characters or less."
+                    )
+                    return
+                final_channel_name = candidate_name
+            else:
+                final_channel_name = "Join to Create"
+
+            # Create the voice channel via the voice service helper
+            jtc_channel, error = await self.voice_service.create_jtc_channel(
+                guild_id=interaction.guild_id,
+                category=category,
+                channel_name=final_channel_name,
+            )
+
+            if jtc_channel is None:
+                await send_user_error(
+                    interaction, format_user_error("UNKNOWN", details=error)
+                )
+                return
+
+            # Add the newly created channel to config (append, do not replace)
+            success, add_error = await self.voice_service.add_jtc_channel_to_config(
+                interaction.guild_id, jtc_channel.id
+            )
+
+            if success:
+                message = (
+                    f"✅ **{jtc_channel.name}** created and added as a Join-to-Create channel in {category.name}.\n"
+                    "Existing JTC channels remain active."
+                )
+                await send_user_success(interaction, message)
+            else:
+                # If config fails, attempt to delete the channel to avoid orphaning
+                with contextlib.suppress(builtins.BaseException):
+                    await jtc_channel.delete(reason="Rollback due to config failure")
+                error_msg = format_user_error("UNKNOWN", details=add_error)
+                await send_user_error(interaction, error_msg)
+
+        except Exception as e:
+            logger.exception("Error in add_jtc_channel command", exc_info=e)
+            with contextlib.suppress(builtins.BaseException):
+                from helpers.error_messages import format_user_error
+
+                await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
         name="admin_list",
@@ -343,33 +468,28 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     @app_commands.describe(
         user="The user whose voice channel settings you want to view"
     )
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def admin_list(
         self, interaction: discord.Interaction, user: discord.Member
     ) -> None:
         """View saved permissions and settings for a user's voice channel (Admin only)."""
-        # Check permissions
-        from helpers.error_messages import format_user_error
 
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
-        if all(role.id not in admin_role_ids for role in interaction.user.roles):
+        if not interaction.guild:
             await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
+                "This command must be used in a server.", ephemeral=True
             )
             return
 
         try:
             await interaction.response.defer(ephemeral=True)
-
-            # Use the new helper to fetch settings
             from helpers.voice_settings import fetch_channel_settings
 
+            # Use unified fetch helper so behavior matches user-facing list command
             result = await fetch_channel_settings(
-                bot=self.bot,
-                interaction=interaction,
-                target_user=user,
-                allow_inactive=True,
+                self.bot, interaction, target_user=user, allow_inactive=True
             )
 
+            # Nothing to show
             if not result["settings"] and not result["embeds"]:
                 await interaction.followup.send(
                     f"📭 No saved voice channel settings found for {user.mention}.",
@@ -377,31 +497,35 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 )
                 return
 
-            # Send all embeds (one per JTC channel with settings)
             if result["embeds"]:
                 for embed in result["embeds"]:
+                    # Make clear this is an admin view
+                    embed.title = f"🔧 Voice Settings for {user.display_name}"
+                    embed.color = discord.Color.orange()
                     await interaction.followup.send(embed=embed, ephemeral=True)
-            else:
-                # Fallback if no embeds but we have settings
-                embed = discord.Embed(
-                    title=f"🔧 Voice Settings for {user.display_name}",
-                    description=f"Administrative view of voice channel settings for {user.mention}",
-                    color=discord.Color.orange(),
-                )
-                embed.add_field(
-                    name="Settings Found",
-                    value="Settings exist but could not be formatted properly.",
-                    inline=False,
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Fallback when settings exist but no embeds were generated
+            embed = discord.Embed(
+                title=f"🔧 Voice Settings for {user.display_name}",
+                description=f"Administrative view of voice channel settings for {user.mention}",
+                color=discord.Color.orange(),
+            )
+            embed.add_field(
+                name="Settings Found",
+                value="Settings exist but could not be formatted properly.",
+                inline=False,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             logger.exception("Error in admin_list command", exc_info=e)
             from helpers.discord_reply import send_user_error
-            from helpers.error_messages import format_user_error
+
             with contextlib.suppress(builtins.BaseException):
                 await send_user_error(
-                    interaction, format_user_error("UNKNOWN")
+                    interaction,
+                    "Something went wrong while fetching settings. Please try again.",
                 )
 
 
@@ -422,11 +546,6 @@ class AdminCommands(app_commands.Group):
         """Get the bot from the parent cog."""
         return self.voice_cog.bot
 
-    async def _check_admin_permissions(self, interaction: discord.Interaction) -> bool:
-        """Check if user has admin permissions."""
-        admin_role_ids = await self.voice_service.get_admin_role_ids()
-        return any(role.id in admin_role_ids for role in interaction.user.roles)
-
     @app_commands.command(
         name="reset",
         description="Reset voice data for a user or entire guild (Admin only)",
@@ -442,22 +561,16 @@ class AdminCommands(app_commands.Group):
             app_commands.Choice(name="all", value="all"),
         ]
     )
+    @require_permission_level(PermissionLevel.MODERATOR)
     async def admin_reset(
         self,
         interaction: discord.Interaction,
         scope: app_commands.Choice[str],
-        member: discord.Member = None,
+        member: discord.Member | None = None,
         confirm: str | None = None,
     ) -> None:
         """Admin command to reset voice data for a user or entire guild."""
         from helpers.error_messages import format_user_error
-
-        # Check permissions
-        if not await self._check_admin_permissions(interaction):
-            await interaction.response.send_message(
-                format_user_error("PERMISSION"), ephemeral=True
-            )
-            return
 
         # Validate parameters
         if scope.value == "user" and member is None:
@@ -502,9 +615,19 @@ class AdminCommands(app_commands.Group):
 
         try:
             guild_id = interaction.guild_id
+            if guild_id is None:
+                await interaction.followup.send(
+                    "❌ This command can only be used in a guild.", ephemeral=True
+                )
+                return
 
             if scope.value == "user":
                 # Reset specific user
+                if member is None:
+                    await interaction.followup.send(
+                        "❌ Member is required for user scope.", ephemeral=True
+                    )
+                    return
                 await self._reset_user_data(interaction, guild_id, member)
             else:
                 # Reset all guild data
@@ -513,6 +636,7 @@ class AdminCommands(app_commands.Group):
         except Exception as e:
             logger.exception("Error in admin_reset command", exc_info=e)
             from helpers.error_messages import format_user_error
+
             await interaction.followup.send(
                 format_user_error("UNKNOWN"),
                 ephemeral=True,
@@ -615,7 +739,9 @@ class AdminCommands(app_commands.Group):
         for channel_id in managed_channels:
             if self.bot:
                 channel = self.bot.get_channel(channel_id)
-                if channel:
+                if channel and isinstance(
+                    channel, (discord.VoiceChannel, discord.StageChannel)
+                ):
                     try:
                         await channel.delete(
                             reason=f"Admin guild-wide voice reset by {interaction.user}"
@@ -645,9 +771,10 @@ class AdminCommands(app_commands.Group):
         total_rows = sum(deleted_counts.values())
 
         # Log the action with comprehensive details
+        guild_name = interaction.guild.name if interaction.guild else "Unknown Guild"
         logger.info(
             f"Guild reset complete - Admin: {interaction.user.display_name} ({interaction.user.id}), "
-            f"Guild: {interaction.guild.name} ({guild_id}), Total rows deleted: {total_rows}, "
+            f"Guild: {guild_name} ({guild_id}), Total rows deleted: {total_rows}, "
             f"Channels deleted: {len(deleted_channels)}, Channels failed: {len(failed_channels)}"
         )
 
@@ -672,7 +799,7 @@ class AdminCommands(app_commands.Group):
         logger.warning(
             f"MAJOR ADMIN ACTION: Complete guild voice reset performed by "
             f"{interaction.user.display_name} ({interaction.user.id}) on guild "
-            f"{interaction.guild.name} ({guild_id}). All voice data wiped."
+            f"{guild_name} ({guild_id}). All voice data wiped."
         )
 
         embed = discord.Embed(
@@ -723,6 +850,7 @@ async def setup(bot: commands.Bot) -> None:
     voice_cog = VoiceCommands(bot)
 
     # Add the admin subgroup to the main voice group
-    voice_cog.app_command.add_command(AdminCommands(voice_cog))
+    if voice_cog.app_command:
+        voice_cog.app_command.add_command(AdminCommands(voice_cog))
 
     await bot.add_cog(voice_cog)

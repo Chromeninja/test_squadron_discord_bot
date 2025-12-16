@@ -1,0 +1,16 @@
+{
+  // Backend-specific Python settings for multi-root workspace
+  // Tests are discovered from root workspace - this just ensures correct interpreter
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "-q",
+    "tests",
+    "web/backend/tests"
+  ],
+  "python.testing.pytestPath": "${workspaceFolder:🤖 Bot (Root)}/.venv/bin/pytest",
+  "python.testing.cwd": "${workspaceFolder:🤖 Bot (Root)}",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder:🤖 Bot (Root)}"
+  ]
+}

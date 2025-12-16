@@ -21,22 +21,20 @@ def mock_bot():
 
 
 @pytest.fixture
-def mock_voice_service():
-    """Create a mock voice service."""
-    service = MagicMock()
-    service.get_admin_role_ids = AsyncMock(return_value=[999])  # Admin role ID
-    return service
-
-
-@pytest.fixture
 def mock_interaction():
     """Create a mock Discord interaction."""
-    interaction = AsyncMock(spec=discord.Interaction)
+    interaction = MagicMock(spec=discord.Interaction)
     interaction.guild_id = 12345
+    interaction.guild = MagicMock(id=12345)
     interaction.user = MagicMock(spec=discord.Member)
     interaction.user.roles = [MagicMock(id=999)]  # User has admin role
+
+    interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
     interaction.response.defer = AsyncMock()
+    interaction.response.is_done = MagicMock(return_value=False)
+
+    interaction.followup = MagicMock()
     interaction.followup.send = AsyncMock()
     return interaction
 
@@ -54,13 +52,14 @@ def mock_target_user():
 
 
 @pytest.fixture
-def voice_commands(mock_bot, mock_voice_service):
+def voice_commands(mock_bot):
     """Create a VoiceCommands instance for testing."""
     commands = VoiceCommands(mock_bot)
     # Mock the bot's services container
     mock_services = MagicMock()
-    mock_services.voice = mock_voice_service
+    mock_services.voice = MagicMock()
     mock_bot.services = mock_services
+    mock_bot.has_admin_permissions = AsyncMock(return_value=True)
     return commands
 
 
@@ -72,19 +71,19 @@ class TestAdminListCommand:
         self, voice_commands, mock_interaction, mock_target_user
     ):
         """Test admin_list denies access to non-admin users."""
-        # User doesn't have admin role
-        mock_interaction.user.roles = [MagicMock(id=123)]  # Non-admin role
+        # Mock get_permission_level to return USER level (insufficient for MODERATOR requirement)
+        from helpers.permissions_helper import PermissionLevel
 
-        await voice_commands.admin_list.callback(
-            voice_commands, mock_interaction, mock_target_user
+        with patch(
+            "helpers.decorators.get_permission_level", return_value=PermissionLevel.USER
+        ):
+            await voice_commands.admin_list.callback(
+                voice_commands, mock_interaction, mock_target_user
+            )
+
+        mock_interaction.response.send_message.assert_called_once_with(
+            "You don't have permission to use this command.", ephemeral=True
         )
-
-        mock_interaction.response.send_message.assert_called_once()
-        args = mock_interaction.response.send_message.call_args
-        # Check for new error format (from centralized error handler)
-        assert "❌" in args.args[0]
-        assert "Missing permissions" in args.args[0]
-        assert args.kwargs["ephemeral"] is True
 
     @pytest.mark.asyncio
     async def test_admin_list_no_settings_found(
@@ -196,19 +195,23 @@ class TestAdminListCommand:
         mock_interaction.followup.send = AsyncMock()
 
         # Mock fetch_channel_settings to raise an exception
-        with patch("helpers.voice_settings.fetch_channel_settings") as mock_fetch:
+        with (
+            patch("helpers.voice_settings.fetch_channel_settings") as mock_fetch,
+            patch(
+                "helpers.discord_reply.send_user_error",
+                new_callable=AsyncMock,
+            ) as mock_send_error,
+        ):
             mock_fetch.side_effect = Exception("Database error")
 
             await voice_commands.admin_list.callback(
                 voice_commands, mock_interaction, mock_target_user
             )
 
-            # Verify error message was sent
-            mock_interaction.followup.send.assert_called()
-            args = mock_interaction.followup.send.call_args
-            # Check for new error format (from centralized error handler)
-            assert "❌" in args.args[0]
-            assert "Something went wrong" in args.args[0]
+            mock_send_error.assert_called_once()
+            error_args = mock_send_error.call_args
+            # send_user_error adds ❌ automatically, so raw message won't have it
+            assert "Something went wrong" in error_args.args[1]
 
     @pytest.mark.asyncio
     async def test_admin_list_active_channel_with_settings(

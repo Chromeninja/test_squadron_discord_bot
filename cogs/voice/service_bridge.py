@@ -1,8 +1,8 @@
 """
 Voice Service Bridge
 
-Provides compatibility layer and convenience methods for voice operations.
-This bridges the gap between the old cog structure and the new service-based architecture.
+Provides a thin adapter and convenience methods for voice operations between the cog
+layer and the service-based architecture.
 """
 
 from typing import TYPE_CHECKING
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class VoiceServiceBridge(commands.Cog):
-    """Bridge between legacy voice operations and new service architecture."""
+    """Bridge between the cog layer and the voice service architecture."""
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -27,9 +27,9 @@ class VoiceServiceBridge(commands.Cog):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, "services") or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:  # type: ignore[attr-defined]
             raise RuntimeError("Bot services not initialized")
-        return self.bot.services.voice
+        return self.bot.services.voice  # type: ignore[attr-defined]
 
     async def cog_load(self) -> None:
         """Initialize the voice service bridge."""

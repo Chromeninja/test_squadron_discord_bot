@@ -8,7 +8,7 @@ from helpers import rate_limiter as rl
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def patch_db(monkeypatch) -> None:
+async def patch_db(monkeypatch):  # type: ignore[misc]
     # Patch Database methods used by rate limiter
     fetch = AsyncMock(return_value=None)
     incr = AsyncMock()
@@ -25,8 +25,10 @@ async def test_check_rate_limit_within_window(monkeypatch, patch_db) -> None:
     now = int(time.time())
     # 1 attempt within window; should not be rate-limited
     fetch.return_value = (1, now)
-    rl.MAX_ATTEMPTS = 5
-    rl.RATE_LIMIT_WINDOW = 100
+    monkeypatch.setattr(
+        "helpers.rate_limiter.DEFAULT_RATE_LIMITS",
+        {"verification": {"max_attempts": 5, "window_seconds": 100}},
+    )
     limited, wait_until = await rl.check_rate_limit(1, "verification")
     assert limited is False
     assert wait_until == 0
@@ -37,8 +39,10 @@ async def test_check_rate_limit_hit(monkeypatch, patch_db) -> None:
     fetch, _incr, _reset = patch_db
     now = int(time.time())
     fetch.return_value = (5, now)
-    rl.MAX_ATTEMPTS = 5
-    rl.RATE_LIMIT_WINDOW = 100
+    monkeypatch.setattr(
+        "helpers.rate_limiter.DEFAULT_RATE_LIMITS",
+        {"verification": {"max_attempts": 5, "window_seconds": 100}},
+    )
     limited, wait_until = await rl.check_rate_limit(1, "verification")
     assert limited is True
     assert wait_until == now + 100
@@ -48,7 +52,10 @@ async def test_check_rate_limit_hit(monkeypatch, patch_db) -> None:
 async def test_check_rate_limit_reset_after_window(monkeypatch, patch_db) -> None:
     fetch, _incr, reset = patch_db
     then = int(time.time()) - 1000
-    rl.RATE_LIMIT_WINDOW = 100
+    monkeypatch.setattr(
+        "helpers.rate_limiter.DEFAULT_RATE_LIMITS",
+        {"verification": {"max_attempts": 5, "window_seconds": 100}},
+    )
     fetch.return_value = (5, then)
     limited, wait_until = await rl.check_rate_limit(1, "verification")
     assert limited is False
@@ -68,9 +75,11 @@ async def test_log_and_reset_attempts(patch_db) -> None:
 @pytest.mark.asyncio
 async def test_get_remaining_attempts(monkeypatch, patch_db) -> None:
     fetch, _incr, _reset = patch_db
-    rl.MAX_ATTEMPTS = 5
+    monkeypatch.setattr(
+        "helpers.rate_limiter.DEFAULT_RATE_LIMITS",
+        {"verification": {"max_attempts": 5, "window_seconds": 100}},
+    )
     now = int(time.time())
-    rl.RATE_LIMIT_WINDOW = 100
     # No record
     fetch.return_value = None
     assert await rl.get_remaining_attempts(1, "verification") == 5
@@ -93,13 +102,13 @@ async def test_cleanup_attempts(monkeypatch) -> None:
             return None
 
     class Ctx:
-        async def __aenter__(self) -> None:
+        async def __aenter__(self):
             return FakeCursor()
 
-        async def __aexit__(self, *args) -> None:
+        async def __aexit__(self, *args) -> bool:
             return False
 
-    def fake_conn() -> None:
+    def fake_conn(self):
         return Ctx()
 
     monkeypatch.setattr("helpers.rate_limiter.Database.get_connection", fake_conn)

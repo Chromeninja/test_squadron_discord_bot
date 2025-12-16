@@ -14,10 +14,14 @@ from tempfile import TemporaryDirectory
 import pytest
 
 # Add tools directory to path so we can import the probe module
-tools_dir = Path(__file__).parent.parent / 'tools'
+tools_dir = Path(__file__).parent.parent / "tools"
 sys.path.insert(0, str(tools_dir))
 
-from rsi_probe import create_session, probe_handle, warmup
+from rsi_probe import (  # type: ignore[import-not-found] # type: ignore[import-not-found]
+    create_session,
+    probe_handle,
+    warmup,
+)
 
 # Mark entire module as integration tests
 pytestmark = pytest.mark.integration
@@ -37,16 +41,18 @@ def _skip_if_not_opted_in():
 def test_config():
     """Get test configuration from environment variables."""
     return {
-        'user_agent': os.getenv('RSI_UA', 'TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)'),
-        'try_en': os.getenv('RSI_TRY_EN', '0') == '1',
-        'save_bodies': os.getenv('RSI_SAVE_BODIES', '')
+        "user_agent": os.getenv(
+            "RSI_UA", "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
+        ),
+        "try_en": os.getenv("RSI_TRY_EN", "0") == "1",
+        "save_bodies": os.getenv("RSI_SAVE_BODIES", ""),
     }
 
 
 @pytest.fixture
 def rsi_session(test_config):
     """Create an RSI session for testing with config from environment."""
-    session = create_session(test_config['user_agent'])
+    session = create_session(test_config["user_agent"])
     # Don't do warmup in tests by default to keep them fast
     return session
 
@@ -56,18 +62,14 @@ class TestRSILiveProbe:
     """Live tests for RSI probe functionality."""
 
     # Test handles - adjustable for different scenarios
-    TEST_HANDLES = [
-        'HyperZonic',
-        'OverlordCustomsLLC',
-        'squeakytoy'
-    ]
+    TEST_HANDLES = ["HyperZonic", "OverlordCustomsLLC", "squeakytoy"]
 
     def test_session_creation(self, test_config):
         """Test that we can create a session with proper headers."""
-        session = create_session(test_config['user_agent'])
+        session = create_session(test_config["user_agent"])
         assert session is not None
-        assert 'User-Agent' in session.headers
-        assert test_config['user_agent'] in session.headers['User-Agent']
+        assert "User-Agent" in session.headers
+        assert test_config["user_agent"] in session.headers["User-Agent"]
         # Should only have User-Agent header for production parity
         assert len(session.headers) == 1
 
@@ -78,59 +80,61 @@ class TestRSILiveProbe:
         # Warmup may or may not succeed, just verify it doesn't crash
         assert isinstance(result, bool)
 
-    @pytest.mark.parametrize('handle', TEST_HANDLES)
+    @pytest.mark.parametrize("handle", TEST_HANDLES)
     def test_probe_handle(self, rsi_session, test_config, handle):
         """Test probing individual handles."""
         # Use temporary directory for save_bodies if specified
         save_bodies_dir = None
-        if test_config['save_bodies']:
-            save_bodies_dir = test_config['save_bodies']
+        if test_config["save_bodies"]:
+            save_bodies_dir = test_config["save_bodies"]
 
-        result = probe_handle(rsi_session, handle, test_config['try_en'], save_bodies_dir)
+        result = probe_handle(
+            rsi_session, handle, test_config["try_en"], save_bodies_dir
+        )
 
         # Verify new result structure
-        assert 'handle' in result
-        assert result['handle'] == handle
-        assert 'endpoints' in result
-        assert 'summary' in result
+        assert "handle" in result
+        assert result["handle"] == handle
+        assert "endpoints" in result
+        assert "summary" in result
 
-        endpoints = result['endpoints']
-        summary = result['summary']
+        endpoints = result["endpoints"]
+        summary = result["summary"]
 
         # Should always have citizen and org endpoints
-        assert 'citizen' in endpoints
-        assert 'org' in endpoints
+        assert "citizen" in endpoints
+        assert "org" in endpoints
 
         # Should have EN endpoints if try_en is enabled
-        if test_config['try_en']:
-            assert 'citizen_en' in endpoints
-            assert 'org_en' in endpoints
+        if test_config["try_en"]:
+            assert "citizen_en" in endpoints
+            assert "org_en" in endpoints
 
         # Check endpoint data structure
         for endpoint_name, endpoint_data in endpoints.items():
-            assert 'status' in endpoint_data
-            assert 'size' in endpoint_data
-            assert 'content_type' in endpoint_data
-            assert 'final_url' in endpoint_data
-            assert 'redirected' in endpoint_data
-            assert 'warnings' in endpoint_data
-            assert isinstance(endpoint_data['warnings'], list)
+            assert "status" in endpoint_data
+            assert "size" in endpoint_data
+            assert "content_type" in endpoint_data
+            assert "final_url" in endpoint_data
+            assert "redirected" in endpoint_data
+            assert "warnings" in endpoint_data
+            assert isinstance(endpoint_data["warnings"], list)
 
         # Check summary structure
-        assert 'has_403' in summary
-        assert 'has_5xx' in summary
-        assert 'has_tiny' in summary
-        assert 'has_non_html' in summary
-        assert 'has_captcha' in summary
-        assert 'total_warnings' in summary
+        assert "has_403" in summary
+        assert "has_5xx" in summary
+        assert "has_tiny" in summary
+        assert "has_non_html" in summary
+        assert "has_captcha" in summary
+        assert "total_warnings" in summary
 
         # Report any issues found (diagnostic output)
         issues = []
 
         for endpoint_name, endpoint_data in endpoints.items():
-            status = endpoint_data['status']
-            size = endpoint_data['size']
-            warnings = endpoint_data['warnings']
+            status = endpoint_data["status"]
+            size = endpoint_data["size"]
+            warnings = endpoint_data["warnings"]
 
             if status == 403:
                 issues.append(f"{endpoint_name} returned 403 for {handle}")
@@ -138,7 +142,9 @@ class TestRSILiveProbe:
                 issues.append(f"{endpoint_name} returned {status} for {handle}")
 
             if status == 200 and size < 1000:
-                issues.append(f"{endpoint_name} has tiny response ({size} bytes) for {handle}")
+                issues.append(
+                    f"{endpoint_name} has tiny response ({size} bytes) for {handle}"
+                )
 
             for warning in warnings:
                 issues.append(f"{endpoint_name} warning for {handle}: {warning}")
@@ -154,9 +160,11 @@ class TestRSILiveProbe:
         # Print detailed endpoint info for diagnosis
         print(f"\n📊 Endpoint details for '{handle}':")
         for endpoint_name, endpoint_data in endpoints.items():
-            print(f"   {endpoint_name}: {endpoint_data['status']} "
-                  f"({endpoint_data['size']} bytes, {endpoint_data['content_type']}) "
-                  f"-> {endpoint_data['final_url']}")
+            print(
+                f"   {endpoint_name}: {endpoint_data['status']} "
+                f"({endpoint_data['size']} bytes, {endpoint_data['content_type']}) "
+                f"-> {endpoint_data['final_url']}"
+            )
 
         # Test always passes - we're just diagnosing
         # But ensure we got valid data structure
@@ -168,7 +176,7 @@ class TestRSILiveProbe:
         # Helper function to probe all handles
         def probe_all_handles(save_dir=None):
             return [
-                probe_handle(rsi_session, handle, test_config['try_en'], save_dir)
+                probe_handle(rsi_session, handle, test_config["try_en"], save_dir)
                 for handle in self.TEST_HANDLES
             ]
 
@@ -184,7 +192,7 @@ class TestRSILiveProbe:
 
     def _execute_probe_with_config(self, probe_function, test_config):
         """Helper method to execute probe with or without temporary directory."""
-        save_bodies = test_config['save_bodies']
+        save_bodies = test_config["save_bodies"]
         if save_bodies:
             with TemporaryDirectory() as tmpdir:
                 return probe_function(tmpdir)
@@ -193,10 +201,14 @@ class TestRSILiveProbe:
     def _analyze_probe_results(self, results, test_config):
         """Helper method to analyze probe results and print summary."""
         total_handles = len(results)
-        handles_with_403 = sum(1 for r in results if r['summary']['has_403'])
-        handles_with_5xx = sum(1 for r in results if r['summary']['has_5xx'])
-        handles_with_tiny_responses = sum(1 for r in results if r['summary']['has_tiny'])
-        handles_with_warnings = sum(1 for r in results if r['summary']['total_warnings'] > 0)
+        handles_with_403 = sum(1 for r in results if r["summary"]["has_403"])
+        handles_with_5xx = sum(1 for r in results if r["summary"]["has_5xx"])
+        handles_with_tiny_responses = sum(
+            1 for r in results if r["summary"]["has_tiny"]
+        )
+        handles_with_warnings = sum(
+            1 for r in results if r["summary"]["total_warnings"] > 0
+        )
 
         print("\n📊 RSI Live Probe Summary:")
         print(f"   Total handles tested: {total_handles}")
@@ -212,28 +224,30 @@ class TestRSILiveProbe:
         print(f"   Handles with warnings: {handles_with_warnings}")
 
         return {
-            'total': total_handles,
-            'handles_with_403': handles_with_403,
-            'handles_with_5xx': handles_with_5xx,
-            'handles_with_tiny_responses': handles_with_tiny_responses,
-            'handles_with_warnings': handles_with_warnings,
+            "total": total_handles,
+            "handles_with_403": handles_with_403,
+            "handles_with_5xx": handles_with_5xx,
+            "handles_with_tiny_responses": handles_with_tiny_responses,
+            "handles_with_warnings": handles_with_warnings,
         }
 
     def _print_handle_issues(self, results):
         """Helper method to print individual handle issues."""
         for result in results:
-            handle = result['handle']
-            summary = result['summary']
+            handle = result["handle"]
+            summary = result["summary"]
 
             error_messages = []
-            if summary['has_403']:
+            if summary["has_403"]:
                 error_messages.append(f"   🚨 {handle}: HTTP 403 detected")
-            if summary['has_5xx']:
+            if summary["has_5xx"]:
                 error_messages.append(f"   🚨 {handle}: HTTP 5xx detected")
-            if summary['has_tiny']:
+            if summary["has_tiny"]:
                 error_messages.append(f"   ⚠️  {handle}: Tiny response detected")
-            if summary['total_warnings'] > 0:
-                error_messages.append(f"   ⚠️  {handle}: {summary['total_warnings']} warning(s)")
+            if summary["total_warnings"] > 0:
+                error_messages.append(
+                    f"   ⚠️  {handle}: {summary['total_warnings']} warning(s)"
+                )
 
             for message in error_messages:
                 print(message)
@@ -241,7 +255,7 @@ class TestRSILiveProbe:
     def _validate_results_structure(self, results):
         """Helper method to validate results structure."""
         for result in results:
-            assert 'handle' in result
-            assert 'endpoints' in result
-            assert 'summary' in result
-            assert len(result['endpoints']) >= 2  # At least citizen and org
+            assert "handle" in result
+            assert "endpoints" in result
+            assert "summary" in result
+            assert len(result["endpoints"]) >= 2  # At least citizen and org

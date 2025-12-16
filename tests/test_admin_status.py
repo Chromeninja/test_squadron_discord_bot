@@ -1,7 +1,7 @@
 import pytest
 
 from cogs.admin.commands import AdminCog
-from tests.conftest import FakeInteraction, FakeUser
+from tests.test_helpers import FakeInteraction, FakeUser
 
 
 @pytest.mark.asyncio
@@ -17,16 +17,16 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
             "uptime": "1h",
         }
 
-    mock_health.run_health_checks = mock_run_health_checks
+    mock_health.run_health_checks = mock_run_health_checks  # type: ignore[attr-defined]
 
     # Mock service container to return our mock health service
     mock_services = type("MockServices", (), {})()
-    mock_services.health = mock_health
-    mock_services.get_all_services = lambda: []
+    mock_services.health = mock_health  # type: ignore[attr-defined]
+    mock_services.get_all_services = lambda: []  # type: ignore[attr-defined]
     mock_bot.services = mock_services
 
     # Mock admin permission check
-    async def mock_has_admin_permissions(user):
+    async def mock_has_admin_permissions(user, guild=None):
         return True
 
     mock_bot.has_admin_permissions = mock_has_admin_permissions
@@ -46,7 +46,7 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
     ix.followup.send = capture_response
 
     # Call the status command directly
-    await cog.status.callback(cog, ix)
+    await cog.status.callback(cog, ix)  # type: ignore[arg-type]
 
     # Check that some status content was returned (could be in embed or content)
     assert captured.get("embed") is not None or captured.get("content") is not None

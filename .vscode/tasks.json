@@ -1,10 +1,13 @@
 {
   "version": "2.0.0",
+  // Test execution tasks - always use .venv/bin/python from workspace root
+  // Run these with Cmd+Shift+P > "Tasks: Run Task"
   "tasks": [
     {
-      "label": "pytest",
+      "label": "pytest: bot tests",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/pytest -q",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pytest", "tests/", "-v"],
       "group": {
         "kind": "test",
         "isDefault": true
@@ -13,7 +16,72 @@
         "reveal": "always",
         "panel": "shared"
       },
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Run all bot tests using workspace virtual environment"
+    },
+    {
+      "label": "pytest: backend tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pytest", "web/backend/tests/", "-v"],
+      "group": { 
+        "kind": "test", 
+        "isDefault": false 
+      },
+      "presentation": { 
+        "reveal": "always", 
+        "panel": "shared" 
+      },
+      "problemMatcher": [],
+      "detail": "Run all backend API tests using workspace virtual environment"
+    },
+    {
+      "label": "pytest: all tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pytest", "tests/", "web/backend/tests/", "-v"],
+      "group": { 
+        "kind": "test", 
+        "isDefault": false 
+      },
+      "presentation": { 
+        "reveal": "always", 
+        "panel": "shared" 
+      },
+      "problemMatcher": [],
+      "detail": "Run ALL tests (bot + backend) using workspace virtual environment"
+    },
+    {
+      "label": "pytest: bot tests (quick)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pytest", "tests/", "-q"],
+      "group": { 
+        "kind": "test", 
+        "isDefault": false 
+      },
+      "presentation": { 
+        "reveal": "always", 
+        "panel": "shared" 
+      },
+      "problemMatcher": [],
+      "detail": "Run bot tests in quiet mode (faster output)"
+    },
+    {
+      "label": "pytest: backend tests (quick)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pytest", "web/backend/tests/", "-q"],
+      "group": { 
+        "kind": "test", 
+        "isDefault": false 
+      },
+      "presentation": { 
+        "reveal": "always", 
+        "panel": "shared" 
+      },
+      "problemMatcher": [],
+      "detail": "Run backend tests in quiet mode (faster output)"
     }
   ]
 }

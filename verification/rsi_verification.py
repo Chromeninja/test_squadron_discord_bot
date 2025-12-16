@@ -1,17 +1,11 @@
-# Verification/rsi_verification.py
-
 import logging
 import re
 import string
 
 from bs4 import BeautifulSoup
 
-from config.config_loader import ConfigLoader
 from helpers.http_helper import HTTPClient, NotFoundError
 
-config = ConfigLoader.load_config()
-
-TEST_ORG_NAME = config["organization"]["name"].strip().lower()
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
@@ -27,6 +21,14 @@ SELECTORS = {
             'div[class*="org"][class*="affil"] a.value',
             "div.org.affiliation a.value",
             ".box-content.org.affiliation a.value",
+        ],
+        "main_sid": [
+            '.box-content.org.main p.entry:has(span.label:contains("Spectrum Identification")) strong.value',
+            "div.org.main strong.value",
+        ],
+        "affiliate_sid": [
+            ".box-content.org.affiliation p.entry:has(span.label) strong.value",
+            "div.org.affiliation strong.value",
         ],
     },
     "bio": [
@@ -46,30 +48,34 @@ def normalize_text(s: str | None) -> str:
 
 
 async def is_valid_rsi_handle(
-    user_handle: str, http_client: HTTPClient
-) -> tuple[int | None, str | None, str | None]:
+    user_handle: str, http_client: HTTPClient, org_name: str, org_sid: str | None = None
+) -> tuple[int | None, str | None, str | None, list[str], list[str]]:
     """
-    Validates the RSI handle by checking if the user is part of the TEST
-    organization or its affiliates. Also retrieves the correctly cased handle
-    from the RSI profile.
+    Validates the RSI handle by checking if the user is part of the specified
+    organization or its affiliates. Also retrieves the correctly cased handle,
+    community moniker, and organization SID lists.
 
     Args:
         user_handle (str): The RSI handle of the user.
         http_client (HTTPClient): The HTTP client instance.
+        org_name (str): The organization name to check (e.g., "test") - used as fallback.
+        org_sid (str | None): The organization SID to check (e.g., "TEST") - preferred method.
 
     Returns:
-        tuple[Optional[int], Optional[str], Optional[str]]: A tuple containing:
+        tuple: A tuple containing:
             - verify_value (1, 2, 0 or None)
             - the correctly cased handle (or None)
             - community moniker (or None)
+            - main_orgs list of SIDs
+            - affiliate_orgs list of SIDs
     """
     logger.debug(f"Starting validation for RSI handle: {user_handle}")
 
     if not RSI_HANDLE_REGEX.match(user_handle):
         logger.warning(f"Invalid RSI handle format: {user_handle}")
-        return None, None, None
+        return None, None, None, [], []
 
-        # Fetch organization data
+    # Fetch organization data
     org_url = f"https://robertsspaceindustries.com/citizens/{user_handle}/organizations"
     logger.debug(f"Fetching organization data from URL: {org_url}")
     try:
@@ -79,17 +85,40 @@ async def is_valid_rsi_handle(
         raise
     if not org_html:  # Empty/None response
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
-        return None, None, None
+        return None, None, None, [], []
 
-        # Parse organization data
+    # Parse organization SIDs (new format - do this first)
     try:
-        org_data = parse_rsi_organizations(org_html)
+        org_sids = parse_rsi_org_sids(org_html)
+        main_orgs = org_sids.get("main_orgs", [])
+        affiliate_orgs = org_sids.get("affiliate_orgs", [])
     except Exception:
-        logger.exception(f"Exception while parsing organization data for {user_handle}")
-        return None, None, None
+        logger.exception(f"Exception while parsing organization SIDs for {user_handle}")
+        main_orgs = []
+        affiliate_orgs = []
 
-    verify_value = search_organization_case_insensitive(org_data, TEST_ORG_NAME)
-    logger.debug(f"Verification value for {user_handle}: {verify_value}")
+    # Determine verification value - prefer SID-based if available
+    if org_sid:
+        # Use SID-based verification (preferred)
+        from services.db.database import derive_membership_status
+
+        status = derive_membership_status(main_orgs, affiliate_orgs, org_sid.upper())
+        verify_value = {"main": 1, "affiliate": 2, "non_member": 0}[status]
+        logger.debug(
+            f"SID-based verification for {user_handle}: {status} (value={verify_value})"
+        )
+    else:
+        # Fall back to name-based verification for backward compatibility
+        try:
+            org_data = parse_rsi_organizations(org_html, org_name)
+        except Exception:
+            logger.exception(
+                f"Exception while parsing organization data for {user_handle}"
+            )
+            return None, None, None, main_orgs, affiliate_orgs
+
+        verify_value = search_organization_case_insensitive(org_data, org_name)
+        logger.debug(f"Name-based verification for {user_handle}: {verify_value}")
 
     # Fetch profile data (single fetch reused for handle + moniker)
     profile_url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
@@ -97,9 +126,9 @@ async def is_valid_rsi_handle(
     profile_html = await http_client.fetch_html(profile_url)
     if not profile_html:  # Could not retrieve profile
         logger.error(f"Failed to fetch profile data for handle: {user_handle}")
-        return verify_value, None, None
+        return verify_value, None, None, main_orgs, affiliate_orgs
 
-        # Extract correctly cased handle
+    # Extract correctly cased handle
     try:
         cased_handle = extract_handle(profile_html)
         if cased_handle:
@@ -128,7 +157,7 @@ async def is_valid_rsi_handle(
         )
         community_moniker = None
 
-    return verify_value, cased_handle, community_moniker
+    return verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs
 
 
 def extract_handle(html_content: str) -> str | None:
@@ -146,7 +175,9 @@ def extract_handle(html_content: str) -> str | None:
 
     if (
         handle_paragraph := soup.find(
-            "p", class_="entry", string=lambda text: text and "Handle name" in text
+            "p",
+            class_="entry",
+            string=lambda text: text and "Handle name" in text,  # type: ignore[arg-type]
         )
     ) and (handle_strong := handle_paragraph.find("strong", class_="value")):
         cased_handle = handle_strong.get_text(strip=True)
@@ -245,12 +276,13 @@ def _sanitize_moniker(moniker: str) -> str:
     return cleaned.replace("\u200b", "").strip()
 
 
-def parse_rsi_organizations(html_content: str) -> dict:
+def parse_rsi_organizations(html_content: str, target_org: str | None = None) -> dict:
     """
     Parses the RSI organizations from the provided HTML content using robust selectors.
 
     Args:
         html_content (str): The HTML content of the RSI organizations page.
+        target_org (str | None): Optional organization name for matched_status logging.
 
     Returns:
         dict: Dictionary containing the main organization and its affiliates.
@@ -321,6 +353,17 @@ def parse_rsi_organizations(html_content: str) -> dict:
 
     result = {"main_organization": main_org or "", "affiliates": affiliates}
 
+    # Only compute matched_status if target_org provided
+    matched_status = None
+    if target_org:
+        target_org_norm = normalize_text(target_org)
+        if main_org == target_org_norm:
+            matched_status = "main"
+        elif target_org_norm in affiliates:
+            matched_status = "affiliate"
+        else:
+            matched_status = "non_member"
+
     logger.debug(
         "Organization parsing complete",
         extra={
@@ -328,15 +371,116 @@ def parse_rsi_organizations(html_content: str) -> dict:
             "main": main_org,
             "affiliates_count": len(affiliates),
             "sample_affiliates": affiliates[:3] if affiliates else [],
-            "matched_status": (
-                "main"
-                if main_org == TEST_ORG_NAME
-                else ("affiliate" if TEST_ORG_NAME in affiliates else "non_member")
-            ),
+            "matched_status": matched_status,
         },
     )
 
     return result
+
+
+def parse_rsi_org_sids(html_content: str) -> dict:
+    """
+    Parses RSI organization SIDs from the HTML content.
+
+    Returns organization SIDs (Spectrum Identification) for both main and affiliate
+    organizations. Hidden/redacted organizations will have "REDACTED" as their SID.
+
+    Args:
+        html_content (str): The HTML content of the RSI organizations page.
+
+    Returns:
+        dict: Dictionary with 'main_orgs' list (0 or 1 items) and 'affiliate_orgs' list.
+              Example: {"main_orgs": ["TEST"], "affiliate_orgs": ["XVII", "REDACTED", "AVOCADO"]}
+    """
+    logger.debug(
+        "Parsing RSI organization SIDs from HTML content.",
+        extra={"event": "rsi-parser.org-sids"},
+    )
+    soup = BeautifulSoup(html_content, "lxml")
+
+    main_orgs = []
+    affiliate_orgs = []
+
+    # Parse main organization SID
+    main_org_div = soup.select_one(".box-content.org.main")
+    if main_org_div:
+        # Check if it's a redacted/hidden org (visibility-R or visibility-H class)
+        classes = main_org_div.get("class") or []
+        is_redacted = "visibility-R" in classes or "visibility-H" in classes
+
+        if is_redacted:
+            main_orgs.append("REDACTED")
+            logger.debug("Main organization is redacted/hidden")
+        else:
+            # Try to find SID in the info section
+            sid_entry = main_org_div.select_one("p.entry:has(span.label)")
+            if sid_entry:
+                label = sid_entry.select_one("span.label")
+                if label and "Spectrum Identification" in label.get_text():
+                    sid_value = sid_entry.select_one("strong.value")
+                    if sid_value:
+                        sid = sid_value.get_text(strip=True)
+                        if sid:
+                            main_orgs.append(sid)
+                            logger.debug(f"Main organization SID: {sid}")
+                        else:
+                            main_orgs.append("REDACTED")
+                            logger.debug(
+                                "Main organization SID is empty, treating as REDACTED"
+                            )
+
+    # Parse affiliate organization SIDs
+    affiliate_divs = soup.select(".box-content.org.affiliation")
+    for affiliate_div in affiliate_divs:
+        # Check if it's a redacted/hidden org
+        classes = affiliate_div.get("class") or []
+        is_redacted = "visibility-R" in classes or "visibility-H" in classes
+
+        if is_redacted:
+            affiliate_orgs.append("REDACTED")
+            logger.debug("Affiliate organization is redacted/hidden")
+        else:
+            # Try to find SID in the info section
+            # Look for any p.entry that has a strong.value (the SID field)
+            info_entries = affiliate_div.select("p.entry")
+            sid_found = False
+            for entry in info_entries:
+                # Check if this entry has "Spectrum Identification" or similar label
+                label = entry.select_one("span.label")
+                if label:
+                    label_text = label.get_text(strip=True)
+                    # Match various possible label texts for SID field
+                    if "Spectrum" in label_text or "SID" in label_text:
+                        sid_value = entry.select_one("strong.value")
+                        if sid_value:
+                            sid = sid_value.get_text(strip=True)
+                            if sid and sid not in [
+                                "\xa0",
+                                "",
+                            ]:  # Filter out nbsp and empty
+                                affiliate_orgs.append(sid)
+                                logger.debug(f"Affiliate organization SID: {sid}")
+                                sid_found = True
+                                break
+
+            if not sid_found:
+                # Fallback: if no SID field found but org exists, treat as REDACTED
+                affiliate_orgs.append("REDACTED")
+                logger.debug(
+                    "Affiliate organization SID not found, treating as REDACTED"
+                )
+
+    logger.debug(
+        "Organization SID parsing complete",
+        extra={
+            "event": "rsi-parser.org-sids",
+            "main_orgs": main_orgs,
+            "affiliate_orgs": affiliate_orgs,
+            "affiliate_count": len(affiliate_orgs),
+        },
+    )
+
+    return {"main_orgs": main_orgs, "affiliate_orgs": affiliate_orgs}
 
 
 def search_organization_case_insensitive(org_data: dict, target_org: str) -> int:
@@ -459,12 +603,12 @@ def extract_bio(html_content: str) -> str | None:
     return None
 
 
-def find_token_in_bio(bio_text: str, token: str) -> bool:
+def find_token_in_bio(bio_text: str | None, token: str) -> bool:
     """
     Search for 4-digit token in bio text using regex pattern.
 
     Args:
-        bio_text: The bio text to search in
+        bio_text: The bio text to search in (can be None)
         token: The token to find (will be zero-padded if needed)
 
     Returns:

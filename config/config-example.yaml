@@ -10,31 +10,6 @@ rate_limits:
   window_seconds: 1800        # 30 min rate-limit window
   recheck_window_seconds: 300 # 5 min recheck rate-limit window
 
-organization:
-  name: "TEST Squadron - Best Squardon!" 
-
-channels:
-  verification_channel_id: 1313551608491282543         # Channel for running verification
-  public_announcement_channel_id: 1395475641805176952  # Public channel for daily/threshold announcements
-  leadership_announcement_channel_id: 1395475681512652944 # Private channel for leadership logs and admin recheck notifications
-  bot_spam_channel_id: 1395475681512652999             # Bot spam channel for reverify notices
-
-roles:
-  bot_verified_role_id: 1313551309869416528     # BotVerified role
-  main_role_id: 1313551051076665394            # Main Org role
-  affiliate_role_id: 1313551109373165671       # Affiliate role
-  non_member_role_id: 1313551221625192458      # Non-Member role
-  bot_admins:
-    - "246604397155581954"                     # User IDs with bot admin rights
-  lead_moderators:
-    - "1174838659065847859"                     # User IDs with lead moderator rights
-
-selectable_roles:
-  - 1313551051076665394 # Main
-  - 1313551109373165671 # Affiliate
-  - 1313551221625192458 # Non-Member
-  - 1313551309869416528 # BotVerified
-
 logging:
   level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
@@ -60,6 +35,9 @@ rsi:
   user_agent: "TEST-Squadron-Verification-Bot/1.0 (+https://testsquadron.com)"
   # Global cap for ALL RSI HTTP calls (manual + auto)
   requests_per_minute: 30
+
+web_dashboard:
+  url: "http://your_public_ip_or_domain"  # Production frontend URL
 
 auto_recheck:
   enabled: true

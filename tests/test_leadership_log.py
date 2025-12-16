@@ -1,8 +1,11 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from helpers.leadership_log import (
     ChangeSet,
     EventType,
+    InitiatorKind,
     escape_md,
     # build_message,
     # is_effectively_unchanged,
@@ -16,12 +19,13 @@ class DummyRole:
         self.name = name
 
 
+class DummyGuild:
+    def __init__(self) -> None:
+        self.id = 123
+
+
 class DummyBot:
     def __init__(self) -> None:
-        self.config = {
-            "channels": {"leadership_announcement_channel_id": 123},
-            "leadership_log": {"verbosity": "compact"},
-        }
         self._channel = object()
         # Simulate managed roles (names used for filtering)
         self.BOT_VERIFIED_ROLE_ID = 1001
@@ -34,10 +38,24 @@ class DummyBot:
             1003: DummyRole(1003, "Affiliate"),
             1004: DummyRole(1004, "Not a Member"),
         }
-        self.guilds = []  # minimal for role lookup fallback
+        self._guild = DummyGuild()
+        self.guilds = [self._guild]  # minimal for role lookup fallback
 
-    def get_channel(self, cid) -> None:
+        # Mock services
+        self.services = MagicMock()
+        mock_config = AsyncMock()
+        mock_config.get_global_setting = AsyncMock(return_value="compact")
+        self.services.config = mock_config
+
+        mock_guild_config = AsyncMock()
+        mock_guild_config.get_channel = AsyncMock(return_value=self._channel)
+        self.services.guild_config = mock_guild_config
+
+    def get_channel(self, cid):
         return self._channel if cid == 123 else None
+
+    def get_guild(self, guild_id):
+        return self._guild if guild_id == 123 else None
 
 
 @pytest.mark.asyncio
@@ -49,7 +67,12 @@ async def test_auto_recheck_suppressed_when_no_change(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=1, event=EventType.AUTO_CHECK, initiator_kind="Auto")
+    cs = ChangeSet(
+        user_id=1,
+        event=EventType.AUTO_CHECK,
+        initiator_kind=InitiatorKind.AUTO,
+        guild_id=123,
+    )
     await post_if_changed(bot, cs)
     assert not sent  # suppressed
 
@@ -63,7 +86,12 @@ async def test_user_verify_moniker_change(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=2, event=EventType.VERIFICATION, initiator_kind="User")
+    cs = ChangeSet(
+        user_id=2,
+        event=EventType.VERIFICATION,
+        initiator_kind=InitiatorKind.USER,
+        guild_id=123,
+    )
     cs.moniker_before = "(none)"
     cs.moniker_after = "NewMoniker"
     await post_if_changed(bot, cs)
@@ -85,8 +113,9 @@ async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> 
     cs = ChangeSet(
         user_id=3,
         event=EventType.ADMIN_CHECK,
-        initiator_kind="Admin",
+        initiator_kind=InitiatorKind.ADMIN,
         initiator_name="AdminX",
+        guild_id=123,
     )
     cs.handle_before = "OldH"
     cs.handle_after = "NewH"
@@ -109,8 +138,9 @@ async def test_roles_diff_not_rendered(monkeypatch) -> None:
     cs = ChangeSet(
         user_id=4,
         event=EventType.ADMIN_CHECK,
-        initiator_kind="Admin",
+        initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
+        guild_id=123,
     )
     cs.roles_added = ["Member"]
     cs.roles_removed = ["Affiliate"]
@@ -133,8 +163,9 @@ async def test_status_and_nickname_changes_multiline(monkeypatch) -> None:
     cs = ChangeSet(
         user_id=5,
         event=EventType.ADMIN_CHECK,
-        initiator_kind="Admin",
+        initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
+        guild_id=123,
     )
     cs.status_before = "Affiliate"
     cs.status_after = "Main"
@@ -160,12 +191,16 @@ async def test_no_change_admin_and_user_post(monkeypatch) -> None:
     cs_admin = ChangeSet(
         user_id=10,
         event=EventType.ADMIN_CHECK,
-        initiator_kind="Admin",
+        initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
+        guild_id=123,
     )
     await post_if_changed(bot, cs_admin)
     cs_user_recheck = ChangeSet(
-        user_id=11, event=EventType.RECHECK, initiator_kind="User"
+        user_id=11,
+        event=EventType.RECHECK,
+        initiator_kind=InitiatorKind.USER,
+        guild_id=123,
     )
     await post_if_changed(bot, cs_user_recheck)
     assert len(sent) == 2
@@ -194,7 +229,12 @@ async def test_case_only_moniker_change_user_recheck_posts_no_change(
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=30, event=EventType.RECHECK, initiator_kind="User")
+    cs = ChangeSet(
+        user_id=30,
+        event=EventType.RECHECK,
+        initiator_kind=InitiatorKind.USER,
+        guild_id=123,
+    )
     cs.moniker_before = "Alpha"
     cs.moniker_after = "alpha"
     await post_if_changed(bot, cs)
@@ -213,7 +253,12 @@ async def test_single_field_auto(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=40, event=EventType.AUTO_CHECK, initiator_kind="Auto")
+    cs = ChangeSet(
+        user_id=40,
+        event=EventType.AUTO_CHECK,
+        initiator_kind=InitiatorKind.AUTO,
+        guild_id=123,
+    )
     cs.moniker_before = "Old"
     cs.moniker_after = "New"
     await post_if_changed(bot, cs)
@@ -232,7 +277,12 @@ async def test_handle_and_username_change_both_lines(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=60, event=EventType.VERIFICATION, initiator_kind="User")
+    cs = ChangeSet(
+        user_id=60,
+        event=EventType.VERIFICATION,
+        initiator_kind=InitiatorKind.USER,
+        guild_id=123,
+    )
     cs.handle_before = "OldHandle"
     cs.handle_after = "NewHandle"
     cs.username_before = "OldHandle"  # prior nickname followed old handle
@@ -254,7 +304,12 @@ async def test_auto_moniker_initial_suppressed_handle_not_suppressed(
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=61, event=EventType.AUTO_CHECK, initiator_kind="Auto")
+    cs = ChangeSet(
+        user_id=61,
+        event=EventType.AUTO_CHECK,
+        initiator_kind=InitiatorKind.AUTO,
+        guild_id=123,
+    )
     cs.moniker_before = None
     cs.moniker_after = "NewMoniker"
     cs.handle_before = "OldHandle"
@@ -279,7 +334,12 @@ async def test_auto_initial_moniker_population_suppressed(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=41, event=EventType.AUTO_CHECK, initiator_kind="Auto")
+    cs = ChangeSet(
+        user_id=41,
+        event=EventType.AUTO_CHECK,
+        initiator_kind=InitiatorKind.AUTO,
+        guild_id=123,
+    )
     cs.moniker_before = None  # or '(none)'
     cs.moniker_after = "NewMoniker"
     await post_if_changed(bot, cs)
@@ -296,7 +356,12 @@ async def test_dedupe(monkeypatch) -> None:
         sent.append(content)
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(user_id=50, event=EventType.AUTO_CHECK, initiator_kind="Auto")
+    cs = ChangeSet(
+        user_id=50,
+        event=EventType.AUTO_CHECK,
+        initiator_kind=InitiatorKind.AUTO,
+        guild_id=123,
+    )
     cs.moniker_before = "Old"
     cs.moniker_after = "New"
     await post_if_changed(bot, cs)

@@ -1,5 +1,3 @@
-# Helpers/token_manager.py
-
 import secrets
 import time
 
@@ -11,7 +9,8 @@ logger = get_logger(__name__)
 # Token storage: {user_id: {'token': '1234', 'expires_at': 1637100000}}
 token_store = {}
 
-TOKEN_EXPIRATION_TIME = 15 * 60  # 15 minutes in seconds
+TOKEN_EXPIRATION_TIME = 25 * 60  # 25 minutes in seconds
+MAX_TOKEN_STORE_SIZE = 10000  # Maximum tokens before forcing cleanup
 
 
 def generate_token(user_id: int) -> str:
@@ -24,6 +23,13 @@ def generate_token(user_id: int) -> str:
     Returns:
         str: A zero-padded 4-digit token.
     """
+    # Safety check: force cleanup if token store grows too large
+    if len(token_store) > MAX_TOKEN_STORE_SIZE:
+        logger.warning(
+            f"Token store size ({len(token_store)}) exceeds maximum ({MAX_TOKEN_STORE_SIZE}), forcing cleanup"
+        )
+        cleanup_tokens()
+
     token = f"{secrets.randbelow(10000):04}"  # Generates a zero-padded 4-digit number
     expires_at = time.time() + TOKEN_EXPIRATION_TIME
     token_store[user_id] = {"token": token, "expires_at": expires_at}

@@ -9,13 +9,15 @@ from typing import TYPE_CHECKING, Optional
 from utils.logging import get_logger
 
 from .config_service import ConfigService
+from .guild_config_helper import GuildConfigHelper
 from .guild_service import GuildService
 from .health_service import HealthService
+from .role_delegation_service import RoleDelegationService
 from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
 
 if TYPE_CHECKING:
-    import discord
+    from discord.ext.commands import Bot
 
 
 class ServiceContainer:
@@ -26,13 +28,15 @@ class ServiceContainer:
     handles initialization order, and manages service dependencies.
     """
 
-    def __init__(self, bot: Optional["discord.Client"] = None) -> None:
+    def __init__(self, bot: Optional["Bot"] = None) -> None:
         self.logger = get_logger("services.container")
         self.bot = bot  # Store bot instance for services that need it
         self._config: ConfigService | None = None
+        self._guild_config: GuildConfigHelper | None = None
         self._guild: GuildService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
+        self._role_delegation: RoleDelegationService | None = None
         self._verify_bulk: VerificationBulkService | None = None
         self._initialized = False
 
@@ -42,6 +46,13 @@ class ServiceContainer:
         if self._config is None:
             raise RuntimeError("ConfigService not initialized")
         return self._config
+
+    @property
+    def guild_config(self) -> GuildConfigHelper:
+        """Get the guild configuration helper."""
+        if self._guild_config is None:
+            raise RuntimeError("GuildConfigHelper not initialized")
+        return self._guild_config
 
     @property
     def guild(self) -> GuildService:
@@ -65,6 +76,13 @@ class ServiceContainer:
         return self._health
 
     @property
+    def role_delegation(self) -> RoleDelegationService:
+        """Get the role delegation service."""
+        if self._role_delegation is None:
+            raise RuntimeError("RoleDelegationService not initialized")
+        return self._role_delegation
+
+    @property
     def verify_bulk(self) -> VerificationBulkService:
         """Get the verification bulk service."""
         if self._verify_bulk is None:
@@ -76,12 +94,15 @@ class ServiceContainer:
         services = []
         if self._config:
             services.append(self._config)
+        # guild_config is a helper, not a service with lifecycle
         if self._guild:
             services.append(self._guild)
         if self._voice:
             services.append(self._voice)
         if self._health:
             services.append(self._health)
+        if self._role_delegation:
+            services.append(self._role_delegation)
         if self._verify_bulk:
             services.append(self._verify_bulk)
         return services
@@ -100,6 +121,12 @@ class ServiceContainer:
             await self._config.initialize()
             self.logger.debug("ConfigService initialized")
 
+            # Initialize guild config helper (depends on config and bot)
+            if not self.bot:
+                raise RuntimeError("Bot instance required for GuildConfigHelper")
+            self._guild_config = GuildConfigHelper(self.bot, self._config)
+            self.logger.debug("GuildConfigHelper initialized")
+
             # Initialize guild service (depends on config)
             self._guild = GuildService(self._config)
             await self._guild.initialize()
@@ -110,6 +137,11 @@ class ServiceContainer:
             await self._voice.initialize()
             self.logger.debug("VoiceService initialized")
 
+            # Initialize role delegation service (depends on config and bot)
+            self._role_delegation = RoleDelegationService(self._config, self.bot)
+            await self._role_delegation.initialize()
+            self.logger.debug("RoleDelegationService initialized")
+
             # Initialize health service (no dependencies)
             self._health = HealthService()
             await self._health.initialize()
@@ -117,7 +149,7 @@ class ServiceContainer:
 
             # Initialize verification bulk service (depends on bot and config)
             if self.bot:
-                self._verify_bulk = VerificationBulkService(self.bot)
+                self._verify_bulk = VerificationBulkService(self.bot)  # type: ignore[arg-type]
                 await self._verify_bulk.start()
                 self.logger.debug("VerificationBulkService initialized")
 
@@ -148,6 +180,10 @@ class ServiceContainer:
             await self._voice.shutdown()
             self._voice = None
 
+        if self._role_delegation:
+            await self._role_delegation.shutdown()
+            self._role_delegation = None
+
         if self._guild:
             await self._guild.shutdown()
             self._guild = None
@@ -155,6 +191,9 @@ class ServiceContainer:
         if self._config:
             await self._config.shutdown()
             self._config = None
+
+        # guild_config has no cleanup needed (it's just a helper)
+        self._guild_config = None
 
         self._initialized = False
         self.logger.info("Services cleaned up")

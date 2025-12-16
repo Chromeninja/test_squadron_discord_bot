@@ -24,7 +24,7 @@ async def test_ensure_verification_row_creates_minimal_row(temp_db):
     # Verify row was created with expected values
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT user_id, rsi_handle, membership_status, last_updated, needs_reverify FROM verification WHERE user_id = ?",
+            "SELECT user_id, rsi_handle, last_updated, needs_reverify FROM verification WHERE user_id = ?",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -32,9 +32,8 @@ async def test_ensure_verification_row_creates_minimal_row(temp_db):
     assert row is not None
     assert row[0] == user_id  # user_id
     assert row[1] == ""  # rsi_handle (empty string)
-    assert row[2] == "unknown"  # membership_status
-    assert row[3] == 0  # last_updated
-    assert row[4] == 0  # needs_reverify
+    assert row[2] == 0  # last_updated
+    assert row[3] == 0  # needs_reverify
 
 
 @pytest.mark.asyncio
@@ -45,9 +44,9 @@ async def test_ensure_verification_row_idempotent(temp_db):
     # Create a verification row with real data
     async with Database.get_connection() as db:
         await db.execute(
-            """INSERT INTO verification (user_id, rsi_handle, membership_status, last_updated, needs_reverify)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, "TestHandle", "main", 1234567890, 1),
+            """INSERT INTO verification (user_id, rsi_handle, last_updated, needs_reverify)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, "TestHandle", 1234567890, 1),
         )
         await db.commit()
 
@@ -57,7 +56,7 @@ async def test_ensure_verification_row_idempotent(temp_db):
     # Verify the existing data wasn't changed
     async with Database.get_connection() as db:
         cursor = await db.execute(
-            "SELECT user_id, rsi_handle, membership_status, last_updated, needs_reverify FROM verification WHERE user_id = ?",
+            "SELECT user_id, rsi_handle, last_updated, needs_reverify FROM verification WHERE user_id = ?",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -65,9 +64,8 @@ async def test_ensure_verification_row_idempotent(temp_db):
     assert row is not None
     assert row[0] == user_id
     assert row[1] == "TestHandle"  # Original data preserved
-    assert row[2] == "main"  # Original data preserved
-    assert row[3] == 1234567890  # Original data preserved
-    assert row[4] == 1  # Original data preserved
+    assert row[2] == 1234567890  # Original data preserved
+    assert row[3] == 1  # Original data preserved
 
 
 @pytest.mark.asyncio

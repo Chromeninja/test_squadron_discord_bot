@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Python ${{ matrix.python-version }} tests
@@ -45,6 +48,9 @@ jobs:
           fi
           if [ -f requirements-dev.txt ]; then
             pip install -r requirements-dev.txt
+          fi
+          if [ -f web/backend/requirements.txt ]; then
+            pip install -r web/backend/requirements.txt
           fi
           pip install pytest pytest-asyncio pytest-cov coverage psutil requests
 

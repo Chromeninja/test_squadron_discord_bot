@@ -50,7 +50,7 @@ async def test_assert_base_permissions() -> None:
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
 
-    assert overwrites[owner_member].manage_channels is True
+    # Owner only gets connect - channel management is via bot commands
     assert overwrites[owner_member].connect is True
 
 
@@ -95,8 +95,7 @@ async def test_enforce_permission_changes() -> None:
 
 @pytest.mark.asyncio
 async def test_get_user_channel() -> None:
-    """Test that get_user_channel properly orders by created_at
-    when using legacy path."""
+    """Test that get_user_channel orders by created_at across scope variants."""
     # Create mock user
     user = MagicMock(spec=discord.abc.User)
     user.id = 1001
@@ -116,12 +115,12 @@ async def test_get_user_channel() -> None:
     db = AsyncMock()
     db.execute.return_value = cursor
 
-    # Setup a proper context manager for Database.get_connection
+    # Setup a proper context manager for BaseRepository.transaction
     cm = AsyncMock()
     cm.__aenter__.return_value = db
     cm.__aexit__.return_value = None
 
-    with patch("helpers.voice_utils.Database.get_connection", return_value=cm):
+    with patch("helpers.voice_utils.BaseRepository.transaction", return_value=cm):
         # Call with specific guild and JTC
         result = await get_user_channel(bot, user, 1, 101)
         assert result == channel
@@ -153,7 +152,7 @@ async def test_get_user_channel() -> None:
         # Reset mocks
         db.execute.reset_mock()
 
-        # Call with no specific guild or JTC (legacy path)
+        # Call with no specific guild or JTC (unscoped path)
         result = await get_user_channel(bot, user)
         assert result == channel
 

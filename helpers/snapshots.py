@@ -1,11 +1,10 @@
-# helpers/snapshots.py
-
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import discord
 
-from services.db.database import Database
+from services.db.database import derive_membership_status
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -18,31 +17,92 @@ class MemberSnapshot:
     handle: str | None  # rsi_handle from DB
     username: str | None  # discord nickname/display
     roles: set[str]  # Role names (non-managed filtered later)
+    main_orgs: list[str] | None = None  # Main organization SIDs
+    affiliate_orgs: list[str] | None = None  # Affiliate organization SIDs
 
 
-async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
+async def snapshot_member_state(
+    bot,
+    member: discord.Member,
+    *,
+    main_orgs_override: list[str] | None = None,
+    affiliate_orgs_override: list[str] | None = None,
+) -> MemberSnapshot:
+    """
+    Capture current member state from DB and Discord.
+
+    Args:
+        bot: Bot instance with services.
+        member: Discord member to snapshot.
+        main_orgs_override: If provided, use these instead of DB for main_orgs.
+        affiliate_orgs_override: If provided, use these instead of DB for affiliate_orgs.
+
+    The overrides are useful when building an "after" snapshot before the DB
+    has been updated with new org lists from a recheck.
+    """
     # Fetch DB state
-    status = "Not a Member"
+    status = "non_member"
     moniker = None
     handle = None
+    main_orgs = None
+    affiliate_orgs = None
     try:
-        async with Database.get_connection() as db:
-            cur = await db.execute(
-                "SELECT membership_status, community_moniker, rsi_handle FROM verification WHERE user_id=?",
-                (member.id,),
+        import json
+
+        row = await BaseRepository.fetch_one(
+            "SELECT community_moniker, rsi_handle, main_orgs, affiliate_orgs FROM verification WHERE user_id=?",
+            (member.id,),
+        )
+        if row:
+            moniker_db, handle_db, main_orgs_json, affiliate_orgs_json = row
+            moniker = moniker_db
+            handle = handle_db
+            # Parse JSON org lists (use overrides if provided)
+            main_orgs = (
+                main_orgs_override
+                if main_orgs_override is not None
+                else (json.loads(main_orgs_json) if main_orgs_json else None)
             )
-            row = await cur.fetchone()
-            if row:
-                status_db, moniker_db, handle_db = row
-                # Map internal statuses to human terms for logs
-                mapping = {
-                    "main": "Main",
-                    "affiliate": "Affiliate",
-                    "non_member": "Not a Member",
-                }
-                status = mapping.get(status_db, status_db or "Not a Member")
-                moniker = moniker_db
-                handle = handle_db
+            affiliate_orgs = (
+                affiliate_orgs_override
+                if affiliate_orgs_override is not None
+                else (json.loads(affiliate_orgs_json) if affiliate_orgs_json else None)
+            )
+        else:
+            # No DB row yet - use overrides directly if provided (for "after" snapshot
+            # before DB persistence)
+            main_orgs = main_orgs_override
+            affiliate_orgs = affiliate_orgs_override
+
+        # Derive status from org lists for this guild
+        # (run regardless of whether row exists - overrides may have been provided)
+        if (
+            hasattr(bot, "services")
+            and bot.services
+            and hasattr(bot.services, "guild_config")
+        ):
+            try:
+                guild_org_sid = await bot.services.guild_config.get_setting(
+                    member.guild.id, "organization.sid", default="TEST"
+                )
+                # Remove JSON quotes if present
+                if isinstance(guild_org_sid, str) and guild_org_sid.startswith(
+                    '"'
+                ):
+                    guild_org_sid = guild_org_sid.strip('"')
+                status = derive_membership_status(
+                    main_orgs, affiliate_orgs, guild_org_sid
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to get guild org SID for status derivation: {e}"
+                )
+                status = derive_membership_status(
+                    main_orgs, affiliate_orgs, "TEST"
+                )
+        else:
+            # Fallback to TEST if services not available
+            status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 
@@ -58,7 +118,13 @@ async def snapshot_member_state(bot, member: discord.Member) -> MemberSnapshot:
             pass
         roles.add(getattr(r, "name", str(r)))
     return MemberSnapshot(
-        status=status, moniker=moniker, handle=handle, username=username, roles=roles
+        status=status,
+        moniker=moniker,
+        handle=handle,
+        username=username,
+        roles=roles,
+        main_orgs=main_orgs,
+        affiliate_orgs=affiliate_orgs,
     )
 
 
@@ -74,25 +140,29 @@ class MemberSnapshotDiff:
     username_after: str | None
     roles_added: list[str]
     roles_removed: list[str]
+    main_orgs_before: list[str] | None = None
+    main_orgs_after: list[str] | None = None
+    affiliate_orgs_before: list[str] | None = None
+    affiliate_orgs_after: list[str] | None = None
 
     # Backwards‑compatibility helpers (dict-like access in existing callers)
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def items(self) -> None:  # type: ignore[override]
+    def items(self):
         return self.to_dict().items()
 
-    def get(self, key: str, default=None) -> None:
+    def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
     # Mapping compatibility for existing dict-style usage
-    def __getitem__(self, key: str) -> None:  # pragma: no cover (thin wrapper)
+    def __getitem__(self, key: str) -> Any:  # pragma: no cover (thin wrapper)
         return getattr(self, key)
 
-    def __setitem__(self, key: str, value) -> None:  # pragma: no cover
+    def __setitem__(self, key: str, value: Any) -> None:  # pragma: no cover
         setattr(self, key, value)
 
-    def __contains__(self, key: str) -> None:  # pragma: no cover
+    def __contains__(self, key: str) -> bool:  # pragma: no cover
         return hasattr(self, key)
 
 
@@ -110,6 +180,10 @@ def diff_snapshots(before: MemberSnapshot, after: MemberSnapshot) -> MemberSnaps
         username_after=after.username,
         roles_added=roles_added,
         roles_removed=roles_removed,
+        main_orgs_before=before.main_orgs,
+        main_orgs_after=after.main_orgs,
+        affiliate_orgs_before=before.affiliate_orgs,
+        affiliate_orgs_after=after.affiliate_orgs,
     )
 
 

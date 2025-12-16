@@ -113,8 +113,7 @@ dmypy.json
 pyrightconfig.json
 
 # IDE
-.vscode/settings.json
-.vscode/launch.json
+# .vscode/settings.json and launch.json are committed for team consistency
 # Keep .vscode/extensions.json for project setup
 
 # Logs
@@ -139,6 +138,7 @@ Thumbs.db
 # Project-specific
 all_code.txt
 verification_message_id.json
+verification_message_ids.json
 
 # Node.js (for mixed projects)
 node_modules/
@@ -149,3 +149,4 @@ yarn-error.log*
 # Modern Python tools
 .ruff_cache/
 config/config.yaml
+Delete-Referance Files/*

@@ -1,5 +1,3 @@
-# helpers/bulk_check.py
-
 import csv
 import io
 import re
@@ -9,7 +7,8 @@ from typing import NamedTuple
 
 import discord
 
-from services.db.database import Database
+from services.db.database import derive_membership_status
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +25,30 @@ class StatusRow(NamedTuple):
     rsi_status: str | None = None  # "main" | "affiliate" | "non_member" | "unknown"
     rsi_checked_at: int | None = None  # Unix timestamp
     rsi_error: str | None = None  # Error message if RSI check failed
+    # Organization affiliation fields (optional)
+    rsi_main_orgs: list[str] | None = None  # List of main organization names
+    rsi_affiliate_orgs: list[str] | None = None  # List of affiliate organization names
+
+    def to_dict(self) -> dict:
+        """Convert StatusRow to dict for JSON serialization."""
+        return self._asdict()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StatusRow":
+        """Create StatusRow from dict (e.g., from JSON)."""
+        return cls(
+            user_id=data["user_id"],
+            username=data["username"],
+            rsi_handle=data.get("rsi_handle"),
+            membership_status=data.get("membership_status"),
+            last_updated=data.get("last_updated"),
+            voice_channel=data.get("voice_channel"),
+            rsi_status=data.get("rsi_status"),
+            rsi_checked_at=data.get("rsi_checked_at"),
+            rsi_error=data.get("rsi_error"),
+            rsi_main_orgs=data.get("rsi_main_orgs"),
+            rsi_affiliate_orgs=data.get("rsi_affiliate_orgs"),
+        )
 
 
 MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
@@ -63,14 +86,41 @@ async def parse_members_text(guild: discord.Guild, text: str) -> list[discord.Me
 async def collect_targets(
     targets: str,
     guild: discord.Guild,
-    members_text: str | None,
-    channel: discord.VoiceChannel | None
+    members_input: str | list[discord.Member] | None,
+    channel: discord.VoiceChannel | None,
 ) -> list[discord.Member]:
-    """Return ordered unique members according to targets mode."""
+    """
+    Return ordered unique members according to targets mode.
+
+    Args:
+        targets: "users" (from members_input), "voice_channel", or "active_voice"
+        guild: The Discord guild
+                members_input: For "users" mode, either:
+                    - A string of mentions/IDs (older format, e.g., "@user1 123456789")
+                    - A list of discord.Member objects (modern)
+        channel: VoiceChannel for "voice_channel" mode
+
+    Returns:
+        List of unique discord.Member objects
+    """
     if targets == "users":
-        if not members_text:
+        if not members_input:
             return []
-        return await parse_members_text(guild, members_text)
+
+        # Handle both string and list inputs for backward compatibility
+        if isinstance(members_input, str):
+            return await parse_members_text(guild, members_input)
+        elif isinstance(members_input, list):
+            # Already a list of members, deduplicate and return
+            seen = set()
+            result = []
+            for member in members_input:
+                if member.id not in seen:
+                    result.append(member)
+                    seen.add(member.id)
+            return result
+        else:
+            return []
 
     elif targets == "voice_channel":
         if not channel:
@@ -97,11 +147,33 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
     member_list = list(members)
     user_ids = [m.id for m in member_list]
 
-    async with Database.get_connection() as db:
+    async with BaseRepository.transaction() as db:
+        # Determine target organization SID for this guild
+        target_sid = "TEST"
+        try:
+            # All members belong to the same guild for bulk checks
+            guild_id = (
+                member_list[0].guild.id
+                if member_list and getattr(member_list[0], "guild", None)
+                else None
+            )
+            if guild_id is not None:
+                cur = await db.execute(
+                    "SELECT json_extract(value, '$') FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
+                    (guild_id,),
+                )
+                sid_row = await cur.fetchone()
+                if sid_row and sid_row[0]:
+                    # Handle cases where json_extract returns quoted string
+                    target_sid = str(sid_row[0]).strip('"')
+        except Exception:
+            # Fallback to default SID
+            target_sid = "TEST"
+
         # Fetch verification data for all users at once
         placeholders = ",".join("?" * len(user_ids))
         query = f"""
-            SELECT user_id, rsi_handle, membership_status, last_updated
+            SELECT user_id, rsi_handle, last_updated, main_orgs, affiliate_orgs
             FROM verification
             WHERE user_id IN ({placeholders})
         """
@@ -110,13 +182,28 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         rows = await cursor.fetchall()
 
     # Build a map of verification data keyed by user_id
+    import json
+
     verification_map = {}
     for row in rows:
-        user_id, rsi_handle, membership_status, last_updated = row
+        user_id, rsi_handle, last_updated, main_orgs_json, affiliate_orgs_json = row
+        try:
+            main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
+        except Exception:
+            main_orgs = []
+        try:
+            affiliate_orgs = (
+                json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
+            )
+        except Exception:
+            affiliate_orgs = []
+        derived_status = derive_membership_status(main_orgs, affiliate_orgs, target_sid)
         verification_map[user_id] = {
             "rsi_handle": rsi_handle,
-            "membership_status": membership_status,
-            "last_updated": last_updated
+            "membership_status": derived_status,
+            "last_updated": last_updated,
+            "main_orgs": main_orgs,
+            "affiliate_orgs": affiliate_orgs,
         }
 
     # Build the final result rows
@@ -136,14 +223,22 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
         # Use display_name for consistency with Discord UI
         username = member.display_name
 
-        status_rows.append(StatusRow(
-            user_id=member.id,
-            username=username,
-            rsi_handle=rsi_handle,
-            membership_status=membership_status,
-            last_updated=last_updated,
-            voice_channel=voice_channel_name
-        ))
+        # Get org affiliations if available
+        main_orgs = verification_data.get("main_orgs", [])
+        affiliate_orgs = verification_data.get("affiliate_orgs", [])
+
+        status_rows.append(
+            StatusRow(
+                user_id=member.id,
+                username=username,
+                rsi_handle=rsi_handle,
+                membership_status=membership_status,
+                last_updated=last_updated,
+                voice_channel=voice_channel_name,
+                rsi_main_orgs=main_orgs if main_orgs else None,
+                rsi_affiliate_orgs=affiliate_orgs if affiliate_orgs else None,
+            )
+        )
 
     return status_rows
 
@@ -155,9 +250,9 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
         "Affiliate": 0,
         "Non-Member": 0,
         "Unverified": 0,
-        "Not in DB": 0
+        "Not in DB": 0,
     }
-    
+
     for row in rows:
         if row.membership_status == "main":
             counts["Verified/Main"] += 1
@@ -169,7 +264,7 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
             counts["Unverified"] += 1
         else:
             counts["Not in DB"] += 1
-    
+
     return counts
 
 
@@ -188,7 +283,7 @@ def _format_status_display(membership_status: str) -> str:
 def _truncate_text(text: str, max_length: int = 20) -> str:
     """Truncate text if longer than max_length, adding ellipsis."""
     if len(text) > max_length:
-        return text[:max_length - 3] + "..."
+        return text[: max_length - 3] + "..."
     return text
 
 
@@ -204,43 +299,43 @@ def _build_description_lines(
     total_processed: int,
     counts: dict[str, int],
     scope_label: str | None = None,
-    scope_channel: str | None = None
+    scope_channel: str | None = None,
 ) -> list[str]:
     """Build description lines with requester info, scope, and status counts."""
-    desc_lines = [
-        f"**Requested by:** {invoker.mention} (Admin)"
-    ]
-    
+    desc_lines = [f"**Requested by:** {invoker.mention} (Admin)"]
+
     if scope_label:
         desc_lines.append(f"**Scope:** {scope_label}")
-    
+
     if scope_channel:
         desc_lines.append(f"**Channel:** {scope_channel}")
-    
-    desc_lines.extend([
-        f"**Checked:** {total_processed} users",
-        ""  # Blank line before counts
-    ])
-    
+
+    desc_lines.extend(
+        [
+            f"**Checked:** {total_processed} users",
+            "",  # Blank line before counts
+        ]
+    )
+
     # Add non-zero status counts
     for category, count in counts.items():
         if count > 0:
             desc_lines.append(f"**{category}:** {count}")
-    
+
     return desc_lines
 
 
 def _format_detail_line(row: StatusRow) -> str:
     """Format a single row into a detail line for the embed."""
-    status = _format_status_display(row.membership_status)
+    status = _format_status_display(row.membership_status or "unknown")
     rsi_display = _truncate_text(row.rsi_handle or "—")
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
-    
+
     # If no RSI recheck data, return DB-only format
     if row.rsi_status is None:
         return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
-    
+
     # Include RSI recheck data
     rsi_status_display = _format_status_display(row.rsi_status)
     rsi_checked_display = _format_timestamp(row.rsi_checked_at)
@@ -250,20 +345,22 @@ def _format_detail_line(row: StatusRow) -> str:
     )
 
 
-def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> tuple[list[str], int]:
+def _build_detail_lines(
+    rows: list[StatusRow], max_field_length: int = 1000
+) -> tuple[list[str], int]:
     """
     Build per-user detail lines, truncating if necessary.
-    
+
     Returns:
         Tuple of (detail_lines, truncated_count)
     """
     detail_lines = []
     field_value_length = 0
     truncated_count = 0
-    
+
     for i, row in enumerate(rows):
         detail_line = _format_detail_line(row)
-        
+
         # Check if adding this line would exceed the limit
         test_length = field_value_length + len(detail_line) + 1  # +1 for newline
         if test_length > max_field_length:
@@ -271,10 +368,10 @@ def _build_detail_lines(rows: list[StatusRow], max_field_length: int = 1000) -> 
             if remaining_count > 0:
                 truncated_count = remaining_count
             break
-        
+
         detail_lines.append(detail_line)
         field_value_length = test_length
-    
+
     return detail_lines, truncated_count
 
 
@@ -285,56 +382,51 @@ def build_summary_embed(
     rows: list[StatusRow],
     truncated_count: int = 0,
     scope_label: str | None = None,
-    scope_channel: str | None = None
+    scope_channel: str | None = None,
 ) -> discord.Embed:
     """
     Create a Discord embed for bulk verification check results posted to leadership channel.
-    
+
     Always includes full details with dynamic truncation to fit Discord limits.
     """
     # Count statuses and build embed
     counts = _count_membership_statuses(rows)
-    
+
     embed = discord.Embed(
         title="Bulk Verification Check",
         color=discord.Color.blue(),
-        timestamp=discord.utils.utcnow()
+        timestamp=discord.utils.utcnow(),
     )
-    
+
     # Build description with metadata and counts
     desc_lines = _build_description_lines(
         invoker, len(rows), counts, scope_label, scope_channel
     )
     embed.description = "\n".join(desc_lines)
-    
+
     # Add per-user details with truncation
     if rows:
         detail_lines, additional_truncated = _build_detail_lines(rows)
         truncated_count = max(truncated_count, additional_truncated)
-        
+
         if detail_lines:
-            embed.add_field(
-                name="Details",
-                value="\n".join(detail_lines),
-                inline=False
-            )
-    
+            embed.add_field(name="Details", value="\n".join(detail_lines), inline=False)
+
     # Add footer if truncated
     if truncated_count > 0:
-        embed.set_footer(text=f"… and {truncated_count} more (see CSV for full results)")
-    
+        embed.set_footer(
+            text=f"… and {truncated_count} more (see CSV for full results)"
+        )
+
     return embed
 
 
 async def write_csv(
-    rows: list[StatusRow],
-    *,
-    guild_name: str = "guild",
-    invoker_name: str = "admin"
+    rows: list[StatusRow], *, guild_name: str = "guild", invoker_name: str = "admin"
 ) -> tuple[str, bytes]:
     """
     Generate CSV export of verification status rows.
-    
+
     Returns:
         Tuple of (filename, content_bytes) ready for discord.File.
         Filename format: verify_bulk_{guild}_{YYYYMMDD_HHMM}_{invoker}.csv
@@ -342,51 +434,68 @@ async def write_csv(
     if not rows:
         # Empty results
         timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
-        safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
-        safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+        safe_guild = re.sub(r"[^\w\-]", "_", guild_name)[:30]
+        safe_invoker = re.sub(r"[^\w\-]", "_", invoker_name)[:20]
         filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
-        return filename, b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n"
+        return (
+            filename,
+            b"user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs\n",
+        )
 
     # Generate filename with timestamp and invoker
     timestamp_str = time.strftime("%Y%m%d_%H%M", time.gmtime())
     # Sanitize guild and invoker names for filename
-    safe_guild = re.sub(r'[^\w\-]', '_', guild_name)[:30]
-    safe_invoker = re.sub(r'[^\w\-]', '_', invoker_name)[:20]
+    safe_guild = re.sub(r"[^\w\-]", "_", guild_name)[:30]
+    safe_invoker = re.sub(r"[^\w\-]", "_", invoker_name)[:20]
     filename = f"verify_bulk_{safe_guild}_{timestamp_str}_{safe_invoker}.csv"
 
     # Create CSV content
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Write header (include RSI recheck fields)
-    writer.writerow([
-        "user_id",
-        "username",
-        "rsi_handle",
-        "membership_status",
-        "last_updated",
-        "voice_channel",
-        "rsi_status",
-        "rsi_checked_at",
-        "rsi_error"
-    ])
+    # Write header (include RSI recheck fields and org affiliations)
+    writer.writerow(
+        [
+            "user_id",
+            "username",
+            "rsi_handle",
+            "membership_status",
+            "last_updated",
+            "voice_channel",
+            "rsi_status",
+            "rsi_checked_at",
+            "rsi_error",
+            "main_orgs",
+            "affiliate_orgs",
+        ]
+    )
 
     # Write data rows
     for row in rows:
-        writer.writerow([
-            row.user_id,
-            row.username,
-            row.rsi_handle or "",
-            row.membership_status or "",
-            row.last_updated or "",
-            row.voice_channel or "",
-            row.rsi_status or "",
-            row.rsi_checked_at or "",
-            row.rsi_error or ""
-        ])
+        # Format org lists as semicolon-separated strings
+        main_orgs_str = ";".join(row.rsi_main_orgs) if row.rsi_main_orgs else ""
+        affiliate_orgs_str = (
+            ";".join(row.rsi_affiliate_orgs) if row.rsi_affiliate_orgs else ""
+        )
+
+        writer.writerow(
+            [
+                row.user_id,
+                row.username,
+                row.rsi_handle or "",
+                row.membership_status or "",
+                row.last_updated or "",
+                row.voice_channel or "",
+                row.rsi_status or "",
+                row.rsi_checked_at or "",
+                row.rsi_error or "",
+                main_orgs_str,
+                affiliate_orgs_str,
+            ]
+        )
 
     # Get bytes content
     csv_content = output.getvalue()
-    content_bytes = csv_content.encode('utf-8')
+    content_bytes = csv_content.encode("utf-8")
 
     return filename, content_bytes

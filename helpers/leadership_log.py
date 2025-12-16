@@ -1,12 +1,9 @@
-# helpers/leadership_log.py
-
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Literal
 
-import discord  # legacy (embeds no longer dispatched)
+import discord  # embeds no longer dispatched
 
 from helpers.discord_api import channel_send_message
 from utils.logging import get_logger
@@ -21,12 +18,38 @@ class EventType(str, Enum):
     ADMIN_CHECK = "ADMIN_CHECK"  # Admin initiated manual check
 
 
+class InitiatorKind(str, Enum):
+    USER = "User"
+    ADMIN = "Admin"
+    AUTO = "Auto"
+
+
+class InitiatorSource(str, Enum):
+    COMMAND = "command"
+    WEB = "web"
+    BULK = "bulk"
+    VOICE = "voice"
+    BUTTON = "button"
+    AUTO = "auto"
+    SYSTEM = "system"
+
+
+VALID_COMBINATIONS: dict[EventType, set[InitiatorKind]] = {
+    EventType.VERIFICATION: {InitiatorKind.USER},
+    EventType.RECHECK: {InitiatorKind.USER, InitiatorKind.ADMIN, InitiatorKind.AUTO},
+    EventType.AUTO_CHECK: {InitiatorKind.AUTO},
+    EventType.ADMIN_CHECK: {InitiatorKind.ADMIN},
+}
+
+
 @dataclass
 class ChangeSet:
     user_id: int
     event: EventType
-    initiator_kind: Literal["User", "Admin", "Auto"]
+    initiator_kind: InitiatorKind | str
     initiator_name: str | None = None
+    initiator_source: InitiatorSource | str | None = None
+    guild_id: int | None = None  # Guild where the event occurred
 
     status_before: str | None = None
     status_after: str | None = None
@@ -37,20 +60,78 @@ class ChangeSet:
     username_before: str | None = None
     username_after: str | None = None
 
-    roles_added: list[str] = field(default_factory=list)  # ignored in new formatter
-    roles_removed: list[str] = field(default_factory=list)  # ignored in new formatter
+    # Organization changes
+    main_orgs_before: list[str] | None = None
+    main_orgs_after: list[str] | None = None
+    affiliate_orgs_before: list[str] | None = None
+    affiliate_orgs_after: list[str] | None = None
+
+    roles_added: list[str] = field(default_factory=list)
+    roles_removed: list[str] = field(default_factory=list)
 
     notes: str | None = None
-    # Use timezone-aware UTC now instead of deprecated utcnow() for future-proofing
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     duration_ms: int = 0
+
+    def __post_init__(self):
+        # Normalize legacy string literals to enums for safety
+        if isinstance(self.event, str):
+            try:
+                self.event = EventType(self.event)
+            except ValueError:
+                # Unknown event string; keep raw but avoid attribute errors
+                pass
+        if isinstance(self.initiator_kind, str):
+            self.initiator_kind = InitiatorKind(self.initiator_kind)
+        if self.initiator_source and isinstance(self.initiator_source, str):
+            try:
+                self.initiator_source = InitiatorSource(self.initiator_source)
+            except ValueError:
+                # Allow passthrough of unknown custom sources without failing init
+                pass
+
+        valid_kinds = VALID_COMBINATIONS.get(self.event, set())
+        if valid_kinds and self.initiator_kind not in valid_kinds:
+            raise ValueError(
+                f"Invalid ChangeSet combination: event={self.event.value} "
+                f"initiator={self.initiator_kind.value}"
+            )
 
 
 MD_ESCAPE_CHARS = ["`", "*", "_", "~", "|", ">", "\\"]
 
-# In‑memory short window dedupe store: (user_id, signature) -> last_post_ts
-_DEDUP_CACHE: dict[tuple[int, str], float] = {}
+# In‑memory short window dedupe store: (guild_id, user_id, signature) -> last_post_ts
+_DEDUP_CACHE: dict[tuple[int, int, str], float] = {}
 _DEDUP_TTL_SECONDS = 20  # within 20s identical change suppressed
+
+
+async def resolve_leadership_channel(bot, guild_id: int | None):
+    """Resolve the leadership log channel for a guild using config with static fallback."""
+    if not guild_id:
+        return None
+
+    channel = None
+    try:
+        if hasattr(bot, "services") and bot.services:
+            guild_config = bot.services.guild_config
+            guild = bot.get_guild(guild_id)
+            if guild:
+                channel = await guild_config.get_channel(
+                    guild_id, "leadership_announcement_channel_id", guild
+                )
+
+        if not channel and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
+            channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
+            if channel_id:
+                channel = bot.get_channel(int(channel_id))
+
+    except Exception as e:  # pragma: no cover - defensive fallback
+        logger.debug(f"Failed to resolve leadership log channel: {e}")
+        channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
+        if channel_id:
+            channel = bot.get_channel(int(channel_id))
+
+    return channel
 
 
 def escape_md(value: str) -> str:
@@ -80,28 +161,33 @@ def _changed_material(a: str | None, b: str | None) -> bool:
     return (a or "").lower() != (b or "").lower()
 
 
-def _managed_role_names(bot) -> list[str]:  # pragma: no cover (trivial helper)
+async def _managed_role_names(bot, guild_id: int) -> list[str]:
+    """Get names of managed verification roles for a guild."""
     names = []
-    keys = [
-        "BOT_VERIFIED_ROLE_ID",
-        "MAIN_ROLE_ID",
-        "AFFILIATE_ROLE_ID",
-        "NON_MEMBER_ROLE_ID",
-    ]
-    for k in keys:
-        rid = getattr(bot, k, None)
-        if not rid:
-            continue
-        role = getattr(bot, "role_cache", {}).get(rid)
-        if role is None:
-            # Attempt guild fetch fallback (first guild assumed)
-            try:
-                guild = bot.guilds[0]
-                role = guild.get_role(rid)
-            except Exception:
-                role = None
-        if role:
-            names.append(getattr(role, "name", str(role)))
+
+    if not hasattr(bot, "services") or not bot.services:
+        return names
+
+    try:
+        role_keys = [
+            "roles.bot_verified_role",
+            "roles.main_role",
+            "roles.affiliate_role",
+            "roles.nonmember_role",
+        ]
+
+        for role_key in role_keys:
+            role_ids = await bot.services.config.get_guild_setting(
+                guild_id, role_key, []
+            )
+            if role_ids:
+                role_id = role_ids[0]  # Get first role from list
+                role = bot.role_cache.get(role_id)
+                if role:
+                    names.append(role.name)
+    except Exception:
+        pass
+
     return names
 
 
@@ -154,13 +240,13 @@ def color_for(cs: ChangeSet) -> int:
         return RED
 
     if _changed(cs.status_before, cs.status_after):
-        # Promotion/demotion (treat Main/Affiliate/Verified variants equivalently)
+        # Promotion/demotion (database format: main, affiliate, non_member)
         after = (cs.status_after or "").lower()
         before = (cs.status_before or "").lower()
-        verified_set = {"verified", "main", "affiliate"}
+        verified_set = {"main", "affiliate"}
         if after in verified_set and before not in verified_set:
             return GREEN
-        if after == "not a member" and before in verified_set:
+        if after == "non_member" and before in verified_set:
             return RED
         return YELLOW
 
@@ -205,19 +291,22 @@ def _event_emoji(cs: ChangeSet) -> str:
     }.get(cs.event, "🗂️")
 
 
-def _verbosity(bot) -> str:
+async def _verbosity(bot) -> str:
+    """Get leadership log verbosity from config service."""
     try:
-        return (
-            ((bot.config or {}).get("leadership_log", {}) or {})
-            .get("verbosity", "normal")
-            .lower()
-        )
-    except Exception:
+        if hasattr(bot, "services") and bot.services:
+            return await bot.services.config.get_global_setting(
+                "leadership_log.verbosity", "normal"
+            )
+        return "normal"
+    except Exception as e:
+        logger.debug(f"Failed to get leadership log verbosity: {e}")
         return "normal"
 
 
 def _normalize_signature(cs: ChangeSet) -> str:
     parts = [
+        str(cs.guild_id or ""),
         cs.status_before or "",
         cs.status_after or "",
         (cs.moniker_before or "").lower(),
@@ -243,9 +332,14 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     emoji = _event_emoji(cs)
     duration = ""  # duration tracking removed
     title = f"🗂️ <@{cs.user_id}> — Verification Update"
-    header_initiated = f"Initiated by {cs.initiator_kind}" + (
+    initiator_kind_value = (
+        cs.initiator_kind.value
+        if isinstance(cs.initiator_kind, InitiatorKind)
+        else str(cs.initiator_kind)
+    )
+    header_initiated = f"Initiated by {initiator_kind_value}" + (
         f" ({cs.initiator_name})"
-        if cs.initiator_kind == "Admin" and cs.initiator_name
+        if cs.initiator_kind == InitiatorKind.ADMIN and cs.initiator_name
         else ""
     )
     embed = discord.Embed(title=title, color=color_for(cs))
@@ -259,15 +353,36 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
                 name=label, value=f"{before or '—'} → {after or '—'}", inline=False
             )
         elif _verbosity(bot) == "verbose":
-            # In verbose mode show unchanged chips
             if before:
                 embed.add_field(name=label, value=f"No Change ({before})", inline=False)
 
     add_section("Membership Status", cs.status_before, cs.status_after)
-    # Updated labels (Aug 2025 policy): concise field names
     add_section("Handle", cs.handle_before, cs.handle_after)
     add_section("Moniker", cs.moniker_before, cs.moniker_after)
     add_section("Username", cs.username_before, cs.username_after)
+
+    # Organization changes with suppression logic
+    main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
+    if main_orgs_changed and not _suppress_org_change(
+        cs.main_orgs_before, cs.main_orgs_after, cs.event
+    ):
+        embed.add_field(
+            name="Main Organization",
+            value=f"{_format_org_list(cs.main_orgs_before)} → {_format_org_list(cs.main_orgs_after)}",
+            inline=False,
+        )
+
+    affiliate_orgs_changed = _orgs_changed(
+        cs.affiliate_orgs_before, cs.affiliate_orgs_after
+    )
+    if affiliate_orgs_changed and not _suppress_org_change(
+        cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event
+    ):
+        embed.add_field(
+            name="Affiliate Organizations",
+            value=f"{_format_org_list(cs.affiliate_orgs_before)} → {_format_org_list(cs.affiliate_orgs_after)}",
+            inline=False,
+        )
 
     if cs.roles_added:
         embed.add_field(
@@ -332,19 +447,51 @@ def _escape_inline(value: str | None) -> str:
     return "".join(out)
 
 
+def _initiator_source_label(cs: ChangeSet) -> str | None:
+    source = cs.initiator_source
+    if source is None:
+        return None
+    try:
+        if isinstance(source, str):
+            source = InitiatorSource(source)
+    except ValueError:
+        return source if isinstance(source, str) else None
+
+    mapping = {
+        InitiatorSource.COMMAND: "Command",
+        InitiatorSource.WEB: "Web",
+        InitiatorSource.BULK: "Bulk",
+        InitiatorSource.VOICE: "Voice",
+        InitiatorSource.BUTTON: "Button",
+        InitiatorSource.AUTO: "Auto",
+        InitiatorSource.SYSTEM: "System",
+    }
+    return mapping.get(source)
+
+
 def _header_tag(cs: ChangeSet) -> str:
-    if cs.event == EventType.VERIFICATION:
+    source_label = _initiator_source_label(cs)
+    suffix_parts = []
+    if source_label:
+        suffix_parts.append(source_label)
+    if cs.initiator_kind == InitiatorKind.ADMIN and cs.initiator_name:
+        suffix_parts.append(cs.initiator_name)
+    suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+
+    if cs.event == EventType.VERIFICATION and cs.initiator_kind == InitiatorKind.USER:
         return "Verification • User"
-    if cs.event == EventType.RECHECK and cs.initiator_kind == "User":
-        return "Recheck • User"
+    if cs.event == EventType.RECHECK:
+        if cs.initiator_kind == InitiatorKind.USER:
+            return "Recheck • User"
+        if cs.initiator_kind == InitiatorKind.ADMIN:
+            return f"Recheck • Admin{suffix}"
+        if cs.initiator_kind == InitiatorKind.AUTO:
+            return "Recheck • Auto"
+    if cs.event == EventType.AUTO_CHECK:
+        return "Auto Check"
     if cs.event == EventType.ADMIN_CHECK:
-        suffix = (
-            f" • Admin: {cs.initiator_name}"
-            if cs.initiator_kind == "Admin" and cs.initiator_name
-            else ""
-        )
         return f"Admin Check{suffix}"
-    return "Auto Check" if cs.event == EventType.AUTO_CHECK else cs.event.name
+    return cs.event.name
 
 
 def _outcome(cs: ChangeSet, has_changes: bool) -> tuple[str, str]:
@@ -361,11 +508,11 @@ def _build_header(cs: ChangeSet, has_changes: bool) -> str:
     return f"[{tag}] <@{cs.user_id}> {emoji} {outcome}"
 
 
-def _format_duration(ms: int) -> str:  # legacy stub (kept for compatibility)
+def _format_duration(ms: int) -> str:  # stub retained for callers
     return ""
 
 
-def _field_label_map() -> dict:  # legacy
+def _field_label_map() -> dict:  # stub retained for callers
     return {}
 
 
@@ -386,45 +533,123 @@ def _format_value(val: str | None) -> str:
     return f'"{escaped}"' if needs_quote else escaped
 
 
-def _render_plaintext(cs: ChangeSet) -> str:
-    status_changed = _changed_material(cs.status_before, cs.status_after)
-    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
-    # Suppress initial moniker population during auto checks (noise when feature rolled out)
-    if moniker_changed and cs.event == EventType.AUTO_CHECK:
+def _orgs_changed(before: list[str] | None, after: list[str] | None) -> bool:
+    """Check if organization lists changed (ignoring REDACTED)."""
+    # Filter out REDACTED entries for comparison
+    before_filtered = {sid for sid in (before or []) if sid != "REDACTED"}
+    after_filtered = {sid for sid in (after or []) if sid != "REDACTED"}
+    return before_filtered != after_filtered
+
+
+def _format_org_list(orgs: list[str] | None) -> str:
+    """Format organization list for display, with REDACTED count."""
+    if not orgs:
+        return "(none)"
+    visible = [sid for sid in orgs if sid != "REDACTED"]
+    redacted_count = len([sid for sid in orgs if sid == "REDACTED"])
+
+    if not visible and redacted_count > 0:
+        return f"[{redacted_count} hidden]"
+    elif visible and redacted_count > 0:
+        return f"{', '.join(visible)} (+{redacted_count} hidden)"
+    elif visible:
+        return ", ".join(visible)
+    else:
+        return "(none)"
+
+
+def _suppress_org_change(
+    before: list[str] | None, after: list[str] | None, event: EventType
+) -> bool:
+    """Determine if org change should be suppressed (null to populated during auto-check)."""
+    # Suppress if transitioning from null/empty to populated during auto-checks (initial backfill)
+    if event == EventType.AUTO_CHECK:
+        before_empty = not before or len(before) == 0
+        after_populated = after and len(after) > 0
+        if before_empty and after_populated:
+            return True
+    return False
+
+
+def _moniker_changed(cs: ChangeSet) -> bool:
+    changed = _changed_material(cs.moniker_before, cs.moniker_after)
+    if changed and cs.event == EventType.AUTO_CHECK:
         before = (cs.moniker_before or "").strip().lower()
         if before in {"", "(none)", "none"}:
-            moniker_changed = False
-    username_changed = _changed_material(cs.username_before, cs.username_after)
-    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
-    has_changes = (
-        status_changed or moniker_changed or username_changed or handle_changed
+            return False
+    return changed
+
+
+def _org_change_flags(cs: ChangeSet) -> tuple[bool, bool]:
+    main_orgs_changed = _orgs_changed(cs.main_orgs_before, cs.main_orgs_after)
+    affiliate_orgs_changed = _orgs_changed(
+        cs.affiliate_orgs_before, cs.affiliate_orgs_after
     )
+
+    if main_orgs_changed and _suppress_org_change(
+        cs.main_orgs_before, cs.main_orgs_after, cs.event
+    ):
+        main_orgs_changed = False
+    if affiliate_orgs_changed and _suppress_org_change(
+        cs.affiliate_orgs_before, cs.affiliate_orgs_after, cs.event
+    ):
+        affiliate_orgs_changed = False
+
+    return main_orgs_changed, affiliate_orgs_changed
+
+
+def _calculate_changes(cs: ChangeSet) -> dict[str, bool]:
+    main_orgs_changed, affiliate_orgs_changed = _org_change_flags(cs)
+    return {
+        "status": _changed_material(cs.status_before, cs.status_after),
+        "moniker": _moniker_changed(cs),
+        "username": _changed_material(cs.username_before, cs.username_after),
+        "handle": _changed_material(cs.handle_before, cs.handle_after),
+        "main_orgs": main_orgs_changed,
+        "affiliate_orgs": affiliate_orgs_changed,
+    }
+
+
+def _render_plaintext(cs: ChangeSet) -> str:
+    changes = _calculate_changes(cs)
+    has_changes = any(changes.values())
     header = _build_header(cs, has_changes)
     if not has_changes:
         return header
     lines = [header]
-    if status_changed:
+    if changes["status"]:
         lines.append(
             f"Status: {_format_value(_truncate(cs.status_before or ''))} → {_format_value(_truncate(cs.status_after or ''))}"
         )
-    if moniker_changed:
+    if changes["moniker"]:
         lines.append(
             f"Moniker: {_format_value(_truncate(cs.moniker_before or '(none)'))} → {_format_value(_truncate(cs.moniker_after or '(none)'))}"
         )
-    if username_changed:
+    if changes["username"]:
         lines.append(
             f"Username: {_format_value(_truncate(cs.username_before or '(none)'))} → {_format_value(_truncate(cs.username_after or '(none)'))}"
         )
-    if handle_changed:
+    if changes["handle"]:
         lines.append(
             f"Handle: {_format_value(_truncate(cs.handle_before or '(none)'))} → {_format_value(_truncate(cs.handle_after or '(none)'))}"
+        )
+    if changes["main_orgs"]:
+        lines.append(
+            f"Main Org: {_format_org_list(cs.main_orgs_before)} → {_format_org_list(cs.main_orgs_after)}"
+        )
+    if changes["affiliate_orgs"]:
+        lines.append(
+            f"Affiliate Orgs: {_format_org_list(cs.affiliate_orgs_before)} → {_format_org_list(cs.affiliate_orgs_after)}"
         )
     return "\n".join(lines)
 
 
 async def post_if_changed(bot, cs: ChangeSet):
     # Normalize roles to managed set only; discard others for change signature & rendering
-    managed_names = set(_managed_role_names(bot))
+    if not cs.guild_id:
+        return  # Cannot proceed without guild context
+
+    managed_names = set(await _managed_role_names(bot, cs.guild_id))
     if cs.roles_added:
         cs.roles_added = [r for r in cs.roles_added if r in managed_names]
     if cs.roles_removed:
@@ -439,23 +664,14 @@ async def post_if_changed(bot, cs: ChangeSet):
         if before and after and before.lower() == after.lower() and before != after:
             setattr(cs, f"{attr}_after", before)  # revert to suppress
 
-    status_changed = _changed_material(cs.status_before, cs.status_after)
-    moniker_changed = _changed_material(cs.moniker_before, cs.moniker_after)
-    if moniker_changed and cs.event == EventType.AUTO_CHECK:
-        before = (cs.moniker_before or "").strip().lower()
-        if before in {"", "(none)", "none"}:
-            moniker_changed = False
-    username_changed = _changed_material(cs.username_before, cs.username_after)
-    handle_changed = _changed_material(cs.handle_before, cs.handle_after)
-    has_changes = (
-        status_changed or moniker_changed or username_changed or handle_changed
-    )
+    changes = _calculate_changes(cs)
+    has_changes = any(changes.values())
     if cs.event == EventType.AUTO_CHECK and not has_changes:
         return  # suppress entirely for auto no-change
 
     # Dedupe short window
     sig = _normalize_signature(cs)
-    key = (cs.user_id, sig)
+    key = (cs.guild_id or 0, cs.user_id, sig)
     now = time.time()
     # Purge expired keys opportunistically
     if len(_DEDUP_CACHE) > 1000:  # safety bound
@@ -468,24 +684,13 @@ async def post_if_changed(bot, cs: ChangeSet):
         return
     _DEDUP_CACHE[key] = now
 
-    # Channel resolution
-    channel_id = None
-    try:
-        channel_id = (
-            (bot.config or {})
-            .get("channels", {})
-            .get("leadership_announcement_channel_id")
-        )
-        if not channel_id and hasattr(bot, "LEADERSHIP_LOG_CHANNEL_ID"):
-            channel_id = bot.LEADERSHIP_LOG_CHANNEL_ID
-    except Exception:
-        channel_id = getattr(bot, "LEADERSHIP_LOG_CHANNEL_ID", None)
-    if not channel_id:
-        logger.debug("Leadership log channel not configured; skipping post.")
-        return
-    channel = bot.get_channel(int(channel_id)) if channel_id else None
+    # Channel resolution via config service
+    channel = await resolve_leadership_channel(bot, cs.guild_id)
+
     if not channel:
-        logger.debug("Leadership log channel object not found; skipping.")
+        logger.debug(
+            "Leadership log channel not configured or not found; skipping post."
+        )
         return
     try:
         content = _render_plaintext(cs)
@@ -497,10 +702,13 @@ async def post_if_changed(bot, cs: ChangeSet):
 __all__ = [
     "ChangeSet",
     "EventType",
-    "build_embed",  # build_embed retained for backwards compatibility (may be removed later)
+    "InitiatorKind",
+    "InitiatorSource",
+    "build_embed",  # build_embed retained for callers still importing it
     "build_message",
     "color_for",
     "escape_md",
     "is_effectively_unchanged",
     "post_if_changed",
+    "resolve_leadership_channel",
 ]

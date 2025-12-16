@@ -5,14 +5,93 @@ This module provides helpers to ensure:
 - All slash-command errors/successes are ephemeral
 - Passive bot-initiated notices are sent via DM
 - Consistent formatting across all user-facing messages
+
+DRY PRINCIPLE:
+All cogs should use these helpers instead of directly calling:
+- interaction.response.send_message()
+- interaction.followup.send()
+- member.send()
+
+This ensures consistent error handling and logging across the codebase.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import discord
 
 from utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from discord import Embed, Interaction, Member, Message
+
 logger = get_logger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Core Response Helper (unified interface)
+# -----------------------------------------------------------------------------
+
+
+async def respond(
+    interaction: Interaction,
+    content: str | None = None,
+    *,
+    embed: Embed | None = None,
+    embeds: list[Embed] | None = None,
+    ephemeral: bool = True,
+    view: discord.ui.View | None = None,
+) -> Message | None:
+    """
+    Unified response helper that handles all interaction response patterns.
+
+    This is the preferred method for responding to interactions. It automatically:
+    - Detects if interaction is already responded and uses followup
+    - Handles deferred interactions
+    - Logs failures consistently
+
+    Args:
+        interaction: Discord interaction
+        content: Optional text content
+        embed: Optional single embed
+        embeds: Optional list of embeds
+        ephemeral: Whether to send as ephemeral (default: True)
+        view: Optional UI view
+
+    Returns:
+        The sent message, or None if sending failed
+
+    Example:
+        await respond(interaction, "✅ Done!", ephemeral=True)
+        await respond(interaction, embed=my_embed)
+    """
+    try:
+        kwargs: dict = {"ephemeral": ephemeral}
+        if content:
+            kwargs["content"] = content
+        if embed:
+            kwargs["embed"] = embed
+        if embeds:
+            kwargs["embeds"] = embeds
+        if view:
+            kwargs["view"] = view
+
+        if interaction.response.is_done():
+            return await interaction.followup.send(**kwargs)
+        else:
+            await interaction.response.send_message(**kwargs)
+            return None  # response.send_message doesn't return Message
+
+    except discord.NotFound:
+        logger.warning("Interaction expired before response could be sent")
+        return None
+    except discord.HTTPException as e:
+        logger.exception(f"Failed to send response: {e}")
+        return None
+    except Exception as e:
+        logger.exception("Unexpected error sending response", exc_info=e)
+        return None
 
 
 async def send_user_error(
@@ -46,7 +125,7 @@ async def send_user_error(
         else:
             await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send error message to user: {e}")
+        logger.exception(f"Failed to send error message to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending user error", exc_info=e)
 
@@ -82,7 +161,7 @@ async def send_user_success(
         else:
             await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send success message to user: {e}")
+        logger.exception(f"Failed to send success message to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending user success", exc_info=e)
 
@@ -113,7 +192,7 @@ async def send_user_info(
         else:
             await interaction.response.send_message(text, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send info message to user: {e}")
+        logger.exception(f"Failed to send info message to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending user info", exc_info=e)
 
@@ -155,7 +234,41 @@ async def dm_user(member: discord.Member, text: str) -> bool:
         return False
     except Exception as e:
         # Unexpected errors
-        logger.exception(f"Unexpected error sending DM to {member.display_name}", exc_info=e)
+        logger.exception(
+            f"Unexpected error sending DM to {member.display_name}", exc_info=e
+        )
+        return False
+
+
+async def dm_embed(member: Member, embed: Embed) -> bool:
+    """
+    Send a direct message embed to a user.
+
+    Similar to dm_user but for embed content.
+
+    Args:
+        member: Discord member to send DM to
+        embed: Discord embed to send
+
+    Returns:
+        True if DM was sent successfully, False otherwise
+    """
+    try:
+        await member.send(embed=embed)
+        logger.debug(f"Sent embed DM to {member.display_name}")
+        return True
+    except discord.Forbidden:
+        logger.debug(
+            f"Cannot send embed DM to {member.display_name} (DMs disabled or bot blocked)"
+        )
+        return False
+    except discord.HTTPException as e:
+        logger.warning(f"Failed to send embed DM to {member.display_name}: {e}")
+        return False
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error sending embed DM to {member.display_name}", exc_info=e
+        )
         return False
 
 
@@ -179,7 +292,7 @@ async def send_embed_error(
 
         await interaction.followup.send(embed=embed, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send error embed to user: {e}")
+        logger.exception(f"Failed to send error embed to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending error embed", exc_info=e)
 
@@ -204,7 +317,7 @@ async def send_embed_success(
 
         await interaction.followup.send(embed=embed, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send success embed to user: {e}")
+        logger.exception(f"Failed to send success embed to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending success embed", exc_info=e)
 
@@ -229,6 +342,23 @@ async def send_embed_info(
 
         await interaction.followup.send(embed=embed, ephemeral=ephemeral)
     except discord.HTTPException as e:
-        logger.error(f"Failed to send info embed to user: {e}")
+        logger.exception(f"Failed to send info embed to user: {e}")
     except Exception as e:
         logger.exception("Unexpected error sending info embed", exc_info=e)
+
+
+# -----------------------------------------------------------------------------
+# Exports
+# -----------------------------------------------------------------------------
+
+__all__ = [
+    "dm_embed",
+    "dm_user",
+    "respond",
+    "send_embed_error",
+    "send_embed_info",
+    "send_embed_success",
+    "send_user_error",
+    "send_user_info",
+    "send_user_success",
+]

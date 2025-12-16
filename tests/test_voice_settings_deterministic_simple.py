@@ -5,7 +5,7 @@ These tests focus on the database functions and core logic without complex mocki
 """
 
 from contextlib import nullcontext as does_not_raise
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -26,19 +26,13 @@ class TestDeterministicVoiceSettingsCore:
         user_id = 67890
         expected_jtc_id = 55555
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = (expected_jtc_id,)
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
+            mock_fetch.return_value = (expected_jtc_id,)  # fetch_one returns a tuple/row
 
             result = await _get_last_used_jtc_channel(guild_id, user_id)
 
             assert result == expected_jtc_id
-            # Verify the query was called (exact format doesn't matter for functionality)
-            assert mock_conn.execute.called
+            mock_fetch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_last_used_jtc_channel_not_found(self, temp_db):
@@ -46,13 +40,8 @@ class TestDeterministicVoiceSettingsCore:
         guild_id = 12345
         user_id = 67890
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = None
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
+            mock_fetch.return_value = None
 
             result = await _get_last_used_jtc_channel(guild_id, user_id)
 
@@ -65,20 +54,14 @@ class TestDeterministicVoiceSettingsCore:
         user_id = 67890
         jtc_channel_id = 55555
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            # Mock the INSERT OR REPLACE operation
-            mock_conn.execute.return_value = AsyncMock()
-            mock_conn.commit.return_value = None
+        with patch("services.db.repository.BaseRepository.execute") as mock_execute:
+            mock_execute.return_value = 1
 
             # Should not raise an exception
             await update_last_used_jtc_channel(guild_id, user_id, jtc_channel_id)
 
             # Verify database operations were called
-            assert mock_conn.execute.called
-            assert mock_conn.commit.called
+            mock_execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_available_jtc_channels_multiple(self, temp_db):
@@ -87,13 +70,9 @@ class TestDeterministicVoiceSettingsCore:
         user_id = 67890
         expected_jtcs = [11111, 22222, 33333]
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            cursor = AsyncMock()
-            cursor.fetchall.return_value = [(jtc,) for jtc in expected_jtcs]
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.repository.BaseRepository.fetch_all") as mock_fetch:
+            # fetch_all returns list of dicts by default, but we use as_dict=False for tuples
+            mock_fetch.return_value = [(jtc,) for jtc in expected_jtcs]
 
             result = await _get_available_jtc_channels(guild_id, user_id)
 
@@ -105,13 +84,8 @@ class TestDeterministicVoiceSettingsCore:
         guild_id = 12345
         user_id = 67890
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            cursor = AsyncMock()
-            cursor.fetchall.return_value = []
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.repository.BaseRepository.fetch_all") as mock_fetch:
+            mock_fetch.return_value = []
 
             result = await _get_available_jtc_channels(guild_id, user_id)
 
@@ -124,13 +98,8 @@ class TestDeterministicVoiceSettingsCore:
         user_id = 67890
         jtc_channel_id = 55555
 
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
-            cursor = AsyncMock()
-            cursor.fetchone.return_value = (jtc_channel_id,)
-            mock_conn.execute.return_value = cursor
+        with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
+            mock_fetch.return_value = (jtc_channel_id,)  # fetch_one returns a tuple/row
 
             # Call function multiple times with same inputs
             results = []
@@ -145,10 +114,7 @@ class TestDeterministicVoiceSettingsCore:
     @pytest.mark.asyncio
     async def test_preference_scoping_per_guild_user(self, temp_db):
         """Test that preferences are properly scoped per (guild_id, user_id)."""
-        with patch("helpers.voice_settings.Database") as mock_db:
-            mock_conn = AsyncMock()
-            mock_db.get_connection.return_value.__aenter__.return_value = mock_conn
-
+        with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
             # Test that different guild/user combinations can have different preferences
             test_cases = [
                 (12345, 67890, 11111),  # guild1, user1 -> jtc1
@@ -158,9 +124,7 @@ class TestDeterministicVoiceSettingsCore:
             ]
 
             for guild_id, user_id, expected_jtc in test_cases:
-                cursor = AsyncMock()
-                cursor.fetchone.return_value = (expected_jtc,)
-                mock_conn.execute.return_value = cursor
+                mock_fetch.return_value = (expected_jtc,)  # fetch_one returns a tuple/row
 
                 result = await _get_last_used_jtc_channel(guild_id, user_id)
                 assert result == expected_jtc
@@ -171,16 +135,22 @@ class TestDeterministicVoiceSettingsCore:
         guild_id = 12345
         user_id = 67890
 
-        with patch("helpers.voice_settings.Database") as mock_db:
+        with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
             # Simulate a database error
-            mock_db.get_connection.side_effect = Exception("Database error")
+            mock_fetch.side_effect = Exception("Database error")
 
-            # Should not raise exception, but return None/empty list
+            # Should not raise exception, but return None
             result1 = await _get_last_used_jtc_channel(guild_id, user_id)
             assert result1 is None
 
+        with patch("services.db.repository.BaseRepository.fetch_all") as mock_fetch:
+            mock_fetch.side_effect = Exception("Database error")
+
             result2 = await _get_available_jtc_channels(guild_id, user_id)
             assert result2 == []
+
+        with patch("services.db.repository.BaseRepository.execute") as mock_execute:
+            mock_execute.side_effect = Exception("Database error")
 
             # update_last_used_jtc_channel should not raise exception
             with does_not_raise():

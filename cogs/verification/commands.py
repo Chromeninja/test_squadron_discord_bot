@@ -1,9 +1,4 @@
-# Cogs/verification.py
-
-import contextlib
 import json
-import os
-from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -16,79 +11,46 @@ from helpers.embeds import (
     create_success_embed,
     create_verification_embed,
 )
-from helpers.http_helper import NotFoundError
-from helpers.leadership_log import ChangeSet, EventType, post_if_changed
-from helpers.rate_limiter import check_rate_limit, log_attempt
-from helpers.role_helper import reverify_member
-from helpers.snapshots import diff_snapshots, snapshot_member_state
-from helpers.task_queue import flush_tasks
-from helpers.username_404 import handle_username_404
+from helpers.leadership_log import InitiatorKind, InitiatorSource
+from helpers.recheck_service import perform_recheck
 from helpers.views import VerificationView
-from services.db.database import Database
+from services.db.repository import BaseRepository
 from utils.logging import get_logger
 from utils.tasks import spawn
 
 logger = get_logger(__name__)
 
-# Data directory for storing bot state
-data_dir = Path(os.environ.get("TESTBOT_STATE_DIR", "."))
 
-
-def _load_verification_message_id() -> int | None:
-    """
-    Load the verification message ID from persistent storage.
-
-    Returns:
-        The message ID if found and valid, None otherwise.
-    """
-    message_id_file = data_dir / "verification_message_id.json"
-
-    if not message_id_file.exists():
-        return None
-
+async def _load_verification_message_ids_from_db() -> dict[int, int]:
+    """Load verification message IDs for all guilds from database."""
+    message_ids: dict[int, int] = {}
     try:
-        data = json.loads(message_id_file.read_text(encoding="utf-8"))
-        message_id = data.get("message_id")
-        if isinstance(message_id, int):
-            return message_id
-        logger.warning(
-            f"Invalid message_id type in {message_id_file}: {type(message_id)}"
+        rows = await BaseRepository.fetch_all(
+            "SELECT guild_id, value FROM guild_settings WHERE key = 'channels.verification_message_id'"
         )
-        return None
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(
-            f"Failed to read verification message ID from {message_id_file}: {e}"
-        )
-        return None
+        for row in rows:
+            try:
+                guild_id = int(row[0])
+                message_id = json.loads(row[1])
+                message_ids[guild_id] = int(message_id)
+            except (ValueError, json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Invalid verification message ID for guild {row[0]}: {e}")
+        logger.info(f"Loaded {len(message_ids)} verification message IDs from database")
+    except Exception as e:
+        logger.exception("Failed to load verification message IDs from database", exc_info=e)
+    return message_ids
 
 
-def _save_verification_message_id(message_id: int) -> None:
-    """
-    Save the verification message ID to persistent storage atomically.
-
-    Args:
-        message_id: The Discord message ID to save.
-    """
-    message_id_file = data_dir / "verification_message_id.json"
-
+async def _save_verification_message_to_db(guild_id: int, message_id: int) -> None:
+    """Save a verification message ID for a guild to database."""
     try:
-        # Ensure data directory exists
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        # Write to temporary file first for atomicity
-        temp_file = message_id_file.with_suffix(".tmp")
-        temp_file.write_text(
-            json.dumps({"message_id": message_id}, indent=2), encoding="utf-8"
+        await BaseRepository.execute(
+            "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?) ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value",
+            (guild_id, "channels.verification_message_id", json.dumps(message_id)),
         )
-
-        # Atomic replace
-        temp_file.replace(message_id_file)
-        logger.info(f"Saved verification message ID {message_id} to {message_id_file}")
-
-    except OSError as e:
-        logger.exception(
-            f"Failed to save verification message ID to {message_id_file}", exc_info=e
-        )
+        logger.debug(f"Saved verification message ID {message_id} for guild {guild_id}")
+    except Exception as e:
+        logger.exception(f"Failed to save verification message ID for guild {guild_id}", exc_info=e)
 
 
 class VerificationCog(commands.Cog):
@@ -114,62 +76,195 @@ class VerificationCog(commands.Cog):
         await self.bot.wait_until_ready()
         await self.send_verification_message()
 
-    async def send_verification_message(self) -> None:
+    async def send_verification_message(
+        self, guilds: list[discord.Guild] | None = None
+    ) -> None:
         """
-        Sends the initial verification message to the verification channel.
-        If a message already exists, it will not send a new one.
+        Send verification messages to provided guilds (all guilds by default).
+
+        If a message already exists for a guild, it will not send a new one.
         """
-        logger.info("Starting to send verification message...")
-        channel = self.bot.get_channel(self.bot.VERIFICATION_CHANNEL_ID)
-        if channel is None:
-            logger.error(
-                f"Could not find the channel with ID {self.bot.VERIFICATION_CHANNEL_ID}."
-            )
-            return
+        target_guilds = guilds or list(self.bot.guilds)
+
         logger.info(
-            f"Found verification channel: {channel.name} (ID: {self.bot.VERIFICATION_CHANNEL_ID})"
+            "Starting to send verification messages to %s guild(s)...",
+            len(target_guilds),
         )
 
-        # Load the message ID from persistent storage
-        message_id = _load_verification_message_id()
+        if not target_guilds:
+            logger.error("Bot has no guilds, cannot send verification messages")
+            return
 
-        if message_id:
+        for idx, g in enumerate(target_guilds, 1):
+            logger.info(f"  Guild {idx}: {g.name} (ID: {g.id})")
+
+        guild_config = self.bot.services.guild_config  # type: ignore[attr-defined]
+        message_ids = await _load_verification_message_ids_from_db()
+        updated_message_ids = message_ids.copy()
+
+        guilds_processed = 0
+        guilds_sent = 0
+        guilds_skipped = 0
+        guilds_failed = 0
+
+        for guild in self.bot.guilds:
+            logger.info(f"\n{'=' * 60}")
+            logger.info(f"Processing guild: {guild.name} (ID: {guild.id})")
+            logger.info(f"{'=' * 60}")
+            guilds_processed += 1
+
             try:
-                # Try to fetch the message
-                await channel.fetch_message(message_id)
-                logger.info(
-                    f"Verification message already exists with ID: {message_id}"
+                # Clear cache to ensure fresh data for multi-guild support
+                logger.debug(
+                    f"Clearing cache for guild {guild.id} to ensure fresh config data"
                 )
-                return  # Message already exists, no need to send a new one
-            except discord.NotFound:
-                logger.info("Verification message not found, will send a new one.")
+                try:
+                    await self.bot.services.config.clear_guild_cache(guild.id)  # type: ignore[attr-defined]
+                except Exception as cache_err:
+                    logger.warning(
+                        f"Failed to clear cache for guild {guild.id}: {cache_err}"
+                    )
+
+                # Get verification channel from config service
+                logger.info(
+                    f"Looking up verification_channel_id for guild {guild.id}..."
+                )
+                channel = await guild_config.get_channel(
+                    guild.id, "verification_channel_id", guild
+                )
+
+                logger.info(f"Channel lookup result: {channel}")
+                if channel:
+                    logger.info(
+                        f"  ✓ Found channel: #{channel.name} (ID: {channel.id})"
+                    )
+                    logger.info(f"  ✓ Channel type: {type(channel).__name__}")
+                    logger.info(
+                        f"  ✓ Bot permissions in channel: send_messages={channel.permissions_for(guild.me).send_messages}, embed_links={channel.permissions_for(guild.me).embed_links}"
+                    )
+                else:
+                    logger.warning(
+                        "  ✗ Channel is None - no verification channel configured"
+                    )
+
+                if channel is None:
+                    logger.warning(
+                        f"✗ No verification channel configured for guild {guild.name} ({guild.id})"
+                    )
+                    logger.warning(
+                        "  Skipping this guild - please configure verification channel in settings"
+                    )
+                    guilds_skipped += 1
+                    continue
+
+                # Check if message already exists for this guild
+                existing_message_id = message_ids.get(guild.id)
+                logger.info(
+                    f"Existing message ID for this guild: {existing_message_id}"
+                )
+
+                if existing_message_id:
+                    logger.info(
+                        f"Checking if message {existing_message_id} still exists..."
+                    )
+                    try:
+                        # Try to fetch the message
+                        existing_msg = await channel.fetch_message(existing_message_id)
+                        logger.info(
+                            f"✓ Verification message already exists for {guild.name} (Message ID: {existing_message_id})"
+                        )
+                        logger.info(f"  Message created at: {existing_msg.created_at}")
+                        logger.info("  Skipping - message already present")
+                        guilds_skipped += 1
+                        continue  # Message already exists, no need to send a new one
+                    except discord.NotFound:
+                        logger.info(
+                            f"✗ Message {existing_message_id} not found - will send a new one"
+                        )
+                    except discord.Forbidden:
+                        logger.warning(
+                            f"✗ No permission to fetch message {existing_message_id} - will try to send new one"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"✗ Error fetching message {existing_message_id}: {e} - will send new one"
+                        )
+                else:
+                    logger.info(
+                        f"No existing message ID found for guild {guild.id} - will send new message"
+                    )
+
+                # Create the verification embed
+                logger.info("Creating verification embed...")
+                embed = create_verification_embed()
+
+                # Initialize the verification view with buttons
+                logger.info("Creating verification view with buttons...")
+                view = VerificationView(self.bot)
+
+                # Send the embed with the interactive view to the channel
+                try:
+                    logger.info(
+                        f"Attempting to send verification embed to #{channel.name}..."
+                    )
+                    sent_message = await channel.send(embed=embed, view=view)
+                    logger.info(f"✓ SUCCESS: Sent verification message to {guild.name}")
+                    logger.info(f"  Message ID: {sent_message.id}")
+                    logger.info(f"  Channel: #{channel.name} ({channel.id})")
+                    logger.info(f"  Message URL: {sent_message.jump_url}")
+
+                    # Save the message ID for this guild
+                    updated_message_ids[guild.id] = sent_message.id
+                    guilds_sent += 1
+
+                except discord.Forbidden as e:
+                    logger.exception(
+                        f"✗ FAILED: Bot lacks permission to send messages in {guild.name}"
+                    )
+                    logger.exception(f"  Channel: #{channel.name} ({channel.id})")
+                    logger.exception(
+                        "  Required permissions: Send Messages, Embed Links"
+                    )
+                    logger.exception(f"  Error: {e}")
+                    guilds_failed += 1
+                except discord.HTTPException as e:
+                    logger.exception(
+                        f"✗ FAILED: HTTP error sending verification message to {guild.name}"
+                    )
+                    logger.exception(f"  Error: {e}")
+                    guilds_failed += 1
+
             except Exception as e:
-                logger.warning(f"Error fetching verification message {message_id}: {e}")
-                # Continue to create a new message
+                logger.exception(
+                    f"✗ EXCEPTION processing guild {guild.name} ({guild.id}): {e}"
+                )
+                logger.exception("Full traceback:", exc_info=e)
+                guilds_failed += 1
+                continue
 
-        # Create the verification embed
-        embed = create_verification_embed()
+        # Save all message IDs atomically
+        logger.info(f"\n{'=' * 60}")
+        logger.info("VERIFICATION MESSAGE SUMMARY")
+        logger.info(f"{'=' * 60}")
+        logger.info(f"Guilds processed: {guilds_processed}")
+        logger.info(f"Messages sent: {guilds_sent}")
+        logger.info(f"Guilds skipped (already have message): {guilds_skipped}")
+        logger.info(f"Failed: {guilds_failed}")
+        logger.info(f"Total message IDs to save: {len(updated_message_ids)}")
 
-        # Initialize the verification view with buttons
-        view = VerificationView(self.bot)
-
-        # Send the embed with the interactive view to the channel
-        try:
-            logger.info("Attempting to send the verification embed...")
-            sent_message = await channel.send(embed=embed, view=view)
+        if updated_message_ids != message_ids:
             logger.info(
-                f"Sent verification message in channel. Message ID: {sent_message.id}"
+                f"Saving {len(updated_message_ids)} message IDs to database..."
             )
+            for guild_id, msg_id in updated_message_ids.items():
+                await _save_verification_message_to_db(guild_id, msg_id)
+            logger.info("✓ Successfully saved verification message IDs")
+            for guild_id, msg_id in updated_message_ids.items():
+                logger.info(f"  Guild {guild_id}: Message {msg_id}")
+        else:
+            logger.info("No changes to message IDs - skipping save")
 
-            # Save the message ID atomically
-            _save_verification_message_id(sent_message.id)
-
-        except discord.Forbidden:
-            logger.exception(
-                "Bot lacks permission to send messages in the verification channel."
-            )
-        except discord.HTTPException:
-            logger.exception("Failed to send verification message")
+        logger.info(f"{'=' * 60}\n")
 
     async def recheck_button(self, interaction: discord.Interaction) -> None:
         """Handle a user-initiated recheck via the verification view button."""
@@ -177,42 +272,42 @@ class VerificationCog(commands.Cog):
         member = interaction.user
 
         # Fetch existing verification record
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
-            )
-            row = await cursor.fetchone()
-            if not row:
-                embed = create_error_embed(
-                    "You are not verified yet. Please click Verify first."
-                )
-                await followup_send_message(
-                    interaction, "", embed=embed, ephemeral=True
-                )
-                return
-            rsi_handle = row[0]
-
-        # Rate limit check
-        rate_limited, wait_until = await check_rate_limit(member.id, "recheck")
-        if rate_limited:
-            embed = create_cooldown_embed(wait_until)
+        rsi_handle = await BaseRepository.fetch_value(
+            "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
+        )
+        if not rsi_handle:
+            embed = create_error_embed("You are not verified yet. Please click Verify first.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        # Snapshot BEFORE reverify to capture DB / handle / moniker changes
-        import time as _t
+        # Ensure member is a Member, not just User
+        if not isinstance(member, discord.Member):
+            embed = create_error_embed(
+                "This command can only be used by server members."
+            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
 
-        _start = _t.time()
-        before_snap = await snapshot_member_state(self.bot, member)
-        # Attempt re-verification (DB + role/nick tasks enqueued)
-        try:
-            result = await reverify_member(member, rsi_handle, self.bot)
-        except NotFoundError:
-            # Invoke unified remediation then inform user
-            try:
-                await handle_username_404(self.bot, member, rsi_handle)
-            except Exception as e:  # pragma: no cover - best effort logging
-                logger.warning(f"Unified 404 handler failed (button): {e}")
+        # Perform unified recheck
+        result = await perform_recheck(
+            member=member,
+            rsi_handle=rsi_handle,
+            bot=self.bot,
+            initiator_kind=InitiatorKind.USER,
+            initiator_source=InitiatorSource.BUTTON,
+            enforce_rate_limit=True,
+            log_leadership=True,
+            log_audit=False,  # User-initiated, no admin audit needed
+        )
+
+        # Handle rate limiting
+        if result["rate_limited"]:
+            embed = create_cooldown_embed(result["wait_until"])
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
+
+        # Handle remediation (404)
+        if result["remediated"]:
             verification_channel_id = getattr(self.bot, "VERIFICATION_CHANNEL_ID", 0)
             embed = create_error_embed(
                 f"Your RSI Handle appears to have changed. Please re-verify in <#{verification_channel_id}>."
@@ -220,60 +315,19 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        success, status_info, message = result
-        if not success:
+        # Handle other errors
+        if not result["success"]:
             embed = create_error_embed(
-                message or "Re-check failed. Please try again later."
+                result["error"] or "Re-check failed. Please try again later."
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        if isinstance(status_info, tuple):
-            _old_status, new_status = status_info
-        else:
-            new_status = status_info
-
-        await log_attempt(member.id, "recheck")
-
+        # Success!
+        new_status = result["status"]
         description = build_welcome_description(new_status)
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-
-        # Leadership log snapshot
-        with contextlib.suppress(Exception):
-            await flush_tasks()
-        # Refetch member to get latest nickname / roles after queued tasks applied
-        try:
-            refreshed = await member.guild.fetch_member(member.id)
-            if refreshed:
-                member = refreshed
-        except Exception:
-            pass
-        after_snap = await snapshot_member_state(self.bot, member)
-        diff = diff_snapshots(before_snap, after_snap)
-        try:
-            if diff.get("username_before") == diff.get("username_after") and getattr(
-                member, "_nickname_changed_flag", False
-            ):
-                pref = getattr(member, "_preferred_verification_nick", None)
-                if pref and pref != diff.get("username_before"):
-                    diff["username_after"] = pref
-        except Exception:
-            pass
-        cs = ChangeSet(
-            user_id=member.id,
-            event=EventType.RECHECK,
-            initiator_kind="User",
-            initiator_name=None,
-            notes=None,
-        )
-        for k, v in diff.items():
-            setattr(cs, k, v)
-        # duration tracking removed
-        try:
-            await post_if_changed(self.bot, cs)
-        except Exception:
-            logger.debug("Leadership log post failed (user recheck button)")
 
 
 async def setup(bot: commands.Bot) -> None:

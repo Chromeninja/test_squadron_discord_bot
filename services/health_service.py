@@ -14,7 +14,7 @@ try:
 except Exception:  # ModuleNotFoundError, ImportError, etc.
     psutil = None  # type: ignore
 
-from services.db.database import Database
+from services.db.repository import BaseRepository
 
 from .base import BaseService
 
@@ -118,7 +118,7 @@ class HealthService(BaseService):
             Dict containing database metrics
         """
         try:
-            async with Database.get_connection() as db:
+            async with BaseRepository.transaction() as db:
                 # Test basic connectivity
                 await db.execute("SELECT 1")
 
@@ -128,7 +128,8 @@ class HealthService(BaseService):
                 table_names = {
                     "verification",
                     "guild_settings",
-                    "user_voice_channels",
+                    "voice_channels",
+                    "voice_channel_settings",
                     "voice_cooldowns",
                     "channel_settings",
                     "guild_registry",

@@ -60,7 +60,9 @@ class TestStrictScoping:
     """Test strict scoping behavior for voice settings."""
 
     @pytest.mark.asyncio
-    async def test_voice_service_load_settings_strict_scope(self, mock_bot, mock_guild, mock_user, mock_db_connection):
+    async def test_voice_service_load_settings_strict_scope(
+        self, mock_bot, mock_guild, mock_user, mock_db_connection
+    ):
         """Test that voice service only loads settings with exact guild/JTC match."""
         voice_service = VoiceService(mock_bot)
         guild_id = 12345
@@ -85,13 +87,15 @@ class TestStrictScoping:
                 assert user_id in params
 
     @pytest.mark.asyncio
-    async def test_permit_reject_settings_strict_scope(self, mock_voice_channel, mock_guild):
+    async def test_permit_reject_settings_strict_scope(
+        self, mock_voice_channel, mock_guild
+    ):
         """Test that permit/reject settings only apply with exact guild/JTC match."""
         guild_id = 12345
         jtc_channel_id = 100
         user_id = 67890
 
-        with patch('services.db.database.Database.get_connection') as mock_db:
+        with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
             mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -101,7 +105,9 @@ class TestStrictScoping:
             mock_cursor.fetchall.return_value = [(user_id, "user", "permit")]
 
             overwrites = {}
-            await _apply_permit_reject_settings(overwrites, mock_guild, user_id, guild_id, jtc_channel_id)
+            await _apply_permit_reject_settings(
+                overwrites, mock_guild, user_id, guild_id, jtc_channel_id
+            )
 
             # Verify query uses strict scoping
             query_call = mock_conn.execute.call_args_list[0]
@@ -114,13 +120,15 @@ class TestStrictScoping:
             assert user_id in params
 
     @pytest.mark.asyncio
-    async def test_voice_feature_settings_strict_scope(self, mock_voice_channel, mock_guild):
+    async def test_voice_feature_settings_strict_scope(
+        self, mock_voice_channel, mock_guild
+    ):
         """Test that voice feature settings only apply with exact guild/JTC match."""
         guild_id = 12345
         jtc_channel_id = 100
         user_id = 67890
 
-        with patch('services.db.database.Database.get_connection') as mock_db:
+        with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
             mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -151,7 +159,7 @@ class TestStrictScoping:
         jtc_channel_id = 100
         user_id = 67890
 
-        with patch('services.db.database.Database.get_connection') as mock_db:
+        with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
             mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -161,7 +169,9 @@ class TestStrictScoping:
             mock_cursor.fetchone.return_value = (1,)
 
             overwrites = {}
-            await _apply_lock_setting(overwrites, mock_guild, user_id, guild_id, jtc_channel_id)
+            await _apply_lock_setting(
+                overwrites, mock_guild, user_id, guild_id, jtc_channel_id
+            )
 
             # Verify query uses strict scoping
             query_call = mock_conn.execute.call_args_list[0]
@@ -180,7 +190,7 @@ class TestStrictScoping:
         jtc_channel_id = 100
         user_id = 67890
 
-        with patch('services.db.database.Database.get_connection') as mock_db:
+        with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
             mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -209,13 +219,17 @@ class TestStrictScoping:
         user_id = 67890
 
         # Test missing guild_id
-        with patch('helpers.voice_utils.logger') as mock_logger:
-            await update_channel_settings(user_id, guild_id=None, jtc_channel_id=100, channel_name="Test")
+        with patch("helpers.voice_utils.logger") as mock_logger:
+            await update_channel_settings(
+                user_id, guild_id=None, jtc_channel_id=100, channel_name="Test"
+            )
             mock_logger.error.assert_called_once()
 
         # Test missing jtc_channel_id
-        with patch('helpers.voice_utils.logger') as mock_logger:
-            await update_channel_settings(user_id, guild_id=12345, jtc_channel_id=None, channel_name="Test")
+        with patch("helpers.voice_utils.logger") as mock_logger:
+            await update_channel_settings(
+                user_id, guild_id=12345, jtc_channel_id=None, channel_name="Test"
+            )
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -227,16 +241,28 @@ class TestStrictScoping:
         target_id = 12345
 
         # Test missing guild_id
-        with patch('helpers.voice_utils.logger') as mock_logger:
+        with patch("helpers.voice_utils.logger") as mock_logger:
             await set_voice_feature_setting(
-                "ptt", user_id, target_id, "user", True, guild_id=None, jtc_channel_id=100
+                "ptt",
+                user_id,
+                target_id,
+                "user",
+                True,
+                guild_id=None,
+                jtc_channel_id=100,
             )
             mock_logger.error.assert_called_once()
 
         # Test missing jtc_channel_id
-        with patch('helpers.voice_utils.logger') as mock_logger:
+        with patch("helpers.voice_utils.logger") as mock_logger:
             await set_voice_feature_setting(
-                "ptt", user_id, target_id, "user", True, guild_id=12345, jtc_channel_id=None
+                "ptt",
+                user_id,
+                target_id,
+                "user",
+                True,
+                guild_id=12345,
+                jtc_channel_id=None,
             )
             mock_logger.error.assert_called_once()
 
@@ -248,7 +274,7 @@ class TestStrictScoping:
         jtc_channel_id_2 = 200
         user_id = 67890
 
-        with patch('services.db.database.Database.get_connection') as mock_db:
+        with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
             mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -258,13 +284,17 @@ class TestStrictScoping:
             mock_cursor.fetchone.return_value = ("JTC1 Channel", 10, 1)
             mock_cursor.fetchall.return_value = [(user_id, "user", "permit")]
 
-            settings_jtc1 = await _get_all_user_settings(guild_id, jtc_channel_id_1, user_id)
+            settings_jtc1 = await _get_all_user_settings(
+                guild_id, jtc_channel_id_1, user_id
+            )
 
             # Mock query for JTC 2 returns no settings (None/empty)
             mock_cursor.fetchone.return_value = None
             mock_cursor.fetchall.return_value = []
 
-            settings_jtc2 = await _get_all_user_settings(guild_id, jtc_channel_id_2, user_id)
+            settings_jtc2 = await _get_all_user_settings(
+                guild_id, jtc_channel_id_2, user_id
+            )
 
             # Verify JTC1 has settings but JTC2 doesn't (no fallback)
             assert settings_jtc1.get("channel_name") == "JTC1 Channel"

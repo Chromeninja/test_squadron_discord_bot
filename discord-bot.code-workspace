@@ -1,0 +1,15 @@
+{
+  "folders": [
+    {
+      "name": "🤖 Bot (Root)",
+      "path": "."
+    },
+    {
+      "name": "🌐 Backend API",
+      "path": "web/backend"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder:🤖 Bot (Root)}/.venv/bin/python"
+  }
+}

@@ -1,5 +1,7 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+import discord
 import pytest
 
 from cogs.admin.recheck import AutoRecheck
@@ -25,20 +27,24 @@ class FlakyGuild:
         self._calls = {"get": 0, "fetch": 0}
         self._member_on_retry = member_on_retry
         self._fetch_on_first = fetch_on_first
+        self.id = 12345
+        self.name = "TestGuild"
 
-    def get_member(self, user_id: int) -> None:
+    def get_member(self, user_id: int):
         self._calls["get"] += 1
         # Simulate cache miss on first call
         if self._calls["get"] == 1:
             return None
         return FakeMember(user_id) if self._member_on_retry else None
 
-    async def fetch_member(self, user_id: int) -> None:
+    async def fetch_member(self, user_id: int):
         self._calls["fetch"] += 1
         if self._fetch_on_first and self._calls["fetch"] == 1:
             return FakeMember(user_id)
-        # Otherwise behave like the get_member retry
-        return FakeMember(user_id) if self._member_on_retry else None
+        # If member_on_retry is False, raise NotFound to signal member doesn't exist
+        if not self._member_on_retry:
+            raise discord.NotFound(MagicMock(), "Member not found")
+        return FakeMember(user_id)
 
 
 @pytest.mark.asyncio
@@ -49,9 +55,8 @@ async def test_no_prune_on_transient_cache_miss(temp_db) -> None:
     # Insert verification and auto_recheck_state rows
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT INTO verification (user_id, rsi_handle, "
-            "membership_status, last_updated) VALUES (?, ?, ?, ?)",
-            (123, "handle", "member", 1),
+            "INSERT INTO verification (user_id, rsi_handle, last_updated) VALUES (?, ?, ?)",
+            (123, "handle", 1),
         )
         await db.execute(
             "INSERT INTO auto_recheck_state (user_id, "
@@ -66,9 +71,9 @@ async def test_no_prune_on_transient_cache_miss(temp_db) -> None:
     bot_ns.config = {}
     bot_ns.guilds = [FlakyGuild(member_on_retry=True, fetch_on_first=False)]
 
-    cog = AutoRecheck(bot_ns)
+    cog = AutoRecheck(bot_ns)  # type: ignore[arg-type]
 
-    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 123)
+    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 123)  # type: ignore[arg-type]
     assert member is not None
 
     # Ensure rows remain
@@ -86,10 +91,8 @@ async def test_prune_when_member_absent_after_retry(temp_db) -> None:
     """If member is still missing after retry, rows should be deleted."""
     async with Database.get_connection() as db:
         await db.execute(
-            "INSERT OR REPLACE INTO verification (user_id, "
-            "rsi_handle, membership_status, last_updated) "
-            "VALUES (?, ?, ?, ?)",
-            (456, "handle2", "member", 1),
+            "INSERT OR REPLACE INTO verification (user_id, rsi_handle, last_updated) VALUES (?, ?, ?)",
+            (456, "handle2", 1),
         )
         await db.execute(
             "INSERT OR REPLACE INTO auto_recheck_state (user_id, "
@@ -104,9 +107,9 @@ async def test_prune_when_member_absent_after_retry(temp_db) -> None:
     # Simulate both get_member and fetch_member failing even on retry
     bot_ns.guilds = [FlakyGuild(member_on_retry=False, fetch_on_first=False)]
 
-    cog = AutoRecheck(bot_ns)
+    cog = AutoRecheck(bot_ns)  # type: ignore[arg-type]
 
-    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 456)
+    member = await cog._fetch_member_or_prune(bot_ns.guilds[0], 456)  # type: ignore[arg-type]
     assert member is None
 
     # Ensure rows deleted

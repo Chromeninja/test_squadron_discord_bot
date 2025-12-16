@@ -19,25 +19,25 @@ def test_basic_embed() -> None:
 
 def test_verification_embed() -> None:
     e = create_verification_embed()
-    assert "Account Verification" in e.title
+    assert e.title and "Account Verification" in e.title
     assert "Get Token" in (e.description or "")
 
 
 def test_token_embed() -> None:
     e = create_token_embed("1234", 1700000000)
     # Field name includes an emoji prefix; match substring
-    assert any("Your Verification PIN" in f.name for f in e.fields)
-    assert "1234" in e.fields[0].value
+    assert any("Your Verification PIN" in (f.name or "") for f in e.fields)
+    assert "1234" in (e.fields[0].value or "")
 
 
 def test_error_and_success_embeds() -> None:
     err = create_error_embed("Oops")
     ok = create_success_embed("Great")
-    assert "Failed" in err.title
-    assert "Successful" in ok.title
+    assert err.title and "Failed" in err.title
+    assert ok.title and "Successful" in ok.title
 
 
 def test_cooldown_embed() -> None:
     e = create_cooldown_embed(1700000000)
-    assert "Cooldown" in e.title
+    assert e.title and "Cooldown" in e.title
     assert ["try", "again"][0].lower() in (e.description or "").lower()

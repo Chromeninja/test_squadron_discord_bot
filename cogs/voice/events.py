@@ -27,9 +27,9 @@ class VoiceEvents(commands.Cog):
     @property
     def voice_service(self):
         """Get the voice service from the bot's service container."""
-        if not hasattr(self.bot, "services") or self.bot.services is None:
+        if not hasattr(self.bot, "services") or self.bot.services is None:  # type: ignore[attr-defined]
             raise RuntimeError("Bot services not initialized")
-        return self.bot.services.voice
+        return self.bot.services.voice  # type: ignore[attr-defined]
 
     @commands.Cog.listener()
     async def on_voice_state_update(

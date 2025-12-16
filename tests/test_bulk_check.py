@@ -51,12 +51,14 @@ async def test_parse_members_text():
     guild.get_member.side_effect = lambda user_id: {
         123456789012345678: member1,
         987654321098765432: member2,
-        111222333444555666: None  # Not found in cache
+        111222333444555666: None,  # Not found in cache
     }.get(user_id)
 
-    guild.fetch_member = AsyncMock(side_effect=lambda user_id: {
-        111222333444555666: Mock(id=111222333444555666)
-    }.get(user_id))
+    guild.fetch_member = AsyncMock(
+        side_effect=lambda user_id: {
+            111222333444555666: Mock(id=111222333444555666)
+        }.get(user_id)
+    )
 
     text = "<@123456789012345678> <@!987654321098765432> 111222333444555666"
 
@@ -141,7 +143,7 @@ def test_status_row():
         rsi_handle="test_handle",
         membership_status="main",
         last_updated=1609459200,
-        voice_channel="General"
+        voice_channel="General",
     )
 
     assert row.user_id == 123
@@ -168,21 +170,22 @@ def test_build_summary_embed():
 
     embed = build_summary_embed(
         invoker=invoker,
-        members=members,
+        members=members,  # type: ignore[arg-type]
         rows=rows,
         truncated_count=0,
         scope_label="specific users",
-        scope_channel="#test-channel"
+        scope_channel="#test-channel",
     )
 
     assert embed.title == "Bulk Verification Check"
-    assert "**Requested by:** <@12345> (Admin)" in embed.description
-    assert "**Scope:** specific users" in embed.description
-    assert "**Channel:** #test-channel" in embed.description
-    assert "**Checked:** 3 users" in embed.description
-    assert "**Verified/Main:** 1" in embed.description
-    assert "**Affiliate:** 1" in embed.description
-    assert "**Unverified:** 1" in embed.description
+    desc = embed.description or ""
+    assert "**Requested by:** <@12345> (Admin)" in desc
+    assert "**Scope:** specific users" in desc
+    assert "**Channel:** #test-channel" in desc
+    assert "**Checked:** 3 users" in desc
+    assert "**Verified/Main:** 1" in desc
+    assert "**Affiliate:** 1" in desc
+    assert "**Unverified:** 1" in desc
 
 
 @pytest.mark.asyncio
@@ -195,9 +198,7 @@ async def test_write_csv():
     ]
 
     filename, content_bytes = await write_csv(
-        rows,
-        guild_name="TestGuild",
-        invoker_name="TestAdmin"
+        rows, guild_name="TestGuild", invoker_name="TestAdmin"
     )
 
     # Check filename format: verify_bulk_{guild}_{YYYYMMDD_HHMM}_{invoker}.csv
@@ -205,33 +206,37 @@ async def test_write_csv():
     assert filename.endswith("_TestAdmin.csv")
     assert ".csv" in filename
 
-    content = content_bytes.decode('utf-8')
-    lines = content.strip().split('\n')
+    content = content_bytes.decode("utf-8")
+    lines = content.strip().split("\n")
 
-    # Check header includes RSI recheck fields (backward compatible)
-    assert lines[0].strip() == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error"
+    # Check header includes RSI recheck fields and org affiliations
+    assert (
+        lines[0].strip()
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
+    )
 
-    # Check data rows (RSI fields should be empty for rows without recheck)
-    assert "1,User1,handle1,main,1609459200,General,,," in lines[1]
-    assert "2,User2,handle2,affiliate,1609459200,Gaming,,," in lines[2]
-    assert "3,User3,,unknown,,,,," in lines[3]  # All optional fields are None
+    # Check data rows (RSI fields and org fields should be empty for rows without recheck)
+    assert "1,User1,handle1,main,1609459200,General,,,,," in lines[1]
+    assert "2,User2,handle2,affiliate,1609459200,Gaming,,,,," in lines[2]
+    assert "3,User3,,unknown,,,,,,," in lines[3]  # All optional fields are None
 
 
 @pytest.mark.asyncio
 async def test_write_csv_empty():
     """Test CSV writing with empty rows."""
     filename, content_bytes = await write_csv(
-        [],
-        guild_name="TestGuild",
-        invoker_name="TestAdmin"
+        [], guild_name="TestGuild", invoker_name="TestAdmin"
     )
 
     # Check filename format even for empty results
     assert filename.startswith("verify_bulk_TestGuild_")
     assert filename.endswith("_TestAdmin.csv")
 
-    content = content_bytes.decode('utf-8')
-    assert content == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error\n"
+    content = content_bytes.decode("utf-8")
+    assert (
+        content
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs\n"
+    )
 
 
 def test_status_row_with_rsi_recheck():
@@ -245,7 +250,7 @@ def test_status_row_with_rsi_recheck():
         voice_channel="General",
         rsi_status="affiliate",
         rsi_checked_at=1609459300,
-        rsi_error=None
+        rsi_error=None,
     )
 
     assert row.user_id == 123
@@ -267,40 +272,80 @@ def test_build_summary_embed_with_rsi_recheck():
     members = [Mock() for _ in range(3)]
 
     rows = [
-        StatusRow(1, "User1", "handle1", "main", 1609459200, "General", "main", 1609459300),
-        StatusRow(2, "User2", "handle2", "affiliate", 1609459200, "Gaming", "non_member", 1609459300),
+        StatusRow(
+            1, "User1", "handle1", "main", 1609459200, "General", "main", 1609459300
+        ),
+        StatusRow(
+            2,
+            "User2",
+            "handle2",
+            "affiliate",
+            1609459200,
+            "Gaming",
+            "non_member",
+            1609459300,
+        ),
         StatusRow(3, "User3", "handle3", "unknown", None, None, "unknown", 1609459300),
     ]
 
     embed = build_summary_embed(
         invoker=invoker,
-        members=members,
+        members=members,  # type: ignore[arg-type]
         rows=rows,
         truncated_count=0,
         scope_label="specific users",
-        scope_channel="#test-channel"
+        scope_channel="#test-channel",
     )
 
     assert embed.title == "Bulk Verification Check"
-    assert "**Requested by:** <@12345> (Admin)" in embed.description
-    assert "**Scope:** specific users" in embed.description
-    assert "**Channel:** #test-channel" in embed.description
-    assert "**Checked:** 3 users" in embed.description
+    desc = embed.description or ""
+    assert "**Requested by:** <@12345> (Admin)" in desc
+    assert "**Scope:** specific users" in desc
+    assert "**Channel:** #test-channel" in desc
+    assert "**Checked:** 3 users" in desc
 
 
 @pytest.mark.asyncio
 async def test_write_csv_with_rsi_recheck():
     """Test CSV writing with RSI recheck data."""
     rows = [
-        StatusRow(1, "User1", "handle1", "main", 1609459200, "General", "main", 1609459300, None),
-        StatusRow(2, "User2", "handle2", "affiliate", 1609459200, "Gaming", "non_member", 1609459300, None),
-        StatusRow(3, "User3", None, "unknown", None, None, "unknown", 1609459300, "No RSI handle"),
+        StatusRow(
+            1,
+            "User1",
+            "handle1",
+            "main",
+            1609459200,
+            "General",
+            "main",
+            1609459300,
+            None,
+        ),
+        StatusRow(
+            2,
+            "User2",
+            "handle2",
+            "affiliate",
+            1609459200,
+            "Gaming",
+            "non_member",
+            1609459300,
+            None,
+        ),
+        StatusRow(
+            3,
+            "User3",
+            None,
+            "unknown",
+            None,
+            None,
+            "unknown",
+            1609459300,
+            "No RSI handle",
+        ),
     ]
 
     filename, content_bytes = await write_csv(
-        rows,
-        guild_name="TestGuild",
-        invoker_name="TestAdmin"
+        rows, guild_name="TestGuild", invoker_name="TestAdmin"
     )
 
     # Check filename format
@@ -308,16 +353,78 @@ async def test_write_csv_with_rsi_recheck():
     assert filename.endswith("_TestAdmin.csv")
     assert ".csv" in filename
 
-    content = content_bytes.decode('utf-8')
-    lines = content.strip().split('\n')
+    content = content_bytes.decode("utf-8")
+    lines = content.strip().split("\n")
 
-    # Check header includes RSI recheck columns with error field
-    assert lines[0].strip() == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error"
+    # Check header includes RSI recheck columns with error field and org affiliations
+    assert (
+        lines[0].strip()
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
+    )
 
-    # Check data rows include RSI recheck data
-    assert "1,User1,handle1,main,1609459200,General,main,1609459300," in lines[1]
-    assert "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300," in lines[2]
-    assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle" in lines[3]
+    # Check data rows include RSI recheck data (org fields empty since not provided in StatusRow)
+    assert "1,User1,handle1,main,1609459200,General,main,1609459300,,," in lines[1]
+    assert (
+        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,"
+        in lines[2]
+    )
+    assert "3,User3,,unknown,,,unknown,1609459300,No RSI handle,," in lines[3]
+
+
+@pytest.mark.asyncio
+async def test_write_csv_with_org_data():
+    """Test CSV writing with organization data."""
+    rows = [
+        StatusRow(
+            1,
+            "User1",
+            "handle1",
+            "main",
+            1609459200,
+            "General",
+            "main",
+            1609459300,
+            None,
+            rsi_main_orgs=["TEST Squadron", "Another Org"],
+            rsi_affiliate_orgs=["Affiliate One"],
+        ),
+        StatusRow(
+            2,
+            "User2",
+            "handle2",
+            "affiliate",
+            1609459200,
+            "Gaming",
+            "non_member",
+            1609459300,
+            None,
+            rsi_main_orgs=None,
+            rsi_affiliate_orgs=["Affiliate Two", "Affiliate Three"],
+        ),
+    ]
+
+    _filename, content_bytes = await write_csv(
+        rows, guild_name="TestGuild", invoker_name="TestAdmin"
+    )
+
+    content = content_bytes.decode("utf-8")
+    lines = content.strip().split("\n")
+
+    # Check header includes org columns
+    assert (
+        lines[0].strip()
+        == "user_id,username,rsi_handle,membership_status,last_updated,voice_channel,rsi_status,rsi_checked_at,rsi_error,main_orgs,affiliate_orgs"
+    )
+
+    # Check data rows include organization data (semicolon-separated)
+    assert (
+        "1,User1,handle1,main,1609459200,General,main,1609459300,,TEST Squadron;Another Org,Affiliate One"
+        in lines[1]
+    )
+    assert (
+        "2,User2,handle2,affiliate,1609459200,Gaming,non_member,1609459300,,,Affiliate Two;Affiliate Three"
+        in lines[2]
+    )
 
 
 def test_format_detail_line_without_rsi_recheck():
@@ -328,11 +435,11 @@ def test_format_detail_line_without_rsi_recheck():
         rsi_handle="test_handle",
         membership_status="main",
         last_updated=1609459200,
-        voice_channel="General"
+        voice_channel="General",
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify the basic format (DB-only)
     assert "<@123456789>" in detail_line
     assert "Verified/Main" in detail_line
@@ -353,11 +460,11 @@ def test_format_detail_line_with_rsi_recheck():
         voice_channel="General",
         rsi_status="affiliate",  # Changed from main to affiliate
         rsi_checked_at=1609459300,
-        rsi_error=None
+        rsi_error=None,
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify the enhanced format with RSI recheck
     assert "<@123456789>" in detail_line
     assert "DB: Verified/Main" in detail_line  # DB status
@@ -378,15 +485,14 @@ def test_format_detail_line_with_rsi_error():
         voice_channel=None,
         rsi_status="unknown",
         rsi_checked_at=1609459300,
-        rsi_error="No RSI handle found"
+        rsi_error="No RSI handle found",
     )
-    
+
     detail_line = _format_detail_line(row)
-    
+
     # Verify error case formatting
     assert "<@123456789>" in detail_line
     assert "DB: Unverified" in detail_line
     assert "RSI: Unverified" in detail_line
     # Note: Error is in rsi_error field but not displayed in detail line
     # It's available in CSV export
-

@@ -13,10 +13,10 @@ from services import (
     ConfigService,
     GuildService,
     HealthService,
-    ServiceManager,
     VoiceService,
 )
 from services.db.database import Database
+from services.service_container import ServiceContainer
 
 
 @pytest_asyncio.fixture
@@ -36,12 +36,12 @@ async def temp_db():
 
 
 @pytest.fixture
-async def service_manager(temp_db):
-    """Create a service manager with temporary database."""
-    manager = ServiceManager()
-    await manager.initialize()
-    yield manager
-    await manager.shutdown()
+async def service_container(temp_db):
+    """Create a service container with temporary database."""
+    container = ServiceContainer()
+    await container.initialize()
+    yield container
+    await container.cleanup()
 
 
 class TestConfigService:
@@ -76,7 +76,6 @@ class TestConfigService:
 
         # Get setting
         retrieved = await config_service.get_guild_setting(guild_id, key)
-        print(f"DEBUG: Set {value}, got back: {retrieved}")
         assert retrieved == value
 
         await config_service.shutdown()
@@ -245,64 +244,112 @@ class TestVoiceService:
         await voice_service.shutdown()
         await config_service.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_can_create_voice_channel_blocks_across_jtcs(self, temp_db):
+        """Ensure duplicate creations are blocked when hopping between JTCs."""
+        Database._initialized = False
+        Database._db_path = temp_db
+        await Database.initialize(temp_db)
 
-class TestServiceManager:
-    """Tests for ServiceManager."""
+        config_service = ConfigService()
+        await config_service.initialize()
+
+        voice_service = VoiceService(config_service)
+        await voice_service.initialize()
+
+        guild_id = 54321
+        second_jtc = 22222
+        user_id = 999
+
+        # Simulate an in-progress creation in the first JTC
+        voice_service._mark_user_creating(guild_id, user_id)
+
+        can_create, reason = await voice_service.can_create_voice_channel(
+            guild_id, second_jtc, user_id
+        )
+
+        assert can_create is False
+        assert reason == "CREATING"
+
+        # Once unmarked, creation should be allowed again even in a different JTC
+        voice_service._unmark_user_creating(guild_id, user_id)
+
+        can_create_again, reason_again = await voice_service.can_create_voice_channel(
+            guild_id, second_jtc, user_id
+        )
+
+        assert can_create_again is True
+        assert reason_again is None
+
+        await voice_service.shutdown()
+        await config_service.shutdown()
+
+
+class TestServiceContainer:
+    """Tests for ServiceContainer."""
 
     @pytest.mark.asyncio
-    async def test_service_manager_initialization(self, temp_db):
-        """Test service manager initializes all services."""
-        manager = ServiceManager()
-        await manager.initialize()
+    async def test_service_container_initialization(self, temp_db):
+        """Test service container initializes all services."""
+        # Create a mock bot instance
+        from unittest.mock import Mock
 
-        assert manager.is_initialized
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
+
+        container = ServiceContainer(bot=mock_bot)
+        await container.initialize()
+
+        assert container._initialized
 
         # Check all services are available
-        assert manager.config is not None
-        assert manager.guild is not None
-        assert manager.health is not None
-        assert manager.voice is not None
+        assert container.config is not None
+        assert container.guild_config is not None
+        assert container.guild is not None
+        assert container.health is not None
+        assert container.voice is not None
 
-        await manager.shutdown()
+        await container.cleanup()
 
     @pytest.mark.asyncio
     async def test_service_access(self, temp_db):
-        """Test accessing services through manager."""
-        manager = ServiceManager()
-        await manager.initialize()
+        """Test accessing services through container."""
+        # Create a mock bot instance
+        from unittest.mock import Mock
 
-        # Test getting services by name
-        config_service = manager.get_service("config")
-        assert isinstance(config_service, ConfigService)
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
 
-        guild_service = manager.get_service("guild")
-        assert isinstance(guild_service, GuildService)
+        container = ServiceContainer(bot=mock_bot)
+        await container.initialize()
 
-        # Test getting all services
-        all_services = manager.get_all_services()
-        assert len(all_services) == 4
+        # Test getting services
+        assert isinstance(container.config, ConfigService)
+        assert isinstance(container.guild, GuildService)
 
-        await manager.shutdown()
+        await container.cleanup()
 
     @pytest.mark.asyncio
-    async def test_health_check_all(self, temp_db):
-        """Test comprehensive health checking."""
-        manager = ServiceManager()
-        await manager.initialize()
+    async def test_health_check(self, temp_db):
+        """Test health checking through services."""
+        # Create a mock bot instance
+        from unittest.mock import Mock
 
-        health_report = await manager.health_check_all()
+        mock_bot = Mock()
+        mock_bot.get_channel = Mock(return_value=None)
+        mock_bot.get_guild = Mock(return_value=None)
 
-        assert "status" in health_report
-        assert "services" in health_report
+        container = ServiceContainer(bot=mock_bot)
+        await container.initialize()
 
-        # Check all services are reported
-        services = health_report["services"]
-        assert "config" in services
-        assert "guild" in services
-        assert "health" in services
-        assert "voice" in services
+        # Check health service is available
+        assert container.health is not None
+        health_status = await container.health.health_check()
+        assert health_status["status"] == "healthy"
 
-        await manager.shutdown()
+        await container.cleanup()
 
 
 @pytest.mark.asyncio
@@ -313,29 +360,36 @@ async def test_integration_flow(temp_db):
     Database._db_path = temp_db
     await Database.initialize(temp_db)
 
-    manager = ServiceManager()
-    await manager.initialize()
+    # Create a mock bot instance
+    from unittest.mock import Mock
+
+    mock_bot = Mock()
+    mock_bot.get_channel = Mock(return_value=None)
+    mock_bot.get_guild = Mock(return_value=None)
+
+    container = ServiceContainer(bot=mock_bot)
+    await container.initialize()
 
     guild_id = 12345
 
     # Test configuration
-    await manager.config.set_guild_setting(guild_id, "voice.cooldown_seconds", 10)
-    cooldown = await manager.config.get_guild_setting(
+    await container.config.set_guild_setting(guild_id, "voice.cooldown_seconds", 10)
+    cooldown = await container.config.get_guild_setting(
         guild_id, "voice.cooldown_seconds"
     )
     assert cooldown == 10
 
     # Test health checks (using base health_check method)
-    health_status = await manager.health.health_check()
+    health_status = await container.health.health_check()
     assert health_status["status"] == "healthy"
 
     # Test service access
-    assert manager.config is not None
-    assert manager.guild is not None
-    assert manager.health is not None
-    assert manager.voice is not None
+    assert container.config is not None
+    assert container.guild is not None
+    assert container.health is not None
+    assert container.voice is not None
 
-    await manager.shutdown()
+    await container.cleanup()
 
 
 if __name__ == "__main__":

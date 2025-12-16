@@ -8,6 +8,7 @@ from typing import Any
 import discord
 
 from services.db.database import Database
+from services.db.repository import BaseRepository
 
 from .base import BaseService
 from .config_service import ConfigService
@@ -34,7 +35,7 @@ class GuildService(BaseService):
 
     async def _ensure_guild_tables(self) -> None:
         """Ensure guild-related database tables exist."""
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             # Guild registration table
             await db.execute(
                 """
@@ -62,8 +63,6 @@ class GuildService(BaseService):
             """
             )
 
-            await db.commit()
-
     async def register_guild(self, guild: discord.Guild) -> None:
         """
         Register a guild in the database and cache roles.
@@ -73,16 +72,10 @@ class GuildService(BaseService):
         """
         self._ensure_initialized()
 
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO guild_registry
-                (guild_id, guild_name, last_seen, is_active)
-                VALUES (?, ?, strftime('%s','now'), 1)
-            """,
-                (guild.id, guild.name),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            "INSERT OR REPLACE INTO guild_registry (guild_id, guild_name, last_seen, is_active) VALUES (?, ?, strftime('%s','now'), 1)",
+            (guild.id, guild.name),
+        )
 
         await self.cache_guild_roles(guild)
 
@@ -154,31 +147,6 @@ class GuildService(BaseService):
             guild_roles = self._role_cache.get(guild_id, {})
             return guild_roles.get(role_id)
 
-    async def has_admin_role(self, member: discord.Member) -> bool:
-        """
-        Check if a member has admin privileges in their guild.
-
-        Args:
-            member: Discord member to check
-
-        Returns:
-            True if member has admin role
-        """
-        self._ensure_initialized()
-
-        # Get admin role IDs for this guild
-        admin_roles = await self.config_service.get_guild_setting(
-            member.guild.id, "roles.bot_admins", []
-        )
-        lead_mod_roles = await self.config_service.get_guild_setting(
-            member.guild.id, "roles.lead_moderators", []
-        )
-
-        all_admin_roles = set(admin_roles + lead_mod_roles)
-        member_role_ids = {role.id for role in member.roles}
-
-        return bool(all_admin_roles & member_role_ids)
-
     async def check_guild_permissions(self, guild: discord.Guild) -> dict[str, bool]:
         """
         Check bot permissions in a guild.
@@ -233,16 +201,11 @@ class GuildService(BaseService):
         Args:
             guild_id: Discord guild ID
         """
-        async with Database.get_connection() as db:
+        async with BaseRepository.transaction() as db:
             await db.execute(
-                """
-                UPDATE guild_registry
-                SET last_seen = strftime('%s','now')
-                WHERE guild_id = ?
-            """,
+                "UPDATE guild_registry SET last_seen = strftime('%s','now') WHERE guild_id = ?",
                 (guild_id,),
             )
-            await db.commit()
 
     async def deactivate_guild(self, guild_id: int) -> None:
         """
@@ -251,16 +214,10 @@ class GuildService(BaseService):
         Args:
             guild_id: Discord guild ID
         """
-        async with Database.get_connection() as db:
-            await db.execute(
-                """
-                UPDATE guild_registry
-                SET is_active = 0, last_seen = strftime('%s','now')
-                WHERE guild_id = ?
-            """,
-                (guild_id,),
-            )
-            await db.commit()
+        await BaseRepository.execute(
+            "UPDATE guild_registry SET is_active = 0, last_seen = strftime('%s','now') WHERE guild_id = ?",
+            (guild_id,),
+        )
 
         # Clear cache for this guild
         async with self._cache_lock:

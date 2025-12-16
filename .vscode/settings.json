@@ -1,0 +1,53 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.envFile": "${workspaceFolder}/.env",
+
+  // Test configuration - pytest discovers tests from pyproject.toml testpaths
+  //
+  // Run tests via:
+  //   1. Testing Explorer (left sidebar) → Run Tests
+  //   2. Command Palette (Cmd+Shift+P) → "Test: Run All Tests"
+  //   3. Right-click test file/function → Run/Debug
+  //
+  // pytest config is in pyproject.toml [tool.pytest.ini_options]
+  // Includes: tests/ and web/backend/tests/
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+  "python.testing.cwd": "${workspaceFolder}",
+
+  // Pylance type checking configuration
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.useLibraryCodeForTypes": false,
+
+  // Diagnostic severity overrides - suppress noise from third-party stubs
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportUnknownMemberType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportUnknownModuleType": "none",
+    "reportOverrideIsIncomplete": "none"
+  },
+
+  // Add backend to analysis path so editor resolves imports for backend code
+  "python.analysis.extraPaths": [
+    "web/backend"
+  ],
+
+  // Make terminals (and external agents) see the venv first on PATH for non-interactive runs
+  "terminal.integrated.env.linux": {
+    "VIRTUAL_ENV": "${workspaceFolder}/.venv",
+    "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+  },
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "./tests",
+    "-p",
+    "*test*.py"
+  ]
+}

@@ -38,7 +38,11 @@ class TestErrorMessages:
         """Test DB_TEMP_ERROR error message."""
         result = format_user_error("DB_TEMP_ERROR")
         assert "❌" in result
-        assert "database" in result.lower() or "temp" in result.lower() or "try again" in result.lower()
+        assert (
+            "database" in result.lower()
+            or "temp" in result.lower()
+            or "try again" in result.lower()
+        )
         assert len(result) < 200
 
     def test_unknown_message(self):
@@ -66,28 +70,33 @@ class TestErrorMessages:
         assert "⚠️" in result or "❌" in result  # Should have an emoji
         # May have placeholder or original template
 
-    @pytest.mark.parametrize("code,kwargs", [
-        ("OWNER_PRESENT", {"owner_display": "TestUser"}),
-        ("NOT_IN_VOICE", {}),
-        ("NOT_OWNER", {}),
-        ("NOT_MANAGED", {}),
-        ("COOLDOWN", {"seconds": 5}),
-        ("DB_TEMP_ERROR", {}),
-        ("PERMISSION", {}),
-        ("UNKNOWN", {}),
-        ("NO_CHANNEL", {}),
-        ("NOT_IN_CHANNEL", {}),
-        ("NO_JTC_CONFIGURED", {}),
-        ("JTC_NOT_FOUND", {}),
-        ("CREATION_FAILED", {}),
-    ])
+    @pytest.mark.parametrize(
+        "code,kwargs",
+        [
+            ("OWNER_PRESENT", {"owner_display": "TestUser"}),
+            ("NOT_IN_VOICE", {}),
+            ("NOT_OWNER", {}),
+            ("NOT_MANAGED", {}),
+            ("COOLDOWN", {"seconds": 5}),
+            ("DB_TEMP_ERROR", {}),
+            ("PERMISSION", {}),
+            ("UNKNOWN", {}),
+            ("NO_CHANNEL", {}),
+            ("NOT_IN_CHANNEL", {}),
+            ("NO_JTC_CONFIGURED", {}),
+            ("JTC_NOT_FOUND", {}),
+            ("CREATION_FAILED", {}),
+        ],
+    )
     def test_all_messages_have_emoji(self, code, kwargs):
         """Test that all error messages start with an emoji."""
         result = format_user_error(code, **kwargs)
         # Check for emoji at start (handle Unicode variations)
         emojis = ["❌", "⚠️", "⚠", "✅"]
         has_emoji = any(emoji in result[:3] for emoji in emojis)
-        assert has_emoji, f"Error message for {code} doesn't start with emoji: {result[:10]}"
+        assert has_emoji, (
+            f"Error message for {code} doesn't start with emoji: {result[:10]}"
+        )
 
     def test_success_messages(self):
         """Test success message formatting."""
@@ -96,7 +105,9 @@ class TestErrorMessages:
         assert "#voice-1" in result
         assert "claimed" in result.lower() or "own" in result.lower()
 
-        result = format_user_success("TRANSFERRED", user_mention="@John", channel_mention="#voice-1")
+        result = format_user_success(
+            "TRANSFERRED", user_mention="@John", channel_mention="#voice-1"
+        )
         assert "✅" in result
         assert "@John" in result
         assert "#voice-1" in result

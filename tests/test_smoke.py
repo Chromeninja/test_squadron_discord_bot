@@ -2,6 +2,7 @@
 Smoke test to verify pytest wiring and basic imports work.
 """
 
+
 def test_smoke_import():
     """
     Basic smoke test that imports a core module to verify pytest wiring
