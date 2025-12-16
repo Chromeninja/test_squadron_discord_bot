@@ -1029,7 +1029,7 @@ async def reset_user_voice_settings(
         if row:
             channel_id = row[0]
             # Deleting the live Discord channel requires an internal endpoint.
-            # This API currently performs DB cleanup only; channel deletion is a best-effort TODO.
+            # This API currently performs DB cleanup only
             # We keep the channel_id in response for transparency.
             channel_deleted = False
 

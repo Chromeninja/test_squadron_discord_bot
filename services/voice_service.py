@@ -43,7 +43,16 @@ class VoiceService(BaseService):
     with proper async safety and deduplication.
     """
 
+    # Owner ID used to mark channels as orphaned (no owner)
     ORPHAN_OWNER_ID = 0
+    # Seconds to keep users marked as creating (prevents duplicate events)
+    CREATION_UNMARK_DELAY_SECONDS = 2.0
+    # Seconds before stale creation locks are cleaned up
+    LOCK_CLEANUP_AGE_SECONDS = 300
+    # Seconds to wait for Discord API during channel creation
+    CHANNEL_CREATION_TIMEOUT_SECONDS = 10.0
+    # Days before inactive voice channels are purged (7 days)
+    INACTIVE_CHANNEL_PURGE_DAYS = 7
 
     def __init__(
         self,
@@ -65,7 +74,7 @@ class VoiceService(BaseService):
         self._creation_locks: dict[tuple[str, int, int], asyncio.Lock] = {}
         self._lock_last_used: dict[tuple[str, int, int], float] = {}
         self._locks_lock = asyncio.Lock()
-        self._creation_unmark_delay = 2.0  # seconds to keep users marked as creating
+        self._creation_unmark_delay = self.CREATION_UNMARK_DELAY_SECONDS
 
         # Track managed voice channels like the old code
         self.managed_voice_channels: set[int] = set()
@@ -385,10 +394,6 @@ class VoiceService(BaseService):
         This prevents the same user from creating multiple channels concurrently,
         even across different JTC entry points.
 
-        TODO: Consider adding asyncio.wait_for(lock.acquire(), timeout=5.0) if
-        deadlocks are observed in production. Current implementation trusts the
-        lock will be released promptly by scheduled unmark tasks.
-
         Args:
             guild_id: Discord guild ID
             user_id: Discord user ID
@@ -411,8 +416,10 @@ class VoiceService(BaseService):
                 )
             return self._creation_locks[key]
 
-    async def _cleanup_stale_locks(self, max_age_seconds: int = 300) -> None:
+    async def _cleanup_stale_locks(self, max_age_seconds: int | None = None) -> None:
         """Remove lock objects that have not been used recently."""
+        if max_age_seconds is None:
+            max_age_seconds = self.LOCK_CLEANUP_AGE_SECONDS
         cutoff = time.time() - max_age_seconds
         async with self._locks_lock:
             for key in list(self._lock_last_used.keys()):
@@ -463,13 +470,6 @@ class VoiceService(BaseService):
 
         return 0
 
-    # Backward-compatibility alias until all call sites are updated
-    def _get_voice_channel_member_count(
-        self,
-        channel_or_id: discord.VoiceChannel | discord.StageChannel | int | None,
-    ) -> int:
-        return self._get_member_count(channel_or_id)
-
     def _classify_old_channel(
         self,
         member_count: int,
@@ -479,6 +479,64 @@ class VoiceService(BaseService):
         if member_count > 0:
             return "orphan"
         return "delete"
+
+    async def _delete_channel_safe(
+        self,
+        channel_or_id: discord.VoiceChannel | discord.StageChannel | int,
+        reason: str = "Channel cleanup",
+        *,
+        cleanup_tracking: bool = True,
+    ) -> bool:
+        """
+        Safely delete a voice channel, handling NotFound/Forbidden gracefully.
+
+        Args:
+            channel_or_id: The channel object or channel ID to delete
+            reason: Audit log reason for deletion
+            cleanup_tracking: Whether to remove from managed_voice_channels cache
+
+        Returns:
+            True if channel was deleted or already gone, False if deletion failed
+        """
+        channel: discord.VoiceChannel | discord.StageChannel | None = None
+        channel_id: int
+
+        if isinstance(channel_or_id, int):
+            channel_id = channel_or_id
+            if self.bot:
+                ch = self.bot.get_channel(channel_id)
+                if isinstance(ch, (discord.VoiceChannel, discord.StageChannel)):
+                    channel = ch
+        else:
+            channel = channel_or_id
+            channel_id = channel.id
+
+        try:
+            if channel is not None:
+                await channel.delete(reason=reason)
+                self.logger.info(f"Deleted voice channel {channel_id}: {reason}")
+            else:
+                self.logger.debug(
+                    f"Channel {channel_id} not in cache, skipping Discord deletion"
+                )
+        except discord.NotFound:
+            # Channel already deleted - this is fine
+            self.logger.debug(f"Channel {channel_id} already deleted")
+        except discord.Forbidden as e:
+            self.logger.warning(
+                f"Insufficient permissions to delete channel {channel_id}: {e}"
+            )
+            return False
+        except Exception as e:
+            self.logger.exception(
+                f"Unexpected error deleting channel {channel_id}", exc_info=e
+            )
+            return False
+        finally:
+            if cleanup_tracking:
+                self.managed_voice_channels.discard(channel_id)
+
+        return True
 
     async def _handle_orphan_or_delete(
         self,
@@ -915,7 +973,7 @@ class VoiceService(BaseService):
                 self.logger.debug("Cleaned up old voice cooldown records")
 
                 deleted_rows = await self._purge_inactive_voice_channels(
-                    older_than_seconds=7 * 24 * 3600
+                    older_than_seconds=self.INACTIVE_CHANNEL_PURGE_DAYS * 24 * 3600
                 )
                 if deleted_rows:
                     self.logger.debug(
@@ -1758,7 +1816,7 @@ class VoiceService(BaseService):
                             )
                         channel = await asyncio.wait_for(
                             self._create_user_channel(guild, jtc_channel, member),
-                            timeout=10.0,
+                            timeout=self.CHANNEL_CREATION_TIMEOUT_SECONDS,
                         )
                         if self.debug_logging_enabled:
                             self.logger.info(
@@ -1863,19 +1921,16 @@ class VoiceService(BaseService):
             if category is None:
                 raise RuntimeError(f"JTC channel {jtc_channel.name} has no category")
 
-            if not self.bot or not self.bot.user:
-                raise RuntimeError("Bot instance or bot user not available")
+            can_create, error_msg = await self._validate_jtc_permissions(category)
+            if not can_create:
+                raise RuntimeError(error_msg or "Permission validation failed")
 
+            # Get bot_member for later permission checks
+            if not self.bot or not self.bot.user:
+                raise RuntimeError("Bot instance not available")
             bot_member = guild.get_member(self.bot.user.id)
             if bot_member is None:
                 raise RuntimeError("Bot member not found in guild")
-
-            # Check if bot has permissions to create channels in the category
-            perms = category.permissions_for(bot_member)
-            if not perms.manage_channels:
-                error_msg = f"Bot missing 'Manage Channels' permission in category '{category.name}'"
-                self.logger.error(error_msg)
-                raise RuntimeError(error_msg)
 
             # Create the channel without overwrites to inherit from parent category
             channel = await guild.create_voice_channel(
@@ -1943,12 +1998,9 @@ class VoiceService(BaseService):
                     f"User {member.display_name} disconnected before channel creation completed, cleaning up channel {channel.id}"
                 )
                 # Cleanup the created channel
-                try:
-                    await channel.delete(
-                        reason="User disconnected during channel creation"
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Failed to cleanup channel {channel.id}: {e}")
+                await self._delete_channel_safe(
+                    channel, reason="User disconnected during channel creation"
+                )
 
                 # Send DM to user
                 try:
@@ -1978,15 +2030,9 @@ class VoiceService(BaseService):
                     f"Failed to move {member.display_name} to channel {channel.id}: {e}"
                 )
                 # Cleanup the created channel
-                try:
-                    await channel.delete(reason="Failed to move user")
-                    self.logger.info(
-                        f"Cleaned up channel {channel.id} after failed move"
-                    )
-                except Exception as cleanup_error:
-                    self.logger.warning(
-                        f"Failed to cleanup channel {channel.id}: {cleanup_error}"
-                    )
+                await self._delete_channel_safe(
+                    channel, reason="Failed to move user"
+                )
 
                 # Send DM to user
                 try:
@@ -3635,23 +3681,17 @@ class VoiceService(BaseService):
             if self.bot:
                 channel = self.bot.get_channel(channel_id)
                 if channel and isinstance(channel, discord.VoiceChannel):
-                    try:
-                        await channel.delete(reason=f"Admin reset for user {user_id}")
-                        result["channel_deleted"] = True
-                        self.logger.info(
-                            f"Deleted voice channel {channel_id} for user {user_id} in guild {guild_id}"
-                        )
-                    except (discord.NotFound, discord.Forbidden) as e:
-                        self.logger.warning(
-                            f"Could not delete channel {channel_id}: {e}"
-                        )
-                        # Continue - we'll clean up database records anyway
+                    deleted = await self._delete_channel_safe(
+                        channel,
+                        reason=f"Admin reset for user {user_id}",
+                        cleanup_tracking=False,  # We handle tracking below
+                    )
+                    result["channel_deleted"] = deleted
                 else:
                     self.logger.warning(f"Channel {channel_id} not found in bot cache")
 
             # Remove from managed channels cache
-            if channel_id in self.managed_voice_channels:
-                self.managed_voice_channels.discard(channel_id)
+            self.managed_voice_channels.discard(channel_id)
 
             result["success"] = True
 
@@ -3771,23 +3811,20 @@ class VoiceService(BaseService):
                             non_bot_members = [
                                 m
                                 for m in channel.members
-                                if isinstance(m, discord.Member) and m.bot
+                                if isinstance(m, discord.Member) and not m.bot
                             ]
                             if len(non_bot_members) == 0:
-                                await channel.delete(
-                                    reason=f"Cleanup stale JTC {jtc_channel_id} managed channel"
+                                deleted = await self._delete_channel_safe(
+                                    channel,
+                                    reason=f"Cleanup stale JTC {jtc_channel_id} managed channel",
                                 )
-                                deleted_channels.append(
-                                    {
-                                        "voice_channel_id": voice_channel_id,
-                                        "jtc_channel_id": jtc_channel_id,
-                                    }
-                                )
-                                # Remove from cache
-                                self.managed_voice_channels.discard(voice_channel_id)
-                                self.logger.info(
-                                    f"Deleted empty managed channel {voice_channel_id} for stale JTC {jtc_channel_id}"
-                                )
+                                if deleted:
+                                    deleted_channels.append(
+                                        {
+                                            "voice_channel_id": voice_channel_id,
+                                            "jtc_channel_id": jtc_channel_id,
+                                        }
+                                    )
                             else:
                                 # Channel has users, don't delete but log
                                 self.logger.warning(
@@ -3815,16 +3852,10 @@ class VoiceService(BaseService):
                         else:
                             # Channel doesn't exist in bot cache, remove from our tracking anyway
                             self.managed_voice_channels.discard(voice_channel_id)
-                            self.logger.info(
+                            self.logger.debug(
                                 f"Managed channel {voice_channel_id} not found, removed from cache"
                             )
 
-                    except (discord.NotFound, discord.Forbidden) as e:
-                        # Channel already gone or no permissions, that's fine
-                        self.logger.info(
-                            f"Could not delete managed channel {voice_channel_id}: {e}"
-                        )
-                        self.managed_voice_channels.discard(voice_channel_id)
                     except Exception as e:
                         error_msg = (
                             f"Error deleting managed channel {voice_channel_id}: {e}"
