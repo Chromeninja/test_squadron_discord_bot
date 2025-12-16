@@ -33,6 +33,12 @@ HTTP_SERVER_ERROR = 500
 # ---------------------------------------------------------------------------
 # Circuit Breaker for Web Backend RSI Requests
 # ---------------------------------------------------------------------------
+# Circuit Breaker for Web Backend RSI Requests
+#
+# TODO: Consider consolidating with helpers/circuit_breaker.py for consistency.
+# The bot's CircuitBreakerState implementation has additional features like
+# exponential backoff that could benefit the web backend.
+# ---------------------------------------------------------------------------
 
 
 class CircuitState(Enum):

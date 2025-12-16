@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { authApi, adminApi, GuildSummary, UserProfile } from '../api/endpoints';
+import { authApi, adminApi, GuildSummary, UserProfile, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { handleApiError, showSuccess } from '../utils/toast';
 import { Button, Card, Alert } from '../components/ui';
-
-// Sentinel value for "All Guilds" mode - must match backend ALL_GUILDS_SENTINEL
-const ALL_GUILDS_SENTINEL = '*';
 
 interface SelectServerProps {
   onSelected: () => Promise<void> | void;

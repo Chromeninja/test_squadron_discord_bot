@@ -255,7 +255,21 @@ async def list_active_voice_channels(
         return ActiveVoiceChannelsResponse(items=[], total=0, is_cross_guild=False)
 
     if is_cross_guild:
-        # Cross-guild mode: fetch all active voice channels across all guilds
+        # Cross-guild mode: fetch active voice channels with database-level pagination
+        offset = (page - 1) * page_size
+
+        # First, get the total count for pagination metadata
+        count_cursor = await db.execute(
+            "SELECT COUNT(*) FROM voice_channels WHERE is_active = 1"
+        )
+        count_row = await count_cursor.fetchone()
+        total = count_row[0] if count_row else 0
+
+        if total == 0:
+            return ActiveVoiceChannelsResponse(
+                items=[], total=0, is_cross_guild=True, guild_groups=[]
+            )
+
         cursor = await db.execute(
             """
             SELECT
@@ -272,13 +286,15 @@ async def list_active_voice_channels(
             LEFT JOIN verification v ON vc.owner_id = v.user_id
             WHERE vc.is_active = 1
             ORDER BY vc.guild_id, vc.last_activity DESC
+            LIMIT ? OFFSET ?
             """,
+            (page_size, offset),
         )
-        rows = await cursor.fetchall()
+        rows_paged = await cursor.fetchall()
 
-        if not rows:
+        if not rows_paged:
             return ActiveVoiceChannelsResponse(
-                items=[], total=0, is_cross_guild=True, guild_groups=[]
+                items=[], total=total, is_cross_guild=True, guild_groups=[]
             )
 
         # Get guild metadata for names
@@ -290,11 +306,6 @@ async def list_active_voice_channels(
             }
         except Exception:
             guild_map = {}
-
-        # Apply pagination to total rows
-        offset = (page - 1) * page_size
-        total = len(rows)
-        rows_paged = rows[offset:offset + page_size]
 
         # Build items with minimal enrichment (no Discord API calls in cross-guild mode)
         items = []

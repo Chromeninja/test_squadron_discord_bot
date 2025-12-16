@@ -42,6 +42,7 @@ function Users() {
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Admin actions
   const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
@@ -118,7 +119,6 @@ function Users() {
       }
       
       // Kick off async bulk recheck and poll progress. If start endpoint is unavailable (404/405), fall back to synchronous flow.
-      let pollInterval: ReturnType<typeof setInterval> | null = null;
       try {
         const startResp = await adminApi.startBulkRecheckUsers(userIdsToRecheck);
 
@@ -134,14 +134,15 @@ function Users() {
           final_response: null,
         });
 
-        pollInterval = setInterval(async () => {
+        pollIntervalRef.current = setInterval(async () => {
           try {
             const progress = await adminApi.getBulkRecheckProgress(jobId);
             setRecheckProgress(progress);
 
             if (progress.status === 'complete' || progress.status === 'error') {
-              if (pollInterval) {
-                clearInterval(pollInterval);
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
               }
 
               if (progress.final_response) {
@@ -157,8 +158,9 @@ function Users() {
               setBulkRechecking(false);
             }
           } catch (err) {
-            if (pollInterval) {
-              clearInterval(pollInterval);
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
             }
             setBulkRechecking(false);
           }
@@ -298,6 +300,16 @@ function Users() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [orgDropdownOpen]);
+
+  // Cleanup interval on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Load user profile to get active guild
   useEffect(() => {
