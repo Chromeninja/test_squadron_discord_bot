@@ -74,22 +74,28 @@ function App() {
   // Check if user has any permissions
   // Fallback: if authorized_guilds doesn't exist, fall back to is_admin/is_moderator
   const hasAnyPermissions = (() => {
+    // Bot owners always have access
+    if (user.is_bot_owner) {
+      return true;
+    }
+
     // Check for older session format
     if (user.is_admin || user.is_moderator) {
       return true;
     }
-    
+
     // Check new format: user needs at least staff level in active guild
-    if (user.active_guild_id && user.authorized_guilds) {
+    // Skip this check for All Guilds mode (active_guild_id = "*") - bot owner already handled above
+    if (user.active_guild_id && user.active_guild_id !== '*' && user.authorized_guilds) {
       const guildPerm = user.authorized_guilds[user.active_guild_id];
       return guildPerm && hasPermission(guildPerm.role_level, 'staff');
     }
-    
+
     // Check if user has permissions in ANY guild (e.g., bot owner)
     if (user.authorized_guilds && Object.keys(user.authorized_guilds).length > 0) {
       return true;
     }
-    
+
     return false;
   })();
 

@@ -309,6 +309,7 @@ def require_guild_permission(min_role: str):
         internal_api: InternalAPIClient = Depends(get_internal_api_client),
     ) -> UserProfile:
         """Check if user has required permission level in active guild."""
+        from .pagination import is_all_guilds_mode
 
         await _ensure_fresh_guild_access(
             request,
@@ -317,6 +318,16 @@ def require_guild_permission(min_role: str):
             current_user,
             internal_api,
         )
+
+        # Bot owners in "All Guilds" mode have implicit bot_owner permission
+        if is_all_guilds_mode(current_user.active_guild_id):
+            if not current_user.is_bot_owner:
+                raise HTTPException(
+                    status_code=403,
+                    detail="All Guilds mode is only available to bot owners",
+                )
+            # Bot owners always pass any permission check
+            return current_user
 
         # User must have selected a guild
         if not current_user.active_guild_id:
@@ -556,10 +567,10 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
         # Handle both dict (from raw session) and GuildPermission (from get_current_user)
         if existing_perm is None:
             existing_source = ""
-        elif hasattr(existing_perm, "source"):
-            existing_source = existing_perm.source or ""
         elif isinstance(existing_perm, dict):
-            existing_source = existing_perm.get("source", "")
+            existing_source = existing_perm.get("source", "") or ""
+        elif hasattr(existing_perm, "source"):
+            existing_source = getattr(existing_perm, "source", "") or ""
         else:
             existing_source = ""
 
@@ -646,6 +657,18 @@ async def _ensure_fresh_guild_access(
     internal_api: InternalAPIClient,
     force_refresh: bool = False,
 ):
+    from .pagination import is_all_guilds_mode
+
+    # Bot owners in "All Guilds" mode bypass per-guild validation
+    if is_all_guilds_mode(current_user.active_guild_id):
+        if not current_user.is_bot_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="All Guilds mode is only available to bot owners",
+            )
+        # Skip guild-specific validation for cross-guild mode
+        return current_user
+
     if not current_user.active_guild_id:
         raise HTTPException(status_code=400, detail="No active guild selected")
 
@@ -906,7 +929,7 @@ class InternalAPIClient:
         return response.json()
 
     async def recheck_user(
-        self, guild_id: int, user_id: int, admin_user_id: str | None = None
+        self, guild_id: int, user_id: int, admin_user_id: str | None = None, log_leadership: bool = True
     ) -> dict:
         """
         Trigger reverification check for a specific user.
@@ -918,6 +941,7 @@ class InternalAPIClient:
             guild_id: Discord guild ID
             user_id: Discord user ID
             admin_user_id: Optional Discord user ID of admin triggering recheck
+            log_leadership: Whether to post individual leadership log message (default True)
 
         Returns:
             dict with recheck results (message, roles_updated, status, diff, etc.)
@@ -926,13 +950,13 @@ class InternalAPIClient:
             httpx.HTTPStatusError: If request fails
         """
         client = await self._get_client()
-        json_body = {}
+        json_body = {"log_leadership": log_leadership}
         if admin_user_id:
             json_body["admin_user_id"] = admin_user_id
 
         response = await client.post(
             f"/guilds/{guild_id}/members/{user_id}/recheck",
-            json=json_body if json_body else None,
+            json=json_body,
         )
         response.raise_for_status()
         return response.json()

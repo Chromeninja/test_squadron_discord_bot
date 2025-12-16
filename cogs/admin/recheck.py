@@ -116,6 +116,15 @@ class AutoRecheck(commands.Cog):
         self.run_every_minutes = int(batch_cfg.get("run_every_minutes", 60))
         self.max_users_per_run = int(batch_cfg.get("max_users_per_run", 50))
 
+        # New rate protection settings
+        self.startup_delay_minutes = int(batch_cfg.get("startup_delay_minutes", 5))
+        self.per_user_delay_seconds = float(batch_cfg.get("per_user_delay_seconds", 1.5))
+        self.ramp_up_runs = int(batch_cfg.get("ramp_up_runs", 3))
+
+        # Track runs since start for gradual ramp-up
+        self._runs_since_start = 0
+        self._startup_delay_done = False
+
         backoff = cfg.get("backoff") or {}
         self.backoff_base_m = int(backoff.get("base_minutes", 180))
         self.backoff_max_m = int(backoff.get("max_minutes", 1440))
@@ -135,6 +144,33 @@ class AutoRecheck(commands.Cog):
             return
         await self.bot.wait_until_ready()
 
+        # Startup delay: wait before first run to avoid hammering RSI on boot
+        if not self._startup_delay_done:
+            logger.info(
+                "Auto-recheck waiting %d minutes before first run (startup delay)",
+                self.startup_delay_minutes,
+            )
+            await asyncio.sleep(self.startup_delay_minutes * 60)
+            self._startup_delay_done = True
+            logger.info("Auto-recheck startup delay complete, beginning first run")
+
+        self._runs_since_start += 1
+
+        # Gradual ramp-up: use smaller batch sizes for first N runs
+        if self._runs_since_start <= self.ramp_up_runs:
+            # Scale from 20% -> 50% -> 100% of max batch size
+            ramp_factor = self._runs_since_start / self.ramp_up_runs
+            effective_batch_size = max(5, int(self.max_users_per_run * ramp_factor))
+            logger.info(
+                "Auto-recheck ramp-up run %d/%d: batch size %d (max: %d)",
+                self._runs_since_start,
+                self.ramp_up_runs,
+                effective_batch_size,
+                self.max_users_per_run,
+            )
+        else:
+            effective_batch_size = self.max_users_per_run
+
         guild_summaries: dict[int, dict] = defaultdict(
             lambda: {"checked": 0, "changed": 0, "rows": []}
         )
@@ -149,13 +185,21 @@ class AutoRecheck(commands.Cog):
             return
 
         now = int(time.time())
-        # Batch size cap from config
-        rows = await Database.get_due_auto_rechecks(now, self.max_users_per_run)
+        # Batch size cap from config (or ramp-up size)
+        rows = await Database.get_due_auto_rechecks(now, effective_batch_size)
         if not rows:
             return
 
+        # Track metrics for health service
+        circuit_breaker_paused = False
+        users_processed = 0
+
         # Process users globally
-        for user_id, rsi_handle in rows:
+        for idx, (user_id, rsi_handle) in enumerate(rows):
+            # Per-user delay to pace requests (skip first user)
+            if idx > 0 and self.per_user_delay_seconds > 0:
+                await asyncio.sleep(self.per_user_delay_seconds)
+
             try:
                 global_state = await compute_global_state(
                     int(user_id),
@@ -165,20 +209,37 @@ class AutoRecheck(commands.Cog):
                 )
             except NotFoundError:
                 await self._handle_not_found(user_id, rsi_handle)
+                users_processed += 1
                 continue
             except Exception as e:
                 fail_count = await Database.get_auto_recheck_fail_count(int(user_id))
                 await handle_recheck_failure(
                     int(user_id), str(e), fail_count=fail_count + 1, config=getattr(self.bot, "config", {})
                 )
+                users_processed += 1
                 continue
+
+            # Check for circuit breaker open state and pause batch
+            if global_state.error and "circuit" in global_state.error.lower():
+                logger.warning(
+                    "Auto-recheck pausing batch: circuit breaker is open (%s)",
+                    global_state.error,
+                )
+                circuit_breaker_paused = True
+                # Record metric if health service available
+                if hasattr(self.bot, "services") and hasattr(self.bot.services, "health"):  # type: ignore[attr-defined]
+                    await self.bot.services.health.record_metric("auto_check_circuit_pauses")  # type: ignore[attr-defined]
+                break  # Exit batch early, will retry next loop
 
             if global_state.error:
                 fail_count = await Database.get_auto_recheck_fail_count(int(user_id))
                 await handle_recheck_failure(
                     int(user_id), global_state.error, fail_count=fail_count + 1, config=getattr(self.bot, "config", {})
                 )
+                users_processed += 1
                 continue
+
+            users_processed += 1
 
             # Apply to guilds first so snapshot 'before' reflects prior DB state
             results = await sync_user_to_all_guilds(
@@ -213,6 +274,19 @@ class AutoRecheck(commands.Cog):
                 await schedule_user_recheck(int(user_id), next_retry)
             except Exception as e:
                 logger.warning("Failed to schedule next retry for %s: %s", user_id, e)
+
+        # Record auto-check metrics
+        if hasattr(self.bot, "services") and hasattr(self.bot.services, "health"):  # type: ignore[attr-defined]
+            await self.bot.services.health.record_metric("auto_check_runs")  # type: ignore[attr-defined]
+            await self.bot.services.health.record_metric("auto_check_users_processed", users_processed)  # type: ignore[attr-defined]
+
+        if circuit_breaker_paused:
+            logger.info(
+                "Auto-recheck batch terminated early due to circuit breaker. "
+                "Processed %d/%d users. Will retry remaining users next run.",
+                users_processed,
+                len(rows),
+            )
 
         await self._post_auto_summaries(guild_summaries)
 

@@ -175,6 +175,15 @@ export interface ActiveVoiceChannel {
   last_activity: number;
   channel_name: string | null;
   members: VoiceChannelMember[];
+  // Cross-guild mode: guild name for display
+  guild_name?: string | null;
+}
+
+// Cross-guild mode: voice channels grouped by guild
+export interface GuildVoiceGroup {
+  guild_id: string;
+  guild_name: string;
+  items: ActiveVoiceChannel[];
 }
 
 export interface PermissionEntry {
@@ -229,6 +238,13 @@ export interface UserJTCSettings {
   jtcs: JTCChannelSettings[];
 }
 
+// Cross-guild mode: user voice settings grouped by guild
+export interface GuildUserSettingsGroup {
+  guild_id: string;
+  guild_name: string;
+  items: UserJTCSettings[];
+}
+
 export interface VoiceUserSettingsSearchResponse {
   success: boolean;
   items: UserJTCSettings[];
@@ -236,6 +252,8 @@ export interface VoiceUserSettingsSearchResponse {
   page: number;
   page_size: number;
   message?: string | null;
+  is_cross_guild?: boolean;
+  guild_groups?: GuildUserSettingsGroup[] | null;
 }
 
 export interface SystemMetrics {
@@ -275,6 +293,9 @@ export interface EnrichedUser {
   roles: Array<{ id: number; name: string; color: number | null }>;
   main_orgs: string[] | null;
   affiliate_orgs: string[] | null;
+  // Cross-guild mode fields
+  guild_id?: string | null;
+  guild_name?: string | null;
 }
 
 export interface UsersListResponse {
@@ -284,6 +305,7 @@ export interface UsersListResponse {
   page: number;
   page_size: number;
   total_pages: number;
+  is_cross_guild?: boolean;
 }
 
 export interface ExportUsersRequest {
@@ -293,6 +315,15 @@ export interface ExportUsersRequest {
   selected_ids?: string[] | null;
   exclude_ids?: string[] | null;
 }
+
+// All Guilds metadata for cross-guild mode (bot owner only)
+export interface AllGuildsMetadataResponse {
+  success: boolean;
+  guilds: Record<string, GuildSummary>;
+}
+
+// Sentinel value for "All Guilds" mode - must match backend
+export const ALL_GUILDS_SENTINEL = '*';
 
 // API functions
 export const authApi = {
@@ -329,6 +360,13 @@ export const authApi = {
   clearActiveGuild: async () => {
     const response = await apiClient.delete<{ success: boolean }>(
       '/api/auth/active-guild'
+    );
+    return response.data;
+  },
+  // Bot owner only: get all guilds metadata for cross-guild label caching
+  getAllGuildsMetadata: async (): Promise<AllGuildsMetadataResponse> => {
+    const response = await apiClient.get<AllGuildsMetadataResponse>(
+      '/api/auth/all-guilds-metadata'
     );
     return response.data;
   },
@@ -412,6 +450,8 @@ export const voiceApi = {
       success: boolean;
       items: ActiveVoiceChannel[];
       total: number;
+      is_cross_guild?: boolean;
+      guild_groups?: GuildVoiceGroup[] | null;
     }>('/api/voice/active');
     return response.data;
   },
@@ -501,6 +541,22 @@ export interface BulkRecheckResponse {
   summary_text: string | null;
   csv_filename: string | null;
   csv_content: string | null;
+  job_id: string | null;
+}
+
+export interface BulkRecheckProgress {
+  job_id: string;
+  total: number;
+  processed: number;
+  successful: number;
+  failed: number;
+  status: 'running' | 'complete' | 'error';
+  current_user: string | null;
+  final_response?: BulkRecheckResponse | null;
+}
+
+export interface BulkRecheckStartResponse {
+  job_id: string;
 }
 
 export const adminApi = {
@@ -520,6 +576,19 @@ export const adminApi = {
     const response = await apiClient.post<BulkRecheckResponse>(
       `/api/admin/users/bulk-recheck`,
       { user_ids: userIds }
+    );
+    return response.data;
+  },
+  startBulkRecheckUsers: async (userIds: string[]) => {
+    const response = await apiClient.post<BulkRecheckStartResponse>(
+      `/api/admin/users/bulk-recheck/start`,
+      { user_ids: userIds }
+    );
+    return response.data;
+  },
+  getBulkRecheckProgress: async (jobId: string) => {
+    const response = await apiClient.get<BulkRecheckProgress>(
+      `/api/admin/users/bulk-recheck/${jobId}/progress`
     );
     return response.data;
   },

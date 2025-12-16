@@ -4,7 +4,8 @@ import string
 
 from bs4 import BeautifulSoup
 
-from helpers.http_helper import HTTPClient, NotFoundError
+from helpers.circuit_breaker import get_rsi_circuit_breaker
+from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
@@ -526,9 +527,17 @@ async def is_valid_rsi_bio(
 
     Returns:
         Optional[bool]: True if the token is found in the bio, False if not,
-            or None if error.
+            or None if error (including circuit breaker open).
     """
     logger.debug(f"Validating token in RSI bio for handle: {user_handle}")
+
+    # Check circuit breaker before making RSI request
+    circuit_breaker = get_rsi_circuit_breaker()
+    if circuit_breaker.is_open():
+        logger.info(
+            "Circuit breaker OPEN, skipping bio check for %s", user_handle
+        )
+        return None
 
     if not RSI_HANDLE_REGEX.match(user_handle):
         logger.warning(f"Invalid RSI handle format for bio validation: {user_handle}")
@@ -536,10 +545,25 @@ async def is_valid_rsi_bio(
 
     bio_url = f"https://robertsspaceindustries.com/citizens/{user_handle}"
     logger.debug(f"Fetching bio from URL: {bio_url}")
-    bio_html = await http_client.fetch_html(bio_url)
+    try:
+        bio_html = await http_client.fetch_html(bio_url)
+    except ForbiddenError:
+        # Record 403 failure and return None
+        circuit_breaker.record_failure()
+        logger.warning(
+            "RSI returned 403 Forbidden during bio check for %s", user_handle
+        )
+        return None
+    except Exception:
+        logger.exception(f"Error fetching bio for {user_handle}")
+        return None
+
     if not bio_html:
         logger.error(f"Failed to fetch bio data for handle: {user_handle}")
         return None
+
+    # Record success - RSI responded
+    circuit_breaker.record_success()
 
         # Extract bio text
     try:

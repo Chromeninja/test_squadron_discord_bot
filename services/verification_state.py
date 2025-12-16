@@ -14,7 +14,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from helpers.http_helper import HTTPClient, NotFoundError
+from helpers.circuit_breaker import (
+    CIRCUIT_OPEN_ERROR_MESSAGE,
+    get_rsi_circuit_breaker,
+)
+from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 from utils.logging import get_logger
 from verification.rsi_verification import is_valid_rsi_handle
 
@@ -131,6 +135,27 @@ async def compute_global_state(
 
     semaphore = await _maybe_init_semaphore(limits["max_concurrency"])
 
+    # Check circuit breaker before attempting fetch
+    circuit_breaker = get_rsi_circuit_breaker(config)
+    if circuit_breaker.is_open():
+        retry_in = circuit_breaker.time_until_retry()
+        logger.info(
+            "Circuit breaker OPEN for RSI requests, failing fast for handle %s "
+            "(retry in %.1fs)",
+            rsi_handle,
+            retry_in,
+        )
+        return GlobalVerificationState(
+            user_id=user_id,
+            rsi_handle=rsi_handle,
+            status="non_member",
+            main_orgs=[],
+            affiliate_orgs=[],
+            community_moniker=None,
+            checked_at=int(time.time()),
+            error=CIRCUIT_OPEN_ERROR_MESSAGE,
+        )
+
     async def _do_fetch():
         return await is_valid_rsi_handle(
             rsi_handle,
@@ -146,7 +171,28 @@ async def compute_global_state(
             semaphore=semaphore,
         )
     except NotFoundError:
+        # 404 is a valid response (handle doesn't exist), record as success for circuit
+        circuit_breaker.record_success()
         raise
+    except ForbiddenError:
+        # 403 Forbidden - RSI is blocking us, record failure for circuit breaker
+        circuit_breaker.record_failure()
+        logger.warning(
+            "RSI returned 403 Forbidden for handle %s (circuit failures: %d/%d)",
+            rsi_handle,
+            circuit_breaker.failure_count,
+            circuit_breaker.config.threshold,
+        )
+        return GlobalVerificationState(
+            user_id=user_id,
+            rsi_handle=rsi_handle,
+            status="non_member",
+            main_orgs=[],
+            affiliate_orgs=[],
+            community_moniker=None,
+            checked_at=int(time.time()),
+            error="RSI website blocked our request. Please try again later.",
+        )
     except Exception as e:  # Transient/unknown errors captured as error state
         logger.warning(
             "RSI fetch failed for handle %s: %s", rsi_handle, e, exc_info=True
@@ -169,6 +215,9 @@ async def compute_global_state(
         main_orgs,
         affiliate_orgs,
     ) = result
+
+    # Record success on the circuit breaker (RSI responded without 403)
+    circuit_breaker.record_success()
 
     # verify_value None indicates transient parse/fetch failure
     if verify_value is None or cased_handle is None:

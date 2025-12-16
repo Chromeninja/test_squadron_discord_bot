@@ -2,8 +2,11 @@
 Admin endpoints for user management (recheck, reset timers).
 """
 
+import asyncio
 import base64
 import time
+import uuid
+from typing import Optional, Callable, Awaitable
 
 from core.dependencies import (
     InternalAPIClient,
@@ -30,7 +33,35 @@ logger = get_logger(__name__)
 # Maximum number of users that can be rechecked in a single bulk operation
 MAX_BULK_RECHECK = 100
 
+# Throttling settings for bulk operations to avoid overwhelming RSI
+# Conservative pacing to prevent circuit breaker trips on large batches
+BULK_RECHECK_DELAY_SECONDS = 3.0  # Delay between each recheck request
+BULK_RECHECK_BATCH_SIZE = 5  # Users per batch before longer pause
+BULK_RECHECK_BATCH_PAUSE_SECONDS = 10.0  # Pause between batches
+
 router = APIRouter()
+
+# In-memory progress store for bulk recheck jobs
+# Key: job_id, Value: progress dict
+_bulk_recheck_progress: dict[str, dict] = {}
+
+
+class BulkRecheckProgress(BaseModel):
+    """Progress info for a bulk recheck job."""
+    job_id: str
+    total: int
+    processed: int
+    successful: int
+    failed: int
+    status: str  # "running", "complete", "error"
+    current_user: Optional[str] = None
+    final_response: dict | None = None
+
+
+class BulkRecheckStartResponse(BaseModel):
+    """Response for async bulk recheck start."""
+
+    job_id: str
 
 
 class RecheckUserResponse(BaseModel):
@@ -221,6 +252,27 @@ async def reset_reverify_timer(
     )
 
 
+@router.get("/users/bulk-recheck/{job_id}/progress", response_model=BulkRecheckProgress)
+async def get_bulk_recheck_progress(
+    job_id: str,
+    current_user: UserProfile = Depends(require_moderator()),
+):
+    """
+    Get progress for a bulk recheck job.
+    
+    Args:
+        job_id: The job ID returned when starting bulk recheck
+        
+    Returns:
+        BulkRecheckProgress with current progress
+    """
+    if job_id not in _bulk_recheck_progress:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    
+    progress = _bulk_recheck_progress[job_id]
+    return BulkRecheckProgress(**progress)
+
+
 class BulkRecheckRequest(BaseModel):
     """Request for bulk recheck operation."""
 
@@ -240,54 +292,78 @@ class BulkRecheckResponse(BaseModel):
     summary_text: str | None = None
     csv_filename: str | None = None
     csv_content: str | None = None  # Base64-encoded CSV bytes
+    job_id: str | None = None  # Job ID for progress tracking
 
 
-@router.post("/users/bulk-recheck", response_model=BulkRecheckResponse)
-async def bulk_recheck_users(
+async def _execute_bulk_recheck(
+    job_id: str,
     request: BulkRecheckRequest,
-    current_user: UserProfile = Depends(require_moderator()),
-    internal_api: InternalAPIClient = Depends(get_internal_api_client),
-):
-    """
-    Trigger reverification check for multiple users at once.
+    current_user: UserProfile,
+    internal_api: InternalAPIClient,
+    progress_hook: Callable[[dict], Awaitable[None]] | None = None,
+) -> BulkRecheckResponse:
+    """Core bulk recheck logic shared by sync and async modes."""
 
-    This endpoint processes users one at a time to respect rate limits.
-
-    Requires: Admin role
-
-    Args:
-        request: BulkRecheckRequest with list of user IDs
-
-    Returns:
-        BulkRecheckResponse with operation results
-    """
-    # Use validation utility for consistent guild validation
     guild_id_int = ensure_active_guild(current_user)
-
-    if not request.user_ids:
-        raise HTTPException(status_code=400, detail="No user IDs provided")
-
-    if len(request.user_ids) > MAX_BULK_RECHECK:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot recheck more than {MAX_BULK_RECHECK} users at once",
-        )
 
     successful = 0
     failed = 0
     errors: list[dict] = []
     results: list[dict] = []
     status_rows: list[StatusRow] = []
+    circuit_breaker_hit = False
 
-    for user_id in request.user_ids:
+    total_users = len(request.user_ids)
+
+    logger.info(
+        f"Starting bulk recheck for {total_users} users in guild {guild_id_int} "
+        f"(throttle: {BULK_RECHECK_DELAY_SECONDS}s delay, batch size {BULK_RECHECK_BATCH_SIZE})"
+    )
+
+    # Pre-flight: Check if circuit breaker is already open before starting
+    try:
+        from helpers.circuit_breaker import get_rsi_circuit_breaker
+        circuit_breaker = get_rsi_circuit_breaker({})
+        if circuit_breaker.is_open():
+            retry_after = int(circuit_breaker.time_until_retry())
+            raise HTTPException(
+                status_code=503,
+                detail=f"RSI service temporarily unavailable. Retry in {retry_after} seconds.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except ImportError:
+        pass  # Circuit breaker not available, proceed anyway
+
+    for idx, user_id in enumerate(request.user_ids):
+        # Check for circuit breaker open condition from previous failures
+        if circuit_breaker_hit:
+            # Skip remaining users and mark as circuit-breaker-skipped
+            errors.append({
+                "user_id": user_id,
+                "error": "Skipped: RSI service temporarily unavailable",
+                "circuit_breaker": True,
+            })
+            failed += 1
+            continue
+
         try:
             user_id_int = parse_snowflake_id(user_id, "User ID")
             recheck_result = await internal_api.recheck_user(
                 guild_id=guild_id_int,
                 user_id=user_id_int,
                 admin_user_id=current_user.user_id,
+                log_leadership=False,  # Don't log individual messages for bulk operations
             )
             successful += 1
+
+            # Update progress
+            _bulk_recheck_progress[job_id]["processed"] = idx + 1
+            _bulk_recheck_progress[job_id]["successful"] = successful
+            _bulk_recheck_progress[job_id]["failed"] = failed
+            _bulk_recheck_progress[job_id]["current_user"] = str(user_id_int)
+
+            if progress_hook:
+                await progress_hook(_bulk_recheck_progress[job_id])
 
             # Extract result fields
             status = recheck_result.get("status")
@@ -331,7 +407,34 @@ async def bulk_recheck_users(
         except Exception as e:
             failed += 1
             error_detail = str(e)
-            errors.append({"user_id": user_id, "error": error_detail})
+
+            # Detect circuit breaker / 503 from error message or status code
+            is_circuit_open = (
+                "503" in error_detail
+                or "circuit" in error_detail.lower()
+                or "temporarily unavailable" in error_detail.lower()
+            )
+
+            if is_circuit_open:
+                circuit_breaker_hit = True
+                logger.warning(
+                    f"Circuit breaker detected at user {idx + 1}/{total_users}, "
+                    f"skipping remaining {total_users - idx - 1} users"
+                )
+
+            errors.append({
+                "user_id": user_id,
+                "error": error_detail,
+                "circuit_breaker": is_circuit_open,
+            })
+
+            # Update progress
+            _bulk_recheck_progress[job_id]["processed"] = idx + 1
+            _bulk_recheck_progress[job_id]["successful"] = successful
+            _bulk_recheck_progress[job_id]["failed"] = failed
+
+            if progress_hook:
+                await progress_hook(_bulk_recheck_progress[job_id])
 
             # Add error row to CSV
             status_rows.append(
@@ -348,7 +451,21 @@ async def bulk_recheck_users(
                 )
             )
 
+        # Throttle between requests to avoid overwhelming RSI
+        # Skip delay if circuit breaker hit (we're skipping anyway)
+        if not circuit_breaker_hit and idx < total_users - 1:
+            # Apply batch pause every BULK_RECHECK_BATCH_SIZE users
+            if (idx + 1) % BULK_RECHECK_BATCH_SIZE == 0:
+                logger.debug(
+                    f"Bulk recheck batch pause after {idx + 1}/{total_users} users "
+                    f"(pausing {BULK_RECHECK_BATCH_PAUSE_SECONDS}s)"
+                )
+                await asyncio.sleep(BULK_RECHECK_BATCH_PAUSE_SECONDS)
+            else:
+                await asyncio.sleep(BULK_RECHECK_DELAY_SECONDS)
+
     # Log the bulk action
+    skipped_count = sum(1 for e in errors if e.get("circuit_breaker"))
     await log_admin_action(
         admin_user_id=int(current_user.user_id),
         guild_id=guild_id_int,
@@ -357,8 +474,10 @@ async def bulk_recheck_users(
             "total": len(request.user_ids),
             "successful": successful,
             "failed": failed,
+            "circuit_breaker_hit": circuit_breaker_hit,
+            "skipped_due_to_circuit_breaker": skipped_count,
         },
-        status="success" if failed == 0 else "partial",
+        status="success" if failed == 0 else ("circuit_breaker" if circuit_breaker_hit else "partial"),
     )
 
     # Build summary following Discord verify check embed style
@@ -368,10 +487,21 @@ async def bulk_recheck_users(
     unverified = sum(1 for r in results if r.get("status") in ("unknown", "unverified"))
 
     summary_lines = [
-        "Bulk Recheck Complete",
+        "Bulk Recheck Complete" + (" (Partially)" if circuit_breaker_hit else ""),
         "",
         f"Requested by: {current_user.username} (Admin)",
         f"Checked: {len(request.user_ids)} users",
+    ]
+
+    if circuit_breaker_hit:
+        summary_lines.extend([
+            "",
+            "⚠️ RSI Service Temporarily Unavailable",
+            f"  • Completed before pause: {successful}",
+            f"  • Skipped (will retry later): {skipped_count}",
+        ])
+
+    summary_lines.extend([
         "",
         "Results:",
         f"  • Verified/Main: {main_members}",
@@ -380,7 +510,7 @@ async def bulk_recheck_users(
         f"  • Unverified: {unverified}",
         f"  • Successful: {successful}",
         f"  • Failed: {failed}",
-    ]
+    ])
 
     summary_text = "\n".join(summary_lines)
 
@@ -428,7 +558,11 @@ async def bulk_recheck_users(
                 f"Failed to post bulk recheck summary to leadership channel: {e}"
             )
 
-    return BulkRecheckResponse(
+    # Mark job as complete and schedule cleanup
+    _bulk_recheck_progress[job_id]["status"] = "complete"
+    _bulk_recheck_progress[job_id]["processed"] = total_users
+
+    result = BulkRecheckResponse(
         success=failed == 0,
         message=f"Rechecked {successful}/{len(request.user_ids)} users successfully",
         total=len(request.user_ids),
@@ -439,4 +573,102 @@ async def bulk_recheck_users(
         summary_text=summary_text,
         csv_filename=csv_filename,
         csv_content=csv_content,
+        job_id=job_id,
     )
+
+    _bulk_recheck_progress[job_id]["final_response"] = result.model_dump()
+
+    # Schedule cleanup of progress entry after 5 minutes
+    async def _cleanup_progress():
+        await asyncio.sleep(300)  # 5 minutes
+        _bulk_recheck_progress.pop(job_id, None)
+
+    asyncio.create_task(_cleanup_progress())
+
+    return result
+
+
+@router.post("/users/bulk-recheck", response_model=BulkRecheckResponse)
+async def bulk_recheck_users(
+    request: BulkRecheckRequest,
+    current_user: UserProfile = Depends(require_moderator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Run bulk recheck synchronously (backward compatible path)."""
+
+    if not request.user_ids:
+        raise HTTPException(status_code=400, detail="No user IDs provided")
+
+    if len(request.user_ids) > MAX_BULK_RECHECK:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot recheck more than {MAX_BULK_RECHECK} users at once",
+        )
+
+    job_id = str(uuid.uuid4())
+    _bulk_recheck_progress[job_id] = {
+        "job_id": job_id,
+        "total": len(request.user_ids),
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "status": "running",
+        "current_user": None,
+        "final_response": None,
+    }
+
+    return await _execute_bulk_recheck(job_id, request, current_user, internal_api)
+
+
+@router.post("/users/bulk-recheck/start", response_model=BulkRecheckStartResponse)
+async def bulk_recheck_users_start(
+    request: BulkRecheckRequest,
+    current_user: UserProfile = Depends(require_moderator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Start bulk recheck asynchronously and return a job ID for polling."""
+
+    if not request.user_ids:
+        raise HTTPException(status_code=400, detail="No user IDs provided")
+
+    if len(request.user_ids) > MAX_BULK_RECHECK:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot recheck more than {MAX_BULK_RECHECK} users at once",
+        )
+
+    job_id = str(uuid.uuid4())
+    _bulk_recheck_progress[job_id] = {
+        "job_id": job_id,
+        "total": len(request.user_ids),
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "status": "running",
+        "current_user": None,
+        "final_response": None,
+    }
+
+    async def _run_async():
+        try:
+            await _execute_bulk_recheck(job_id, request, current_user, internal_api)
+        except Exception as e:
+            # Mark as error but keep some context for the UI
+            _bulk_recheck_progress[job_id]["status"] = "error"
+            _bulk_recheck_progress[job_id]["final_response"] = {
+                "success": False,
+                "message": f"Bulk recheck failed: {e}",
+                "total": len(request.user_ids),
+                "successful": 0,
+                "failed": len(request.user_ids),
+                "errors": [{"error": str(e), "user_id": "*"}],
+                "results": [],
+                "summary_text": None,
+                "csv_filename": None,
+                "csv_content": None,
+                "job_id": job_id,
+            }
+
+    asyncio.create_task(_run_async())
+
+    return BulkRecheckStartResponse(job_id=job_id)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { voiceApi, authApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile } from '../api/endpoints';
+import { voiceApi, authApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { hasPermission } from '../utils/permissions';
 import { handleApiError } from '../utils/toast';
 import {
@@ -44,6 +44,10 @@ function Voice() {
   const [integrityIssues, setIntegrityIssues] = useState<{ count: number; details: string[] }>({ count: 0, details: [] });
   const [showIntegrityModal, setShowIntegrityModal] = useState(false);
 
+  // Cross-guild mode state - for grouping data by guild
+  const [activeGuildGroups, setActiveGuildGroups] = useState<GuildVoiceGroup[] | null>(null);
+  const [_searchGuildGroups, setSearchGuildGroups] = useState<GuildUserSettingsGroup[] | null>(null);
+
   // Reset confirmation modal state
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetTargetUser, setResetTargetUser] = useState<UserJTCSettings | null>(null);
@@ -53,8 +57,16 @@ function Voice() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState<VoiceSettingsResetResponse | null>(null);
 
+  // Check if in cross-guild (All Guilds) mode
+  const isCrossGuildMode = userProfile?.active_guild_id === ALL_GUILDS_SENTINEL;
+
   // Check if user has moderator access (required for reset operations)
+  // Disabled in cross-guild mode for safety
   const canReset = (() => {
+    // Disable reset actions in cross-guild mode for safety
+    if (isCrossGuildMode) {
+      return false;
+    }
     if (!userProfile?.active_guild_id || !userProfile.authorized_guilds) {
       return false;
     }
@@ -101,6 +113,7 @@ function Voice() {
     try {
       const data = await voiceApi.getActive();
       setActiveChannels(data.items);
+      setActiveGuildGroups(data.guild_groups || null);
     } catch (err) {
       setActiveError('Failed to load active channels');
     } finally {
@@ -142,6 +155,7 @@ function Voice() {
       const data = await voiceApi.getUserSettings(searchQuery.trim(), page, pageSize);
       setSearchResults(data.items);
       setTotalResults(data.total);
+      setSearchGuildGroups(data.guild_groups || null);
       if (data.message) {
         setSearchError(data.message);
       }
@@ -149,6 +163,7 @@ function Voice() {
       setSearchError('Failed to search user voice settings');
       setSearchResults([]);
       setTotalResults(0);
+      setSearchGuildGroups(null);
     } finally {
       setSearchLoading(false);
     }
@@ -369,6 +384,14 @@ function Voice() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Cross-Guild Mode Alert */}
+      {isCrossGuildMode && (
+        <Alert variant="info" className="mb-6">
+          <strong>🌐 All Guilds Mode</strong> — Viewing voice data across all servers.
+          Member lists are not shown in this view. Reset actions are disabled. Switch to a specific server to manage settings.
+        </Alert>
+      )}
+
       {/* Integrity Banner */}
       {integrityIssues.count > 0 && (
         <Banner variant="warning" maxWidth="4xl">
@@ -412,66 +435,144 @@ function Voice() {
           </Card>
         )}
 
+        {/* Render active channels - grouped by guild in cross-guild mode */}
         {!activeLoading && activeChannels.length > 0 && (
-          <div className="space-y-2">
-            {activeChannels.map((channel) => (
-              <CollapsibleCard
-                key={channel.voice_channel_id}
-                expanded={expandedChannels.has(channel.voice_channel_id)}
-                onToggle={() => toggleChannel(channel.voice_channel_id)}
-                header={
-                  <div className="text-left">
-                    <p className="font-medium">
-                      {channel.channel_name || `Channel ${channel.voice_channel_id}`}
-                    </p>
-                    <p className="text-sm text-gray-400">
-                      Channel ID: {channel.voice_channel_id} • Owner: {channel.owner_rsi_handle || `User ${channel.owner_id}`}
-                    </p>
-                  </div>
-                }
-                headerRight={
-                  <div className="flex items-center gap-4">
+          <div className="space-y-4">
+            {isCrossGuildMode && activeGuildGroups ? (
+              // Cross-guild mode: render grouped by guild
+              activeGuildGroups.map((group) => (
+                <div key={group.guild_id} className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Badge variant="purple">{group.guild_name}</Badge>
                     <span className="text-sm text-gray-400">
-                      {channel.members.length} {channel.members.length === 1 ? 'member' : 'members'}
-                    </span>
-                    <span className="text-sm text-gray-400">
-                      {new Date(channel.last_activity * 1000).toLocaleString()}
+                      {group.items.length} active channel{group.items.length !== 1 ? 's' : ''}
                     </span>
                   </div>
-                }
-              >
-                <h4 className="font-medium mb-3">Members:</h4>
-                
-                {channel.members.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic">
-                    No members tracked (requires bot Gateway integration for real-time data)
-                  </p>
-                ) : (
-                  <div className="space-y-1">
-                    {channel.members.map((member) => (
-                      <div
-                        key={member.user_id}
-                        className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
+                  <div className="space-y-2 ml-2 border-l-2 border-purple-800/50 pl-4">
+                    {group.items.map((channel) => (
+                      <CollapsibleCard
+                        key={channel.voice_channel_id}
+                        expanded={expandedChannels.has(channel.voice_channel_id)}
+                        onToggle={() => toggleChannel(channel.voice_channel_id)}
+                        header={
+                          <div className="text-left">
+                            <p className="font-medium">
+                              {channel.channel_name || `Channel ${channel.voice_channel_id}`}
+                            </p>
+                            <p className="text-sm text-gray-400">
+                              Channel ID: {channel.voice_channel_id} • Owner: {channel.owner_rsi_handle || `User ${channel.owner_id}`}
+                            </p>
+                          </div>
+                        }
+                        headerRight={
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm text-gray-400">
+                              {channel.members.length} {channel.members.length === 1 ? 'member' : 'members'}
+                            </span>
+                            <span className="text-sm text-gray-400">
+                              {new Date(channel.last_activity * 1000).toLocaleString()}
+                            </span>
+                          </div>
+                        }
                       >
-                        <span className="flex-1 font-medium">
-                          {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
-                        </span>
-                        <span className="text-gray-500">→</span>
-                        <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
-                        <span className="text-gray-500">-</span>
-                        {member.is_owner && (
-                          <>
-                            <Badge variant="primary">Owner</Badge>
-                            <span className="text-gray-500">-</span>
-                          </>
+                        <h4 className="font-medium mb-3">Members:</h4>
+                        
+                        {channel.members.length === 0 ? (
+                          <p className="text-sm text-gray-400 italic">
+                            Member list not available in All Guilds view. Switch to this server for real-time data.
+                          </p>
+                        ) : (
+                          <div className="space-y-1">
+                            {channel.members.map((member) => (
+                              <div
+                                key={member.user_id}
+                                className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
+                              >
+                                <span className="flex-1 font-medium">
+                                  {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
+                                </span>
+                                <span className="text-gray-500">→</span>
+                                <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
+                                <span className="text-gray-500">-</span>
+                                {member.is_owner && (
+                                  <>
+                                    <Badge variant="primary">Owner</Badge>
+                                    <span className="text-gray-500">-</span>
+                                  </>
+                                )}
+                                <MembershipBadge status={member.membership_status} />
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        <MembershipBadge status={member.membership_status} />
-                      </div>
+                      </CollapsibleCard>
                     ))}
                   </div>
-                )}
-              </CollapsibleCard>
-            ))}
+                </div>
+              ))
+            ) : (
+              // Single guild mode: render flat list
+              <div className="space-y-2">
+                {activeChannels.map((channel) => (
+                  <CollapsibleCard
+                    key={channel.voice_channel_id}
+                    expanded={expandedChannels.has(channel.voice_channel_id)}
+                    onToggle={() => toggleChannel(channel.voice_channel_id)}
+                    header={
+                      <div className="text-left">
+                        <p className="font-medium">
+                          {channel.channel_name || `Channel ${channel.voice_channel_id}`}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          Channel ID: {channel.voice_channel_id} • Owner: {channel.owner_rsi_handle || `User ${channel.owner_id}`}
+                        </p>
+                      </div>
+                    }
+                    headerRight={
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-400">
+                          {channel.members.length} {channel.members.length === 1 ? 'member' : 'members'}
+                        </span>
+                        <span className="text-sm text-gray-400">
+                          {new Date(channel.last_activity * 1000).toLocaleString()}
+                        </span>
+                      </div>
+                    }
+                  >
+                    <h4 className="font-medium mb-3">Members:</h4>
+                    
+                    {channel.members.length === 0 ? (
+                      <p className="text-sm text-gray-400 italic">
+                        No members tracked (requires bot Gateway integration for real-time data)
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {channel.members.map((member) => (
+                          <div
+                            key={member.user_id}
+                            className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
+                          >
+                            <span className="flex-1 font-medium">
+                              {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
+                            </span>
+                            <span className="text-gray-500">→</span>
+                            <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
+                            <span className="text-gray-500">-</span>
+                            {member.is_owner && (
+                              <>
+                                <Badge variant="primary">Owner</Badge>
+                                <span className="text-gray-500">-</span>
+                              </>
+                            )}
+                            <MembershipBadge status={member.membership_status} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CollapsibleCard>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

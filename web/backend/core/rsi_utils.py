@@ -2,11 +2,16 @@
 Utility functions for RSI (Roberts Space Industries) API integration.
 
 Handles organization validation by fetching and parsing org pages.
+Includes a circuit breaker to prevent cascading failures when RSI blocks requests.
 """
 
 import asyncio
 import logging
 import re
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from threading import RLock
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -23,6 +28,88 @@ HTTP_FORBIDDEN = 403
 HTTP_NOT_FOUND = 404
 HTTP_TIMEOUT = 408
 HTTP_SERVER_ERROR = 500
+
+
+# ---------------------------------------------------------------------------
+# Circuit Breaker for Web Backend RSI Requests
+# ---------------------------------------------------------------------------
+
+
+class CircuitState(Enum):
+    """Circuit breaker states."""
+
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+@dataclass
+class WebCircuitBreaker:
+    """
+    Simple circuit breaker for web backend RSI requests.
+
+    Opens after threshold consecutive 403s and stays open for reset_timeout seconds.
+    """
+
+    threshold: int = 3
+    reset_timeout: float = 300.0  # 5 minutes
+    _state: CircuitState = field(default=CircuitState.CLOSED, init=False)
+    _failure_count: int = field(default=0, init=False)
+    _last_failure_time: float = field(default=0.0, init=False)
+    _lock: RLock = field(default_factory=RLock, init=False, repr=False)
+
+    @property
+    def state(self) -> CircuitState:
+        """Get current state, transitioning to HALF_OPEN if cooldown expired."""
+        with self._lock:
+            if self._state == CircuitState.OPEN:
+                if time.monotonic() - self._last_failure_time >= self.reset_timeout:
+                    self._state = CircuitState.HALF_OPEN
+            return self._state
+
+    def is_open(self) -> bool:
+        """Check if circuit is open (should fail fast)."""
+        return self.state == CircuitState.OPEN
+
+    def record_failure(self) -> None:
+        """Record a 403 failure."""
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.monotonic()
+            if self._state == CircuitState.HALF_OPEN:
+                self._state = CircuitState.OPEN
+                logger.warning("Web RSI circuit breaker probe failed, re-opening")
+            elif self._failure_count >= self.threshold:
+                self._state = CircuitState.OPEN
+                logger.warning(
+                    "Web RSI circuit breaker OPEN after %d 403 failures",
+                    self._failure_count,
+                )
+
+    def record_success(self) -> None:
+        """Record a successful request."""
+        with self._lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+
+
+# Global circuit breaker for web backend
+_web_circuit_breaker: WebCircuitBreaker | None = None
+_breaker_lock = RLock()
+
+
+def get_web_circuit_breaker() -> WebCircuitBreaker:
+    """Get or create the web backend's circuit breaker."""
+    global _web_circuit_breaker
+    with _breaker_lock:
+        if _web_circuit_breaker is None:
+            _web_circuit_breaker = WebCircuitBreaker()
+        return _web_circuit_breaker
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiter
+# ---------------------------------------------------------------------------
 
 
 class RSIRateLimiter:
@@ -83,15 +170,21 @@ class RSIClient:
 
     async def fetch_html(self, url: str) -> tuple[str | None, int]:
         """
-        Fetch HTML from URL with rate limiting.
+        Fetch HTML from URL with rate limiting and circuit breaker protection.
 
         Args:
             url: URL to fetch
 
         Returns:
             Tuple of (html_content, status_code)
-            html_content is None if request failed
+            html_content is None if request failed or circuit is open
         """
+        # Check circuit breaker first
+        circuit_breaker = get_web_circuit_breaker()
+        if circuit_breaker.is_open():
+            logger.info("Web RSI circuit breaker OPEN, failing fast for %s", url)
+            return None, HTTP_FORBIDDEN
+
         await self.rate_limiter.acquire()
 
         session = await self._get_session()
@@ -103,9 +196,15 @@ class RSIClient:
                 if status == HTTP_OK:
                     text = await resp.text()
                     logger.debug(f"Successfully fetched {url} ({len(text)} bytes)")
+                    circuit_breaker.record_success()
                     return text, status
+                elif status == HTTP_FORBIDDEN:
+                    logger.warning(f"403 Forbidden for {url}")
+                    circuit_breaker.record_failure()
+                    return None, status
                 else:
                     logger.warning(f"Failed to fetch {url}: HTTP {status}")
+                    # Non-403 errors don't affect circuit breaker
                     return None, status
         except TimeoutError:
             logger.warning(f"Timeout while fetching {url}")
