@@ -466,7 +466,7 @@ class ResetSettingsConfirmationModal(Modal):
                 "Confirmation text does not match. Channel settings were not reset.",
                 ephemeral=True,
             )
-            logger.info(f"{member.display_name} failed to confirm channel reset.")
+            logger.debug("User failed to confirm channel reset", extra={"user_id": member.id})
             return
 
         # Try resetting channel settings using the modern voice service
@@ -509,12 +509,13 @@ class ResetSettingsConfirmationModal(Modal):
                 success_msg,
                 ephemeral=True,
             )
-            logger.info(
-                f"{member.display_name} reset their channel settings - deleted {total_deleted} records"
+            logger.debug(
+                "User reset channel settings",
+                extra={"user_id": member.id, "records_deleted": total_deleted},
             )
         except Exception:
             logger.exception(
-                f"Error resetting channel settings for {member.display_name}"
+                "Error resetting channel settings", extra={"user_id": member.id}
             )
             await followup_send_message(
                 interaction,
@@ -580,10 +581,11 @@ class NameModal(Modal):
                 f"Channel name has been changed to '{new_name}'.",
                 ephemeral=True,
             )
-            logger.info(f"{member.display_name} changed channel name to '{new_name}'.")
+            logger.debug("User changed channel name", extra={"user_id": member.id})
         except discord.Forbidden:
             logger.warning(
-                f"Insufficient permissions to change channel name for {member.display_name}."
+                "Insufficient permissions to change channel name",
+                extra={"user_id": member.id},
             )
             await followup_send_message(
                 interaction,
@@ -591,7 +593,7 @@ class NameModal(Modal):
                 ephemeral=True,
             )
         except Exception:
-            logger.exception(f"Failed to change channel name for {member.display_name}")
+            logger.exception("Failed to change channel name", extra={"user_id": member.id})
             await followup_send_message(
                 interaction,
                 "An unexpected error occurred. Please try again later.",
@@ -656,12 +658,14 @@ class LimitModal(Modal):
 
             embed = create_success_embed(f"User limit has been set to {limit}.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
-            logger.info(
-                f"{member.display_name} set their channel user limit to {limit}."
+            logger.debug(
+                "User set channel user limit",
+                extra={"user_id": member.id, "limit": limit},
             )
         except discord.Forbidden:
             logger.warning(
-                f"Insufficient permissions to set user limit for {member.display_name}."
+                "Insufficient permissions to set user limit",
+                extra={"user_id": member.id},
             )
             embed = create_error_embed("I don't have permission to set the user limit.")
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)

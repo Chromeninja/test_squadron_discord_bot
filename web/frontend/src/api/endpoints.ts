@@ -21,6 +21,7 @@ export interface UserProfile {
   active_guild_id?: string | null;
   is_admin?: boolean;
   is_moderator?: boolean;
+  is_bot_owner?: boolean;  // True if user is the bot owner (global admin)
 }
 
 export interface GuildSummary {
@@ -519,6 +520,12 @@ export const adminApi = {
     const response = await apiClient.post<BulkRecheckResponse>(
       `/api/admin/users/bulk-recheck`,
       { user_ids: userIds }
+    );
+    return response.data;
+  },
+  leaveGuild: async (guildId: string) => {
+    const response = await apiClient.post<{ success: boolean; guild_id: string; guild_name: string }>(
+      `/api/guilds/${guildId}/leave`
     );
     return response.data;
   },

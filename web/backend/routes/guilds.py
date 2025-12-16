@@ -12,6 +12,7 @@ from core.dependencies import (
     get_db,
     get_internal_api_client,
     require_bot_admin,
+    require_bot_owner,
     require_fresh_guild_access,
     require_moderator,
     require_staff,
@@ -22,6 +23,7 @@ from core.guild_settings import (
     BOT_ADMINS_KEY,
     BOT_SPAM_CHANNEL_KEY,
     BOT_VERIFIED_ROLE_KEY,
+    DELEGATION_POLICIES_KEY,
     DISCORD_MANAGERS_KEY,
     LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
     MAIN_ROLE_KEY,
@@ -33,6 +35,7 @@ from core.guild_settings import (
     SELECTABLE_ROLES_KEY,
     STAFF_KEY,
     VERIFICATION_CHANNEL_KEY,
+    _normalize_delegation_policies,
     get_bot_channel_settings,
     get_bot_role_settings,
     get_organization_settings,
@@ -218,6 +221,13 @@ async def update_bot_roles_settings(
 ):
     """Persist admin, moderator, and member category role assignments for a guild."""
     ensure_guild_match(guild_id, current_user)
+    try:
+        normalized_policies = _normalize_delegation_policies(
+            payload.delegation_policies, strict=True
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     await set_bot_role_settings(
         db,
         guild_id,
@@ -229,7 +239,7 @@ async def update_bot_roles_settings(
         payload.main_role,
         payload.affiliate_role,
         payload.nonmember_role,
-        [policy.model_dump() for policy in payload.delegation_policies],
+        normalized_policies,
     )
     updated = await get_bot_role_settings(db, guild_id)
 
@@ -682,6 +692,13 @@ async def patch_guild_config(
 
     # Apply updates if provided
     if payload.roles is not None:
+        try:
+            normalized_policies = _normalize_delegation_policies(
+                payload.roles.delegation_policies, strict=True
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         await set_bot_role_settings(
             db,
             guild_id,
@@ -693,6 +710,7 @@ async def patch_guild_config(
             payload.roles.main_role,
             payload.roles.affiliate_role,
             payload.roles.nonmember_role,
+            normalized_policies,
         )
 
         # Audit each role list if changed
@@ -766,6 +784,15 @@ async def patch_guild_config(
                 NONMEMBER_ROLE_KEY,
                 current_roles.get("nonmember_role"),
                 payload.roles.nonmember_role,
+                actor_user_id,
+            )
+        if current_roles.get("delegation_policies") != normalized_policies:
+            await _audit_change(
+                db,
+                guild_id,
+                DELEGATION_POLICIES_KEY,
+                current_roles.get("delegation_policies"),
+                normalized_policies,
                 actor_user_id,
             )
 
@@ -896,3 +923,35 @@ async def patch_guild_config(
     return await get_guild_config(
         guild_id, db=db, current_user=current_user, config_loader=config_loader
     )
+
+
+@router.post("/{guild_id}/leave")
+async def leave_guild(
+    guild_id: int,
+    current_user: UserProfile = Depends(require_bot_owner()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """
+    Make the bot leave a guild. Bot owner only.
+
+    This is a privileged operation that removes the bot from the specified guild.
+    Only the bot owner can perform this action.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Note: require_bot_owner() validates is_bot_owner in session
+    # No need to check active_guild_id match - bot owner can leave ANY guild
+
+    try:
+        result = await internal_api.leave_guild(guild_id)
+        logger.info(
+            "Bot owner %s triggered leave for guild %s (%s)",
+            current_user.user_id,
+            guild_id,
+            result.get("guild_name", "unknown"),
+        )
+        return {"success": True, "guild_id": guild_id, "guild_name": result.get("guild_name")}
+    except Exception as exc:
+        raise translate_internal_api_error(exc, "Failed to leave guild") from exc

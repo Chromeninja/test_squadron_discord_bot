@@ -590,16 +590,20 @@ class BulkAnnouncer(commands.Cog):
         self.daily_flush.cancel()
         self.threshold_watch.cancel()
 
-        # ---------- Public helpers ----------
+    # ---------- Public helpers ----------
 
-    async def flush_pending(self) -> bool:
+    async def flush_pending(self) -> tuple[bool, list[int]]:
         """
         Flush all pending queued events grouped by guild.
         For each guild:
           • Fetch guild's organization SID and name
           • Post announcements to that guild's public_announcement_channel
           • Use SID in headers, full name in footers
-        Returns True if anything was sent.
+
+        Returns:
+            (sent_any, missing_channel_guilds)
+                sent_any: True if at least one announcement was sent
+                missing_channel_guilds: guild ids skipped due to missing public announcement channel
         """
         rows = await BaseRepository.fetch_all(
             "SELECT id, user_id, guild_id, event_type, created_at FROM announcement_events "
@@ -609,7 +613,7 @@ class BulkAnnouncer(commands.Cog):
 
         if not rows:
             logger.info("BulkAnnouncer: no pending announcements to flush.")
-            return False
+            return False, []
 
         # Group events by guild_id
         events_by_guild: dict[int, list[tuple]] = {}
@@ -621,6 +625,7 @@ class BulkAnnouncer(commands.Cog):
 
         sent_any = False
         announced_ids: list[int] = []
+        missing_channel_guilds: list[int] = []
 
         # Process each guild separately
         for guild_id, guild_events in events_by_guild.items():
@@ -671,6 +676,7 @@ class BulkAnnouncer(commands.Cog):
                     logger.warning(
                         f"BulkAnnouncer: public_announcement_channel_id not configured for guild {guild_id}, skipping"
                     )
+                    missing_channel_guilds.append(guild_id)
                     continue
 
                 # Deduplicate: keep only latest event per user in this guild
@@ -775,7 +781,7 @@ class BulkAnnouncer(commands.Cog):
             except Exception as e:
                 logger.warning(f"BulkAnnouncer: failed to mark announced events: {e}")
 
-        return sent_any
+        return sent_any, missing_channel_guilds
 
         # ---------- Internal helpers ----------
 

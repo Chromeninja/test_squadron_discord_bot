@@ -355,6 +355,11 @@ def require_staff():
     return require_guild_permission("staff")
 
 
+def require_bot_owner():
+    """Require bot_owner level only. Used for privileged operations like leaving guilds."""
+    return require_guild_permission("bot_owner")
+
+
 # Fresh role validation (TTL-based) against Internal API
 ROLE_VALIDATION_TTL = int(os.getenv("ROLE_VALIDATION_TTL", "30"))
 
@@ -958,5 +963,25 @@ class InternalAPIClient:
             f"/guilds/{guild_id}/bulk-recheck/summary",
             json=json_body,
         )
+        response.raise_for_status()
+        return response.json()
+
+    async def leave_guild(self, guild_id: int) -> dict:
+        """
+        Make the bot leave a guild.
+
+        This is a privileged operation - caller must validate bot owner permissions.
+
+        Args:
+            guild_id: Discord guild ID to leave
+
+        Returns:
+            dict with keys: success, guild_id, guild_name
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        response = await client.post(f"/guilds/{guild_id}/leave")
         response.raise_for_status()
         return response.json()

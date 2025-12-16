@@ -169,6 +169,10 @@ async def callback(code: str, state: str | None = None):
             user_guilds = guilds_response.json()
             user_guild_ids = [g["id"] for g in user_guilds]
 
+            logger.info(
+                f"OAuth callback for user {user_data.get('id')} - "
+                f"member of {len(user_guild_ids)} guild(s)"
+            )
             logger.debug(
                 "OAuth user is member of %d guild(s)", len(user_guild_ids)
             )
@@ -358,16 +362,33 @@ async def callback(code: str, state: str | None = None):
 
         # Require at least one authorized guild
         if not authorized_guilds:
-            # Return unauthorized page
+            logger.warning(
+                f"User {user_id} ({username}) denied access - no permissions in any guild. "
+                f"User is member of {len(user_guild_ids)} guild(s), "
+                f"bot is installed in {len(bot_guild_ids)} guild(s). "
+                f"BOT_OWNER_ID check: {bool(BOT_OWNER_ID)}, "
+                f"is_bot_owner: {is_bot_owner}"
+            )
+            # Return unauthorized page with helpful information
             return Response(
-                content="""
+                content=f"""
                 <!DOCTYPE html>
                 <html>
                 <head><title>Access Denied</title></head>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                     <h1>Access Denied</h1>
-                    <p>You do not have permission roles in any server where this bot is installed.</p>
-                    <p>Contact a bot administrator if you believe this is an error.</p>
+                    <p><strong>User:</strong> {username}#{discriminator}</p>
+                    <p>You do not have permission to access this admin dashboard.</p>
+                    <p style="font-size: 0.9em; color: #666; margin-top: 20px;">
+                        To gain access, you need one of the following:
+                    </p>
+                    <ul style="text-align: left; display: inline-block; font-size: 0.9em;">
+                        <li>Be the owner of a Discord server where the bot is installed</li>
+                        <li>Have Discord Administrator permission in a server where the bot is installed</li>
+                        <li>Be assigned a Bot Admin, Discord Manager, Moderator, or Staff role by an admin</li>
+                        <li>Be configured as the bot owner (contact system administrator)</li>
+                    </ul>
+                    <p style="margin-top: 20px;">Contact a bot administrator if you believe this is an error.</p>
                 </body>
                 </html>
                 """,
@@ -398,6 +419,7 @@ async def callback(code: str, state: str | None = None):
             "authorized_guilds": authorized_guilds_dict,
             "active_guild_id": None,  # Null to trigger SelectServer screen
             "roles_validated_at": {},  # Per-guild validation timestamps
+            "is_bot_owner": is_bot_owner,  # Track bot owner status in session
         }
 
         # Create response with session cookie using centralized helper

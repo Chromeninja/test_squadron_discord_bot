@@ -84,18 +84,26 @@ def _normalize_policy_roles(raw_roles: Any) -> list[str]:
     return normalized
 
 
-def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
+def _normalize_delegation_policies(
+    value: list | None, *, strict: bool = False
+) -> list[dict]:
     """Normalize delegation policies to the new schema shape with string snowflakes.
 
     Supports older keys (grantor_roles/granted_role/requirements.required_roles)
     and new keys (grantor_role_ids/target_role_id/prerequisite_role_ids_all/
     prerequisite_role_ids_any).
+
+    If ``strict`` is True, a ``ValueError`` is raised when a policy is missing a
+    usable ``target_role_id`` instead of silently dropping it. This prevents the
+    UI from appearing to save successfully while losing the policy.
     """
     if not value:
         return []
 
     normalized: list[dict] = []
-    for policy in value:
+    invalid_indices: list[int] = []
+
+    for idx, policy in enumerate(value):
         if isinstance(policy, dict):
             data = policy
         elif hasattr(policy, "model_dump"):
@@ -122,7 +130,7 @@ def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
             target_role_id = None
 
         if target_role_id is None:
-            # Skip invalid policies instead of storing partial data
+            invalid_indices.append(idx)
             continue
 
         normalized.append(
@@ -136,6 +144,13 @@ def _normalize_delegation_policies(value: list[dict] | None) -> list[dict]:
                 "note": data.get("note") or data.get("notes"),
             }
         )
+
+    if strict and invalid_indices:
+        raise ValueError(
+            "One or more delegation policies are missing a valid target_role_id "
+            f"(invalid entries at index/indices: {invalid_indices})."
+        )
+
     return normalized
 
 

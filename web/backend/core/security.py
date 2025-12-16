@@ -40,7 +40,9 @@ DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
-# State management for OAuth (simple in-memory store for dev, use Redis in production)
+# OAuth state management: in-memory store with 5-minute expiration.
+# Acceptable for single-instance deployments. If scaling to multiple instances
+# or workers, migrate to Redis or database-backed storage.
 _oauth_states: dict[str, float] = {}
 
 

@@ -68,35 +68,41 @@ async def snapshot_member_state(
                 if affiliate_orgs_override is not None
                 else (json.loads(affiliate_orgs_json) if affiliate_orgs_json else None)
             )
+        else:
+            # No DB row yet - use overrides directly if provided (for "after" snapshot
+            # before DB persistence)
+            main_orgs = main_orgs_override
+            affiliate_orgs = affiliate_orgs_override
 
-            # Derive status from org lists for this guild
-            if (
-                hasattr(bot, "services")
-                and bot.services
-                and hasattr(bot.services, "guild_config")
-            ):
-                try:
-                    guild_org_sid = await bot.services.guild_config.get_setting(
-                        member.guild.id, "organization.sid", default="TEST"
-                    )
-                    # Remove JSON quotes if present
-                    if isinstance(guild_org_sid, str) and guild_org_sid.startswith(
-                        '"'
-                    ):
-                        guild_org_sid = guild_org_sid.strip('"')
-                    status = derive_membership_status(
-                        main_orgs, affiliate_orgs, guild_org_sid
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to get guild org SID for status derivation: {e}"
-                    )
-                    status = derive_membership_status(
-                        main_orgs, affiliate_orgs, "TEST"
-                    )
-            else:
-                # Fallback to TEST if services not available
-                status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
+        # Derive status from org lists for this guild
+        # (run regardless of whether row exists - overrides may have been provided)
+        if (
+            hasattr(bot, "services")
+            and bot.services
+            and hasattr(bot.services, "guild_config")
+        ):
+            try:
+                guild_org_sid = await bot.services.guild_config.get_setting(
+                    member.guild.id, "organization.sid", default="TEST"
+                )
+                # Remove JSON quotes if present
+                if isinstance(guild_org_sid, str) and guild_org_sid.startswith(
+                    '"'
+                ):
+                    guild_org_sid = guild_org_sid.strip('"')
+                status = derive_membership_status(
+                    main_orgs, affiliate_orgs, guild_org_sid
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to get guild org SID for status derivation: {e}"
+                )
+                status = derive_membership_status(
+                    main_orgs, affiliate_orgs, "TEST"
+                )
+        else:
+            # Fallback to TEST if services not available
+            status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 

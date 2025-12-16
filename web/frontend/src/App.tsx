@@ -110,7 +110,7 @@ function App() {
   }
 
   if (!user.active_guild_id) {
-    return <SelectServer onSelected={fetchUserProfile} />;
+    return <SelectServer onSelected={fetchUserProfile} user={user} />;
   }
 
   const handleSwitchServer = async () => {

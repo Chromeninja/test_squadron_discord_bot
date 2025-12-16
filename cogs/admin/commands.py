@@ -151,32 +151,52 @@ class AdminCog(commands.Cog):
                 )
                 return
 
-            # Flush the queue
+            # Flush the queue (guard against stale/partial BulkAnnouncer loads)
             self.logger.info(
                 "flush-announcements: flushing pending events",
                 extra=get_interaction_extra(interaction, pending_count=pending_count),
             )
 
-            sent = await announcer.flush_pending()
-
-            if sent:
+            if not hasattr(announcer, "flush_pending") or not callable(announcer.flush_pending):
                 await interaction.followup.send(
-                    f"✅ Successfully flushed announcement queue! Posted {pending_count} pending event(s) to public announcement channels.",
+                    "❌ BulkAnnouncer is loaded but missing the flush handler. Please reload the bot/cog and try again.",
                     ephemeral=True,
                 )
-                self.logger.info(
-                    "flush-announcements: successfully flushed events",
+                self.logger.error(
+                    "flush-announcements: BulkAnnouncer missing flush_pending",
                     extra=get_interaction_extra(interaction, pending_count=pending_count),
                 )
+                return
+
+            sent, missing_guilds = await announcer.flush_pending()  # type: ignore[union-attr]
+
+            # Build response message
+            if sent:
+                message = f"✅ Successfully flushed announcement queue! Posted {pending_count} pending event(s) to public announcement channels."
+                if missing_guilds:
+                    message += f"\n⚠️ Skipped {len(missing_guilds)} guild(s) missing a public announcement channel: {', '.join(str(g) for g in missing_guilds)}"
+                await interaction.followup.send(message, ephemeral=True)
+                self.logger.info(
+                    "flush-announcements: successfully flushed events",
+                    extra=get_interaction_extra(
+                        interaction, pending_count=pending_count, missing_guilds=missing_guilds
+                    ),
+                )
             else:
+                detail = (
+                    f"Missing public announcement channel for guild(s): {', '.join(str(g) for g in missing_guilds)}"
+                    if missing_guilds
+                    else "Check that public announcement channels are configured."
+                )
                 await interaction.followup.send(
-                    "⚠️ Flush completed but no announcements were sent. "
-                    "Check that public announcement channels are configured.",
+                    f"⚠️ Flush completed but no announcements were sent. {detail}",
                     ephemeral=True,
                 )
                 self.logger.warning(
                     "flush-announcements: flush returned False (no announcements sent) despite pending events",
-                    extra=get_interaction_extra(interaction, pending_count=pending_count),
+                    extra=get_interaction_extra(
+                        interaction, pending_count=pending_count, missing_guilds=missing_guilds
+                    ),
                 )
 
         except Exception:

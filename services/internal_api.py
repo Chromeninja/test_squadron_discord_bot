@@ -87,6 +87,7 @@ class InternalAPIServer:
         self.app.router.add_post(
             "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
+        self.app.router.add_post("/guilds/{guild_id}/leave", self.leave_guild)
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -446,6 +447,44 @@ class InternalAPIServer:
             )
 
         return web.json_response({"guilds": guilds})
+
+    async def leave_guild(self, request: web.Request) -> web.Response:
+        """
+        Make the bot leave a guild (bot owner only).
+
+        This is a privileged operation that should only be called by the bot owner.
+        The web backend is responsible for validating bot owner permissions.
+
+        Path: POST /guilds/{guild_id}/leave
+        Headers: Authorization: Bearer <api_key>
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        guild_name = guild.name
+        try:
+            await guild.leave()
+            logger.info(f"Bot left guild {guild_id} ({guild_name})")
+            return web.json_response({
+                "success": True,
+                "guild_id": guild_id,
+                "guild_name": guild_name,
+            })
+        except Exception as e:
+            logger.exception(f"Failed to leave guild {guild_id}", exc_info=e)
+            return web.json_response({"error": "Failed to leave guild"}, status=500)
 
     async def get_guild_roles(self, request: web.Request) -> web.Response:
         """Return Discord roles for a guild."""

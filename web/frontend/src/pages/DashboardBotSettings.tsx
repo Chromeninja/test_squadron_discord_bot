@@ -88,6 +88,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   };
 
   useEffect(() => {
+    // AbortController to cancel requests if component unmounts during fetch
+    const abortController = new AbortController();
+    let isMounted = true;
+
     const loadData = async () => {
       if (!guildId) {
         return;
@@ -107,6 +111,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           guildApi.getBotChannelSettings(guildId),
           guildApi.getOrganizationSettings(guildId),
         ]);
+
+        // Only update state if component is still mounted
+        if (!isMounted) return;
 
         setGuildInfo(infoResponse.guild);
         setReadOnly(configResponse.data.read_only ?? null);
@@ -137,14 +144,24 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setOrganizationName(orgSettingsResponse.organization_name || '');
         setOrgSidInput(orgSettingsResponse.organization_sid || '');
       } catch (err) {
+        // Ignore errors from aborted requests
+        if (!isMounted) return;
         handleApiError(err, 'Failed to load bot settings.');
         setError('Failed to load bot settings.');
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     loadData();
+
+    // Cleanup: mark as unmounted and abort any pending requests
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [guildId]);
 
   const handleSaveAll = async () => {

@@ -78,9 +78,9 @@ async def move_member(member: discord.Member, channel: discord.VoiceChannel) -> 
 
     try:
         await enqueue_task(_task)
-        logger.info(f"Enqueued move of '{member.display_name}' to '{channel.name}'.")
+        logger.debug("Enqueued move to voice channel", extra={"user_id": member.id, "channel_id": channel.id})
     except Exception:
-        logger.exception(f"Failed to enqueue move for '{member.display_name}'")
+        logger.exception("Failed to enqueue move", extra={"user_id": member.id})
         raise
 
 
@@ -90,12 +90,10 @@ async def add_roles(member: discord.Member, *roles, reason: str | None = None) -
 
     try:
         await enqueue_task(_task)
-        role_names = ", ".join(r.name for r in roles)
-        logger.info(f"Enqueued add_roles for '{member.display_name}': {role_names}.")
+        role_ids = [r.id for r in roles]
+        logger.debug("Enqueued add_roles", extra={"user_id": member.id, "role_ids": role_ids})
     except Exception:
-        logger.exception(
-            f"Failed to enqueue add_roles for user '{member.display_name}'"
-        )
+        logger.exception("Failed to enqueue add_roles", extra={"user_id": member.id})
         raise
 
 
@@ -107,12 +105,10 @@ async def remove_roles(
 
     try:
         await enqueue_task(_task)
-        role_names = ", ".join(r.name for r in roles)
-        logger.info(f"Enqueued remove_roles for '{member.display_name}': {role_names}.")
-    except Exception as e:
-        logger.exception(
-            f"Failed to enqueue remove_roles for user '{member.display_name}': {e}"
-        )
+        role_ids = [r.id for r in roles]
+        logger.debug("Enqueued remove_roles", extra={"user_id": member.id, "role_ids": role_ids})
+    except Exception:
+        logger.exception("Failed to enqueue remove_roles", extra={"user_id": member.id})
         raise
 
 
@@ -123,7 +119,8 @@ async def edit_member(member: discord.Member, **kwargs) -> None:
         except discord.Forbidden:
             # Don’t bubble up; just log. This covers owner / hierarchy / missing perms.
             logger.warning(
-                f"Forbidden editing '{member.display_name}' with {kwargs} (likely hierarchy/owner)."
+                "Forbidden editing user (likely hierarchy/owner)",
+                extra={"user_id": member.id, "edit_keys": list(kwargs.keys())},
             )
         except discord.NotFound:
             logger.warning(
@@ -136,9 +133,9 @@ async def edit_member(member: discord.Member, **kwargs) -> None:
 
     try:
         await enqueue_task(_task)
-        logger.info(f"Enqueued edit for user '{member.display_name}' with {kwargs}.")
+        logger.debug("Enqueued edit for user", extra={"user_id": member.id, "edit_keys": list(kwargs.keys())})
     except Exception:
-        logger.exception(f"Failed to enqueue edit for user '{member.display_name}'")
+        logger.exception("Failed to enqueue edit for user", extra={"user_id": member.id})
         raise
 
 
@@ -182,19 +179,21 @@ async def send_message_task(
         # primary send and fall back to a follow-up when we detect that case.
         try:
             await interaction.response.send_message(**kwargs)
-            logger.info(f"Sent message to {interaction.user.display_name}: {content}")
+            logger.debug("Sent interaction response", extra={"user_id": interaction.user.id})
         except discord.HTTPException as e:
             code = getattr(e, "code", None)
             msg = str(e)
             if code == 40060 or "Interaction has already been acknowledged" in msg:
                 try:
                     await interaction.followup.send(**kwargs)
-                    logger.info(
-                        f"Sent follow-up message after ack race to {interaction.user.display_name}: {content}"
+                    logger.debug(
+                        "Sent follow-up message after ack race",
+                        extra={"user_id": interaction.user.id},
                     )
                 except Exception:
                     logger.exception(
-                        f"Failed to send follow-up after initial send failed for {interaction.user.display_name}: {content}"
+                        "Failed to send follow-up after initial send failed",
+                        extra={"user_id": interaction.user.id},
                     )
             else:
                 raise
@@ -239,11 +238,12 @@ async def followup_send_message_task(
             kwargs["view"] = view
 
         await interaction.followup.send(**kwargs)
-        logger.info(
-            f"Sent follow-up message to {interaction.user.display_name}: {content}"
+        logger.debug(
+            "Sent follow-up message",
+            extra={"user_id": interaction.user.id},
         )
     except Exception:
-        logger.exception("Failed to send follow-up message")
+        logger.exception("Failed to send follow-up message", extra={"user_id": interaction.user.id})
 
 
 async def channel_send_message(
@@ -301,11 +301,11 @@ async def send_direct_message_task(
             await member.send(content, embed=embed)
         else:
             await member.send(content)
-        logger.info(f"Sent DM to '{member.display_name}': {content}")
+        logger.debug("Sent DM to user", extra={"user_id": member.id})
     except discord.Forbidden:
-        logger.warning(f"Cannot send DM to '{member.display_name}' (forbidden).")
-    except Exception as e:
-        logger.exception("Failed to send DM to '%s'", member.display_name, exc_info=e)
+        logger.debug("Cannot send DM to user (forbidden)", extra={"user_id": member.id})
+    except Exception:
+        logger.exception("Failed to send DM", extra={"user_id": member.id})
 
 
 async def edit_message(

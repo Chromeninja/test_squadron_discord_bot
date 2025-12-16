@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
-import { authApi, GuildSummary } from '../api/endpoints';
-import { handleApiError } from '../utils/toast';
+import { authApi, adminApi, GuildSummary, UserProfile } from '../api/endpoints';
+import { handleApiError, showSuccess } from '../utils/toast';
 import { Button, Card, Alert } from '../components/ui';
 
 interface SelectServerProps {
   onSelected: () => Promise<void> | void;
+  user?: UserProfile | null;
 }
 
-const SelectServer = ({ onSelected }: SelectServerProps) => {
+const SelectServer = ({ onSelected, user }: SelectServerProps) => {
   const [guilds, setGuilds] = useState<GuildSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [leavingId, setLeavingId] = useState<string | null>(null);
+  const [confirmLeaveId, setConfirmLeaveId] = useState<string | null>(null);
+
+  const isBotOwner = user?.is_bot_owner === true;
 
   const fetchGuilds = useCallback(async (forceRefresh = false) => {
     try {
@@ -73,6 +78,33 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
       handleApiError(err, 'Failed to get bot invite URL');
       setError('Failed to get bot invite URL. Please try again.');
     }
+  };
+
+  const handleLeaveGuild = async (guildId: string, guildName: string) => {
+    if (confirmLeaveId !== guildId) {
+      // First click: show confirmation
+      setConfirmLeaveId(guildId);
+      return;
+    }
+
+    // Second click: perform leave
+    setLeavingId(guildId);
+    setConfirmLeaveId(null);
+    try {
+      await adminApi.leaveGuild(guildId);
+      showSuccess(`Bot has left "${guildName}"`);
+      // Refresh guild list
+      await fetchGuilds(true);
+    } catch (err) {
+      handleApiError(err, 'Failed to leave server');
+      setError('Failed to leave server. Please try again.');
+    } finally {
+      setLeavingId(null);
+    }
+  };
+
+  const cancelLeave = () => {
+    setConfirmLeaveId(null);
   };
 
   if (loading) {
@@ -147,18 +179,55 @@ const SelectServer = ({ onSelected }: SelectServerProps) => {
                       {guild.guild_name.charAt(0).toUpperCase()}
                     </div>
                   )}
-                  <div>
+                  <div className="flex-1">
                     <h2 className="text-xl font-semibold">{guild.guild_name}</h2>
                     <p className="text-sm text-gray-400">Guild ID: {guild.guild_id}</p>
                   </div>
                 </div>
-                <Button
-                  fullWidth
-                  onClick={() => handleSelect(guild.guild_id)}
-                  loading={selectingId === guild.guild_id}
-                >
-                  {selectingId === guild.guild_id ? 'Selecting...' : 'Go'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    fullWidth
+                    onClick={() => handleSelect(guild.guild_id)}
+                    loading={selectingId === guild.guild_id}
+                    disabled={leavingId === guild.guild_id}
+                  >
+                    {selectingId === guild.guild_id ? 'Selecting...' : 'Go'}
+                  </Button>
+                  {isBotOwner && (
+                    confirmLeaveId === guild.guild_id ? (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleLeaveGuild(guild.guild_id, guild.guild_name)}
+                          loading={leavingId === guild.guild_id}
+                          title="Confirm leave"
+                        >
+                          ✓
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={cancelLeave}
+                          disabled={leavingId === guild.guild_id}
+                          title="Cancel"
+                        >
+                          ✕
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleLeaveGuild(guild.guild_id, guild.guild_name)}
+                        disabled={leavingId !== null || selectingId !== null}
+                        title="Leave this server (bot owner only)"
+                      >
+                        🚪
+                      </Button>
+                    )
+                  )}
+                </div>
               </Card>
             ))}
           </div>
