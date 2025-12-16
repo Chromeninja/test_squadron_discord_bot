@@ -1,20 +1,13 @@
 import discord
 from discord.ui import Modal, TextInput
 
-from helpers.discord_api import (
-    edit_channel,
-    followup_send_message,
-)
+from helpers.discord_api import edit_channel, followup_send_message
 from helpers.embeds import (
     create_cooldown_embed,
     create_error_embed,
     create_success_embed,
 )
-from helpers.leadership_log import (
-    EventType,
-    InitiatorKind,
-    InitiatorSource,
-)
+from helpers.leadership_log import EventType, InitiatorKind, InitiatorSource
 from helpers.rate_limiter import (
     check_rate_limit,
     get_remaining_attempts,
@@ -25,6 +18,7 @@ from helpers.task_queue import flush_tasks
 from helpers.token_manager import clear_token, token_store, validate_token
 from helpers.verification_logging import log_guild_sync
 from helpers.voice_utils import get_user_channel, update_channel_settings
+from services.db.database import derive_membership_status
 from services.guild_sync import apply_state_to_guild, sync_user_to_all_guilds
 from services.verification_scheduler import compute_next_retry, schedule_user_recheck
 from services.verification_state import compute_global_state, store_global_state
@@ -362,8 +356,12 @@ class HandleModal(Modal, title="Verification"):
         clear_token(member.id)
         await reset_attempts(member.id)
 
-        # Determine assigned role type for success message
-        assigned_role_type = global_state.status
+        # Determine assigned role type using this guild's org SID
+        assigned_role_type = derive_membership_status(
+            global_state.main_orgs,
+            global_state.affiliate_orgs,
+            org_sid or "TEST",
+        )
 
         # Send customized success message based on role
         if assigned_role_type == "main":
