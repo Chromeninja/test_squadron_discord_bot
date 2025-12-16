@@ -2,20 +2,23 @@
 Utility functions for RSI (Roberts Space Industries) API integration.
 
 Handles organization validation by fetching and parsing org pages.
-Includes a circuit breaker to prevent cascading failures when RSI blocks requests.
+Uses the shared circuit breaker from helpers/circuit_breaker.py to prevent
+cascading failures when RSI blocks requests.
 """
 
 import asyncio
 import logging
 import re
-import time
-from dataclasses import dataclass, field
-from enum import Enum
-from threading import RLock
 from typing import TYPE_CHECKING
 
 import aiohttp
 from bs4 import BeautifulSoup
+
+# Import the shared circuit breaker implementation
+from helpers.circuit_breaker import (
+    CircuitBreakerState,
+    get_rsi_circuit_breaker,
+)
 
 if TYPE_CHECKING:
     from bs4 import Tag
@@ -32,85 +35,22 @@ HTTP_SERVER_ERROR = 500
 
 # ---------------------------------------------------------------------------
 # Circuit Breaker for Web Backend RSI Requests
-# ---------------------------------------------------------------------------
-# Circuit Breaker for Web Backend RSI Requests
 #
-# TODO: Consider consolidating with helpers/circuit_breaker.py for consistency.
-# The bot's CircuitBreakerState implementation has additional features like
-# exponential backoff that could benefit the web backend.
+# Uses the shared CircuitBreakerState from helpers/circuit_breaker.py which
+# provides exponential backoff, status monitoring, and consistent behavior
+# across both the bot and web backend.
 # ---------------------------------------------------------------------------
 
 
-class CircuitState(Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
-
-
-@dataclass
-class WebCircuitBreaker:
+def get_web_circuit_breaker() -> CircuitBreakerState:
     """
-    Simple circuit breaker for web backend RSI requests.
+    Get the shared RSI circuit breaker instance.
 
-    Opens after threshold consecutive 403s and stays open for reset_timeout seconds.
+    This is an alias for get_rsi_circuit_breaker() to maintain API compatibility.
+    The circuit breaker is shared between the bot and web backend to ensure
+    consistent rate limiting behavior.
     """
-
-    threshold: int = 3
-    reset_timeout: float = 300.0  # 5 minutes
-    _state: CircuitState = field(default=CircuitState.CLOSED, init=False)
-    _failure_count: int = field(default=0, init=False)
-    _last_failure_time: float = field(default=0.0, init=False)
-    _lock: RLock = field(default_factory=RLock, init=False, repr=False)
-
-    @property
-    def state(self) -> CircuitState:
-        """Get current state, transitioning to HALF_OPEN if cooldown expired."""
-        with self._lock:
-            if self._state == CircuitState.OPEN:
-                if time.monotonic() - self._last_failure_time >= self.reset_timeout:
-                    self._state = CircuitState.HALF_OPEN
-            return self._state
-
-    def is_open(self) -> bool:
-        """Check if circuit is open (should fail fast)."""
-        return self.state == CircuitState.OPEN
-
-    def record_failure(self) -> None:
-        """Record a 403 failure."""
-        with self._lock:
-            self._failure_count += 1
-            self._last_failure_time = time.monotonic()
-            if self._state == CircuitState.HALF_OPEN:
-                self._state = CircuitState.OPEN
-                logger.warning("Web RSI circuit breaker probe failed, re-opening")
-            elif self._failure_count >= self.threshold:
-                self._state = CircuitState.OPEN
-                logger.warning(
-                    "Web RSI circuit breaker OPEN after %d 403 failures",
-                    self._failure_count,
-                )
-
-    def record_success(self) -> None:
-        """Record a successful request."""
-        with self._lock:
-            self._state = CircuitState.CLOSED
-            self._failure_count = 0
-
-
-# Global circuit breaker for web backend
-_web_circuit_breaker: WebCircuitBreaker | None = None
-_breaker_lock = RLock()
-
-
-def get_web_circuit_breaker() -> WebCircuitBreaker:
-    """Get or create the web backend's circuit breaker."""
-    global _web_circuit_breaker
-    with _breaker_lock:
-        if _web_circuit_breaker is None:
-            _web_circuit_breaker = WebCircuitBreaker()
-        return _web_circuit_breaker
+    return get_rsi_circuit_breaker()
 
 
 # ---------------------------------------------------------------------------
