@@ -31,7 +31,9 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from utils.logging import get_logger, setup_logging
 
 # Setup structured logging for backend (same as bot)
-setup_logging(log_file="web/backend/logs/bot.log")
+# Use absolute path to avoid duplicated nested directories when CWD is web/backend
+_LOG_PATH = _PROJECT_ROOT / "web" / "backend" / "logs" / "bot.log"
+setup_logging(log_file=str(_LOG_PATH))
 logger = get_logger(__name__)
 
 # Load environment variables from project root .env file

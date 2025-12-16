@@ -1,17 +1,21 @@
 """
 Security utilities for session management and authentication.
 
-Handles Discord OAuth2 flow, session tokens, and access control.
+Switches session handling to server-side storage keyed by a signed, small
+token so browser cookies remain well under size limits even when users have
+hundreds of guilds. Tokens are signed/timestamped with itsdangerous and map to
+in-memory session records containing the actual payload.
 """
 
+import copy
 import os
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
 from fastapi import Response
-from itsdangerous import BadSignature, SignatureExpired
-from jose import JWTError, jwt
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 # Session configuration
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev_only_change_me_in_production")
@@ -26,7 +30,7 @@ COOKIE_SAMESITE: Literal["lax", "strict", "none"] | None = cast(
     _COOKIE_SAMESITE_RAW if _COOKIE_SAMESITE_RAW in {"lax", "strict", "none"} else None,
 )
 
-# JWT configuration for session tokens
+# JWT configuration retained for compatibility with existing settings/tests
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
 
@@ -44,6 +48,31 @@ DISCORD_API_BASE = "https://discord.com/api/v10"
 # Acceptable for single-instance deployments. If scaling to multiple instances
 # or workers, migrate to Redis or database-backed storage.
 _oauth_states: dict[str, float] = {}
+
+
+# ---------------------------------------------------------------------------
+# Server-side session store (signed, size-safe cookies)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SessionRecord:
+    data: dict
+    created_at: datetime
+    expires_at: datetime
+
+
+_session_store: dict[str, SessionRecord] = {}
+_session_signer = URLSafeTimedSerializer(SESSION_SECRET, salt="session")
+
+
+def _cleanup_expired_sessions(now: datetime | None = None) -> None:
+    """Prune expired session records to keep memory bounded."""
+
+    now = now or datetime.now(UTC)
+    expired_keys = [sid for sid, rec in _session_store.items() if rec.expires_at <= now]
+    for sid in expired_keys:
+        _session_store.pop(sid, None)
 
 
 def generate_oauth_state() -> str:
@@ -86,20 +115,15 @@ def cleanup_expired_states() -> None:
 
 
 def set_session_cookie(response: Response, user_data: dict) -> None:
-    """
-    Set a secure session cookie on the response.
+    """Set a secure session cookie containing a signed session key only."""
 
-    Args:
-        response: FastAPI Response object
-        user_data: User data to encode in session
-    """
     token = create_session_token(user_data)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
-        httponly=True,  # Not accessible via JavaScript
-        secure=COOKIE_SECURE,  # Only over HTTPS (disabled for local dev)
-        samesite=COOKIE_SAMESITE,  # CSRF protection
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=SESSION_MAX_AGE,
         path="/",
     )
@@ -118,40 +142,84 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
-def create_session_token(user_data: dict) -> str:
+def create_session_token(user_data: dict, expires_in_seconds: int | None = None) -> str:
     """
-    Create a signed JWT session token.
+    Create a signed session token backed by an in-memory session store.
+
+    The cookie contains only the signed session key; the actual payload lives
+    server-side, keeping cookies small even for large guild lists.
 
     Args:
-        user_data: User information to encode (user_id, username, etc.)
+        user_data: Session payload (user profile and permissions)
+        expires_in_seconds: Optional TTL override for the session record. Uses
+            SESSION_MAX_AGE when omitted. Values greater than SESSION_MAX_AGE
+            are clamped; negative values expire immediately (test helper).
 
     Returns:
-        Signed JWT token string
+        Signed, time-stamped token representing the session key.
     """
+
     now = datetime.now(UTC)
-    payload = {
-        **user_data,
-        "exp": now + timedelta(hours=JWT_EXPIRATION_HOURS),
-        "iat": now,
-    }
-    return jwt.encode(payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
+    ttl = SESSION_MAX_AGE if expires_in_seconds is None else min(expires_in_seconds, SESSION_MAX_AGE)
+    ttl = max(ttl, 0)
+    expires_at = now + timedelta(seconds=ttl)
+
+    # Normalize payload to ensure everything is JSON-serializable before storing
+    payload = dict(user_data)
+    authorized = payload.get("authorized_guilds") or {}
+    if isinstance(authorized, dict):
+        normalized_auth: dict[str, dict] = {}
+        for gid, perm in authorized.items():
+            if hasattr(perm, "model_dump"):
+                normalized_auth[gid] = perm.model_dump()
+            elif isinstance(perm, dict):
+                normalized_auth[gid] = perm
+            else:
+                # Best-effort conversion; skip invalid entries
+                continue
+        payload["authorized_guilds"] = normalized_auth
+
+    payload["exp"] = int(expires_at.timestamp())
+    payload["iat"] = int(now.timestamp())
+
+    # Store payload server-side keyed by a random session id
+    session_id = secrets.token_urlsafe(32)
+    _session_store[session_id] = SessionRecord(
+        data=payload,
+        created_at=now,
+        expires_at=expires_at,
+    )
+
+    _cleanup_expired_sessions(now)
+
+    return _session_signer.dumps(session_id)
 
 
 def decode_session_token(token: str) -> dict | None:
-    """
-    Decode and validate a session token.
+    """Resolve a session token to its server-side payload or return None.
 
-    Args:
-        token: JWT token string
-
-    Returns:
-        Decoded user data dict or None if invalid
+    Returns a deep copy of the stored data to prevent callers from accidentally
+    mutating the session store.
     """
+
+    now = datetime.now(UTC)
+    _cleanup_expired_sessions(now)
+
     try:
-        payload = jwt.decode(token, SESSION_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except (JWTError, SignatureExpired, BadSignature):
+        session_id = _session_signer.loads(token, max_age=SESSION_MAX_AGE)
+    except (BadSignature, SignatureExpired):
         return None
+
+    record = _session_store.get(session_id)
+    if not record:
+        return None
+
+    if record.expires_at <= now:
+        _session_store.pop(session_id, None)
+        return None
+
+    # Return a deep copy to prevent mutation of the stored session data
+    return copy.deepcopy(record.data)
 
 
 def get_discord_authorize_url(state: str) -> str:

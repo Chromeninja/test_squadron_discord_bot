@@ -88,6 +88,7 @@ class InternalAPIServer:
             "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
         self.app.router.add_post("/guilds/{guild_id}/leave", self.leave_guild)
+        self.app.router.add_get("/bot-owner-ids", self.get_bot_owner_ids)
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -485,6 +486,78 @@ class InternalAPIServer:
         except Exception as e:
             logger.exception(f"Failed to leave guild {guild_id}", exc_info=e)
             return web.json_response({"error": "Failed to leave guild"}, status=500)
+
+    async def get_bot_owner_ids(self, request: web.Request) -> web.Response:
+        """
+        Return bot owner IDs from multiple sources.
+
+        Supports:
+        - Single owner (from Discord application info)
+        - Team owners (from Discord team info)
+        - Environment override (BOT_OWNER_ID or BOT_OWNER_IDS)
+
+        Path: GET /bot-owner-ids
+        Headers: Authorization: Bearer <api_key>
+
+        Returns:
+            JSON with owner_ids list and source information
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        owner_ids: set[int] = set()
+        sources: list[str] = []
+
+        # 1. Check environment variable overrides (highest priority)
+        env_owner_id = os.getenv("BOT_OWNER_ID")
+        env_owner_ids = os.getenv("BOT_OWNER_IDS")
+
+        if env_owner_ids:
+            # Support comma-separated list: "123,456,789"
+            for id_str in env_owner_ids.split(","):
+                id_str = id_str.strip()
+                if id_str:
+                    try:
+                        owner_ids.add(int(id_str))
+                        if "env_override" not in sources:
+                            sources.append("env_override")
+                    except ValueError:
+                        logger.warning(f"Invalid BOT_OWNER_IDS entry: {id_str}")
+
+        if env_owner_id:
+            try:
+                owner_ids.add(int(env_owner_id))
+                if "env_override" not in sources:
+                    sources.append("env_override")
+            except ValueError:
+                logger.warning(f"Invalid BOT_OWNER_ID: {env_owner_id}")
+
+        # 2. Check bot.owner_id (from Discord application_info, supports single/team)
+        if self.bot.owner_id:
+            owner_ids.add(self.bot.owner_id)
+            if "discord_application" not in sources:
+                sources.append("discord_application")
+
+        # 3. Check team members if bot is owned by a team
+        try:
+            app_info = await self.bot.application_info()
+            if app_info.team:
+                for member in app_info.team.members:
+                    # Only include accepted team members
+                    if member.membership_state.name == "accepted":
+                        owner_ids.add(member.id)
+                        if "discord_team" not in sources:
+                            sources.append("discord_team")
+        except Exception as e:
+            logger.warning(f"Could not fetch team info: {e}")
+
+        return web.json_response({
+            "owner_ids": list(owner_ids),
+            "sources": sources,
+        })
 
     async def get_guild_roles(self, request: web.Request) -> web.Response:
         """Return Discord roles for a guild."""

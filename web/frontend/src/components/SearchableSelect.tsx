@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 
 export interface SelectOption {
   id: string;  // Changed from number to string to preserve Discord ID precision
@@ -23,6 +23,7 @@ const SearchableSelect = ({
 }: SearchableSelectProps) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listboxId = useMemo(
     () => `searchable-select-list-${Math.random().toString(36).slice(2, 8)}`,
@@ -65,6 +66,30 @@ const SearchableSelect = ({
     } else if (event.key === 'Backspace' && !query && selected !== null) {
       event.preventDefault();
       handleClear();
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => {
+        const next = prev + 1;
+        if (next >= filteredOptions.length) {
+          return filteredOptions.length ? 0 : -1;
+        }
+        return next;
+      });
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => {
+        if (prev <= 0) {
+          return filteredOptions.length ? filteredOptions.length - 1 : -1;
+        }
+        return prev - 1;
+      });
+    } else if (event.key === 'Enter' && highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+      event.preventDefault();
+      const option = filteredOptions[highlightedIndex];
+      handleSelect(option.id);
+      setHighlightedIndex(-1);
     }
   };
 
@@ -89,8 +114,33 @@ const SearchableSelect = ({
     return option.category ? `${option.category} / #${option.name}` : `#${option.name}`;
   };
 
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget as Node | null;
+    if (containerRef.current && next && containerRef.current.contains(next)) {
+      return;
+    }
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setHighlightedIndex(-1);
+      return;
+    }
+
+    const selectedIndex = filteredOptions.findIndex((opt) => opt.id === selected);
+    if (selectedIndex >= 0) {
+      setHighlightedIndex(selectedIndex);
+    } else if (filteredOptions.length > 0) {
+      setHighlightedIndex(0);
+    } else {
+      setHighlightedIndex(-1);
+    }
+  }, [filteredOptions, isOpen, selected]);
+
   return (
-    <div className="relative space-y-2" ref={containerRef}>
+    <div className="relative space-y-2" ref={containerRef} onBlur={handleBlur}>
       <div className="flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800 p-2 focus-within:border-indigo-400">
         {selectedOption && !isOpen && (
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-600/20 px-3 py-1 text-sm text-indigo-200">
@@ -133,13 +183,17 @@ const SearchableSelect = ({
             <div className="p-3 text-sm text-gray-400">No matches found.</div>
           ) : (
             <ul>
-              {filteredOptions.map((option) => (
+              {filteredOptions.map((option, index) => (
                 <li
                   key={option.id}
                   className={`cursor-pointer px-3 py-2 text-sm transition hover:bg-slate-800 ${
-                    option.id === selected ? 'bg-slate-800 text-indigo-300' : 'text-gray-200'
+                    highlightedIndex === index || option.id === selected
+                      ? 'bg-slate-800 text-indigo-300'
+                      : 'text-gray-200'
                   }`}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleSelect(option.id)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                   role="option"
                   aria-selected={option.id === selected}
                 >

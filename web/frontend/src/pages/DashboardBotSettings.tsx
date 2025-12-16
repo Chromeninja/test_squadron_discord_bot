@@ -524,113 +524,6 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             </div>
           </AccordionSection>
 
-          <AccordionSection title="🤝 Delegated Role Grants" level={2}>
-            <div className="space-y-4">
-              <p className="text-xs text-gray-300">
-                Define which roles can grant a target role and what prerequisites the target must already have.
-                Disabled policies are ignored. Policies with no target role are not saved.
-              </p>
-
-              {delegationPolicies.map((policy, index) => (
-                <Card key={index} variant="default" className="space-y-3">
-                  <CardBody className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h5 className="text-sm font-semibold text-white">Policy #{index + 1}</h5>
-                      <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-xs text-gray-200">
-                          <input
-                            type="checkbox"
-                            checked={policy.enabled}
-                            onChange={(e) => updateDelegationPolicy(index, { enabled: e.target.checked })}
-                            className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
-                          />
-                          Enabled
-                        </label>
-                        <Button
-                          onClick={() => removeDelegationPolicy(index)}
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-300 hover:text-red-200"
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-
-                  <div>
-                    <h6 className="text-xs font-semibold text-white mb-1">Grantor Roles</h6>
-                    <p className="text-[11px] text-gray-400 mb-2">Members must have at least one of these roles to grant the target role.</p>
-                    <SearchableMultiSelect
-                      options={roleOptions}
-                      selected={policy.grantor_role_ids}
-                      onChange={(val) => updateDelegationPolicy(index, { grantor_role_ids: val })}
-                      placeholder="Select grantor roles"
-                      componentId={`grantor-${index}`}
-                    />
-                  </div>
-
-                  <div>
-                    <h6 className="text-xs font-semibold text-white mb-1">Target Role</h6>
-                    <p className="text-[11px] text-gray-400 mb-2">Role that will be granted when the policy passes.</p>
-                    <SearchableSelect
-                      options={roleOptions}
-                      selected={policy.target_role_id || null}
-                      onChange={(val) => updateDelegationPolicy(index, { target_role_id: val || '' })}
-                      placeholder="Select target role"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <h6 className="text-xs font-semibold text-white mb-1">Must Have ALL</h6>
-                      <p className="text-[11px] text-gray-400 mb-2">Target must already have every role listed here.</p>
-                      <SearchableMultiSelect
-                        options={roleOptions}
-                        selected={policy.prerequisite_role_ids_all}
-                        onChange={(val) =>
-                          updateDelegationPolicy(index, {
-                            prerequisite_role_ids_all: val,
-                            prerequisite_role_ids: val,
-                          })
-                        }
-                        placeholder="Select required roles (all)"
-                        componentId={`prereq-all-${index}`}
-                      />
-                    </div>
-
-                    <div>
-                      <h6 className="text-xs font-semibold text-white mb-1">Must Have ANY</h6>
-                      <p className="text-[11px] text-gray-400 mb-2">Target must have at least one of these roles.</p>
-                      <SearchableMultiSelect
-                        options={roleOptions}
-                        selected={policy.prerequisite_role_ids_any}
-                        onChange={(val) =>
-                          updateDelegationPolicy(index, { prerequisite_role_ids_any: val })
-                        }
-                        placeholder="Select optional prerequisites (any)"
-                        componentId={`prereq-any-${index}`}
-                      />
-                    </div>
-                  </div>
-
-                    <div>
-                      <h6 className="text-xs font-semibold text-white mb-1">Note</h6>
-                      <Input
-                        value={policy.note ?? ''}
-                        onChange={(e) => updateDelegationPolicy(index, { note: e.target.value })}
-                        placeholder="Optional note"
-                      />
-                    </div>
-                  </CardBody>
-                </Card>
-              ))}
-
-              <Button onClick={addDelegationPolicy} variant="success">
-                Add Delegation Policy
-              </Button>
-            </div>
-          </AccordionSection>
-
           {/* Voice Bot Configuration */}
           <AccordionSection title="📁 Voice Bot Configuration" level={2}>
             <div className="space-y-4">
@@ -652,6 +545,114 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               </div>
             </div>
           </AccordionSection>
+        </div>
+      </AccordionSection>
+
+      {/* Delegated Role Grants - Top Level Accordion */}
+      <AccordionSection title="🤝 Delegated Role Grants" level={1}>
+        <div className="space-y-4">
+          <p className="text-xs text-gray-300">
+            Define which roles can grant a target role and what prerequisites the target must already have.
+            Disabled policies are ignored. Policies with no target role are not saved.
+          </p>
+
+          {delegationPolicies.map((policy, index) => (
+            <Card key={index} variant="default" className="space-y-3">
+              <CardBody className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-sm font-semibold text-white">Policy #{index + 1}</h5>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={policy.enabled}
+                        onChange={(e) => updateDelegationPolicy(index, { enabled: e.target.checked })}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      Enabled
+                    </label>
+                    <Button
+                      onClick={() => removeDelegationPolicy(index)}
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-300 hover:text-red-200"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <h6 className="text-xs font-semibold text-white mb-1">Grantor Roles</h6>
+                  <p className="text-[11px] text-gray-400 mb-2">Members must have at least one of these roles to grant the target role.</p>
+                  <SearchableMultiSelect
+                    options={roleOptions}
+                    selected={policy.grantor_role_ids}
+                    onChange={(val) => updateDelegationPolicy(index, { grantor_role_ids: val })}
+                    placeholder="Select grantor roles"
+                    componentId={`grantor-${index}`}
+                  />
+                </div>
+
+                <div>
+                  <h6 className="text-xs font-semibold text-white mb-1">Target Role</h6>
+                  <p className="text-[11px] text-gray-400 mb-2">Role that will be granted when the policy passes.</p>
+                  <SearchableSelect
+                    options={roleOptions}
+                    selected={policy.target_role_id || null}
+                    onChange={(val) => updateDelegationPolicy(index, { target_role_id: val || '' })}
+                    placeholder="Select target role"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <h6 className="text-xs font-semibold text-white mb-1">Must Have ALL</h6>
+                    <p className="text-[11px] text-gray-400 mb-2">Target must already have every role listed here.</p>
+                    <SearchableMultiSelect
+                      options={roleOptions}
+                      selected={policy.prerequisite_role_ids_all}
+                      onChange={(val) =>
+                        updateDelegationPolicy(index, {
+                          prerequisite_role_ids_all: val,
+                          prerequisite_role_ids: val,
+                        })
+                      }
+                      placeholder="Select required roles (all)"
+                      componentId={`prereq-all-${index}`}
+                    />
+                  </div>
+
+                  <div>
+                    <h6 className="text-xs font-semibold text-white mb-1">Must Have ANY</h6>
+                    <p className="text-[11px] text-gray-400 mb-2">Target must have at least one of these roles.</p>
+                    <SearchableMultiSelect
+                      options={roleOptions}
+                      selected={policy.prerequisite_role_ids_any}
+                      onChange={(val) =>
+                        updateDelegationPolicy(index, { prerequisite_role_ids_any: val })
+                      }
+                      placeholder="Select optional prerequisites (any)"
+                      componentId={`prereq-any-${index}`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <h6 className="text-xs font-semibold text-white mb-1">Note</h6>
+                  <Input
+                    value={policy.note ?? ''}
+                    onChange={(e) => updateDelegationPolicy(index, { note: e.target.value })}
+                    placeholder="Optional note"
+                  />
+                </div>
+              </CardBody>
+            </Card>
+          ))}
+
+          <Button onClick={addDelegationPolicy} variant="success">
+            Add Delegation Policy
+          </Button>
         </div>
       </AccordionSection>
 

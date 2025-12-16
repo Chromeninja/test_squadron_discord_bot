@@ -12,6 +12,7 @@ from core.dependencies import (
     get_config_loader,
     get_internal_api_client,
     require_any_guild_access,
+    require_is_bot_owner,
     translate_internal_api_error,
 )
 from core.schemas import (
@@ -169,10 +170,6 @@ async def callback(code: str, state: str | None = None):
             user_guilds = guilds_response.json()
             user_guild_ids = [g["id"] for g in user_guilds]
 
-            logger.info(
-                f"OAuth callback for user {user_data.get('id')} - "
-                f"member of {len(user_guild_ids)} guild(s)"
-            )
             logger.debug(
                 "OAuth user is member of %d guild(s)", len(user_guild_ids)
             )
@@ -188,10 +185,35 @@ async def callback(code: str, state: str | None = None):
 
             logger.debug(f"Bot is installed in guilds (from DB): {bot_guild_ids}")
 
-            # Check if user is bot owner (global permission)
-            BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
+            # Check if user is bot owner (global permission) via internal API
+            # This supports single owner, team owners, and env overrides
             user_id_from_data = user_data.get("id")
-            is_bot_owner = BOT_OWNER_ID and str(user_id_from_data) == str(BOT_OWNER_ID)
+            is_bot_owner = False
+
+            try:
+                internal_api = InternalAPIClient()
+                bot_owner_ids = await internal_api.get_bot_owner_ids()
+                await internal_api.close()
+                is_bot_owner = int(user_id_from_data) in bot_owner_ids
+            except Exception as e:
+                # Fallback to env var if internal API is unavailable
+                logger.warning(f"Could not fetch bot owner IDs from internal API: {e}")
+                env_owner_id = os.getenv("BOT_OWNER_ID")
+                env_owner_ids = os.getenv("BOT_OWNER_IDS", "")
+                owner_ids_set: set[int] = set()
+                if env_owner_id:
+                    try:
+                        owner_ids_set.add(int(env_owner_id))
+                    except ValueError:
+                        pass
+                for id_str in env_owner_ids.split(","):
+                    id_str = id_str.strip()
+                    if id_str:
+                        try:
+                            owner_ids_set.add(int(id_str))
+                        except ValueError:
+                            pass
+                is_bot_owner = int(user_id_from_data) in owner_ids_set
 
             if is_bot_owner:
                 logger.info(
@@ -362,33 +384,16 @@ async def callback(code: str, state: str | None = None):
 
         # Require at least one authorized guild
         if not authorized_guilds:
-            logger.warning(
-                f"User {user_id} ({username}) denied access - no permissions in any guild. "
-                f"User is member of {len(user_guild_ids)} guild(s), "
-                f"bot is installed in {len(bot_guild_ids)} guild(s). "
-                f"BOT_OWNER_ID check: {bool(BOT_OWNER_ID)}, "
-                f"is_bot_owner: {is_bot_owner}"
-            )
-            # Return unauthorized page with helpful information
+            # Return unauthorized page
             return Response(
-                content=f"""
+                content="""
                 <!DOCTYPE html>
                 <html>
                 <head><title>Access Denied</title></head>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                     <h1>Access Denied</h1>
-                    <p><strong>User:</strong> {username}#{discriminator}</p>
-                    <p>You do not have permission to access this admin dashboard.</p>
-                    <p style="font-size: 0.9em; color: #666; margin-top: 20px;">
-                        To gain access, you need one of the following:
-                    </p>
-                    <ul style="text-align: left; display: inline-block; font-size: 0.9em;">
-                        <li>Be the owner of a Discord server where the bot is installed</li>
-                        <li>Have Discord Administrator permission in a server where the bot is installed</li>
-                        <li>Be assigned a Bot Admin, Discord Manager, Moderator, or Staff role by an admin</li>
-                        <li>Be configured as the bot owner (contact system administrator)</li>
-                    </ul>
-                    <p style="margin-top: 20px;">Contact a bot administrator if you believe this is an error.</p>
+                    <p>You do not have permission roles in any server where this bot is installed.</p>
+                    <p>Contact a bot administrator if you believe this is an error.</p>
                 </body>
                 </html>
                 """,
@@ -419,7 +424,7 @@ async def callback(code: str, state: str | None = None):
             "authorized_guilds": authorized_guilds_dict,
             "active_guild_id": None,  # Null to trigger SelectServer screen
             "roles_validated_at": {},  # Per-guild validation timestamps
-            "is_bot_owner": is_bot_owner,  # Track bot owner status in session
+            "is_bot_owner": is_bot_owner,  # Global bot owner flag
         }
 
         # Create response with session cookie using centralized helper
@@ -467,13 +472,39 @@ async def get_available_guilds(
 
     This ensures users only see guilds they can manage and where the bot is active.
     """
+    logger.info(
+        "Guild list requested",
+        extra={
+            "user_id": current_user.user_id,
+            "authorized_guilds": list(current_user.authorized_guilds.keys()),
+        },
+    )
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
-        raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
+        logger.warning(
+            "Internal API guild fetch failed; falling back to session guilds",
+            exc_info=exc,
+            extra={
+                "user_id": current_user.user_id,
+                "authorized_guild_count": len(current_user.authorized_guilds),
+            },
+        )
+        guilds = [
+            {
+                "guild_id": gid,
+                "guild_name": f"Guild {gid}",
+                "icon_url": None,
+            }
+            for gid in current_user.authorized_guilds
+        ]
+
+        if not guilds:
+            # Preserve previous behavior: surface the original failure when we have no fallback data
+            raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
 
     # Build set of authorized guild IDs (string form) sourced from the session payload
-    authorized_guild_ids = set(current_user.authorized_guilds.keys())
+    authorized_guild_ids = set(current_user.authorized_guilds)
 
     logger.debug(f"Bot guilds from internal API: {[g.get('guild_id') for g in guilds]}")
     logger.debug(f"User authorized guild IDs: {authorized_guild_ids}")
@@ -498,7 +529,14 @@ async def get_available_guilds(
             )
         )
 
-    logger.info(f"Returning {len(summaries)} guild(s) to user")
+    logger.info(
+        "Guild list response",
+        extra={
+            "user_id": current_user.user_id,
+            "returned": len(summaries),
+            "authorized": len(authorized_guild_ids),
+        },
+    )
     return GuildListResponse(guilds=summaries)
 
 
@@ -551,12 +589,13 @@ async def logout(response: Response):
 
 @api_router.get("/bot-invite-url")
 async def get_bot_invite_url(
+    current_user: UserProfile = Depends(require_is_bot_owner),
     config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """
     Get Discord bot authorization URL for inviting bot to a server.
 
-    Uses bot permissions from config and sets redirect URI to bot callback endpoint.
+    Bot owner only - uses bot permissions from config and sets redirect URI to bot callback endpoint.
 
     Returns:
         JSON with invite_url field

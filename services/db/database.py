@@ -155,11 +155,31 @@ class Database:
     @classmethod
     async def initialize(cls, db_path: str | None = None) -> None:
         async with cls._lock:
-            if cls._initialized:
-                return
             if db_path:
                 cls._db_path = db_path
-                # No need to keep the connection open after initialization
+
+            # Check if we need to reinitialize (e.g., db file was deleted)
+            needs_init = not cls._initialized
+            if cls._initialized:
+                # Verify schema actually exists (handles case where db file was deleted)
+                try:
+                    async with aiosqlite.connect(cls._db_path) as db:
+                        cur = await db.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+                        )
+                        row = await cur.fetchone()
+                        if not row:
+                            logger.warning(
+                                "Database marked initialized but schema_migrations table missing - reinitializing"
+                            )
+                            needs_init = True
+                except Exception as e:
+                    logger.warning(f"Error checking database state: {e} - reinitializing")
+                    needs_init = True
+
+            if not needs_init:
+                return
+
             async with aiosqlite.connect(cls._db_path) as db:
                 # Enable foreign key constraints
                 await db.execute("PRAGMA foreign_keys=ON")

@@ -3,7 +3,11 @@ Tests for authentication endpoints.
 """
 
 import pytest
-from core.security import decode_session_token, generate_oauth_state
+from core.security import (
+    create_session_token,
+    decode_session_token,
+    generate_oauth_state,
+)
 from httpx import AsyncClient
 
 
@@ -482,8 +486,7 @@ async def test_callback_denies_access_without_permissions(
 
 @pytest.mark.asyncio
 async def test_session_token_contains_expiration():
-    """Test that session tokens contain expiration claim."""
-    from core.security import create_session_token, decode_session_token
+    """Session tokens should store issued/expiry metadata in server payload."""
 
     user_data = {"user_id": "123", "username": "test"}
     token = create_session_token(user_data)
@@ -497,46 +500,24 @@ async def test_session_token_contains_expiration():
 
 @pytest.mark.asyncio
 async def test_expired_session_token_rejected():
-    """Test that expired session tokens are properly rejected."""
-    from datetime import UTC, datetime, timedelta  # noqa: I001
+    """Expired server-side session should not resolve."""
 
-    from jose import jwt
+    expired_token = create_session_token(
+        {"user_id": "123", "username": "test"}, expires_in_seconds=0
+    )
 
-    from core.security import JWT_ALGORITHM, SESSION_SECRET, decode_session_token
-
-    # Create an expired token manually
-    expired_payload = {
-        "user_id": "123",
-        "username": "test",
-        "exp": datetime.now(UTC) - timedelta(hours=1),  # Expired 1 hour ago
-        "iat": datetime.now(UTC) - timedelta(hours=2),
-    }
-    expired_token = jwt.encode(expired_payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
-
-    # Decoding should return None for expired token
     result = decode_session_token(expired_token)
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_expired_session_returns_null_user(client: AsyncClient):
-    """Test that API returns null user for expired session cookie."""
-    from datetime import UTC, datetime, timedelta  # noqa: I001
+    """API should gracefully return null user for expired session cookie."""
 
-    from jose import jwt
+    expired_token = create_session_token(
+        {"user_id": "123", "username": "test"}, expires_in_seconds=0
+    )
 
-    from core.security import JWT_ALGORITHM, SESSION_SECRET
-
-    # Create an expired token
-    expired_payload = {
-        "user_id": "123",
-        "username": "test",
-        "exp": datetime.now(UTC) - timedelta(hours=1),
-        "iat": datetime.now(UTC) - timedelta(hours=2),
-    }
-    expired_token = jwt.encode(expired_payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
-
-    # Request with expired session should return null user (graceful degradation)
     response = await client.get(
         "/api/auth/me",
         cookies={"session": expired_token},
@@ -550,11 +531,10 @@ async def test_expired_session_returns_null_user(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_tampered_session_token_rejected():
-    """Test that tampered/invalid signature tokens are rejected."""
-    from core.security import decode_session_token
+    """Tampered signed tokens should fail signature validation."""
 
-    # Token with invalid signature (tampered)
-    tampered_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMTIzIn0.INVALID_SIGNATURE"
+    valid_token = create_session_token({"user_id": "123", "username": "test"})
+    tampered_token = valid_token + "broken"
 
     result = decode_session_token(tampered_token)
     assert result is None

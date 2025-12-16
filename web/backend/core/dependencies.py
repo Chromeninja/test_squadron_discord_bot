@@ -217,21 +217,30 @@ async def get_current_user(
         HTTPException: 401 if not authenticated
     """
     if not session:
+        logger.debug("get_current_user: session cookie missing")
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     user_data = decode_session_token(session)
     if not user_data:
+        logger.warning("get_current_user: invalid or expired session token")
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     # Reconstruct GuildPermission objects from dict
     from .schemas import GuildPermission
 
     if "authorized_guilds" in user_data:
-        authorized_guilds_data = user_data["authorized_guilds"]
-        authorized_guilds = {
-            guild_id: GuildPermission(**perm_data)
-            for guild_id, perm_data in authorized_guilds_data.items()
-        }
+        authorized_guilds_data = user_data["authorized_guilds"] or {}
+        authorized_guilds: dict[str, GuildPermission] = {}
+        for guild_id, perm_data in authorized_guilds_data.items():
+            if isinstance(perm_data, GuildPermission):
+                authorized_guilds[guild_id] = perm_data
+            elif isinstance(perm_data, dict):
+                authorized_guilds[guild_id] = GuildPermission(**perm_data)
+            else:
+                logger.warning(
+                    "get_current_user: skipping invalid guild permission entry",
+                    extra={"guild_id": guild_id, "type": type(perm_data).__name__},
+                )
         user_data["authorized_guilds"] = authorized_guilds
 
     return UserProfile(**user_data)
@@ -358,6 +367,22 @@ def require_staff():
 def require_bot_owner():
     """Require bot_owner level only. Used for privileged operations like leaving guilds."""
     return require_guild_permission("bot_owner")
+
+
+async def require_is_bot_owner(
+    current_user: UserProfile = Depends(get_current_user),
+) -> UserProfile:
+    """
+    Require user to be a bot owner (checked via session is_bot_owner flag).
+
+    Does NOT require an active guild - useful for global operations like bot invite.
+    """
+    if not current_user.is_bot_owner:
+        raise HTTPException(
+            status_code=403,
+            detail="This action requires bot owner permissions",
+        )
+    return current_user
 
 
 # Fresh role validation (TTL-based) against Internal API
@@ -527,8 +552,16 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
         last_ts = int(roles_validated_at.get(guild_id_str, 0) or 0)
 
         # Check if this guild has Discord-native permissions that don't need role validation
-        existing_perm = authorized_map.get(guild_id_str, {})
-        existing_source = existing_perm.get("source", "")
+        existing_perm = authorized_map.get(guild_id_str)
+        # Handle both dict (from raw session) and GuildPermission (from get_current_user)
+        if existing_perm is None:
+            existing_source = ""
+        elif hasattr(existing_perm, "source"):
+            existing_source = existing_perm.source or ""
+        elif isinstance(existing_perm, dict):
+            existing_source = existing_perm.get("source", "")
+        else:
+            existing_source = ""
 
         # Skip validation for Discord-native permissions (bot_owner, discord_owner, discord_administrator)
         if existing_source in ("bot_owner", "discord_owner", "discord_administrator"):
@@ -759,6 +792,24 @@ class InternalAPIClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+
+    async def get_bot_owner_ids(self) -> list[int]:
+        """
+        Fetch bot owner IDs from internal API.
+
+        Supports single owner, team owners, and environment overrides.
+
+        Returns:
+            list of Discord user IDs who are bot owners
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        response = await client.get("/bot-owner-ids")
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("owner_ids", [])
 
     async def get_health_report(self):
         """Get comprehensive health report from internal API."""

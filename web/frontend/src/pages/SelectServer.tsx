@@ -25,7 +25,13 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
       const response = await authApi.getGuilds(forceRefresh);
       setGuilds(response.guilds);
       setError(null);
-    } catch (err) {
+    } catch (err: unknown) {
+      // 401 errors are handled by the axios interceptor (redirect to login)
+      // Don't show error message for those - just let the redirect happen
+      const axiosError = err as { response?: { status?: number } };
+      if (axiosError?.response?.status === 401) {
+        return; // Interceptor will redirect to login
+      }
       handleApiError(err, 'Unable to load your servers');
       setError('Unable to load your servers.');
     } finally {
@@ -132,12 +138,15 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
           >
             🔄 Refresh Guild List
           </Button>
-          <Button
-            variant="success"
-            onClick={handleAddBot}
-          >
-            ➕ Add Bot to Server
-          </Button>
+          {isBotOwner && (
+            <Button
+              variant="success"
+              onClick={handleAddBot}
+              title="Add bot to a new server (bot owner only)"
+            >
+              ➕ Add Bot to Server
+            </Button>
+          )}
           <Button
             variant="danger"
             onClick={handleLogout}

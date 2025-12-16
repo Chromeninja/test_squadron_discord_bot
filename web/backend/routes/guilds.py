@@ -12,8 +12,8 @@ from core.dependencies import (
     get_db,
     get_internal_api_client,
     require_bot_admin,
-    require_bot_owner,
     require_fresh_guild_access,
+    require_is_bot_owner,
     require_moderator,
     require_staff,
     translate_internal_api_error,
@@ -928,20 +928,20 @@ async def patch_guild_config(
 @router.post("/{guild_id}/leave")
 async def leave_guild(
     guild_id: int,
-    current_user: UserProfile = Depends(require_bot_owner()),
+    current_user: UserProfile = Depends(require_is_bot_owner),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     Make the bot leave a guild. Bot owner only.
 
     This is a privileged operation that removes the bot from the specified guild.
-    Only the bot owner can perform this action.
+    Only the bot owner can perform this action. Does not require active guild selection.
     """
     import logging
 
     logger = logging.getLogger(__name__)
 
-    # Note: require_bot_owner() validates is_bot_owner in session
+    # Note: require_is_bot_owner validates is_bot_owner in session
     # No need to check active_guild_id match - bot owner can leave ANY guild
 
     try:

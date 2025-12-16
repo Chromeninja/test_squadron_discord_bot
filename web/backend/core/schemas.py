@@ -36,7 +36,7 @@ class UserProfile(BaseModel):
         default_factory=dict
     )  # guild_id -> GuildPermission mapping
     active_guild_id: str | None = None
-    is_bot_owner: bool = False  # True if user is the bot owner (global admin)
+    is_bot_owner: bool = False  # True if user is in bot owner IDs list
 
 
 class AuthMeResponse(BaseModel):
