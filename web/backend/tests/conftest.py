@@ -389,6 +389,20 @@ def fake_internal_api(monkeypatch):
     """Patch get_internal_api_client to return a fake client."""
     fake = FakeInternalAPIClient()
 
+    # Populate guild members for privacy filtering tests
+    # These are the test users added to the verification table in temp_db
+    # plus additional users used in specific tests
+    # Guild 123 is the default test guild used in mock sessions
+    fake.members_by_guild[123] = [
+        {"user_id": 123456789},
+        {"user_id": 987654321},
+        {"user_id": 111222333},
+        {"user_id": 444555666},
+        {"user_id": 555555555},  # Unverified user for voice settings tests
+        {"user_id": 246604397155581954},  # Admin user from test sessions
+        {"user_id": 1428084144860303511},  # Moderator user
+    ]
+
     # Override the FastAPI dependency injection
     from app import app
     from core.dependencies import get_internal_api_client

@@ -771,8 +771,10 @@ async def search_user_voice_settings(
 
     # First, get the set of user IDs who are actually members of this guild
     # This prevents privacy issues where users can see settings for users not in their guild
+    # Use None as sentinel for "no filtering needed", empty set means "no members found"
+    guild_member_ids: set[int] | None = None
     try:
-        guild_member_ids: set[int] = set()
+        guild_member_ids = set()
         page_num = 1
         fetch_size = 1000  # Max supported by API
         while True:
@@ -787,8 +789,17 @@ async def search_user_voice_settings(
                 break
             page_num += 1
     except Exception:
-        logger.warning("Failed to fetch guild members for privacy filtering")
-        guild_member_ids = set()
+        logger.warning("Failed to fetch guild members for privacy filtering, returning empty results (fail closed)")
+        # Fail closed: return empty results rather than exposing settings for non-members
+        return VoiceUserSettingsSearchResponse(
+            success=True,
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            message="Unable to verify guild membership",
+            is_cross_guild=False,
+        )
 
     # Fetch guild roles for name resolution (per snapshot helper)
     try:
@@ -860,8 +871,8 @@ async def search_user_voice_settings(
             candidate_user_ids.add(user_id_int)
 
         # Filter to only include users who are actually members of this guild
-        if guild_member_ids:
-            candidate_user_ids = candidate_user_ids & guild_member_ids
+        # guild_member_ids is always a set here (we return early on fetch failure)
+        candidate_user_ids = candidate_user_ids & guild_member_ids
 
         total = len(candidate_user_ids)
 
@@ -894,10 +905,8 @@ async def search_user_voice_settings(
         all_rows = await cursor.fetchall()
 
         # Filter to only include users who are actually members of this guild
-        if guild_member_ids:
-            rows_filtered = [r for r in all_rows if int(r[0]) in guild_member_ids]
-        else:
-            rows_filtered = list(all_rows)
+        # guild_member_ids is always a set here (we return early on fetch failure)
+        rows_filtered = [r for r in all_rows if int(r[0]) in guild_member_ids]
 
         total = len(rows_filtered)
         rows = rows_filtered[offset : offset + page_size]

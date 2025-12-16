@@ -50,14 +50,18 @@ async def get_stats_overview(
 
     # Fetch total guild member count from internal API
     total_guild_members = 0
+    # Indicates that the breakdown is aggregated across guilds and per-guild "unknown" is not well-defined
+    cross_guild_breakdown = cross_guild
     if cross_guild:
         # In cross-guild mode, aggregate member counts from all guilds
         try:
             guilds_response = await internal_api.get_guilds()
             for guild_info in guilds_response:
                 try:
-                    guild_stats = await internal_api.get_guild_stats(int(guild_info["id"]))
-                    total_guild_members += guild_stats.get("member_count", 0)
+                    guild_id_value = guild_info.get("guild_id")
+                    if guild_id_value is not None:
+                        guild_stats = await internal_api.get_guild_stats(int(guild_id_value))
+                        total_guild_members += guild_stats.get("member_count", 0)
                 except Exception:
                     pass  # Skip individual guild failures
         except Exception:
@@ -83,11 +87,11 @@ async def get_stats_overview(
 
     status_counts = StatusCounts()
 
-    if cross_guild:
+    if cross_guild_breakdown:
         # In cross-guild mode, we can't derive status per specific guild org
-        # Just count verified users - status breakdown not meaningful across guilds
-        # Set all to unknown since we can't determine membership per guild
-        status_counts.unknown = total_verified
+        # The "unknown" count (unverified guild members) is not well-defined across guilds
+        # Set unknown=0 to avoid misleading numbers; consumers should rely on total_verified
+        status_counts.unknown = 0
     else:
         # Get guild's tracked organization SID
         guild_org_sid = "TEST"  # Default

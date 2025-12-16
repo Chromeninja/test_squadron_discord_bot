@@ -11,8 +11,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import time
-
 from helpers.circuit_breaker import (
     CIRCUIT_OPEN_ERROR_MESSAGE,
     CircuitBreakerConfig,
@@ -108,63 +106,107 @@ class TestCircuitBreakerState:
         assert breaker.state == CircuitState.OPEN
         assert breaker.is_open()
 
-    def test_open_circuit_has_retry_time(self) -> None:
+    def test_open_circuit_has_retry_time(self, monkeypatch) -> None:
         """Test that open circuit has positive retry time."""
+        fake_time = 0.0
+
+        def fake_monotonic() -> float:
+            return fake_time
+
+        monkeypatch.setattr("helpers.circuit_breaker.time.monotonic", fake_monotonic)
+
         config = CircuitBreakerConfig(threshold=1, reset_timeout=60.0)
         breaker = CircuitBreakerState(config=config)
 
         breaker.record_failure()
         assert breaker.is_open()
         retry_time = breaker.time_until_retry()
-        assert 59.0 < retry_time <= 60.0
+        # Immediately after opening, the full timeout should remain
+        assert retry_time == 60.0
 
-    def test_circuit_transitions_to_half_open_after_timeout(self) -> None:
+    def test_circuit_transitions_to_half_open_after_timeout(self, monkeypatch) -> None:
         """Test that circuit transitions to HALF_OPEN after reset_timeout."""
+        fake_time = [0.0]  # Use list for mutability in closure
+
+        def fake_monotonic() -> float:
+            return fake_time[0]
+
+        monkeypatch.setattr("helpers.circuit_breaker.time.monotonic", fake_monotonic)
+
         config = CircuitBreakerConfig(threshold=1, reset_timeout=0.1)
         breaker = CircuitBreakerState(config=config)
 
+        # At t = 0.0, record first failure and open the circuit
         breaker.record_failure()
         assert breaker.state == CircuitState.OPEN
 
-        # Wait for timeout
-        time.sleep(0.15)
+        # Advance fake time past the reset_timeout without sleeping
+        fake_time[0] = 0.15
 
+        # The circuit should now be HALF_OPEN when queried
         assert breaker.state == CircuitState.HALF_OPEN
         assert not breaker.is_open()
 
-    def test_half_open_allows_probe(self) -> None:
+    def test_half_open_allows_probe(self, monkeypatch) -> None:
         """Test that HALF_OPEN state allows probe (is_open returns False)."""
+        fake_time = [0.0]
+
+        def fake_monotonic() -> float:
+            return fake_time[0]
+
+        monkeypatch.setattr("helpers.circuit_breaker.time.monotonic", fake_monotonic)
+
         config = CircuitBreakerConfig(threshold=1, reset_timeout=0.01)
         breaker = CircuitBreakerState(config=config)
 
+        # Open the circuit at t = 0
         breaker.record_failure()
-        time.sleep(0.02)
+        assert breaker.state == CircuitState.OPEN
 
+        # Advance fake time past the reset_timeout to transition to HALF_OPEN
+        fake_time[0] = 0.02
+
+        # In HALF_OPEN, the circuit should allow a probe (i.e., not report as open)
         assert breaker.state == CircuitState.HALF_OPEN
         assert not breaker.is_open()  # Should allow probe
 
-    def test_success_in_half_open_closes_circuit(self) -> None:
+    def test_success_in_half_open_closes_circuit(self, monkeypatch) -> None:
         """Test that success in HALF_OPEN state closes the circuit."""
+        fake_time = [0.0]
+
+        def fake_monotonic() -> float:
+            return fake_time[0]
+
+        monkeypatch.setattr("helpers.circuit_breaker.time.monotonic", fake_monotonic)
+
         config = CircuitBreakerConfig(threshold=1, reset_timeout=0.01)
         breaker = CircuitBreakerState(config=config)
 
         breaker.record_failure()
-        time.sleep(0.02)
+        fake_time[0] = 0.02
         assert breaker.state == CircuitState.HALF_OPEN
 
         breaker.record_success()
         assert breaker.state == CircuitState.CLOSED
         assert breaker.failure_count == 0
 
-    def test_failure_in_half_open_reopens_circuit(self) -> None:
+    def test_failure_in_half_open_reopens_circuit(self, monkeypatch) -> None:
         """Test that failure in HALF_OPEN state re-opens the circuit."""
+        fake_time = [0.0]
+
+        def fake_monotonic() -> float:
+            return fake_time[0]
+
+        monkeypatch.setattr("helpers.circuit_breaker.time.monotonic", fake_monotonic)
+
         config = CircuitBreakerConfig(threshold=1, reset_timeout=0.01)
         breaker = CircuitBreakerState(config=config)
 
         breaker.record_failure()
-        time.sleep(0.02)
+        fake_time[0] = 0.02
         assert breaker.state == CircuitState.HALF_OPEN
 
+        # Record failure updates last_failure_time, so we need time to still be 0.02
         breaker.record_failure()
         assert breaker.state == CircuitState.OPEN
 

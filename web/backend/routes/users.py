@@ -353,7 +353,11 @@ async def list_users(
     - page: Page number (1-indexed)
     - page_size: Items per page (default 50, max 200)
     - membership_statuses: Comma-separated list (e.g., "main,affiliate,unknown")
-    - role_ids: Comma-separated Discord role IDs (e.g., "123,456")
+
+    Note: In single-guild mode, results are filtered to only include users who are
+    current members of the guild. In cross-guild mode (bot owner only), all verified
+    users are returned without guild membership filtering, and status derivation uses
+    a default org SID since no specific guild context is available.
 
     Requires: Staff role or higher
 
