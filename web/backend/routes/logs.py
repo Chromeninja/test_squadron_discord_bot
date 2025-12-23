@@ -5,6 +5,7 @@ Log export routes for admin dashboard.
 import csv
 import io
 import json
+from pathlib import Path
 
 from core.dependencies import (
     InternalAPIClient,
@@ -37,7 +38,7 @@ def _create_streaming_response(
     )
 
 
-def _read_tail_bytes(file_path, max_bytes: int) -> bytes:
+def _read_tail_bytes(file_path: Path, max_bytes: int) -> bytes:
     """Read the last max_bytes from a file, starting at a line boundary."""
     file_size = file_path.stat().st_size
     start_pos = max(0, file_size - max_bytes)
@@ -137,11 +138,13 @@ async def export_audit_logs(
 
         for log in audit_logs:
             row = log.copy()
-            # Compact JSON details for CSV readability
+            # If details is JSON, re-serialize to a compact single line for CSV output
             if row.get("details"):
                 try:
                     details_obj = json.loads(row["details"])
-                    row["details"] = json.dumps(details_obj, separators=(",", ":"))
+                    compact = json.dumps(details_obj, separators=(",", ":"))
+                    if compact != row["details"]:
+                        row["details"] = compact
                 except (json.JSONDecodeError, TypeError):
                     pass  # Keep as-is if not valid JSON
             writer.writerow(row)

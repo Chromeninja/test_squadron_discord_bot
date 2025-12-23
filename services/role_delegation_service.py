@@ -162,7 +162,7 @@ class RoleDelegationService(BaseService):
         role: discord.Role,
     ) -> None:
         """Post delegated role grant to leadership log."""
-        grantor_name = getattr(grantor, "display_name", None) or grantor.name
+        grantor_name = grantor.display_name or grantor.name
         try:
             cs = ChangeSet(
                 user_id=target.id,
@@ -175,7 +175,10 @@ class RoleDelegationService(BaseService):
             )
             await post_if_changed(self.bot, cs)
         except Exception:
-            self.logger.debug("Leadership log post failed", exc_info=True)
+            self.logger.debug(
+                "Failed to post delegated role grant to leadership log",
+                exc_info=True,
+            )
 
     def _format_reason(
         self, guild: discord.Guild, code: str, role_ids: set[int] | list[int]

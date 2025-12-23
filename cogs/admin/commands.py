@@ -206,8 +206,8 @@ class AdminCog(commands.Cog):
             )
 
     # Removed: view-logs command. Log viewing is now Web Admin only.
-    # Use the web dashboard at /dashboard to export bot logs, backend logs, and audit logs.
-
+    # Use the web dashboard (see your deployment's documentation or configuration for the exact URL)
+    # to export bot logs, backend logs, and audit logs.
     @app_commands.command(
         name="status", description="Show detailed bot health and status information"
     )
