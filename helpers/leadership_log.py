@@ -15,7 +15,7 @@ class EventType(str, Enum):
     VERIFICATION = "VERIFICATION"  # User initial verification ("User Verify")
     RECHECK = "RECHECK"  # User initiated re-check via button
     AUTO_CHECK = "AUTO_CHECK"  # Scheduled automatic re-check
-    ADMIN_CHECK = "ADMIN_CHECK"  # Admin initiated manual check
+    ADMIN_ACTION = "ADMIN_ACTION"  # Admin initiated action (check, role grant, etc)
 
 
 class InitiatorKind(str, Enum):
@@ -38,7 +38,7 @@ VALID_COMBINATIONS: dict[EventType, set[InitiatorKind]] = {
     EventType.VERIFICATION: {InitiatorKind.USER},
     EventType.RECHECK: {InitiatorKind.USER, InitiatorKind.ADMIN, InitiatorKind.AUTO},
     EventType.AUTO_CHECK: {InitiatorKind.AUTO},
-    EventType.ADMIN_CHECK: {InitiatorKind.ADMIN},
+    EventType.ADMIN_ACTION: {InitiatorKind.ADMIN},
 }
 
 
@@ -271,7 +271,7 @@ def _event_title(ev: EventType) -> str:
         EventType.VERIFICATION: "Verification",
         EventType.RECHECK: "Recheck",
         EventType.AUTO_CHECK: "Auto Check",
-        EventType.ADMIN_CHECK: "Admin Check",
+        EventType.ADMIN_ACTION: "Admin Action",
     }.get(ev, ev.value)
 
 
@@ -284,7 +284,7 @@ def _event_emoji(cs: ChangeSet) -> str:
     if cs.notes and cs.notes and "404" in cs.notes.lower():
         return "⚠️"
     return {
-        EventType.ADMIN_CHECK: "🧑‍✈️",
+        EventType.ADMIN_ACTION: "🧑‍✈️",
         EventType.VERIFICATION: "✅",
         EventType.RECHECK: "🔁",
         EventType.AUTO_CHECK: "🤖",
@@ -489,8 +489,8 @@ def _header_tag(cs: ChangeSet) -> str:
             return "Recheck • Auto"
     if cs.event == EventType.AUTO_CHECK:
         return "Auto Check"
-    if cs.event == EventType.ADMIN_CHECK:
-        return f"Admin Check{suffix}"
+    if cs.event == EventType.ADMIN_ACTION:
+        return f"Admin Action{suffix}"
     return cs.event.name
 
 

@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from helpers.discord_api import add_roles
+from helpers.leadership_log import (
+    ChangeSet,
+    EventType,
+    InitiatorKind,
+    InitiatorSource,
+    post_if_changed,
+)
 from services.base import BaseService
 from utils.logging import get_logger
 
@@ -139,7 +146,36 @@ class RoleDelegationService(BaseService):
                 "reason": apply_reason,
             },
         )
+
+        # Post to leadership log
+        await self._log_role_grant(
+            guild, grantor_member, target_member, role_obj
+        )
+
         return True, ""
+
+    async def _log_role_grant(
+        self,
+        guild: discord.Guild,
+        grantor: discord.Member,
+        target: discord.Member,
+        role: discord.Role,
+    ) -> None:
+        """Post delegated role grant to leadership log."""
+        grantor_name = getattr(grantor, "display_name", None) or grantor.name
+        try:
+            cs = ChangeSet(
+                user_id=target.id,
+                event=EventType.ADMIN_ACTION,
+                initiator_kind=InitiatorKind.ADMIN,
+                initiator_name=grantor_name,
+                initiator_source=InitiatorSource.COMMAND,
+                guild_id=guild.id,
+                notes=f"Delegated role grant: {role.name} granted by @{grantor.name}",
+            )
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            self.logger.debug("Leadership log post failed", exc_info=True)
 
     def _format_reason(
         self, guild: discord.Guild, code: str, role_ids: set[int] | list[int]

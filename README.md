@@ -101,15 +101,14 @@ The bot includes several administrative commands for configuration and managemen
 | Command | Description | Required Role | Usage |
 |---------|-------------|---------------|-------|
 | `/status` | Show detailed bot health and status information | Bot Admin | `/status detailed:true` |
-| `/guild-config` | Show current guild configuration (roles, channels, voice settings) | Moderator+ | `/guild-config` |
-| `/set-config` | Set a guild configuration value | Bot Admin | `/set-config key:"voice.cooldown_seconds" value:"30"` |
 | `/reset-all` | Reset verification timers for all members | Bot Admin | `/reset-all` |
 | `/reset-user` | Reset verification timer for a specific user | Moderator+ | `/reset-user member:@username` |
-| `/view-logs` | View recent bot logs with dual delivery (preview + DM) | Bot Admin | `/view-logs` |
 | `/verify check-user` | Check or recheck verification status for a single user | Moderator+ | `/verify check-user member:@user action:check` |
 | `/verify check-members` | Check or recheck verification status for multiple users | Moderator+ | `/verify check-members members:"@user1 @user2" action:check` |
 | `/verify check-channel` | Check or recheck verification status for users in a voice channel | Moderator+ | `/verify check-channel channel:#General-Voice action:check` |
 | `/verify check-voice` | Check or recheck verification status for all users in active voice channels | Moderator+ | `/verify check-voice action:check` |
+
+> **Note**: Log viewing and guild configuration are now managed through the Web Admin dashboard.
 
 #### User Verification Lookup Command
 
@@ -242,8 +241,8 @@ Both the Discord bot and web dashboard use a **hierarchical role-based permissio
 6. **Regular Users** - Access to user-facing commands and voice channel management only
 
 #### Permission Examples:
-- **Bot Admin**: Can recheck users, reset voice settings, manage guild configuration
-- **Moderator**: Can recheck users, view logs, manage user-specific settings
+- **Bot Admin**: Can recheck users, reset voice settings, manage guild configuration, access logs via Web Admin
+- **Moderator**: Can recheck users, manage user-specific settings
 - **Staff**: Can view dashboards, search users, monitor statistics (read-only)
 - **Regular Users**: Can manage their own voice channels, request verification
 

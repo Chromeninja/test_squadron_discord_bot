@@ -2,9 +2,6 @@
 Refactored admin cog with service integration and health monitoring.
 """
 
-from datetime import UTC, datetime
-from pathlib import Path
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -208,122 +205,8 @@ class AdminCog(commands.Cog):
                 extra=get_interaction_extra(interaction),
             )
 
-    @app_commands.command(name="view-logs", description="View recent bot logs.")
-    @app_commands.guild_only()
-    @require_permission_level(PermissionLevel.BOT_ADMIN)
-    async def view_logs(self, interaction: discord.Interaction) -> None:
-        """View recent bot logs with dual delivery - channel preview and full content via DM."""
-        self.logger.info(
-            f"'view-logs' command triggered by user {interaction.user.id}."
-        )
-
-        try:
-            await interaction.response.defer(ephemeral=True)
-
-            log_file = Path("logs/bot.log")
-            if not log_file.exists():
-                await interaction.followup.send(
-                    "❌ Log file not found.", ephemeral=True
-                )
-                return
-
-            # Read the entire log file for DM and last lines for channel
-            with open(log_file, encoding="utf-8") as f:
-                all_lines = f.readlines()
-
-            if not all_lines:
-                await interaction.followup.send("📋 Log file is empty.", ephemeral=True)
-                return
-
-            # Get last ~50 lines for preview display
-            recent_lines = all_lines[-50:] if len(all_lines) > 50 else all_lines
-            recent_content = "".join(recent_lines)
-
-            # Always provide dual delivery: channel preview + DM full content
-            max_preview_length = 1000  # Shortened for better preview experience
-
-            # Create channel preview (always truncated for consistency)
-            if len(recent_content) > max_preview_length:
-                preview_content = (
-                    recent_content[:max_preview_length] + "... (preview truncated)"
-                )
-            else:
-                preview_content = (
-                    recent_content + "\n(showing recent entries - full log sent via DM)"
-                )
-
-            # Create embed for channel preview
-            embed = discord.Embed(
-                title="📋 Bot Logs Preview (Last ~50 lines)",
-                description=f"```\n{preview_content}\n```",
-                color=discord.Color.blue(),
-                timestamp=datetime.now(UTC),
-            )
-            embed.set_footer(text="Full log file sent via DM")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-            # Always try to send full content as DM
-            dm_success = False
-            try:
-                # Create a file-like object from the log content
-                full_content = "".join(all_lines)
-
-                # If content is extremely large, create a text file
-                if len(full_content) > 8000:
-                    import io
-
-                    log_bytes = full_content.encode("utf-8")
-                    file_obj = discord.File(
-                        io.BytesIO(log_bytes),
-                        filename=f"bot_logs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.txt",
-                    )
-
-                    await interaction.user.send(
-                        content="📋 **Full Bot Log File**\n"
-                        f"Generated on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-                        f"Total lines: {len(all_lines)}",
-                        file=file_obj,
-                    )
-                    dm_success = True
-                else:
-                    # Send as text if not too large
-                    dm_embed = discord.Embed(
-                        title="📋 Full Bot Log",
-                        description=f"```\n{full_content}\n```",
-                        color=discord.Color.blue(),
-                        timestamp=datetime.now(UTC),
-                    )
-                    await interaction.user.send(embed=dm_embed)
-                    dm_success = True
-
-            except discord.Forbidden:
-                # User has DMs closed to non-friends
-                pass
-            except discord.HTTPException as dm_error:
-                # Other Discord API errors
-                self.logger.warning(
-                    f"Could not DM full logs to admin {interaction.user.id}: {dm_error}"
-                )
-            except Exception as e:
-                # Other unexpected errors
-                self.logger.warning(
-                    f"Failed to send DM to admin {interaction.user.id}: {e}"
-                )
-
-            # If DM failed, send follow-up notice
-            if not dm_success:
-                await interaction.followup.send(
-                    "⚠️ **Full logs couldn't be sent via DM** - your DMs may be closed to non-friends. "
-                    "Only the preview is shown above. Please enable DMs from server members to receive full logs.",
-                    ephemeral=True,
-                )
-
-        except Exception as e:
-            self.logger.exception("Error in view-logs command", exc_info=e)
-            await interaction.followup.send(
-                f"❌ Error retrieving logs: {e!s}", ephemeral=True
-            )
+    # Removed: view-logs command. Log viewing is now Web Admin only.
+    # Use the web dashboard at /dashboard to export bot logs, backend logs, and audit logs.
 
     @app_commands.command(
         name="status", description="Show detailed bot health and status information"

@@ -19,16 +19,19 @@ class DummyConfig:
 
 
 class DummyRole:
-    def __init__(self, role_id: int):
+    def __init__(self, role_id: int, name: str = "TestRole"):
         self.id = role_id
+        self.name = name
 
 
 class DummyMember:
-    def __init__(self, member_id: int, roles: list[int]):
+    def __init__(self, member_id: int, roles: list[int], name: str = "TestUser"):
         self.id = member_id
         self.roles = [DummyRole(rid) for rid in roles]
         self.add_roles_called = False
         self.add_roles_args = None
+        self.name = name
+        self.display_name = name
 
     async def add_roles(self, role_obj, reason=None):
         self.add_roles_called = True
@@ -38,7 +41,7 @@ class DummyMember:
 class DummyGuild:
     def __init__(self, guild_id: int, roles: list[int]):
         self.id = guild_id
-        self._roles = {rid: DummyRole(rid) for rid in roles}
+        self._roles = {rid: DummyRole(rid, f"Role{rid}") for rid in roles}
 
     def get_role(self, role_id: int):
         return self._roles.get(role_id)
