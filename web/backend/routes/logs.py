@@ -104,7 +104,7 @@ async def export_backend_logs(
         ) from e
 
 
-@router.get("/audit-export", dependencies=[Depends(require_bot_admin())])
+@router.get("/audit-export")
 async def export_audit_logs(
     limit: int = Query(default=1000, ge=1, le=10000),
     current_user: UserProfile = Depends(require_bot_admin()),
@@ -133,7 +133,7 @@ async def export_audit_logs(
             "details",
             "status",
         ]
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
 
         for log in audit_logs:

@@ -16,6 +16,8 @@ class EventType(str, Enum):
     RECHECK = "RECHECK"  # User initiated re-check via button
     AUTO_CHECK = "AUTO_CHECK"  # Scheduled automatic re-check
     ADMIN_ACTION = "ADMIN_ACTION"  # Admin initiated action (check, role grant, etc)
+    # Backward compatibility alias for persisted data using the old name
+    ADMIN_CHECK = "ADMIN_CHECK"  # @deprecated: use ADMIN_ACTION for new code
 
 
 class InitiatorKind(str, Enum):
@@ -39,6 +41,7 @@ VALID_COMBINATIONS: dict[EventType, set[InitiatorKind]] = {
     EventType.RECHECK: {InitiatorKind.USER, InitiatorKind.ADMIN, InitiatorKind.AUTO},
     EventType.AUTO_CHECK: {InitiatorKind.AUTO},
     EventType.ADMIN_ACTION: {InitiatorKind.ADMIN},
+    EventType.ADMIN_CHECK: {InitiatorKind.ADMIN},  # Backward compatibility
 }
 
 
