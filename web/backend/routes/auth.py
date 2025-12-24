@@ -3,7 +3,6 @@ Authentication routes for Discord OAuth2 flow.
 """
 
 import logging
-import os
 
 import httpx
 from core.dependencies import (
@@ -15,6 +14,17 @@ from core.dependencies import (
     require_is_bot_owner,
     translate_internal_api_error,
 )
+from core.env_config import (
+    BOT_OWNER_IDS,
+    DISCORD_API_BASE,
+    DISCORD_BOT_REDIRECT_URI,
+    DISCORD_CLIENT_ID,
+    DISCORD_CLIENT_SECRET,
+    DISCORD_OAUTH_URL,
+    DISCORD_REDIRECT_URI,
+    DISCORD_TOKEN_URL,
+    FRONTEND_URL,
+)
 from core.schemas import (
     AuthMeResponse,
     GuildListResponse,
@@ -24,12 +34,6 @@ from core.schemas import (
     UserProfile,
 )
 from core.security import (
-    DISCORD_API_BASE,
-    DISCORD_CLIENT_ID,
-    DISCORD_CLIENT_SECRET,
-    DISCORD_OAUTH_URL,
-    DISCORD_REDIRECT_URI,
-    DISCORD_TOKEN_URL,
     SESSION_COOKIE_NAME,
     clear_session_cookie,
     generate_oauth_state,
@@ -44,9 +48,6 @@ from pydantic import BaseModel
 router = APIRouter()
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Frontend URL for redirects (defaults to dev server if not set)
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Discord permission bitfield for Administrator
 ADMINISTRATOR_PERMISSION = 0x0000000000000008
@@ -197,24 +198,9 @@ async def callback(code: str, state: str | None = None):
                 await internal_api.close()
                 is_bot_owner = int(user_id_from_data) in bot_owner_ids
             except Exception as e:
-                # Fallback to env var if internal API is unavailable
+                # Fallback to centralized BOT_OWNER_IDS from env_config
                 logger.warning(f"Could not fetch bot owner IDs from internal API: {e}")
-                env_owner_id = os.getenv("BOT_OWNER_ID")
-                env_owner_ids = os.getenv("BOT_OWNER_IDS", "")
-                owner_ids_set: set[int] = set()
-                if env_owner_id:
-                    try:
-                        owner_ids_set.add(int(env_owner_id))
-                    except ValueError:
-                        pass
-                for id_str in env_owner_ids.split(","):
-                    id_str = id_str.strip()
-                    if id_str:
-                        try:
-                            owner_ids_set.add(int(id_str))
-                        except ValueError:
-                            pass
-                is_bot_owner = int(user_id_from_data) in owner_ids_set
+                is_bot_owner = int(user_id_from_data) in BOT_OWNER_IDS
 
             if is_bot_owner:
                 logger.info(
@@ -672,18 +658,13 @@ async def get_bot_invite_url(
     config_dict = config_loader.load_config()
     bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
 
-    # Build bot invite URL with redirect back to our callback
-    bot_redirect_uri = os.getenv(
-        "DISCORD_BOT_REDIRECT_URI", "http://localhost:8081/auth/bot-callback"
-    )
-
     from urllib.parse import urlencode
 
     params = {
         "client_id": DISCORD_CLIENT_ID,
         "permissions": str(bot_permissions),
         "scope": "bot applications.commands",
-        "redirect_uri": bot_redirect_uri,
+        "redirect_uri": DISCORD_BOT_REDIRECT_URI,
     }
 
     invite_url = f"{DISCORD_OAUTH_URL}?{urlencode(params)}"

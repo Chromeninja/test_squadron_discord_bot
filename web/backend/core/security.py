@@ -8,41 +8,55 @@ in-memory session records containing the actual payload.
 """
 
 import copy
-import os
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, cast
 
 from fastapi import Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-# Session configuration
-SESSION_SECRET = os.getenv("SESSION_SECRET", "dev_only_change_me_in_production")
-SESSION_COOKIE_NAME = "session"
-SESSION_MAX_AGE = 86400 * 7  # 7 days
-COOKIE_SECURE = (
-    os.getenv("COOKIE_SECURE", "false").lower() == "true"
-)  # Set true in production
-_COOKIE_SAMESITE_RAW = os.getenv("COOKIE_SAMESITE", "lax").lower()
-COOKIE_SAMESITE: Literal["lax", "strict", "none"] | None = cast(
-    "Literal['lax', 'strict', 'none'] | None",
-    _COOKIE_SAMESITE_RAW if _COOKIE_SAMESITE_RAW in {"lax", "strict", "none"} else None,
+# Import all environment configuration from centralized module
+from .env_config import (
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
+    DISCORD_API_BASE,
+    DISCORD_CLIENT_ID,
+    DISCORD_CLIENT_SECRET,
+    DISCORD_OAUTH_URL,
+    DISCORD_REDIRECT_URI,
+    DISCORD_TOKEN_URL,
+    JWT_ALGORITHM,
+    JWT_EXPIRATION_HOURS,
+    SESSION_COOKIE_NAME,
+    SESSION_MAX_AGE,
+    SESSION_SECRET,
 )
 
-# JWT configuration retained for compatibility with existing settings/tests
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
-
-# Discord OAuth2 configuration
-DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
-DISCORD_REDIRECT_URI = os.getenv(
-    "DISCORD_REDIRECT_URI", "http://localhost:8081/auth/callback"
-)
-DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
-DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
-DISCORD_API_BASE = "https://discord.com/api/v10"
+# Re-export for backwards compatibility with existing imports
+__all__ = [
+    "COOKIE_SAMESITE",
+    "COOKIE_SECURE",
+    "DISCORD_API_BASE",
+    "DISCORD_CLIENT_ID",
+    "DISCORD_CLIENT_SECRET",
+    "DISCORD_OAUTH_URL",
+    "DISCORD_REDIRECT_URI",
+    "DISCORD_TOKEN_URL",
+    "JWT_ALGORITHM",
+    "JWT_EXPIRATION_HOURS",
+    "SESSION_COOKIE_NAME",
+    "SESSION_MAX_AGE",
+    "SESSION_SECRET",
+    "check_user_has_roles",
+    "cleanup_expired_states",
+    "clear_session_cookie",
+    "create_session_token",
+    "decode_session_token",
+    "generate_oauth_state",
+    "get_discord_authorize_url",
+    "set_session_cookie",
+    "validate_oauth_state",
+]
 
 # OAuth state management: in-memory store with 5-minute expiration.
 # Acceptable for single-instance deployments. If scaling to multiple instances

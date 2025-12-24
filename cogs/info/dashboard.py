@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import os
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config.config_loader import ConfigLoader
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
 from utils.logging import get_logger
@@ -28,18 +30,11 @@ class DashboardCog(commands.Cog):
     @require_permission_level(PermissionLevel.STAFF)
     async def dashboard(self, interaction: discord.Interaction) -> None:
         """Send the web dashboard link as an ephemeral response."""
-
         try:
-            # Get dashboard URL from config
-            dashboard_url = "http://localhost:5173"  # fallback default
-
-            if hasattr(self.bot, "services") and self.bot.services:  # type: ignore[attr-defined]
-                try:
-                    dashboard_url = await self.bot.services.config.get_global_setting(  # type: ignore[attr-defined]
-                        "web_dashboard.url", dashboard_url
-                    )
-                except Exception as e:
-                    logger.debug(f"Failed to get dashboard URL from config: {e}")
+            # Prefer config override if present, otherwise fall back to PUBLIC_URL env (or dev default)
+            config = ConfigLoader.load_config()
+            config_url = (config.get("web_dashboard") or {}).get("url") if isinstance(config, dict) else None
+            dashboard_url = config_url or os.getenv("PUBLIC_URL", "http://localhost:5173")
 
             embed = discord.Embed(
                 title="🌐 Web Admin Dashboard",

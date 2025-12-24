@@ -11,7 +11,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import httpx
 from fastapi import Cookie, Depends, HTTPException, Request, Response
@@ -775,6 +775,13 @@ def translate_internal_api_error(exc: Exception, default_detail: str) -> HTTPExc
     return HTTPException(status_code=500, detail=f"{default_detail}: {exc!s}")
 
 
+class RecheckRequestBody(TypedDict, total=False):
+    """Request payload for member recheck."""
+
+    log_leadership: bool
+    admin_user_id: str
+
+
 class InternalAPIClient:
     """
     HTTP client for calling the bot's internal API.
@@ -783,8 +790,10 @@ class InternalAPIClient:
     """
 
     def __init__(self):
-        self.base_url = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
-        self.api_key = os.getenv("INTERNAL_API_KEY", "")
+        from .env_config import INTERNAL_API_KEY, INTERNAL_API_URL
+
+        self.base_url = INTERNAL_API_URL
+        self.api_key = INTERNAL_API_KEY
         self._client: httpx.AsyncClient | None = None
 
         # Avoid leaking any secret-related info to logs
@@ -950,7 +959,7 @@ class InternalAPIClient:
             httpx.HTTPStatusError: If request fails
         """
         client = await self._get_client()
-        json_body = {"log_leadership": log_leadership}
+        json_body: RecheckRequestBody = {"log_leadership": log_leadership}
         if admin_user_id:
             json_body["admin_user_id"] = admin_user_id
 

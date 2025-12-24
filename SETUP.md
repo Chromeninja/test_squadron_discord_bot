@@ -64,37 +64,41 @@ Find your public IP (if you do not have a domain yet):
 curl -4 ifconfig.me
 ```
 
-Create .env in the project root (use nano or the heredoc below). Replace `YOUR_PUBLIC_IP` if you are using an IP instead of a domain.
+Create .env in the project root. Replace `YOUR_PUBLIC_IP` with your actual IP or domain.
 
 ```bash
 nano .env
 # paste the contents below, then save/exit
 
+# === Required Secrets ===
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
-DISCORD_REDIRECT_URI=http://YOUR_PUBLIC_IP/auth/callback
 
+# === Deployment ===
+# All OAuth redirect URIs are derived from PUBLIC_URL:
+#   - /auth/callback     (user login)
+#   - /auth/bot-callback (bot invite)
+PUBLIC_URL=http://YOUR_PUBLIC_IP
+
+# Generate secrets with: openssl rand -hex 32
 SESSION_SECRET=generate_with_openssl
 INTERNAL_API_KEY=generate_with_openssl
-INTERNAL_API_URL=http://127.0.0.1:8082
 
-VITE_API_BASE=http://YOUR_PUBLIC_IP
-FRONTEND_URL=http://YOUR_PUBLIC_IP
+# === Optional ===
+# ENV=production
+# BOT_OWNER_IDS=123456789,987654321
+# INTERNAL_API_HOST=127.0.0.1
+# INTERNAL_API_PORT=8082
+```
 
-COOKIE_SECURE=false
-COOKIE_SAMESITE=lax
-
-# Optional: set a bot owner ID for global access
-# BOT_OWNER_ID=your_discord_user_id
-
-Notes:
-- Use at least 32 random bytes for SESSION_SECRET and INTERNAL_API_KEY (for example: `openssl rand -hex 32`).
-- DISCORD_REDIRECT_URI must match the Discord Developer Portal entry (use the exact IP or domain you register).
-- FRONTEND_URL must match VITE_API_BASE and is used for OAuth redirects after login.
-- Set COOKIE_SECURE=true only after you add HTTPS.
-- INTERNAL_API_URL only needs changing if you move the internal API off 127.0.0.1:8082.
-- Keep .env out of version control.
+**Important Notes:**
+- `PUBLIC_URL` replaces the old `DISCORD_REDIRECT_URI`, `FRONTEND_URL`, and `VITE_API_BASE` variables
+- Register **both** redirect URIs in Discord Developer Portal (OAuth2 → Redirects):
+  - `http://YOUR_PUBLIC_IP/auth/callback`
+  - `http://YOUR_PUBLIC_IP/auth/bot-callback`
+- `COOKIE_SECURE` is auto-detected from `PUBLIC_URL` scheme (https = secure)
+- Keep `.env` out of version control
 
 ## 6. Application Config
 
