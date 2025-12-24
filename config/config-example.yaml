@@ -49,8 +49,6 @@ rsi:
     backoff_base: 60              # Base backoff in seconds for exponential growth
     backoff_max: 3600             # Maximum backoff cap (1 hour)
 
-web_dashboard:
-  url: "http://your_public_ip_or_domain"  # Production frontend URL
 
 auto_recheck:
   enabled: true

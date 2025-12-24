@@ -101,11 +101,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration - include prod FRONTEND_URL when provided
-cors_origins = ["http://localhost:5173", "http://localhost:3000"]
-frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url:
-    cors_origins.append(frontend_url)
+# CORS configuration - derive from centralized env_config
+from core.env_config import FRONTEND_URL, IS_DEV, PUBLIC_URL
+
+# Build CORS origins: always include FRONTEND_URL and PUBLIC_URL
+cors_origins = [FRONTEND_URL]
+if PUBLIC_URL != FRONTEND_URL:
+    cors_origins.append(PUBLIC_URL)
+
+# Add localhost variants only in development mode
+if IS_DEV:
+    cors_origins.extend([
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8081",
+    ])
+
+# Deduplicate
+cors_origins = list(set(cors_origins))
 
 app.add_middleware(
     CORSMiddleware,

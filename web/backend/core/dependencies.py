@@ -783,8 +783,10 @@ class InternalAPIClient:
     """
 
     def __init__(self):
-        self.base_url = os.getenv("INTERNAL_API_URL", "http://127.0.0.1:8082")
-        self.api_key = os.getenv("INTERNAL_API_KEY", "")
+        from .env_config import INTERNAL_API_KEY, INTERNAL_API_URL
+
+        self.base_url = INTERNAL_API_URL
+        self.api_key = INTERNAL_API_KEY
         self._client: httpx.AsyncClient | None = None
 
         # Avoid leaking any secret-related info to logs
@@ -950,7 +952,7 @@ class InternalAPIClient:
             httpx.HTTPStatusError: If request fails
         """
         client = await self._get_client()
-        json_body = {"log_leadership": log_leadership}
+        json_body: dict[str, bool | str] = {"log_leadership": log_leadership}
         if admin_user_id:
             json_body["admin_user_id"] = admin_user_id
 
