@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 
 import discord
 from discord import app_commands
@@ -28,8 +29,6 @@ class DashboardCog(commands.Cog):
     @require_permission_level(PermissionLevel.STAFF)
     async def dashboard(self, interaction: discord.Interaction) -> None:
         """Send the web dashboard link as an ephemeral response."""
-        import os
-
         try:
             # Get dashboard URL from PUBLIC_URL env var
             dashboard_url = os.getenv("PUBLIC_URL", "http://localhost:5173")

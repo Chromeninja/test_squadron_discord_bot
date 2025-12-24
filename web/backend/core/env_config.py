@@ -22,6 +22,7 @@ Usage:
     )
 """
 
+import logging
 import os
 from typing import Literal, cast
 from urllib.parse import urlparse
@@ -105,7 +106,8 @@ SESSION_MAX_AGE = 86400 * 7  # 7 days
 
 # Auto-detect secure cookies based on PUBLIC_URL scheme
 _auto_cookie_secure = _public_scheme == "https"
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", str(_auto_cookie_secure).lower()).lower() == "true"
+_cookie_secure_env = os.getenv("COOKIE_SECURE", "true" if _auto_cookie_secure else "false")
+COOKIE_SECURE = _cookie_secure_env.lower() == "true"
 
 _cookie_samesite_raw = os.getenv("COOKIE_SAMESITE", "lax").lower()
 COOKIE_SAMESITE: Literal["lax", "strict", "none"] | None = cast(
@@ -120,8 +122,6 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
 # ---------------------------------------------------------------------------
 # Validation & Warnings
 # ---------------------------------------------------------------------------
-import logging
-
 _logger = logging.getLogger(__name__)
 
 if IS_PRODUCTION:

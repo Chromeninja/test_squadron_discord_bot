@@ -11,7 +11,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import httpx
 from fastapi import Cookie, Depends, HTTPException, Request, Response
@@ -775,6 +775,13 @@ def translate_internal_api_error(exc: Exception, default_detail: str) -> HTTPExc
     return HTTPException(status_code=500, detail=f"{default_detail}: {exc!s}")
 
 
+class RecheckRequestBody(TypedDict, total=False):
+    """Request payload for member recheck."""
+
+    log_leadership: bool
+    admin_user_id: str
+
+
 class InternalAPIClient:
     """
     HTTP client for calling the bot's internal API.
@@ -952,7 +959,7 @@ class InternalAPIClient:
             httpx.HTTPStatusError: If request fails
         """
         client = await self._get_client()
-        json_body: dict[str, bool | str] = {"log_leadership": log_leadership}
+        json_body: RecheckRequestBody = {"log_leadership": log_leadership}
         if admin_user_id:
             json_body["admin_user_id"] = admin_user_id
 
