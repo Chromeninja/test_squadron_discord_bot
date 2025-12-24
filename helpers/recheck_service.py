@@ -190,7 +190,7 @@ async def perform_recheck(
 
         if log_leadership:
             event = (
-                EventType.ADMIN_CHECK
+                EventType.ADMIN_ACTION
                 if initiator_kind == InitiatorKind.ADMIN
                 else (EventType.AUTO_CHECK if initiator_kind == InitiatorKind.AUTO else EventType.RECHECK)
             )

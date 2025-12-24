@@ -112,7 +112,7 @@ async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
         user_id=3,
-        event=EventType.ADMIN_CHECK,
+        event=EventType.ADMIN_ACTION,
         initiator_kind=InitiatorKind.ADMIN,
         initiator_name="AdminX",
         guild_id=123,
@@ -137,7 +137,7 @@ async def test_roles_diff_not_rendered(monkeypatch) -> None:
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
         user_id=4,
-        event=EventType.ADMIN_CHECK,
+        event=EventType.ADMIN_ACTION,
         initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
         guild_id=123,
@@ -162,7 +162,7 @@ async def test_status_and_nickname_changes_multiline(monkeypatch) -> None:
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
         user_id=5,
-        event=EventType.ADMIN_CHECK,
+        event=EventType.ADMIN_ACTION,
         initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
         guild_id=123,
@@ -190,7 +190,7 @@ async def test_no_change_admin_and_user_post(monkeypatch) -> None:
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs_admin = ChangeSet(
         user_id=10,
-        event=EventType.ADMIN_CHECK,
+        event=EventType.ADMIN_ACTION,
         initiator_kind=InitiatorKind.ADMIN,
         initiator_name="Adm",
         guild_id=123,

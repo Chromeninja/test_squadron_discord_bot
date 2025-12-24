@@ -6,7 +6,7 @@ import asyncio
 import base64
 import time
 import uuid
-from typing import Optional, Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 from core.dependencies import (
     InternalAPIClient,
@@ -55,7 +55,7 @@ class BulkRecheckProgress(BaseModel):
     successful: int
     failed: int
     status: str  # "running", "complete", "error"
-    current_user: Optional[str] = None
+    current_user: str | None = None
     final_response: dict | None = None
 
 
@@ -260,16 +260,16 @@ async def get_bulk_recheck_progress(
 ):
     """
     Get progress for a bulk recheck job.
-    
+
     Args:
         job_id: The job ID returned when starting bulk recheck
-        
+
     Returns:
         BulkRecheckProgress with current progress
     """
     if job_id not in _bulk_recheck_progress:
         raise HTTPException(status_code=404, detail="Job not found or expired")
-    
+
     progress = _bulk_recheck_progress[job_id]
     return BulkRecheckProgress(**progress)
 
