@@ -85,17 +85,30 @@ INTERNAL_API_URL = f"http://{INTERNAL_API_HOST}:{INTERNAL_API_PORT}"
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 # ---------------------------------------------------------------------------
-# Bot Owner IDs (unified - comma-separated list)
+# Bot Owner IDs (supports list and legacy single env var)
 # ---------------------------------------------------------------------------
-_raw_owner_ids = os.getenv("BOT_OWNER_IDS", "")
-BOT_OWNER_IDS: set[int] = set()
-for _id_str in _raw_owner_ids.split(","):
-    _id_str = _id_str.strip()
-    if _id_str:
+def _parse_owner_ids(raw: str) -> set[int]:
+    owner_ids: set[int] = set()
+    for _id_str in raw.split(","):
+        _id_str = _id_str.strip()
+        if not _id_str:
+            continue
         try:
-            BOT_OWNER_IDS.add(int(_id_str))
+            owner_ids.add(int(_id_str))
         except ValueError:
-            pass
+            logging.getLogger(__name__).warning(
+                "Ignoring invalid BOT_OWNER_ID(S) entry", extra={"value": _id_str}
+            )
+            continue
+    return owner_ids
+
+
+_raw_owner_ids = os.getenv("BOT_OWNER_IDS", "")
+_legacy_owner_id = os.getenv("BOT_OWNER_ID", "")
+
+BOT_OWNER_IDS: set[int] = set()
+BOT_OWNER_IDS |= _parse_owner_ids(_raw_owner_ids)
+BOT_OWNER_IDS |= _parse_owner_ids(_legacy_owner_id)
 
 # ---------------------------------------------------------------------------
 # Session & Cookie Configuration
