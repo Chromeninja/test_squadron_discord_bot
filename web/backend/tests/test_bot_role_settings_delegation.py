@@ -2,6 +2,8 @@ import pytest
 from core.security import SESSION_COOKIE_NAME
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.asyncio
 async def test_bot_role_settings_default_delegation_empty(

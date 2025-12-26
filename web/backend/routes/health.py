@@ -115,6 +115,7 @@ async def readiness_check():
         )
 
     return {
+        "status": "ok",
         "ready": True,
         "config_status": status_value,
         "config_path": config_status.get("config_path"),
@@ -129,4 +130,4 @@ async def liveness_check():
     Simple check that the application is running.
     Returns 200 if alive.
     """
-    return {"alive": True}
+    return {"status": "ok", "alive": True}

@@ -11,6 +11,9 @@ DEFAULT_PAGE_SIZE = 25
 SMALL_PAGE_SIZE = 2
 
 
+pytestmark = pytest.mark.contract
+
+
 def _use_fixture(*fixtures):
     """Helper to appease linters for fixtures with side effects."""
     for fixture in fixtures:

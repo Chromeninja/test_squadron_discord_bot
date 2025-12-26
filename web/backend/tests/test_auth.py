@@ -10,6 +10,7 @@ from core.security import (
 )
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.contract
 
 @pytest.mark.asyncio
 async def test_auth_me_no_session(client: AsyncClient):

@@ -4,6 +4,8 @@ Tests for logs export endpoint with RBAC enforcement and download headers.
 
 import pytest
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.asyncio
 async def test_logs_export_admin_ok(client, mock_admin_session, fake_internal_api):

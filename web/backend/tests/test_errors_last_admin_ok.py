@@ -4,6 +4,8 @@ Tests for errors last endpoint with RBAC enforcement.
 
 import pytest
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.asyncio
 async def test_errors_last_admin_ok(client, mock_admin_session, fake_internal_api):

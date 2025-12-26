@@ -9,6 +9,8 @@ from httpx import AsyncClient
 
 from services.db.database import Database
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.asyncio
 async def test_get_bot_role_settings_defaults(

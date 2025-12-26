@@ -5,6 +5,7 @@ Tests for error monitoring endpoints.
 import httpx
 import pytest
 
+pytestmark = pytest.mark.contract
 
 @pytest.mark.asyncio
 async def test_errors_last_success_admin(client, mock_admin_session, fake_internal_api):
