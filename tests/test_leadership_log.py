@@ -103,7 +103,7 @@ async def test_no_change_suppression_scenarios(
     expect_sent,
     expect_text,
 ) -> None:
-    """Test various scenarios where no meaningful change should be posted."""
+    """Covers no-change suppressions and edge cases that still post (e.g., case-only)."""
     bot = DummyBot()
     sent = []
 

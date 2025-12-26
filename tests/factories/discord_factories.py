@@ -248,10 +248,10 @@ class FakeGuild:
         return None
 
     async def fetch_member(self, user_id: int) -> FakeMember:
-        """Mock fetch_member."""
+        """Mock fetch_member; mirrors Discord lookup semantics."""
         member = self.get_member(user_id)
         if not member:
-            raise Exception(f"Member {user_id} not found")
+            raise LookupError(f"Member {user_id} not found")
         return member
 
     def __repr__(self) -> str:

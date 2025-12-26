@@ -123,7 +123,7 @@ class TestTokenZeroPadding:
     """Test token matching with zero-padding edge cases."""
 
     def test_token_with_leading_zeros(self):
-        """Test matching token that has leading zeros."""
+        """Ensure token matching zero-pads/normalizes so shorter inputs still match."""
         bio = "My token is 0042 for verification."
         assert find_token_in_bio(bio, "0042")
         assert find_token_in_bio(bio, "42")  # Should zero-pad and match

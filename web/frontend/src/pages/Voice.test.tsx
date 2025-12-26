@@ -116,9 +116,10 @@ describe('Voice Page Permission Checks', () => {
     });
 
     render(<Voice />);
-    
+
     await waitFor(() => {
       expect(authApi.getMe).toHaveBeenCalled();
+      expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });
 
@@ -137,9 +138,10 @@ describe('Voice Page Permission Checks', () => {
     });
 
     render(<Voice />);
-    
+
     await waitFor(() => {
       expect(authApi.getMe).toHaveBeenCalled();
+      expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });
 
@@ -158,9 +160,10 @@ describe('Voice Page Permission Checks', () => {
     });
 
     render(<Voice />);
-    
+
     await waitFor(() => {
       expect(authApi.getMe).toHaveBeenCalled();
+      expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });
 });
