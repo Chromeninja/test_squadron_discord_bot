@@ -188,9 +188,11 @@ class TestConfigLoaderReset:
 
             ConfigLoader.reset()
 
-            assert ConfigLoader._config == {}
-            assert ConfigLoader._config_status == "not_loaded"
-            assert ConfigLoader._config_path is None
+            status = ConfigLoader.get_config_status()
+            assert status["config_status"] == "not_loaded"
+            assert status["config_loaded"] is False
+            assert status.get("config_path") is None
+            assert ConfigLoader.get("token") is None
 
     def test_can_reload_after_reset(self):
         """Test that config can be reloaded after reset."""

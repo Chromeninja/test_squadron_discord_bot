@@ -25,29 +25,58 @@ class TestVoiceServiceInitialization:
     """Test VoiceService initialization scenarios."""
 
     @pytest.mark.asyncio
-    async def test_service_initializes_in_test_mode(self, temp_db, mock_bot):
-        """Test that VoiceService initializes correctly in test mode."""
+    async def test_initialize_in_test_mode_has_no_side_effects(
+        self, temp_db, mock_bot
+    ):
+        """Real init should mark initialized without spawning background work."""
         from services.config_service import ConfigService
         from services.voice_service import VoiceService
 
         config_service = MagicMock(spec=ConfigService)
         service = VoiceService(config_service, mock_bot, test_mode=True)
-        service._initialized = True
 
+        # Clean DB and capture baseline
+        await clear_all_voice_channels()
+        initial_count = await get_voice_channel_count()
+
+        await service.initialize()
+
+        # No DB changes in test mode
+        assert await get_voice_channel_count() == initial_count
+        # No background tasks scheduled when auto_start_background is False
+        assert len(service._background_tasks) == 0
         assert service._initialized is True
 
         await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_service_tracks_test_mode_flag(self, temp_db, mock_bot):
-        """Test that test_mode flag is correctly tracked."""
+    async def test_initialize_idempotent_and_schedules_when_enabled(
+        self, temp_db, mock_bot
+    ):
+        """Init should schedule background tasks once and be idempotent."""
         from services.config_service import ConfigService
         from services.voice_service import VoiceService
 
         config_service = MagicMock(spec=ConfigService)
-        service = VoiceService(config_service, mock_bot, test_mode=True)
+        service = VoiceService(
+            config_service, mock_bot, test_mode=False, auto_start_background=True
+        )
 
-        assert service.test_mode is True
+        # Stub out task spawning to close coroutines immediately and avoid warnings
+        service._spawn_background_task = MagicMock(
+            side_effect=lambda coro, *args, **kwargs: coro.close()
+        )
+
+        await service.initialize()
+        first_calls = service._spawn_background_task.call_count
+
+        # Second initialize should be a no-op
+        await service.initialize()
+        second_calls = service._spawn_background_task.call_count
+
+        assert first_calls > 0
+        assert second_calls == first_calls
+        assert service._initialized is True
 
         await service.shutdown()
 
