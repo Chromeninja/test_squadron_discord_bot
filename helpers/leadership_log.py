@@ -655,14 +655,17 @@ def _render_plaintext(cs: ChangeSet) -> str:
 
 async def post_if_changed(bot, cs: ChangeSet):
     # Normalize roles to managed set only; discard others for change signature & rendering
+    # Exception: ADMIN_ACTION events (like delegated role grants) bypass filtering to show all roles
     if not cs.guild_id:
         return  # Cannot proceed without guild context
 
-    managed_names = set(await _managed_role_names(bot, cs.guild_id))
-    if cs.roles_added:
-        cs.roles_added = [r for r in cs.roles_added if r in managed_names]
-    if cs.roles_removed:
-        cs.roles_removed = [r for r in cs.roles_removed if r in managed_names]
+    # Only filter to managed roles for verification events (not ADMIN_ACTION)
+    if cs.event != EventType.ADMIN_ACTION:
+        managed_names = set(await _managed_role_names(bot, cs.guild_id))
+        if cs.roles_added:
+            cs.roles_added = [r for r in cs.roles_added if r in managed_names]
+        if cs.roles_removed:
+            cs.roles_removed = [r for r in cs.roles_removed if r in managed_names]
 
     # Filter out case-only changes by rewriting after values to before when only case differs.
     # Central list of tracked textual attributes for easier maintenance.
