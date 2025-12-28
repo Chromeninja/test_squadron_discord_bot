@@ -6,13 +6,9 @@ This module provides helpers to ensure:
 - Passive bot-initiated notices are sent via DM
 - Consistent formatting across all user-facing messages
 
-DRY PRINCIPLE:
-All cogs should use these helpers instead of directly calling:
-- interaction.response.send_message()
-- interaction.followup.send()
-- member.send()
-
-This ensures consistent error handling and logging across the codebase.
+All cogs should use these helpers instead of directly calling
+interaction.response.send_message(), interaction.followup.send(), or member.send()
+to ensure consistent error handling and logging.
 """
 
 from __future__ import annotations

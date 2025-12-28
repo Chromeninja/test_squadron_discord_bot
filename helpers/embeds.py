@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 
 
 # -----------------------------------------------------------------------------
-# Standard Colors (DRY constants for consistent theming)
+# Standard Colors
 # -----------------------------------------------------------------------------
 
 class EmbedColors:
@@ -431,7 +431,7 @@ def build_voice_settings_ui(
 
 
 # -----------------------------------------------------------------------------
-# Embed Factory Functions (DRY patterns for common embed types)
+# Embed Factory Functions
 # -----------------------------------------------------------------------------
 
 
