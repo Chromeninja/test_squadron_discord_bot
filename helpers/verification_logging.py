@@ -25,10 +25,9 @@ def _is_downgrade(old_status: str | None, new_status: str | None) -> bool:
 
 
 def _should_suppress(diff: dict, event: EventType, *, notes: str | None = None) -> bool:
-    """Check if logging should be suppressed based on diff content.
+    """Pre-filter for empty diffs before creating ChangeSet.
 
-    Note: AUTO_CHECK no-change suppression is handled by post_if_changed() in leadership_log.py
-    to maintain DRY principle - all event type suppression logic is centralized there.
+    Event-specific suppression happens in post_if_changed().
     """
     if not diff:
         return True
@@ -59,7 +58,6 @@ def _maybe_announce(sync_result, diff: dict, bot) -> None:
     old_status = diff.get("status_before")
     new_status = diff.get("status_after")
     try:
-        # Delegate announcement decision to _classify_event (DRY, single source of truth)
         bot.loop.create_task(
             enqueue_announcement_for_guild(
                 bot,

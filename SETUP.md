@@ -92,8 +92,7 @@ INTERNAL_API_KEY=generate_with_openssl
 # INTERNAL_API_PORT=8082
 ```
 
-
-## 6. Application Config
+## 6. Configuration
 
 - Primary config: config/config.yaml
 - Reference template: config/config-example.yaml
@@ -104,6 +103,12 @@ Copy and adjust as needed:
 cp config/config-example.yaml config/config.yaml
 # edit config/config.yaml
 ```
+
+### Important Notes
+
+- `PUBLIC_URL` is the single source of truth. It replaces legacy variables (`DISCORD_REDIRECT_URI`, `DISCORD_BOT_REDIRECT_URI`, `FRONTEND_URL`, `VITE_API_BASE`); these are derived automatically.
+- In the Discord Developer Portal, register both redirect URIs: `PUBLIC_URL/auth/callback` and `PUBLIC_URL/auth/bot-callback`.
+- `COOKIE_SECURE` auto-detects from `PUBLIC_URL` scheme (`https` => true). Override only if necessary via `.env`.
 
 ## 7. systemd Services
 
@@ -242,15 +247,9 @@ sudo systemctl status test_squadron_backend test_squadron_bot
 sudo ss -tlnp | grep -E ':(80|443|8081)'
 
 # Test backend health (internal only)
-curl http://127.0.0.1:8081/api/health/liveness
-
-# Test frontend access (external)
-curl http://YOUR_PUBLIC_IP_OR_DOMAIN
 
 # Check firewall rules
 sudo ufw status
-```
-
 - Backend health: `curl https://your-domain.com/api/health`
 - Discord bot: run `/status` in a server where the bot is installed
 - OAuth: open https://your-domain.com, log in with Discord, and confirm dashboard loads
@@ -278,12 +277,12 @@ Nginx cannot read files in your home directory:
 # Check nginx error logs
 sudo tail -20 /var/log/nginx/error.log
 
-# Fix permissions
-chmod 755 /home/chrome
-chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
-sudo systemctl reload nginx
 ```
 
+- Backend health: `curl https://your-domain.com/api/health`
+- Discord bot: run `/status` in a server where the bot is installed
+- OAuth: open https://your-domain.com, log in with Discord, and confirm dashboard loads
+- Logs: `journalctl -u test_squadron_backend -f` and `journalctl -u test_squadron_bot -f`
 ### nginx shows "Welcome to nginx!" instead of frontend
 
 Default site is taking priority:
@@ -316,8 +315,8 @@ curl http://127.0.0.1:8081/api/health/liveness
 
 ### OAuth redirects to localhost after login
 
-1. **Missing FRONTEND_URL**: Add `FRONTEND_URL=http://YOUR_PUBLIC_IP` to `.env`
-2. **Mismatch in Discord Portal**: Ensure Discord Developer Portal redirect URI matches your IP/domain
+1. **PUBLIC_URL mismatch**: Ensure `PUBLIC_URL` in `.env` matches your external URL. `FRONTEND_URL` is derived automatically; avoid setting it manually unless overriding a dev setup.
+2. **Discord Portal redirects**: Register both redirect URIs using `PUBLIC_URL`: `/auth/callback` and `/auth/bot-callback`.
 3. **Restart backend**: `sudo systemctl restart test_squadron_backend` after changing `.env`
 
 Verify:

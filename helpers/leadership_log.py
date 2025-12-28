@@ -676,10 +676,9 @@ async def post_if_changed(bot, cs: ChangeSet):
     changes = _calculate_changes(cs)
     has_changes = any(changes.values())
 
-    # Suppress AUTO_CHECK events with no changes to avoid cluttering the leadership log
-    # This is the central location for all event-type-based suppression logic (DRY)
+    # Suppress AUTO_CHECK events with no changes
     if cs.event == EventType.AUTO_CHECK and not has_changes:
-        return  # suppress entirely for auto no-change
+        return
 
     # Dedupe short window
     sig = _normalize_signature(cs)
