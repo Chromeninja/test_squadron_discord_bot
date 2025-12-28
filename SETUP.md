@@ -92,13 +92,6 @@ INTERNAL_API_KEY=generate_with_openssl
 # INTERNAL_API_PORT=8082
 ```
 
-**Important Notes:**
-- `PUBLIC_URL` replaces the old `DISCORD_REDIRECT_URI`, `FRONTEND_URL`, and `VITE_API_BASE` variables
-- Register **both** redirect URIs in Discord Developer Portal (OAuth2 → Redirects):
-  - `http://YOUR_PUBLIC_IP/auth/callback`
-  - `http://YOUR_PUBLIC_IP/auth/bot-callback`
-- `COOKIE_SECURE` is auto-detected from `PUBLIC_URL` scheme (https = secure)
-- Keep `.env` out of version control
 
 ## 6. Application Config
 

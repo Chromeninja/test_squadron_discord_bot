@@ -610,6 +610,8 @@ def _calculate_changes(cs: ChangeSet) -> dict[str, bool]:
         "handle": _changed_material(cs.handle_before, cs.handle_after),
         "main_orgs": main_orgs_changed,
         "affiliate_orgs": affiliate_orgs_changed,
+        "roles_added": bool(cs.roles_added),
+        "roles_removed": bool(cs.roles_removed),
     }
 
 
@@ -644,6 +646,10 @@ def _render_plaintext(cs: ChangeSet) -> str:
         lines.append(
             f"Affiliate Orgs: {_format_org_list(cs.affiliate_orgs_before)} → {_format_org_list(cs.affiliate_orgs_after)}"
         )
+    if changes.get("roles_added") and cs.roles_added:
+        lines.append(f"Roles Added: {', '.join(cs.roles_added)}")
+    if changes.get("roles_removed") and cs.roles_removed:
+        lines.append(f"Roles Removed: {', '.join(cs.roles_removed)}")
     return "\n".join(lines)
 
 
@@ -669,6 +675,9 @@ async def post_if_changed(bot, cs: ChangeSet):
 
     changes = _calculate_changes(cs)
     has_changes = any(changes.values())
+
+    # Suppress AUTO_CHECK events with no changes to avoid cluttering the leadership log
+    # This is the central location for all event-type-based suppression logic (DRY)
     if cs.event == EventType.AUTO_CHECK and not has_changes:
         return  # suppress entirely for auto no-change
 

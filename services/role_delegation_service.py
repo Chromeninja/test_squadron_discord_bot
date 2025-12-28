@@ -171,6 +171,7 @@ class RoleDelegationService(BaseService):
                 initiator_name=grantor_name,
                 initiator_source=InitiatorSource.COMMAND,
                 guild_id=guild.id,
+                roles_added=[role.name],
                 notes=f"Delegated role grant: {role.name} granted by @{grantor_name}",
             )
             await post_if_changed(self.bot, cs)

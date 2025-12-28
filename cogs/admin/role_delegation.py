@@ -8,8 +8,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers.decorators import require_permission_level
-from helpers.permissions_helper import PermissionLevel
 from utils.log_context import get_interaction_extra
 from utils.logging import get_logger
 
@@ -37,7 +35,6 @@ class RoleDelegationCog(commands.Cog):
     )
     @app_commands.describe(member="Member to grant the role to", role="Role to grant")
     @app_commands.guild_only()
-    @require_permission_level(PermissionLevel.DISCORD_MANAGER)
     async def role_grant(
         self,
         interaction: discord.Interaction,

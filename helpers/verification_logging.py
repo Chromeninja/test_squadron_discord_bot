@@ -25,31 +25,17 @@ def _is_downgrade(old_status: str | None, new_status: str | None) -> bool:
 
 
 def _should_suppress(diff: dict, event: EventType, *, notes: str | None = None) -> bool:
+    """Check if logging should be suppressed based on diff content.
+
+    Note: AUTO_CHECK no-change suppression is handled by post_if_changed() in leadership_log.py
+    to maintain DRY principle - all event type suppression logic is centralized there.
+    """
     if not diff:
         return True
 
+    # Never suppress if there are explicit notes (error conditions, overrides, etc.)
     if notes:
         return False
-
-    status_same = diff.get("status_before") == diff.get("status_after")
-    orgs_same = diff.get("main_orgs_before") == diff.get("main_orgs_after") and diff.get(
-        "affiliate_orgs_before"
-    ) == diff.get("affiliate_orgs_after")
-    roles_same = not diff.get("roles_added") and not diff.get("roles_removed")
-    username_same = diff.get("username_before") == diff.get("username_after")
-    moniker_same = diff.get("moniker_before") == diff.get("moniker_after")
-    handle_same = diff.get("handle_before") == diff.get("handle_after")
-
-    if event == EventType.AUTO_CHECK:
-        if (
-            status_same
-            and orgs_same
-            and roles_same
-            and username_same
-            and moniker_same
-            and handle_same
-        ):
-            return True
 
     return False
 
