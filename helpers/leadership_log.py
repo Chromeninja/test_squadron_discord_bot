@@ -646,9 +646,9 @@ def _render_plaintext(cs: ChangeSet) -> str:
         lines.append(
             f"Affiliate Orgs: {_format_org_list(cs.affiliate_orgs_before)} → {_format_org_list(cs.affiliate_orgs_after)}"
         )
-    if changes.get("roles_added") and cs.roles_added:
+    if changes["roles_added"]:
         lines.append(f"Roles Added: {', '.join(cs.roles_added)}")
-    if changes.get("roles_removed") and cs.roles_removed:
+    if changes["roles_removed"]:
         lines.append(f"Roles Removed: {', '.join(cs.roles_removed)}")
     return "\n".join(lines)
 
