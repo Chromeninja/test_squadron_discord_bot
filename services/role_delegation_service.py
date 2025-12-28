@@ -172,7 +172,7 @@ class RoleDelegationService(BaseService):
                 initiator_source=InitiatorSource.COMMAND,
                 guild_id=guild.id,
                 roles_added=[role.name],
-                notes=f"Delegated role grant: {role.name} granted by @{grantor_name}",
+                notes=f"Delegated role grant: {role.name} (ID: {role.id}) granted by @{grantor_name}",
             )
             await post_if_changed(self.bot, cs)
         except Exception:

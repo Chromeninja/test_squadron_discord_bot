@@ -41,7 +41,13 @@ class RoleDelegationCog(commands.Cog):
         member: discord.Member,
         role: discord.Role,
     ) -> None:
-        """Grant a role to a member if delegation policy permits."""
+        """Grant a role to a member if delegation policy permits.
+
+        Permission model: Access is controlled by delegation policies configured
+        per-guild (roles.delegation_policies in config). Users must have a grantor
+        role defined in an applicable policy to grant the target role. The
+        can_grant() service method enforces this check.
+        """
         await interaction.response.defer(ephemeral=True)
 
         if interaction.guild is None:

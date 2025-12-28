@@ -24,7 +24,7 @@ def _is_downgrade(old_status: str | None, new_status: str | None) -> bool:
     return order.get(new_status, 0) < order.get(old_status, 0)
 
 
-def _should_suppress(diff: dict, event: EventType, *, notes: str | None = None) -> bool:
+def _should_suppress(diff: dict, *, notes: str | None = None) -> bool:
     """Pre-filter for empty diffs before creating ChangeSet.
 
     Event-specific suppression happens in post_if_changed().
@@ -86,7 +86,7 @@ async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[
     diff = sync_result.diff
     initiator_info = initiator or {}
     notes = initiator_info.get("notes")
-    if _should_suppress(diff, event, notes=notes):
+    if _should_suppress(diff, notes=notes):
         return
 
     initiator_info.setdefault("user_id", sync_result.user_id)
@@ -107,7 +107,7 @@ async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[
 async def log_transition_if_needed(sync_result, bot, event: EventType) -> None:
     """Helper to log downgrades or org changes consistently."""
     diff = sync_result.diff
-    if _should_suppress(diff, event):
+    if _should_suppress(diff):
         return
     if (
         _is_downgrade(diff.get("status_before"), diff.get("status_after"))
