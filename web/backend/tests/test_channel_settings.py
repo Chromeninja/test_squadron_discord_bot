@@ -13,6 +13,8 @@ sys.path.insert(0, str(backend_root))
 from app import app
 from core.security import create_session_token
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.fixture
 def admin_user_token():

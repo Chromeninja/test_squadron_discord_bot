@@ -5,6 +5,7 @@ Tests for voice channel search endpoints.
 import pytest
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.contract
 
 @pytest.mark.asyncio
 async def test_voice_search_unauthorized(

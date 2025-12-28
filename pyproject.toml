@@ -147,7 +147,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
-    "--cov-fail-under=44",
+    "--cov-fail-under=46",
     "-m", "not integration",
     "-q",
 ]
@@ -156,6 +156,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "contract: marks tests as contract tests (DB-backed, verify cross-layer behavior)",
 ]
 
 [tool.coverage.run]

@@ -261,6 +261,7 @@ async def test_apply_grant_logs_leadership_change(monkeypatch):
     # Notes should include role name and grantor display_name with @
     notes = cs.notes or ""
     role = guild.get_role(333)
+    assert role is not None
     assert role.name in notes
     assert f"@{grantor.display_name}" in notes
 

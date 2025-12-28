@@ -7,6 +7,8 @@ import pytest
 
 from config.config_loader import ConfigLoader
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.asyncio
 async def test_health_overview_success_admin(

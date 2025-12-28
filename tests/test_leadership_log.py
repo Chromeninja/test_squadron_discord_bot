@@ -58,8 +58,52 @@ class DummyBot:
         return self._guild if guild_id == 123 else None
 
 
+# =============================================================================
+# Parametrized: No-change / suppression scenarios
+# =============================================================================
+@pytest.mark.parametrize(
+    "event,initiator,moniker_before,moniker_after,expect_sent,expect_text",
+    [
+        pytest.param(
+            EventType.AUTO_CHECK,
+            InitiatorKind.AUTO,
+            None,
+            None,
+            False,
+            None,
+            id="auto_no_fields_suppressed",
+        ),
+        pytest.param(
+            EventType.RECHECK,
+            InitiatorKind.USER,
+            "Alpha",
+            "alpha",
+            True,
+            "No changes",
+            id="case_only_moniker_shows_no_changes",
+        ),
+        pytest.param(
+            EventType.AUTO_CHECK,
+            InitiatorKind.AUTO,
+            None,
+            "NewMoniker",
+            False,
+            None,
+            id="auto_initial_moniker_population_suppressed",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_auto_recheck_suppressed_when_no_change(monkeypatch) -> None:
+async def test_no_change_suppression_scenarios(
+    monkeypatch,
+    event,
+    initiator,
+    moniker_before,
+    moniker_after,
+    expect_sent,
+    expect_text,
+) -> None:
+    """Covers no-change suppressions and edge cases that still post (e.g., case-only)."""
     bot = DummyBot()
     sent = []
 
@@ -69,16 +113,74 @@ async def test_auto_recheck_suppressed_when_no_change(monkeypatch) -> None:
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
         user_id=1,
-        event=EventType.AUTO_CHECK,
-        initiator_kind=InitiatorKind.AUTO,
+        event=event,
+        initiator_kind=initiator,
         guild_id=123,
     )
+    if moniker_before is not None or moniker_after is not None:
+        cs.moniker_before = moniker_before
+        cs.moniker_after = moniker_after
+
     await post_if_changed(bot, cs)
-    assert not sent  # suppressed
+
+    if expect_sent:
+        assert len(sent) == 1
+        if expect_text:
+            assert expect_text in sent[0]
+    else:
+        assert not sent
 
 
+# =============================================================================
+# Parametrized: Single field change scenarios
+# =============================================================================
+@pytest.mark.parametrize(
+    "event,initiator,field_name,before,after,initiator_name,expected_label",
+    [
+        pytest.param(
+            EventType.VERIFICATION,
+            InitiatorKind.USER,
+            "moniker",
+            "(none)",
+            "NewMoniker",
+            None,
+            "Moniker:",
+            id="user_verify_moniker_change",
+        ),
+        pytest.param(
+            EventType.ADMIN_ACTION,
+            InitiatorKind.ADMIN,
+            "handle",
+            "OldH",
+            "NewH",
+            "AdminX",
+            "Handle: OldH → NewH",
+            id="admin_handle_change",
+        ),
+        pytest.param(
+            EventType.AUTO_CHECK,
+            InitiatorKind.AUTO,
+            "moniker",
+            "Old",
+            "New",
+            None,
+            "Moniker:",
+            id="auto_moniker_change",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_user_verify_moniker_change(monkeypatch) -> None:
+async def test_single_field_change_scenarios(
+    monkeypatch,
+    event,
+    initiator,
+    field_name,
+    before,
+    after,
+    initiator_name,
+    expected_label,
+) -> None:
+    """Test that single field changes produce expected output."""
     bot = DummyBot()
     sent = []
 
@@ -88,21 +190,81 @@ async def test_user_verify_moniker_change(monkeypatch) -> None:
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
         user_id=2,
-        event=EventType.VERIFICATION,
-        initiator_kind=InitiatorKind.USER,
+        event=event,
+        initiator_kind=initiator,
+        initiator_name=initiator_name,
         guild_id=123,
     )
-    cs.moniker_before = "(none)"
-    cs.moniker_after = "NewMoniker"
+    setattr(cs, f"{field_name}_before", before)
+    setattr(cs, f"{field_name}_after", after)
+
     await post_if_changed(bot, cs)
+
     assert len(sent) == 1
-    assert "Moniker:" in sent[0]
+    assert expected_label in sent[0]
 
 
+# =============================================================================
+# Parametrized: Multi-field change scenarios
+# =============================================================================
+@pytest.mark.parametrize(
+    "event,initiator,fields,expected_labels,unexpected_labels,initiator_name",
+    [
+        pytest.param(
+            EventType.ADMIN_ACTION,
+            InitiatorKind.ADMIN,
+            {
+                "status_before": "Affiliate",
+                "status_after": "Main",
+                "username_before": "OldNick",
+                "username_after": "NewNick",
+            },
+            ["Status: Affiliate → Main", "Username: OldNick → NewNick"],
+            ["Handle:"],
+            "Adm",
+            id="status_and_username_multiline",
+        ),
+        pytest.param(
+            EventType.VERIFICATION,
+            InitiatorKind.USER,
+            {
+                "handle_before": "OldHandle",
+                "handle_after": "NewHandle",
+                "username_before": "OldHandle",
+                "username_after": "NewHandle",
+            },
+            ["Handle:", "Username:"],
+            [],
+            None,
+            id="handle_and_username_both_lines",
+        ),
+        pytest.param(
+            EventType.AUTO_CHECK,
+            InitiatorKind.AUTO,
+            {
+                "moniker_before": None,
+                "moniker_after": "NewMoniker",
+                "handle_before": "OldHandle",
+                "handle_after": "NewHandle",
+            },
+            ["Handle:"],
+            ["Moniker:"],
+            None,
+            id="auto_moniker_suppressed_handle_shown",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> None:
-    """Handle change should now produce a Handle line
-    (policy: handle drives nickname)."""
+async def test_multi_field_change_scenarios(
+    monkeypatch,
+    event,
+    initiator,
+    fields,
+    expected_labels,
+    unexpected_labels,
+    initiator_name,
+) -> None:
+    """Test that multi-field changes produce expected output lines."""
     bot = DummyBot()
     sent = []
 
@@ -111,23 +273,30 @@ async def test_admin_recheck_handle_change_includes_handle_line(monkeypatch) -> 
 
     monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
     cs = ChangeSet(
-        user_id=3,
-        event=EventType.ADMIN_ACTION,
-        initiator_kind=InitiatorKind.ADMIN,
-        initiator_name="AdminX",
+        user_id=5,
+        event=event,
+        initiator_kind=initiator,
+        initiator_name=initiator_name,
         guild_id=123,
     )
-    cs.handle_before = "OldH"
-    cs.handle_after = "NewH"
+    for attr, value in fields.items():
+        setattr(cs, attr, value)
+
     await post_if_changed(bot, cs)
+
     assert len(sent) == 1
-    assert "Handle: OldH → NewH" in sent[0]
-    # No username change present, so only one line besides header
-    assert "Username:" not in sent[0]
+    for label in expected_labels:
+        assert label in sent[0], f"Expected '{label}' in message"
+    for label in unexpected_labels:
+        assert label not in sent[0], f"Did not expect '{label}' in message"
 
 
+# =============================================================================
+# Distinct behavior tests (not consolidated)
+# =============================================================================
 @pytest.mark.asyncio
 async def test_roles_diff_not_rendered(monkeypatch) -> None:
+    """Roles changes should not be rendered in output."""
     bot = DummyBot()
     sent = []
 
@@ -152,35 +321,8 @@ async def test_roles_diff_not_rendered(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_and_nickname_changes_multiline(monkeypatch) -> None:
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=5,
-        event=EventType.ADMIN_ACTION,
-        initiator_kind=InitiatorKind.ADMIN,
-        initiator_name="Adm",
-        guild_id=123,
-    )
-    cs.status_before = "Affiliate"
-    cs.status_after = "Main"
-    cs.username_before = "OldNick"
-    cs.username_after = "NewNick"
-    await post_if_changed(bot, cs)
-    assert len(sent) == 1
-    assert "Status: Affiliate → Main" in sent[0]
-    assert "Username: OldNick → NewNick" in sent[0]
-    # Ensure old test still passes with new handle line logic when no handle change
-    assert "Handle:" not in sent[0]
-
-
-@pytest.mark.asyncio
 async def test_no_change_admin_and_user_post(monkeypatch) -> None:
+    """Both admin and user recheck should post even with no changes."""
     bot = DummyBot()
     sent = []
 
@@ -209,6 +351,7 @@ async def test_no_change_admin_and_user_post(monkeypatch) -> None:
 
 
 def test_escape_md_prevents_markdown_injection() -> None:
+    """Escape function should wrap in backticks and escape special chars."""
     raw = "*weird*_`test`"
     esc = escape_md(raw)
     assert esc.startswith("`")
@@ -219,136 +362,8 @@ def test_escape_md_prevents_markdown_injection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_case_only_moniker_change_user_recheck_posts_no_change(
-    monkeypatch,
-) -> None:
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=30,
-        event=EventType.RECHECK,
-        initiator_kind=InitiatorKind.USER,
-        guild_id=123,
-    )
-    cs.moniker_before = "Alpha"
-    cs.moniker_after = "alpha"
-    await post_if_changed(bot, cs)
-    # Should show header only (no changes)
-    assert len(sent) == 1
-    assert "Alpha → alpha" not in sent[0]
-    assert "No changes" in sent[0]
-
-
-@pytest.mark.asyncio
-async def test_single_field_auto(monkeypatch) -> None:
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=40,
-        event=EventType.AUTO_CHECK,
-        initiator_kind=InitiatorKind.AUTO,
-        guild_id=123,
-    )
-    cs.moniker_before = "Old"
-    cs.moniker_after = "New"
-    await post_if_changed(bot, cs)
-    assert len(sent) == 1
-    # Multi-line: header + field
-    assert "\n" in sent[0]
-    assert "Moniker:" in sent[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_and_username_change_both_lines(monkeypatch) -> None:
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=60,
-        event=EventType.VERIFICATION,
-        initiator_kind=InitiatorKind.USER,
-        guild_id=123,
-    )
-    cs.handle_before = "OldHandle"
-    cs.handle_after = "NewHandle"
-    cs.username_before = "OldHandle"  # prior nickname followed old handle
-    cs.username_after = "NewHandle"  # updated due to policy
-    await post_if_changed(bot, cs)
-    assert len(sent) == 1
-    assert "Handle:" in sent[0]
-    assert "Username:" in sent[0]
-
-
-@pytest.mark.asyncio
-async def test_auto_moniker_initial_suppressed_handle_not_suppressed(
-    monkeypatch,
-) -> None:
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=61,
-        event=EventType.AUTO_CHECK,
-        initiator_kind=InitiatorKind.AUTO,
-        guild_id=123,
-    )
-    cs.moniker_before = None
-    cs.moniker_after = "NewMoniker"
-    cs.handle_before = "OldHandle"
-    cs.handle_after = "NewHandle"
-    await post_if_changed(bot, cs)
-    # Should post because handle changed even though
-    # moniker initial population suppressed
-    assert len(sent) == 1
-    assert "Handle:" in sent[0]
-    # Moniker suppressed (initial population auto check)
-    assert "Moniker:" not in sent[0]
-
-
-@pytest.mark.asyncio
-async def test_auto_initial_moniker_population_suppressed(monkeypatch) -> None:
-    """Auto check should NOT show moniker change if previous
-    value absent/none placeholder."""
-    bot = DummyBot()
-    sent = []
-
-    async def fake_send(channel, content, embed=None) -> None:
-        sent.append(content)
-
-    monkeypatch.setattr("helpers.leadership_log.channel_send_message", fake_send)
-    cs = ChangeSet(
-        user_id=41,
-        event=EventType.AUTO_CHECK,
-        initiator_kind=InitiatorKind.AUTO,
-        guild_id=123,
-    )
-    cs.moniker_before = None  # or '(none)'
-    cs.moniker_after = "NewMoniker"
-    await post_if_changed(bot, cs)
-    # Should suppress entirely (no message) because only change was initial population
-    assert not sent
-
-
-@pytest.mark.asyncio
 async def test_dedupe(monkeypatch) -> None:
+    """Same changeset should only be posted once."""
     bot = DummyBot()
     sent = []
 

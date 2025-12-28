@@ -137,11 +137,13 @@ class TestGuildService:
         guild.name = "Test Guild"
         guild.roles = []
 
-        # Register guild (just test that it doesn't crash)
+        # Register guild
         await guild_service.register_guild(guild)
 
-        # Guild registration successful if no exception raised
-        assert True
+        # Verify guild is now in active guilds list
+        active_guilds = await guild_service.get_active_guilds()
+        assert isinstance(active_guilds, list), "Active guilds should be returned as a list"
+        assert guild.id in active_guilds, "Registered guild should appear in active guilds"
 
         await guild_service.shutdown()
         await config_service.shutdown()

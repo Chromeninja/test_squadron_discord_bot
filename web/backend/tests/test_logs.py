@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+pytestmark = pytest.mark.contract
 
 @pytest.mark.asyncio
 async def test_logs_export_success_admin(client, mock_admin_session, fake_internal_api):
