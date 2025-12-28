@@ -22,8 +22,8 @@ class TestDeterministicChannelSelection:
     """Test deterministic JTC channel selection logic."""
 
     @pytest.mark.asyncio
-    async def test_no_channels_returns_none(self, temp_db):
-        """Test that no available channels returns None."""
+    async def test_no_channels_returns_empty_list(self, temp_db):
+        """Test that no available channels returns empty list."""
         # Don't seed any channels
         result = await _get_available_jtc_channels(guild_id=12345, user_id=67890)
         assert result == []
@@ -36,7 +36,11 @@ class TestDeterministicChannelSelection:
         preferred_jtc = 55555
 
         await seed_jtc_preferences([
-            {"guild_id": guild_id, "user_id": user_id, "jtc_channel_id": preferred_jtc},
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "last_used_jtc_channel_id": preferred_jtc,
+            },
         ])
 
         result = await _get_last_used_jtc_channel(guild_id, user_id)
@@ -55,7 +59,11 @@ class TestDeterministicChannelSelection:
         user_id = 67890
 
         await seed_jtc_preferences([
-            {"guild_id": guild_id, "user_id": user_id, "jtc_channel_id": 11111},
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "last_used_jtc_channel_id": 11111,
+            },
         ])
 
         # Update to new channel
@@ -76,7 +84,11 @@ class TestVoiceSettingsEdgeCases:
         jtc_id = 55555
 
         await seed_jtc_preferences([
-            {"guild_id": guild_id, "user_id": user_id, "jtc_channel_id": jtc_id},
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "last_used_jtc_channel_id": jtc_id,
+            },
         ])
 
         results = []
@@ -94,9 +106,21 @@ class TestVoiceSettingsEdgeCases:
         guild_id = 12345
 
         await seed_jtc_preferences([
-            {"guild_id": guild_id, "user_id": 111, "jtc_channel_id": 1001},
-            {"guild_id": guild_id, "user_id": 222, "jtc_channel_id": 1002},
-            {"guild_id": guild_id, "user_id": 333, "jtc_channel_id": 1003},
+            {
+                "guild_id": guild_id,
+                "user_id": 111,
+                "last_used_jtc_channel_id": 1001,
+            },
+            {
+                "guild_id": guild_id,
+                "user_id": 222,
+                "last_used_jtc_channel_id": 1002,
+            },
+            {
+                "guild_id": guild_id,
+                "user_id": 333,
+                "last_used_jtc_channel_id": 1003,
+            },
         ])
 
         from helpers.voice_settings import _get_last_used_jtc_channel
@@ -111,8 +135,16 @@ class TestVoiceSettingsEdgeCases:
         user_id = 67890
 
         await seed_jtc_preferences([
-            {"guild_id": 111, "user_id": user_id, "jtc_channel_id": 1001},
-            {"guild_id": 222, "user_id": user_id, "jtc_channel_id": 1002},
+            {
+                "guild_id": 111,
+                "user_id": user_id,
+                "last_used_jtc_channel_id": 1001,
+            },
+            {
+                "guild_id": 222,
+                "user_id": user_id,
+                "last_used_jtc_channel_id": 1002,
+            },
         ])
 
         from helpers.voice_settings import _get_last_used_jtc_channel

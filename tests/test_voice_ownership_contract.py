@@ -152,8 +152,8 @@ class TestVoiceOwnershipResetContract:
 
         # Verify other owner's channel is still active
         other_active = await BaseRepository.fetch_value(
-            "SELECT COUNT(*) FROM voice_channels WHERE owner_id = 999999 AND is_active = 1",
-            (),
+            "SELECT COUNT(*) FROM voice_channels WHERE owner_id != ? AND is_active = 1",
+            (owner_id,),
         )
         assert other_active == 1
 
