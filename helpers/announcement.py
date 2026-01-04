@@ -359,7 +359,7 @@ async def enqueue_announcement_for_guild(
 
     try:
         # Get this guild's tracked organization SID
-        guild_org_sid = "TEST"  # Default fallback
+        guild_org_sid = "ORG"  # Default fallback
         if (
             hasattr(bot, "services")
             and bot.services
@@ -367,13 +367,13 @@ async def enqueue_announcement_for_guild(
         ):
             try:
                 guild_org_sid = await bot.services.guild_config.get_setting(
-                    member.guild.id, "organization.sid", default="TEST"
+                    member.guild.id, "organization.sid", default="ORG"
                 )
                 # Remove JSON quotes if present
                 if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
                     guild_org_sid = guild_org_sid.strip('"')
             except Exception as e:
-                logger.debug(f"Failed to get guild org SID, using TEST: {e}")
+                logger.debug(f"Failed to get guild org SID, using ORG: {e}")
 
         # Derive status for this guild before and after
         old_status = derive_membership_status(
@@ -702,23 +702,22 @@ class BulkAnnouncer(commands.Cog):
                     users=True, roles=False, everyone=False
                 )
 
-                # Define announcement sections with dynamic org SID/name
+                # Define announcement sections with dynamic org SID/name (org-agnostic)
                 sections = [
                     (
                         "joined_main",
                         f"🍻 **New {org_sid} Main reporting in!**",
-                        f"You made the right call. Welcome to {org_name} — BEST Squardon.",
+                        f"Welcome to {org_name}!",
                     ),
                     (
                         "joined_affiliate",
                         f"🤝 **New {org_sid} Affiliates**",
-                        f"Glad to have you aboard! Ready to go all-in? Set {org_sid} as your "
-                        f"**Main Org** to fully commit to the Best Squardon.",
+                        f"Welcome aboard! Next up, consider setting {org_sid} as your **Main Org** to fully join.",
                     ),
                     (
                         "promoted_to_main",
                         f"⬆️ **Promotion from {org_sid} Affiliate → {org_sid} Main**",
-                        f"o7 and welcome fully to {org_name} — BEST Squardon. 🍻",
+                        f"🫡 Welcome fully to {org_name}!",
                     ),
                 ]
 

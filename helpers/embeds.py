@@ -2,7 +2,7 @@
 Embed Helper Module
 
 Provides utility functions for creating and formatting Discord embeds with
-consistent styling and branding for the TEST Squadron Discord bot.
+consistent styling and branding for the TEST Clanker Discord bot.
 """
 
 from typing import TYPE_CHECKING
@@ -49,15 +49,16 @@ class EmbedColors:
     ADMIN = 0xE74C3C  # Red-ish - admin actions
 
 
-# Standard thumbnail URL
-DEFAULT_THUMBNAIL = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
+# Standard thumbnail URL - set to None for org-agnostic deployments
+# Individual guilds can configure organization.logo_url
+DEFAULT_THUMBNAIL: str | None = None
 
 
 def create_embed(
     title: str,
     description: str,
     color: int = 0x00FF00,
-    thumbnail_url: str = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png",
+    thumbnail_url: str | None = None,
 ) -> discord.Embed:
     """
     Creates a Discord embed with the given parameters.
@@ -92,10 +93,8 @@ def create_verification_embed() -> discord.Embed:
         "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)"
     )
     color = 0xFFBB00  # Yellow
-    thumbnail_url = (
-        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-    )
-    return create_embed(title, description, color, thumbnail_url)
+    # Use DEFAULT_THUMBNAIL (org-agnostic, set per guild)
+    return create_embed(title, description, color, DEFAULT_THUMBNAIL)
 
 
 def build_about_embed() -> discord.Embed:
@@ -171,11 +170,8 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
         f":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
     )
     color = 0x00FF00  # Green
-    thumbnail_url = (
-        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-    )
 
-    embed = create_embed(title, description, color, thumbnail_url)
+    embed = create_embed(title, description, color, DEFAULT_THUMBNAIL)
     embed.add_field(
         name="🔑 Your Verification PIN",
         value=f"```diff\n+ {token}\n```\n*On mobile, hold to copy*",
@@ -204,10 +200,7 @@ def create_error_embed(message: str) -> discord.Embed:
     """
     title = "❌ Verification Failed"
     color = 0xFF0000  # Red
-    thumbnail_url = (
-        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-    )
-    return create_embed(title, message, color, thumbnail_url)
+    return create_embed(title, message, color, DEFAULT_THUMBNAIL)
 
 
 def create_success_embed(message: str) -> discord.Embed:
@@ -222,10 +215,7 @@ def create_success_embed(message: str) -> discord.Embed:
     """
     title = "🎉 Verification Successful!"
     color = 0x00FF00  # Green
-    thumbnail_url = (
-        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-    )
-    return create_embed(title, message, color, thumbnail_url)
+    return create_embed(title, message, color, DEFAULT_THUMBNAIL)
 
 
 def create_cooldown_embed(wait_until: int) -> discord.Embed:
@@ -244,52 +234,63 @@ def create_cooldown_embed(wait_until: int) -> discord.Embed:
         f"Please try again <t:{wait_until}:R>."
     )
     color = 0xFFA500  # Orange
-    thumbnail_url = (
-        "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-    )
-    return create_embed(title, description, color, thumbnail_url)
+    return create_embed(title, description, color, DEFAULT_THUMBNAIL)
 
 
-def build_welcome_description(role_type: str) -> str:
-    """Return a role-specific welcome message."""
+def build_welcome_description(
+    role_type: str,
+    org_name: str = "the organization",
+    org_sid: str = "ORG",
+) -> str:
+    """
+    Return a role-specific welcome message.
+
+    Uses Unicode emojis for portability. Messages are neutral and org-agnostic.
+
+    Args:
+        role_type: Membership status ('main', 'affiliate', 'non_member')
+        org_name: Organization display name
+        org_sid: Organization SID for RSI URLs
+
+    Returns:
+        Formatted welcome message string
+    """
     if role_type == "main":
-        base = (
-            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
-            "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-            "We're thrilled to have you as a MAIN member of **TEST Squadron!**\n\n"
+        return (
+            f"🎉 **Welcome to {org_name}!**\n\n"
+            f"You're verified as a **Main** member of **{org_name}**!\n\n"
             "Join our voice chats, explore events, and engage in our text channels to "
             "make the most of your experience!\n\n"
-            "Fly safe! <:o7:1332572027877593148>"
+            "🫡 Fly safe!\n\n"
+            "We set your Discord nickname to your RSI handle."
         )
-        return base + "\n\nWe set your Discord nickname to your RSI handle."
     elif role_type == "affiliate":
-        base = (
-            "<:testSquad:1332572066804928633> **Welcome to TEST Squadron - "
-            "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-            "Thanks for being an affiliate! We encourage you to set **TEST** as "
-            "your MAIN org to show your loyalty.\n\n"
-            "**Make TEST your main:**\n"
+        return (
+            f"🎉 **Welcome to {org_name}!**\n\n"
+            f"You're verified as an **Affiliate** member of **{org_name}**.\n\n"
+            f"Consider setting **{org_sid}** as your Main Org:\n"
             ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-            "1️⃣ Click **Set as Main** next to **TEST Squadron**.\n\n"
-            "Join our voice chats, explore events, and engage in our text channels to get involved!\n\n"
-            "<:o7:1332572027877593148>"
+            f"Click **Set as Main** next to **{org_name}**.\n\n"
+            "Join our voice chats, explore events, and engage in our text channels!\n\n"
+            "🫡 Fly safe!\n\n"
+            "We set your Discord nickname to your RSI handle."
         )
-        return base + "\n\nWe set your Discord nickname to your RSI handle."
     elif role_type == "non_member":
-        base = (
-            "<:testSquad:1332572066804928633> **Welcome, to TEST Squadron - "
-            "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-            "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
-            "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-            "🔗 [Join TEST Squadron](https://robertsspaceindustries.com/orgs/TEST)\n"
-            "*Click **Enlist Now!**. Test membership requests are usually approved within "
-            "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
-            "Join our voice chats, explore events, and engage in our text channels to get "
-            "involved! <:o7:1332572027877593148>"
+        rsi_url = f"https://robertsspaceindustries.com/orgs/{org_sid}"
+        return (
+            f"👋 **Welcome!**\n\n"
+            f"It looks like you're not yet a member of **{org_name}**.\n\n"
+            f"🔗 [Join {org_name}]({rsi_url})\n"
+            "Click **Enlist Now!** Membership requests are usually approved within "
+            "24-72 hours. Reverify after approval to update your roles.\n\n"
+            "In the meantime, join our voice chats and text channels!\n\n"
+            "We set your Discord nickname to your RSI handle."
         )
-        return base + "\n\nWe set your Discord nickname to your RSI handle."
     else:
-        return "Welcome to the server! You can verify again after 3 hours if needed. We set your Discord nickname to your RSI handle."
+        return (
+            "Welcome to the server! You can verify again after 3 hours if needed.\n\n"
+            "We set your Discord nickname to your RSI handle."
+        )
 
 
 def build_voice_settings_ui(
