@@ -78,9 +78,12 @@ def create_embed(
     return embed
 
 
-def create_verification_embed() -> discord.Embed:
+def create_verification_embed(thumbnail_url: str | None = None) -> discord.Embed:
     """
     Creates the initial verification embed.
+
+    Args:
+        thumbnail_url: Optional organization logo URL to display as thumbnail
 
     Returns:
         discord.Embed: The verification embed.
@@ -93,8 +96,8 @@ def create_verification_embed() -> discord.Embed:
         "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)"
     )
     color = 0xFFBB00  # Yellow
-    # Use DEFAULT_THUMBNAIL (org-agnostic, set per guild)
-    return create_embed(title, description, color, DEFAULT_THUMBNAIL)
+    # Use provided thumbnail or fall back to DEFAULT_THUMBNAIL
+    return create_embed(title, description, color, thumbnail_url or DEFAULT_THUMBNAIL)
 
 
 def build_about_embed() -> discord.Embed:

@@ -86,6 +86,7 @@ export interface VoiceSelectableRolesPayload {
 export interface OrganizationSettingsPayload {
   organization_sid: string | null;
   organization_name: string | null;
+  organization_logo_url: string | null;
 }
 
 export interface OrganizationValidationRequest {
@@ -97,6 +98,17 @@ export interface OrganizationValidationResponse {
   is_valid: boolean;
   sid: string;
   name: string | null;
+  error: string | null;
+}
+
+export interface LogoValidationRequest {
+  url: string;
+}
+
+export interface LogoValidationResponse {
+  success: boolean;
+  is_valid: boolean;
+  url: string | null;
   error: string | null;
 }
 
@@ -770,6 +782,13 @@ export const guildApi = {
     const response = await apiClient.post<OrganizationValidationResponse>(
       `/api/guilds/${guildId}/organization/validate-sid`,
       { sid }
+    );
+    return response.data;
+  },
+  validateLogoUrl: async (guildId: string, url: string) => {
+    const response = await apiClient.post<LogoValidationResponse>(
+      `/api/guilds/${guildId}/organization/validate-logo`,
+      { url }
     );
     return response.data;
   },

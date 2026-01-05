@@ -490,6 +490,7 @@ class OrganizationSettings(BaseModel):
 
     organization_sid: str | None = None
     organization_name: str | None = None
+    organization_logo_url: str | None = None
 
 
 class OrganizationValidationRequest(BaseModel):
@@ -505,6 +506,21 @@ class OrganizationValidationResponse(BaseModel):
     is_valid: bool
     sid: str
     name: str | None = None
+    error: str | None = None
+
+
+class LogoValidationRequest(BaseModel):
+    """Request payload for validating a logo URL."""
+
+    url: str
+
+
+class LogoValidationResponse(BaseModel):
+    """Response payload for logo URL validation."""
+
+    success: bool = True
+    is_valid: bool
+    url: str | None = None
     error: str | None = None
 
 

@@ -194,9 +194,20 @@ class VerificationCog(commands.Cog):
                         f"No existing message ID found for guild {guild.id} - will send new message"
                     )
 
-                # Create the verification embed
+                # Fetch organization logo URL for the embed thumbnail
+                logo_url = None
+                try:
+                    logo_url = await guild_config.get_setting(
+                        guild.id, "organization.logo_url", default=None
+                    )
+                    if logo_url:
+                        logger.info(f"Using organization logo: {logo_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch org logo URL: {e}")
+
+                # Create the verification embed with logo
                 logger.info("Creating verification embed...")
-                embed = create_verification_embed()
+                embed = create_verification_embed(thumbnail_url=logo_url)
 
                 # Initialize the verification view with buttons
                 logger.info("Creating verification view with buttons...")

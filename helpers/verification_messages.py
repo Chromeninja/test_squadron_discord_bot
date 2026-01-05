@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Bot Identity Constant
 # -----------------------------------------------------------------------------
 
@@ -55,7 +55,7 @@ EVENT_PROMOTED_TO_MAIN = "promoted_to_main"
 _MSG_ENGAGE = (
     "Join our voice chats, explore events, and engage in our text channels"
 )
-_MSG_NICKNAME = "We set your Discord nickname to your RSI handle."
+_MSG_NICKNAME = "Your Discord nickname has been set to your RSI handle"
 _MSG_FLY_SAFE = "\U0001fae1 Fly safe!"  # 🫡
 
 
