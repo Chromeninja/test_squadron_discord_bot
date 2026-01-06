@@ -383,6 +383,13 @@ class FakeInternalAPIClient:
             "roles_updated": True,
         }
 
+    async def resend_verification_message(self, guild_id: int) -> dict:
+        """Mock verification message resend operation."""
+        return {
+            "status": "success",
+            "message": "Verification message resent",
+        }
+
 
 @pytest.fixture(autouse=True)
 def fake_internal_api(monkeypatch):
