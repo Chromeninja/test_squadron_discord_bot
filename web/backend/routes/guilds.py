@@ -29,12 +29,14 @@ from core.guild_settings import (
     MAIN_ROLE_KEY,
     MODERATORS_KEY,
     NONMEMBER_ROLE_KEY,
+    ORGANIZATION_LOGO_URL_KEY,
     ORGANIZATION_NAME_KEY,
     ORGANIZATION_SID_KEY,
     PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
     SELECTABLE_ROLES_KEY,
     STAFF_KEY,
     VERIFICATION_CHANNEL_KEY,
+    LogoValidationError,
     _normalize_delegation_policies,
     get_bot_channel_settings,
     get_bot_role_settings,
@@ -44,9 +46,11 @@ from core.guild_settings import (
     set_bot_role_settings,
     set_organization_settings,
     set_voice_selectable_roles,
+    validate_logo_url,
 )
 from core.schemas import (
     BotChannelSettings,
+    BotChannelSettingsResponse,
     BotRoleSettings,
     DiscordChannel,
     DiscordRole,
@@ -60,7 +64,10 @@ from core.schemas import (
     GuildMemberResponse,
     GuildMembersResponse,
     GuildRolesResponse,
+    LogoValidationRequest,
+    LogoValidationResponse,
     OrganizationSettings,
+    OrganizationSettingsResponse,
     OrganizationValidationRequest,
     OrganizationValidationResponse,
     ReadOnlyYamlConfig,
@@ -286,7 +293,7 @@ async def get_bot_channels_settings(
 
 @router.put(
     "/{guild_id}/settings/bot-channels",
-    response_model=BotChannelSettings,
+    response_model=BotChannelSettingsResponse,
     dependencies=[Depends(require_fresh_guild_access)],
 )
 async def update_bot_channels_settings(
@@ -308,6 +315,10 @@ async def update_bot_channels_settings(
         payload.leadership_announcement_channel_id,
     )
     updated = await get_bot_channel_settings(db, guild_id)
+
+    # Track verification message update status
+    verification_message_updated: bool | None = None
+
     # Push refresh and resend verification message if channel changed
     try:
         await _notify_refresh(internal_api, guild_id, source="bot_channels")
@@ -317,10 +328,25 @@ async def update_bot_channels_settings(
             != current_channels.get("verification_channel_id")
         ):
             await internal_api.resend_verification_message(guild_id)
-    except Exception:
-        # Already logged inside helpers; proceed with response
-        pass
-    return BotChannelSettings(**updated)
+            verification_message_updated = True
+    except Exception as exc:
+        # Log and track failure
+        if (
+            payload.verification_channel_id
+            and payload.verification_channel_id
+            != current_channels.get("verification_channel_id")
+        ):
+            logger.warning(
+                "Failed to resend verification message for guild %s after channel update: %s",
+                guild_id,
+                exc,
+            )
+            verification_message_updated = False
+
+    return BotChannelSettingsResponse(
+        **updated,
+        verification_message_updated=verification_message_updated,
+    )
 
 
 @router.get(
@@ -482,27 +508,61 @@ async def get_organization_settings_endpoint(
 
 @router.put(
     "/{guild_id}/settings/organization",
-    response_model=OrganizationSettings,
+    response_model=OrganizationSettingsResponse,
     dependencies=[Depends(require_fresh_guild_access)],
 )
 async def update_organization_settings_endpoint(
     guild_id: int,
     payload: OrganizationSettings,
     db=Depends(get_db),
-    current_user: UserProfile = Depends(require_moderator()),
+    current_user: UserProfile = Depends(require_bot_admin()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """Update organization settings for a guild."""
     ensure_guild_match(guild_id, current_user)
+
+    # Validate logo URL if provided
+    validated_logo_url = None
+    if payload.organization_logo_url:
+        try:
+            validated_logo_url = await validate_logo_url(payload.organization_logo_url)
+        except LogoValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Get current settings to detect logo change
+    current_org = await get_organization_settings(db, guild_id)
+    logo_changed = current_org.get("organization_logo_url") != validated_logo_url
+
     await set_organization_settings(
         db,
         guild_id,
         payload.organization_sid,
         payload.organization_name,
+        validated_logo_url,
     )
     updated = await get_organization_settings(db, guild_id)
     await _notify_refresh(internal_api, guild_id, source="organization")
-    return OrganizationSettings(**updated)
+
+    # Track verification message update status
+    verification_message_updated: bool | None = None
+
+    # Trigger verification message repost if logo changed
+    if logo_changed:
+        try:
+            await internal_api.resend_verification_message(guild_id)
+            verification_message_updated = True
+        except Exception as exc:
+            logger.warning(
+                "Failed to resend verification message for guild %s after logo update: %s",
+                guild_id,
+                exc,
+            )
+            verification_message_updated = False
+
+    return OrganizationSettingsResponse(
+        **updated,
+        verification_message_updated=verification_message_updated,
+    )
 
 
 @router.post(
@@ -513,7 +573,7 @@ async def update_organization_settings_endpoint(
 async def validate_organization_sid_endpoint(
     guild_id: int,
     payload: OrganizationValidationRequest,
-    current_user: UserProfile = Depends(require_staff()),
+    current_user: UserProfile = Depends(require_bot_admin()),
 ):
     """Validate an organization SID by fetching from RSI."""
     ensure_guild_match(guild_id, current_user)
@@ -530,9 +590,45 @@ async def validate_organization_sid_endpoint(
         success=True,
         is_valid=is_valid,
         sid=payload.sid.strip().upper(),
-        name=org_name,
+        organization_name=org_name,
         error=error_msg,
     )
+
+
+@router.post(
+    "/{guild_id}/organization/validate-logo",
+    response_model=LogoValidationResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def validate_logo_url_endpoint(
+    guild_id: int,
+    payload: LogoValidationRequest,
+    current_user: UserProfile = Depends(require_bot_admin()),
+):
+    """Validate a logo URL is reachable and returns an acceptable image.
+
+    Checks:
+    - URL is accessible (HEAD/GET request)
+    - Content-Type is an image type (png, jpg, gif, webp)
+    - File size is under 8MB
+    """
+    ensure_guild_match(guild_id, current_user)
+
+    try:
+        validated_url = await validate_logo_url(payload.url)
+        return LogoValidationResponse(
+            success=True,
+            is_valid=True,
+            url=validated_url,
+            error=None,
+        )
+    except LogoValidationError as exc:
+        return LogoValidationResponse(
+            success=True,
+            is_valid=False,
+            url=None,
+            error=str(exc),
+        )
 
 
 # Guild info (for header)
@@ -874,12 +970,26 @@ async def patch_guild_config(
                 actor_user_id,
             )
 
+    logo_changed = False
     if payload.organization is not None:
+        # Validate logo URL if provided
+        validated_logo_url = None
+        if payload.organization.organization_logo_url:
+            try:
+                validated_logo_url = await validate_logo_url(
+                    payload.organization.organization_logo_url
+                )
+            except LogoValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        logo_changed = current_org.get("organization_logo_url") != validated_logo_url
+
         await set_organization_settings(
             db,
             guild_id,
             payload.organization.organization_sid,
             payload.organization.organization_name,
+            validated_logo_url,
         )
 
         if current_org.get("organization_sid") != payload.organization.organization_sid:
@@ -903,13 +1013,22 @@ async def patch_guild_config(
                 payload.organization.organization_name,
                 actor_user_id,
             )
+        if logo_changed:
+            await _audit_change(
+                db,
+                guild_id,
+                ORGANIZATION_LOGO_URL_KEY,
+                current_org.get("organization_logo_url"),
+                validated_logo_url,
+                actor_user_id,
+            )
 
     # Commit any pending audit inserts
     await db.commit()
 
     # Best-effort push refresh to bot and resend verification message if needed
     await _notify_refresh(internal_api, guild_id, source="guild_config_patch")
-    if verification_channel_changed:
+    if verification_channel_changed or logo_changed:
         try:
             await internal_api.resend_verification_message(guild_id)
         except Exception as exc:  # pragma: no cover - transport errors

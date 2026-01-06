@@ -1,7 +1,7 @@
 """
 Centralized error message formatting for user-facing Discord errors.
 
-This module provides consistent, user-friendly error messages for the TEST Clanker
+This module provides consistent, user-friendly error messages for TEST Clanker's
 voice feature. All error messages are short, actionable, and never expose internal
 technical details to users.
 

@@ -1,6 +1,7 @@
 import discord
 from discord.ui import Modal, TextInput
 
+from helpers.constants import DEFAULT_ORG_SID
 from helpers.discord_api import edit_channel, followup_send_message
 from helpers.embeds import (
     create_cooldown_embed,
@@ -37,15 +38,15 @@ async def get_org_name(bot, guild_id: int) -> str:
         guild_id: Guild ID for config lookup
 
     Returns:
-        Organization name (defaults to 'TEST' if not configured)
+        Organization name (defaults to 'Organization' if not configured)
     """
-    org_name = "TEST"  # Default fallback
+    org_name = "Organization"  # Default fallback
     if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
         try:
             org_name_config = await bot.services.guild_config.get_setting(
-                guild_id, "organization.name", default="TEST"
+                guild_id, "organization.name", default="Organization"
             )
-            org_name = org_name_config.strip() if org_name_config else "TEST"
+            org_name = org_name_config.strip() if org_name_config else "Organization"
         except Exception as e:
             logger.warning(
                 f"Failed to get org name from config, using default: {e}",
@@ -360,55 +361,17 @@ class HandleModal(Modal, title="Verification"):
         assigned_role_type = derive_membership_status(
             global_state.main_orgs,
             global_state.affiliate_orgs,
-            org_sid or "TEST",
+            org_sid or DEFAULT_ORG_SID,
         )
 
-        # Send customized success message based on role
-        if assigned_role_type == "main":
-            description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
-                "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                f"We're thrilled to have you as a MAIN member of **{org_name}!**\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to "
-                "make the most of your experience!\n\n"
-                "Fly safe! <:o7:1332572027877593148>"
-            )
-        elif assigned_role_type == "affiliate":
-            # Use org_sid for instructions
-            org_sid_display = org_sid if org_sid else "TEST"
-            description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
-                "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                f"Your support helps us grow and excel. We encourage you to set **{org_sid_display}** as "
-                "your MAIN Org to show your loyalty.\n\n"
-                "**Instructions:**\n"
-                ":point_right: [Change Your Main Org](https://robertsspaceindustries.com/account/organization)\n"
-                f"1️⃣ Click **Set as Main** next to **{org_name}**.\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to get "
-                "involved!\n\n"
-                "<:o7:1332572027877593148>"
-            )
-        elif assigned_role_type == "non_member":
-            # Use org_sid for RSI URL
-            org_sid_url = org_sid if org_sid else "TEST"
-            description = (
-                f"<:testSquad:1332572066804928633> **Welcome, to {org_name} - "
-                "Best Squadron!** <:BESTSquad:1332572087524790334>\n\n"
-                "It looks like you're not yet a member of our org. <:what:1332572046638452736>\n\n"
-                "Join us for thrilling adventures and be part of the best and biggest community!\n\n"
-                f"🔗 [Join {org_name}](https://robertsspaceindustries.com/orgs/{org_sid_url})\n"
-                f"*Click **Enlist Now!**. {org_name} membership requests are usually approved within "
-                "24-72 hours. You will need to reverify to update your roles once approved.*\n\n"
-                "Join our voice chats, explore events, and engage in our text channels to get "
-                "involved! <:o7:1332572027877593148>"
-            )
-        else:
-            description = (
-                "Welcome to the server! You can verify again after 3 hours if needed."
-            )
+        # Build org-agnostic success message using centralized templates
+        from helpers.embeds import build_welcome_description
 
-        if "We set your Discord nickname" not in description:
-            description += "\n\nWe set your Discord nickname to your RSI handle."
+        description = build_welcome_description(
+            assigned_role_type,
+            org_name=org_name,
+            org_sid=org_sid or DEFAULT_ORG_SID,
+        )
         embed = create_success_embed(description)
 
         # Send follow-up success message
