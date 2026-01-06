@@ -184,6 +184,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setStatusMessage(null);
     setError(null);
 
+    // Validate logo URL before saving
+    if (logoValid === false) {
+      setError('Please correct the logo URL before saving.');
+      setSaving(false);
+      return;
+    }
+
     try {
       const cleanedPolicies = delegationPolicies
         .filter((p) => p.target_role_id)

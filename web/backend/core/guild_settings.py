@@ -177,47 +177,79 @@ async def validate_logo_url(url: str | None) -> str | None:
         ) as client:
             response = await client.head(sanitized_url, follow_redirects=True)
 
-            # Some servers don't support HEAD, use GET with Range header to fetch only headers
+            # Some servers don't support HEAD, use streaming GET to avoid DoS
             if response.status_code == 405:
-                # Request only first byte to minimize data transfer while checking headers
-                response = await client.get(
+                # Use streaming GET with Range header to check headers without downloading body
+                async with client.stream(
+                    "GET",
                     sanitized_url,
                     headers={"Range": "bytes=0-0"},
                     follow_redirects=True,
-                )
-                # Server may return 206 (Partial Content) or 200 (ignoring Range)
-                # Either way, we only check headers not body
+                ) as stream_response:
+                    # Only inspect headers, don't read the stream body
+                    # This prevents DoS from servers ignoring Range header
+                    response = stream_response
+                    _check_response_status(response.status_code)
 
-            _check_response_status(response.status_code)
+                    # SECURITY: Re-validate the final URL after redirects to prevent SSRF bypass
+                    final_url = str(response.url)
+                    final_parsed = urlparse(final_url)
+                    final_hostname = final_parsed.hostname or final_parsed.netloc
+                    if _is_private_ip(final_hostname):
+                        raise LogoValidationError(
+                            "Cannot use private, local, or internal network addresses"
+                        )
 
-            # SECURITY: Re-validate the final URL after redirects to prevent SSRF bypass
-            final_url = str(response.url)
-            final_parsed = urlparse(final_url)
-            final_hostname = final_parsed.hostname or final_parsed.netloc
-            if _is_private_ip(final_hostname):
-                raise LogoValidationError(
-                    "Cannot use private, local, or internal network addresses"
-                )
+                    # Check content type
+                    content_type = response.headers.get("content-type", "").lower()
+                    # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
+                    media_type = content_type.split(";")[0].strip()
+                    valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
 
-            # Check content type
-            content_type = response.headers.get("content-type", "").lower()
-            # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
-            media_type = content_type.split(";")[0].strip()
-            valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
+                    if media_type not in valid_content_types:
+                        if not has_valid_extension:
+                            raise LogoValidationError(
+                                f"URL does not point to a valid image. "
+                                f"Expected image type, got: {content_type or 'unknown'}"
+                            )
+                        logger.warning(
+                            "Logo URL %s has valid extension but content-type is %s",
+                            url,
+                            content_type,
+                        )
 
-            if media_type not in valid_content_types:
-                if not has_valid_extension:
+                    _check_content_size(response.headers, MAX_LOGO_SIZE_BYTES)
+            else:
+                _check_response_status(response.status_code)
+
+                # SECURITY: Re-validate the final URL after redirects to prevent SSRF bypass
+                final_url = str(response.url)
+                final_parsed = urlparse(final_url)
+                final_hostname = final_parsed.hostname or final_parsed.netloc
+                if _is_private_ip(final_hostname):
                     raise LogoValidationError(
-                        f"URL does not point to a valid image. "
-                        f"Expected image type, got: {content_type or 'unknown'}"
+                        "Cannot use private, local, or internal network addresses"
                     )
-                logger.warning(
-                    "Logo URL %s has valid extension but content-type is %s",
-                    url,
-                    content_type,
-                )
 
-            _check_content_size(response.headers, MAX_LOGO_SIZE_BYTES)
+                # Check content type
+                content_type = response.headers.get("content-type", "").lower()
+                # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
+                media_type = content_type.split(";")[0].strip()
+                valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
+
+                if media_type not in valid_content_types:
+                    if not has_valid_extension:
+                        raise LogoValidationError(
+                            f"URL does not point to a valid image. "
+                            f"Expected image type, got: {content_type or 'unknown'}"
+                        )
+                    logger.warning(
+                        "Logo URL %s has valid extension but content-type is %s",
+                        url,
+                        content_type,
+                    )
+
+                _check_content_size(response.headers, MAX_LOGO_SIZE_BYTES)
 
     except httpx.TimeoutException as exc:
         raise LogoValidationError(

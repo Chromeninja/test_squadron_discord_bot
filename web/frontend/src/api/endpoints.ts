@@ -79,6 +79,10 @@ export interface BotChannelSettingsPayload {
   leadership_announcement_channel_id: string | null;
 }
 
+export interface BotChannelSettingsResponse extends BotChannelSettingsPayload {
+  verification_message_updated?: boolean | null;
+}
+
 export interface VoiceSelectableRolesPayload {
   selectable_roles: string[];
 }
@@ -743,7 +747,7 @@ export const guildApi = {
     return response.data;
   },
   updateBotChannelSettings: async (guildId: string, payload: BotChannelSettingsPayload) => {
-    const response = await apiClient.put<BotChannelSettingsPayload>(
+    const response = await apiClient.put<BotChannelSettingsResponse>(
       `/api/guilds/${guildId}/settings/bot-channels`,
       payload
     );
