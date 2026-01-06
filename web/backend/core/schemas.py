@@ -485,12 +485,31 @@ class BotChannelSettings(BaseModel):
     leadership_announcement_channel_id: str | None = None
 
 
+class BotChannelSettingsResponse(BaseModel):
+    """Response wrapper for bot channel settings with operation metadata."""
+
+    verification_channel_id: str | None = None
+    bot_spam_channel_id: str | None = None
+    public_announcement_channel_id: str | None = None
+    leadership_announcement_channel_id: str | None = None
+    verification_message_updated: bool | None = None  # None if not applicable, True/False if attempted
+
+
 class OrganizationSettings(BaseModel):
     """Organization configuration for guild verification."""
 
     organization_sid: str | None = None
     organization_name: str | None = None
     organization_logo_url: str | None = None
+
+
+class OrganizationSettingsResponse(BaseModel):
+    """Response wrapper for organization settings with operation metadata."""
+
+    organization_sid: str | None = None
+    organization_name: str | None = None
+    organization_logo_url: str | None = None
+    verification_message_updated: bool | None = None  # None if not applicable, True/False if attempted
 
 
 class OrganizationValidationRequest(BaseModel):
@@ -505,7 +524,7 @@ class OrganizationValidationResponse(BaseModel):
     success: bool = True
     is_valid: bool
     sid: str
-    name: str | None = None
+    organization_name: str | None = None
     error: str | None = None
 
 

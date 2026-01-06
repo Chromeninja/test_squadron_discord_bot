@@ -91,20 +91,31 @@ async def validate_logo_url(url: str | None) -> str | None:
 
     # Perform HEAD request to validate reachability and content
     try:
-        async with httpx.AsyncClient(timeout=LOGO_VALIDATION_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            timeout=LOGO_VALIDATION_TIMEOUT, verify=True
+        ) as client:
             response = await client.head(url, follow_redirects=True)
 
-            # Some servers don't support HEAD, try GET
+            # Some servers don't support HEAD, use GET with Range header to fetch only headers
             if response.status_code == 405:
-                response = await client.get(url, follow_redirects=True)
+                # Request only first byte to minimize data transfer while checking headers
+                response = await client.get(
+                    url,
+                    headers={"Range": "bytes=0-0"},
+                    follow_redirects=True,
+                )
+                # Server may return 206 (Partial Content) or 200 (ignoring Range)
+                # Either way, we only check headers not body
 
             _check_response_status(response.status_code)
 
             # Check content type
             content_type = response.headers.get("content-type", "").lower()
+            # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
+            media_type = content_type.split(";")[0].strip()
             valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
 
-            if not any(ct in content_type for ct in valid_content_types):
+            if media_type not in valid_content_types:
                 if not has_valid_extension:
                     raise LogoValidationError(
                         f"URL does not point to a valid image. "

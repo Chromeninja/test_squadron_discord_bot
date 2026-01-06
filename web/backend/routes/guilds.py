@@ -50,6 +50,7 @@ from core.guild_settings import (
 )
 from core.schemas import (
     BotChannelSettings,
+    BotChannelSettingsResponse,
     BotRoleSettings,
     DiscordChannel,
     DiscordRole,
@@ -66,6 +67,7 @@ from core.schemas import (
     LogoValidationRequest,
     LogoValidationResponse,
     OrganizationSettings,
+    OrganizationSettingsResponse,
     OrganizationValidationRequest,
     OrganizationValidationResponse,
     ReadOnlyYamlConfig,
@@ -291,7 +293,7 @@ async def get_bot_channels_settings(
 
 @router.put(
     "/{guild_id}/settings/bot-channels",
-    response_model=BotChannelSettings,
+    response_model=BotChannelSettingsResponse,
     dependencies=[Depends(require_fresh_guild_access)],
 )
 async def update_bot_channels_settings(
@@ -313,6 +315,10 @@ async def update_bot_channels_settings(
         payload.leadership_announcement_channel_id,
     )
     updated = await get_bot_channel_settings(db, guild_id)
+    
+    # Track verification message update status
+    verification_message_updated: bool | None = None
+    
     # Push refresh and resend verification message if channel changed
     try:
         await _notify_refresh(internal_api, guild_id, source="bot_channels")
@@ -322,10 +328,25 @@ async def update_bot_channels_settings(
             != current_channels.get("verification_channel_id")
         ):
             await internal_api.resend_verification_message(guild_id)
-    except Exception:
-        # Already logged inside helpers; proceed with response
-        pass
-    return BotChannelSettings(**updated)
+            verification_message_updated = True
+    except Exception as exc:
+        # Log and track failure
+        if (
+            payload.verification_channel_id
+            and payload.verification_channel_id
+            != current_channels.get("verification_channel_id")
+        ):
+            logger.warning(
+                "Failed to resend verification message for guild %s after channel update: %s",
+                guild_id,
+                exc,
+            )
+            verification_message_updated = False
+    
+    return BotChannelSettingsResponse(
+        **updated,
+        verification_message_updated=verification_message_updated,
+    )
 
 
 @router.get(
@@ -487,7 +508,7 @@ async def get_organization_settings_endpoint(
 
 @router.put(
     "/{guild_id}/settings/organization",
-    response_model=OrganizationSettings,
+    response_model=OrganizationSettingsResponse,
     dependencies=[Depends(require_fresh_guild_access)],
 )
 async def update_organization_settings_endpoint(
@@ -522,18 +543,26 @@ async def update_organization_settings_endpoint(
     updated = await get_organization_settings(db, guild_id)
     await _notify_refresh(internal_api, guild_id, source="organization")
 
+    # Track verification message update status
+    verification_message_updated: bool | None = None
+    
     # Trigger verification message repost if logo changed
     if logo_changed:
         try:
             await internal_api.resend_verification_message(guild_id)
+            verification_message_updated = True
         except Exception as exc:
             logger.warning(
                 "Failed to resend verification message for guild %s after logo update: %s",
                 guild_id,
                 exc,
             )
+            verification_message_updated = False
 
-    return OrganizationSettings(**updated)
+    return OrganizationSettingsResponse(
+        **updated,
+        verification_message_updated=verification_message_updated,
+    )
 
 
 @router.post(
@@ -544,7 +573,7 @@ async def update_organization_settings_endpoint(
 async def validate_organization_sid_endpoint(
     guild_id: int,
     payload: OrganizationValidationRequest,
-    current_user: UserProfile = Depends(require_staff()),
+    current_user: UserProfile = Depends(require_bot_admin()),
 ):
     """Validate an organization SID by fetching from RSI."""
     ensure_guild_match(guild_id, current_user)
@@ -561,7 +590,7 @@ async def validate_organization_sid_endpoint(
         success=True,
         is_valid=is_valid,
         sid=payload.sid.strip().upper(),
-        name=org_name,
+        organization_name=org_name,
         error=error_msg,
     )
 

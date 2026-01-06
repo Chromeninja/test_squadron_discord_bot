@@ -28,13 +28,6 @@ logger = get_logger(__name__)
 
 
 # -----------------------------------------------------------------------------
-# Bot Identity Constant
-# -----------------------------------------------------------------------------
-
-BOT_DISPLAY_NAME = "TEST Clanker"
-
-
-# -----------------------------------------------------------------------------
 # Status Constants (prevent typos in string comparisons)
 # -----------------------------------------------------------------------------
 
@@ -56,7 +49,8 @@ _MSG_ENGAGE = (
     "Join our voice chats, explore events, and engage in our text channels"
 )
 _MSG_NICKNAME = "Your Discord nickname has been set to your RSI handle"
-_MSG_FLY_SAFE = "\U0001fae1 Fly safe!"  # 🫡
+_EMOJI_SALUTE = "\U0001fae1"  # 🫡
+_MSG_FLY_SAFE = f"{_EMOJI_SALUTE} Fly safe!"
 
 
 # -----------------------------------------------------------------------------
@@ -274,7 +268,7 @@ def build_announcement_footer(org: OrgBranding, event_type: str) -> str:
         )
 
     elif event_type == EVENT_PROMOTED_TO_MAIN:
-        return f"{_MSG_FLY_SAFE.split()[0]} Welcome fully to {org.name}!"
+        return f"{_EMOJI_SALUTE} Welcome fully to {org.name}!"
 
     else:
         return f"Welcome to {org.name}!"

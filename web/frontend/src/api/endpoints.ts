@@ -97,7 +97,7 @@ export interface OrganizationValidationResponse {
   success: boolean;
   is_valid: boolean;
   sid: string;
-  name: string | null;
+  organization_name: string | null;
   error: string | null;
 }
 

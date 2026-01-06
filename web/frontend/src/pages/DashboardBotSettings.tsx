@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, RoleDelegationPolicyPayload } from '../api/endpoints';
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
@@ -50,6 +50,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   // Guild header and read-only YAML snapshot
   const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
   const [readOnly, setReadOnly] = useState<ReadOnlyYamlConfig | null>(null);
+
+  // Track mounted state to prevent state updates after unmount
+  const isMountedRef = useRef(true);
 
   const roleOptions: MultiSelectOption[] = useMemo(
     () => roles.map((role) => ({ id: role.id, name: role.name })),
@@ -171,6 +174,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     // Cleanup: mark as unmounted and abort any pending requests
     return () => {
       isMounted = false;
+      isMountedRef.current = false;
       abortController.abort();
     };
   }, [guildId]);
@@ -276,9 +280,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     try {
       const result = await guildApi.validateOrganizationSid(guildId, orgSidInput.trim());
       
-      if (result.is_valid && result.name) {
-        setOrganizationName(result.name);
-        setOrgStatusMessage(`✓ Valid organization: ${result.name} (${result.sid})`);
+      if (result.is_valid && result.organization_name) {
+        setOrganizationName(result.organization_name);
+        setOrgStatusMessage(`✓ Valid organization: ${result.organization_name} (${result.sid})`);
       } else {
         setOrgError(result.error || 'Organization not found');
         setOrganizationName('');
@@ -470,8 +474,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   className="max-h-24 max-w-48 object-contain rounded"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
-                    setLogoError('Failed to load image preview');
-                    setLogoValid(false);
+                    // Only update state if component is still mounted
+                    if (isMountedRef.current) {
+                      setLogoError('Failed to load image preview');
+                      setLogoValid(false);
+                    }
                   }}
                 />
               </div>
