@@ -470,12 +470,18 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           {/* Logo Preview */}
           {orgLogoUrl.trim() && logoValid === true && (() => {
             // SECURITY: Only render image if URL uses safe protocols
+            let sanitizedUrl: string | null = null;
             try {
               const url = new URL(orgLogoUrl.trim());
-              if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-                return null;
+              if (url.protocol === 'http:' || url.protocol === 'https:') {
+                // Explicitly reconstruct the URL to ensure it's safe
+                sanitizedUrl = url.href;
               }
             } catch {
+              // Invalid URL, don't render
+            }
+            
+            if (!sanitizedUrl) {
               return null;
             }
             
@@ -484,7 +490,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                 <p className="text-xs text-gray-400 mb-2">Preview:</p>
                 <div className="inline-block p-2 bg-slate-700 rounded-lg">
                   <img
-                    src={orgLogoUrl}
+                    src={sanitizedUrl}
                     alt="Organization logo preview"
                     className="max-h-24 max-w-48 object-contain rounded"
                     onError={(e) => {
