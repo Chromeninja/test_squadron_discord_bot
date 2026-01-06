@@ -464,26 +464,38 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           </div>
 
           {/* Logo Preview */}
-          {orgLogoUrl.trim() && logoValid === true && (
-            <div className="mt-2">
-              <p className="text-xs text-gray-400 mb-2">Preview:</p>
-              <div className="inline-block p-2 bg-slate-700 rounded-lg">
-                <img
-                  src={orgLogoUrl}
-                  alt="Organization logo preview"
-                  className="max-h-24 max-w-48 object-contain rounded"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    // Only update state if component is still mounted
-                    if (isMountedRef.current) {
-                      setLogoError('Failed to load image preview');
-                      setLogoValid(false);
-                    }
-                  }}
-                />
+          {orgLogoUrl.trim() && logoValid === true && (() => {
+            // SECURITY: Only render image if URL uses safe protocols
+            try {
+              const url = new URL(orgLogoUrl.trim());
+              if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                return null;
+              }
+            } catch {
+              return null;
+            }
+            
+            return (
+              <div className="mt-2">
+                <p className="text-xs text-gray-400 mb-2">Preview:</p>
+                <div className="inline-block p-2 bg-slate-700 rounded-lg">
+                  <img
+                    src={orgLogoUrl}
+                    alt="Organization logo preview"
+                    className="max-h-24 max-w-48 object-contain rounded"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      // Only update state if component is still mounted
+                      if (isMountedRef.current) {
+                        setLogoError('Failed to load image preview');
+                        setLogoValid(false);
+                      }
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="flex justify-end pt-2 text-xs text-gray-400">
             Changes are saved with the main Save button below.

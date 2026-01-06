@@ -315,10 +315,10 @@ async def update_bot_channels_settings(
         payload.leadership_announcement_channel_id,
     )
     updated = await get_bot_channel_settings(db, guild_id)
-    
+
     # Track verification message update status
     verification_message_updated: bool | None = None
-    
+
     # Push refresh and resend verification message if channel changed
     try:
         await _notify_refresh(internal_api, guild_id, source="bot_channels")
@@ -342,7 +342,7 @@ async def update_bot_channels_settings(
                 exc,
             )
             verification_message_updated = False
-    
+
     return BotChannelSettingsResponse(
         **updated,
         verification_message_updated=verification_message_updated,
@@ -545,7 +545,7 @@ async def update_organization_settings_endpoint(
 
     # Track verification message update status
     verification_message_updated: bool | None = None
-    
+
     # Trigger verification message repost if logo changed
     if logo_changed:
         try:

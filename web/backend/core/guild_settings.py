@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import socket
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -13,6 +15,8 @@ import httpx
 from services.db.repository import BaseRepository
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from aiosqlite import Connection
 
 logger = logging.getLogger(__name__)
@@ -39,7 +43,7 @@ def _check_response_status(status_code: int) -> None:
         raise LogoValidationError(f"Failed to fetch image (HTTP {status_code})")
 
 
-def _check_content_size(headers: dict, max_bytes: int) -> None:
+def _check_content_size(headers: Mapping[str, str], max_bytes: int) -> None:
     """Check content-length header and raise if too large."""
     content_length = headers.get("content-length")
     if not content_length:
@@ -54,6 +58,54 @@ def _check_content_size(headers: dict, max_bytes: int) -> None:
             )
     except ValueError:
         pass  # Invalid content-length header, skip size check
+
+
+def _is_private_ip(hostname: str) -> bool:
+    """Check if hostname resolves to a private or internal IP address.
+
+    Returns True if the hostname is localhost, a private IP, link-local,
+    loopback, or cloud metadata endpoint.
+    """
+    # Check for localhost variants
+    if hostname.lower() in ("localhost", "localhost.localdomain"):
+        return True
+
+    try:
+        # Try to parse as IP address directly
+        ip = ipaddress.ip_address(hostname)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        )
+    except ValueError:
+        pass  # Not a direct IP address, need to resolve hostname
+
+    # Resolve hostname to IP addresses
+    try:
+        # Get all IP addresses for the hostname
+        addr_info = socket.getaddrinfo(hostname, None)
+        for info in addr_info:
+            ip_str = info[4][0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_reserved
+                    or ip.is_multicast
+                ):
+                    return True
+            except ValueError:
+                continue
+    except (socket.gaierror, socket.herror, OSError):
+        # DNS resolution failed - treat as potentially dangerous
+        return True
+
+    return False
 
 
 async def validate_logo_url(url: str | None) -> str | None:
@@ -84,6 +136,13 @@ async def validate_logo_url(url: str | None) -> str | None:
 
     if not parsed.netloc:
         raise LogoValidationError("URL must include a domain")
+
+    # SECURITY: Prevent SSRF attacks by blocking private/internal IP addresses
+    hostname = parsed.hostname or parsed.netloc
+    if _is_private_ip(hostname):
+        raise LogoValidationError(
+            "Cannot use private, local, or internal network addresses"
+        )
 
     # Check file extension (case-insensitive)
     path_lower = parsed.path.lower()
