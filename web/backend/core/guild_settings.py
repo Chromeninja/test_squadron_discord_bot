@@ -67,11 +67,11 @@ def _is_private_ip(hostname: str) -> bool:
     loopback, or cloud metadata endpoint.
     """
     hostname_lower = hostname.lower()
-    
+
     # Check for localhost variants and internal domain suffixes
     if hostname_lower in ("localhost", "localhost.localdomain"):
         return True
-    
+
     # Block obvious internal hostnames (.local, .lan, .internal)
     if hostname_lower.endswith((".local", ".lan", ".internal")):
         return True
@@ -122,7 +122,7 @@ def _is_private_ip(hostname: str) -> bool:
     return False
 
 
-async def validate_logo_url(url: str | None) -> str | None:
+async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PLR0915
     """Validate a logo URL is reachable and returns an acceptable image.
 
     Args:
