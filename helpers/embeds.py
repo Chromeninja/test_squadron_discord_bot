@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import discord  # type: ignore[import-not-found]
 
+from helpers.constants import DEFAULT_ORG_SID
 from helpers.permissions_helper import get_role_display_name
 from utils.about_metadata import (
     BOT_DESCRIPTION,
@@ -243,7 +244,7 @@ def create_cooldown_embed(wait_until: int) -> discord.Embed:
 def build_welcome_description(
     role_type: str,
     org_name: str = "the organization",
-    org_sid: str = "ORG",
+    org_sid: str = DEFAULT_ORG_SID,
 ) -> str:
     """
     Return a role-specific welcome message.

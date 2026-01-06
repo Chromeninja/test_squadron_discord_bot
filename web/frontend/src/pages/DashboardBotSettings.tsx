@@ -313,6 +313,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       const result = await guildApi.validateLogoUrl(guildId, trimmedUrl);
       
       if (result.is_valid) {
+        // Use the normalized URL from the server to keep client and server state aligned
+        if (result.url) {
+          setOrgLogoUrl(result.url);
+        }
         setLogoValid(true);
         setLogoError(null);
       } else {

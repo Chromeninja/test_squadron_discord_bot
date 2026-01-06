@@ -66,29 +66,40 @@ def _is_private_ip(hostname: str) -> bool:
     Returns True if the hostname is localhost, a private IP, link-local,
     loopback, or cloud metadata endpoint.
     """
-    # Check for localhost variants
-    if hostname.lower() in ("localhost", "localhost.localdomain"):
+    hostname_lower = hostname.lower()
+    
+    # Check for localhost variants and internal domain suffixes
+    if hostname_lower in ("localhost", "localhost.localdomain"):
+        return True
+    
+    # Block obvious internal hostnames (.local, .lan, .internal)
+    if hostname_lower.endswith((".local", ".lan", ".internal")):
         return True
 
     try:
         # Try to parse as IP address directly
         ip = ipaddress.ip_address(hostname)
-        return (
+        if (
             ip.is_private
             or ip.is_loopback
             or ip.is_link_local
             or ip.is_reserved
             or ip.is_multicast
-        )
+        ):
+            return True
+        # Explicitly block cloud metadata endpoints (AWS/GCP/Azure)
+        if ip.version == 4 and str(ip).startswith("169.254.169."):
+            return True
+        return False
     except ValueError:
         pass  # Not a direct IP address, need to resolve hostname
 
     # Resolve hostname to IP addresses
     try:
         # Get all IP addresses for the hostname
-        addr_info = socket.getaddrinfo(hostname, None)
+        addr_info = socket.getaddrinfo(hostname_lower, None)
         for info in addr_info:
-            ip_str = info[4][0]
+            ip_str: str = str(info[4][0])  # Explicitly cast to string for type safety
             try:
                 ip = ipaddress.ip_address(ip_str)
                 if (
@@ -98,6 +109,9 @@ def _is_private_ip(hostname: str) -> bool:
                     or ip.is_reserved
                     or ip.is_multicast
                 ):
+                    return True
+                # Explicitly block cloud metadata endpoints (AWS/GCP/Azure)
+                if ip.version == 4 and ip_str.startswith("169.254.169."):
                     return True
             except ValueError:
                 continue
@@ -167,6 +181,15 @@ async def validate_logo_url(url: str | None) -> str | None:
                 # Either way, we only check headers not body
 
             _check_response_status(response.status_code)
+
+            # SECURITY: Re-validate the final URL after redirects to prevent SSRF bypass
+            final_url = str(response.url)
+            final_parsed = urlparse(final_url)
+            final_hostname = final_parsed.hostname or final_parsed.netloc
+            if _is_private_ip(final_hostname):
+                raise LogoValidationError(
+                    "Cannot use private, local, or internal network addresses"
+                )
 
             # Check content type
             content_type = response.headers.get("content-type", "").lower()

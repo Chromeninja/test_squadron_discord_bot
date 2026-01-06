@@ -1,6 +1,7 @@
 import discord
 from discord.ui import Modal, TextInput
 
+from helpers.constants import DEFAULT_ORG_SID
 from helpers.discord_api import edit_channel, followup_send_message
 from helpers.embeds import (
     create_cooldown_embed,
@@ -360,7 +361,7 @@ class HandleModal(Modal, title="Verification"):
         assigned_role_type = derive_membership_status(
             global_state.main_orgs,
             global_state.affiliate_orgs,
-            org_sid or "ORG",
+            org_sid or DEFAULT_ORG_SID,
         )
 
         # Build org-agnostic success message using centralized templates
@@ -369,7 +370,7 @@ class HandleModal(Modal, title="Verification"):
         description = build_welcome_description(
             assigned_role_type,
             org_name=org_name,
-            org_sid=org_sid or "ORG",
+            org_sid=org_sid or DEFAULT_ORG_SID,
         )
         embed = create_success_embed(description)
 

@@ -160,3 +160,38 @@ async def test_put_bot_channel_settings_allows_nulls(admin_user_token, temp_db):
     assert data["bot_spam_channel_id"] is None
     assert data["public_announcement_channel_id"] is None
     assert data["leadership_announcement_channel_id"] is None
+    # verification_message_updated should be None when no channel change occurs
+    assert data["verification_message_updated"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_bot_channel_settings_resend_failure(
+    admin_user_token, fake_internal_api, temp_db
+):
+    """Test PUT returns verification_message_updated=False when resend fails."""
+    # Force the mock to raise when resend_verification_message is called
+    fake_internal_api.raise_on_resend_verification_message = True
+
+    # Change the verification channel to trigger a resend
+    payload = {
+        "verification_channel_id": "9999999999999999999",
+        "bot_spam_channel_id": None,
+        "public_announcement_channel_id": None,
+        "leadership_announcement_channel_id": None,
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.put(
+            "/api/guilds/123/settings/bot-channels",
+            json=payload,
+            cookies={"session": admin_user_token},
+        )
+
+    # API should still return 200, but indicate failure in the flag
+    assert response.status_code == 200
+    data = response.json()
+    assert data["verification_channel_id"] == "9999999999999999999"
+    # The flag should indicate the resend failed
+    assert data["verification_message_updated"] is False

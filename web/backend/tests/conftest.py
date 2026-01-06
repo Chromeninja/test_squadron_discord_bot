@@ -384,7 +384,14 @@ class FakeInternalAPIClient:
         }
 
     async def resend_verification_message(self, guild_id: int) -> dict:
-        """Mock verification message resend operation."""
+        """Mock verification message resend operation.
+
+        Tests can force this method to fail by setting
+        ``fake_internal_api.raise_on_resend_verification_message = True``.
+        """
+        if getattr(self, "raise_on_resend_verification_message", False):
+            raise RuntimeError("Failed to resend verification message (test)")
+
         return {
             "status": "success",
             "message": "Verification message resent",
