@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from helpers.discord_api import add_roles
+from helpers.discord_api import add_roles, remove_roles
 from helpers.leadership_log import (
     ChangeSet,
     EventType,
@@ -148,11 +148,101 @@ class RoleDelegationService(BaseService):
         )
 
         # Post to leadership log
-        await self._log_role_grant(
-            guild, grantor_member, target_member, role_obj
-        )
+        await self._log_role_grant(guild, grantor_member, target_member, role_obj)
 
         return True, ""
+
+    async def apply_revoke(
+        self,
+        guild: discord.Guild,
+        revoker_member: discord.Member,
+        target_member: discord.Member,
+        role_id: int | str,
+        reason: str | None = None,
+    ) -> tuple[bool, str]:
+        """Validate delegation policy and remove the role from the target member.
+
+        The revoker must have permission to grant the role (same policy check as
+        apply_grant), ensuring only authorized users can revoke delegated roles.
+        Additionally, the target must currently have the role to be removed.
+        """
+        # Use the same permission check as grant - revoker must be able to grant
+        allowed, message = await self.can_grant(
+            guild, revoker_member, target_member, role_id
+        )
+        if not allowed:
+            return False, message
+
+        try:
+            role_obj = guild.get_role(int(role_id))
+        except (TypeError, ValueError):
+            role_obj = None
+
+        if role_obj is None:
+            return False, "Role not found in guild"
+
+        # Verify target actually has the role
+        target_roles = _role_id_set(target_member.roles)
+        if int(role_id) not in target_roles:
+            return False, f"Member does not have role {role_obj.name}"
+
+        apply_reason = reason or "Delegated role revoke"
+        try:
+            await remove_roles(target_member, role_obj, reason=apply_reason)
+        except Exception:  # pragma: no cover - Discord API errors
+            self.logger.exception(
+                "Failed to remove delegated role",
+                extra={
+                    "guild_id": guild.id,
+                    "revoker_id": revoker_member.id,
+                    "target_id": target_member.id,
+                    "role_id": role_id,
+                },
+            )
+            return False, "Failed to revoke role"
+
+        self.logger.info(
+            "Delegated role revoked",
+            extra={
+                "guild_id": guild.id,
+                "revoker_id": revoker_member.id,
+                "target_id": target_member.id,
+                "role_id": int(role_id),
+                "reason": apply_reason,
+            },
+        )
+
+        # Post to leadership log
+        await self._log_role_revoke(guild, revoker_member, target_member, role_obj)
+
+        return True, ""
+
+    async def _log_role_revoke(
+        self,
+        guild: discord.Guild,
+        revoker: discord.Member,
+        target: discord.Member,
+        role: discord.Role,
+    ) -> None:
+        """Post delegated role revoke to leadership log."""
+        revoker_name = revoker.display_name or revoker.name
+        try:
+            cs = ChangeSet(
+                user_id=target.id,
+                event=EventType.ADMIN_ACTION,
+                initiator_kind=InitiatorKind.ADMIN,
+                initiator_name=revoker_name,
+                initiator_source=InitiatorSource.COMMAND,
+                guild_id=guild.id,
+                roles_removed=[role.name],
+                notes=f"Delegated role revoke: {role.name} (ID: {role.id}) revoked by @{revoker_name}",
+            )
+            await post_if_changed(self.bot, cs)
+        except Exception:
+            self.logger.debug(
+                "Failed to post delegated role revoke to leadership log",
+                exc_info=True,
+            )
 
     async def _log_role_grant(
         self,
