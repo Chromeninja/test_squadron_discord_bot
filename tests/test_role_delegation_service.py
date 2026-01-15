@@ -206,7 +206,7 @@ async def test_apply_grant_invokes_discord_add_roles(monkeypatch):
     assert reason == ""
     assert called["member"] is target
     assert called["role"].id == 333
-    assert "Delegated" in (called["reason"] or "")
+    assert called["reason"] == "Delegated role grant"
 
 
 @pytest.mark.asyncio
@@ -363,7 +363,7 @@ async def test_apply_revoke_success(monkeypatch):
     assert reason == ""
     assert called["member"] is target
     assert called["role"].id == 333
-    assert "Delegated" in (called["reason"] or "")
+    assert called["reason"] == "Delegated role revoke"
 
 
 @pytest.mark.asyncio
@@ -401,6 +401,51 @@ async def test_apply_revoke_fails_when_target_lacks_role(monkeypatch):
 
     assert success is False
     assert "does not have role" in reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_succeeds_even_when_target_lost_prerequisites(monkeypatch):
+    """Verify revoke succeeds even if target no longer meets grant prerequisites.
+
+    This tests the correct behavior: revocation only requires the revoker to have
+    grantor authority, not that the target currently meets prerequisites.
+    """
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [444],  # Target must have 444 to be granted 333
+        }
+    ]
+    called = {}
+
+    async def fake_remove_roles(member, role_obj, reason=None):
+        called["member"] = member
+        called["role"] = role_obj
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", fake_remove_roles
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333, 444])
+    revoker = DummyMember(10, [111])
+    # Target has role 333 but NOT prerequisite 444 anymore
+    target = DummyMember(11, [333])
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    # Should succeed - revoker has grantor role, target has the role to remove
+    assert success is True
+    assert reason == ""
+    assert called["member"] is target
 
 
 @pytest.mark.asyncio

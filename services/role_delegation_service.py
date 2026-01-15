@@ -98,6 +98,46 @@ class RoleDelegationService(BaseService):
 
         return False, "No matching delegation policy"
 
+    async def can_revoke(
+        self,
+        guild: discord.Guild,
+        revoker_member: discord.Member,
+        role_id: int | str,
+    ) -> tuple[bool, str]:
+        """Check if revoker can revoke role_id under delegation policies.
+
+        Unlike can_grant, this only checks if the revoker has a grantor role
+        for the target role. It does not evaluate prerequisites against the
+        target member, since revocation is about removing an existing role
+        regardless of current qualification.
+        """
+        self._ensure_initialized()
+
+        try:
+            target_role_id = int(role_id)
+        except (TypeError, ValueError):
+            return False, "Invalid role id"
+
+        policies = await self.get_policies(guild.id)
+        if not policies:
+            return False, "No delegation policies configured for this server"
+
+        revoker_roles = _role_id_set(revoker_member.roles)
+
+        # Find policies where revoker has grantor role for this target role
+        applicable = [
+            p
+            for p in policies
+            if p.get("enabled", True)
+            and p.get("granted_role") == target_role_id
+            and revoker_roles.intersection(p.get("grantor_roles", []))
+        ]
+
+        if not applicable:
+            return False, "You do not have permission to revoke that role"
+
+        return True, ""
+
     async def apply_grant(
         self,
         guild: discord.Guild,
@@ -162,14 +202,13 @@ class RoleDelegationService(BaseService):
     ) -> tuple[bool, str]:
         """Validate delegation policy and remove the role from the target member.
 
-        The revoker must have permission to grant the role (same policy check as
-        apply_grant), ensuring only authorized users can revoke delegated roles.
-        Additionally, the target must currently have the role to be removed.
+        The revoker must have a grantor role for a policy targeting this role.
+        Unlike grant, prerequisites are not checked - revocation is permitted
+        regardless of the target's current role state, as it's about removing
+        an existing assignment.
         """
-        # Use the same permission check as grant - revoker must be able to grant
-        allowed, message = await self.can_grant(
-            guild, revoker_member, target_member, role_id
-        )
+        # Check if revoker has authority to manage this role
+        allowed, message = await self.can_revoke(guild, revoker_member, role_id)
         if not allowed:
             return False, message
 
