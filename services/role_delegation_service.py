@@ -102,7 +102,7 @@ class RoleDelegationService(BaseService):
         self,
         guild: discord.Guild,
         revoker_member: discord.Member,
-        role_id: int | str,
+        role_id: int,
     ) -> tuple[bool, str]:
         """Check if revoker can revoke role_id under delegation policies.
 
@@ -112,11 +112,6 @@ class RoleDelegationService(BaseService):
         regardless of current qualification.
         """
         self._ensure_initialized()
-
-        try:
-            target_role_id = int(role_id)
-        except (TypeError, ValueError):
-            return False, "Invalid role id"
 
         policies = await self.get_policies(guild.id)
         if not policies:
@@ -129,7 +124,7 @@ class RoleDelegationService(BaseService):
             p
             for p in policies
             if p.get("enabled", True)
-            and p.get("granted_role") == target_role_id
+            and p.get("granted_role") == role_id
             and revoker_roles.intersection(p.get("grantor_roles", []))
         ]
 
@@ -197,7 +192,7 @@ class RoleDelegationService(BaseService):
         guild: discord.Guild,
         revoker_member: discord.Member,
         target_member: discord.Member,
-        role_id: int | str,
+        role_id: int,
         reason: str | None = None,
     ) -> tuple[bool, str]:
         """Validate delegation policy and remove the role from the target member.
@@ -212,17 +207,13 @@ class RoleDelegationService(BaseService):
         if not allowed:
             return False, message
 
-        try:
-            role_obj = guild.get_role(int(role_id))
-        except (TypeError, ValueError):
-            role_obj = None
-
+        role_obj = guild.get_role(role_id)
         if role_obj is None:
             return False, "Role not found in guild"
 
         # Verify target actually has the role
         target_roles = _role_id_set(target_member.roles)
-        if int(role_id) not in target_roles:
+        if role_id not in target_roles:
             return False, f"Member does not have role {role_obj.name}"
 
         apply_reason = reason or "Delegated role revoke"
@@ -246,7 +237,7 @@ class RoleDelegationService(BaseService):
                 "guild_id": guild.id,
                 "revoker_id": revoker_member.id,
                 "target_id": target_member.id,
-                "role_id": int(role_id),
+                "role_id": role_id,
                 "reason": apply_reason,
             },
         )

@@ -124,9 +124,10 @@ class RoleDelegationCog(commands.Cog):
 
         Permission model: Access is controlled by delegation policies configured
         per-guild (roles.delegation_policies in config). Users must have a grantor
-        role defined in an applicable policy to revoke the target role. The revoker
-        must have permission to grant the role (same policy check as /role-grant),
-        and the target member must currently have the role.
+        role defined in an applicable policy for the target role. For revocation,
+        only the grantor-role requirement is enforced: prerequisite roles that
+        would be required to grant the role are not evaluated. The target member
+        must currently have the role.
         """
         await interaction.response.defer(ephemeral=True)
 

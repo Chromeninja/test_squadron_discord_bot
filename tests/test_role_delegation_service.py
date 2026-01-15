@@ -324,6 +324,51 @@ async def test_apply_grant_logs_error_when_leadership_log_fails(monkeypatch, cap
 
 
 @pytest.mark.asyncio
+async def test_apply_revoke_fails_when_remove_roles_raises(monkeypatch, caplog):
+    """Verify revoke returns failure when Discord API (remove_roles) raises."""
+    import logging
+
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+
+    async def failing_remove_roles(member, role_obj, reason=None):
+        raise RuntimeError("Simulated Discord API failure")
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", failing_remove_roles
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    revoker = DummyMember(10, [111])
+    target = DummyMember(11, [333])
+
+    with caplog.at_level(logging.ERROR):
+        success, reason = await svc.apply_revoke(
+            cast("discord.Guild", guild),
+            cast("discord.Member", revoker),
+            cast("discord.Member", target),
+            333,
+        )
+
+    assert success is False
+    assert reason == "Failed to revoke role"
+
+    # Verify the exception was logged
+    assert any(
+        "failed to remove delegated role" in rec.message.lower()
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_apply_revoke_success(monkeypatch):
     """Verify revoke works when revoker has permission and target has the role."""
     policies = [
