@@ -82,7 +82,7 @@ async def is_valid_rsi_handle(
     try:
         org_html = await http_client.fetch_html(org_url)
     except NotFoundError:
-        logger.exception(f"Handle not found (404): {user_handle}")
+        logger.warning("Handle not found (404): %s", user_handle)
         raise
     if not org_html:  # Empty/None response
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
@@ -314,7 +314,7 @@ def parse_rsi_organizations(html_content: str, target_org: str | None = None) ->
             continue
 
     if not main_org:
-        logger.warning(
+        logger.debug(
             "Main organization section not found with any selector.",
             extra={
                 "event": "rsi-parser.orgs",
@@ -347,7 +347,7 @@ def parse_rsi_organizations(html_content: str, target_org: str | None = None) ->
             continue
 
     if not affiliates:
-        logger.warning(
+        logger.debug(
             "No affiliate organizations found with any selector.",
             extra={"event": "rsi-parser.orgs"},
         )

@@ -146,7 +146,11 @@ async def perform_recheck(
                 guild_id=member.guild.id,
                 action="RECHECK_USER",
                 target_user_id=member.id,
-                details={"rsi_handle": rsi_handle, "remediated": True},
+                details={
+                    "rsi_handle": rsi_handle,
+                    "remediated": True,
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                },
                 status="error",
             )
         return result

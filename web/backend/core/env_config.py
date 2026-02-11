@@ -53,7 +53,12 @@ _public_host = _parsed_public.netloc or "localhost:8081"
 # In development: different port for Vite dev server
 FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "5173"))
 
-if IS_DEV:
+# Explicit override takes precedence (e.g. FRONTEND_URL=http://155.138.227.187)
+_frontend_url_override = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+
+if _frontend_url_override:
+    FRONTEND_URL = _frontend_url_override
+elif IS_DEV:
     # Development: frontend runs on separate Vite port
     _frontend_host = _public_host.split(":")[0]  # Strip port
     FRONTEND_URL = f"{_public_scheme}://{_frontend_host}:{FRONTEND_PORT}"
@@ -159,6 +164,19 @@ if IS_DEV and SESSION_SECRET == "dev_only_change_me_in_production":
     _logger.warning(
         "Using default SESSION_SECRET for development. "
         "Set a secure value before deploying to production."
+    )
+
+# Detect likely misconfiguration: FRONTEND_URL pointing at Vite dev port
+_parsed_frontend = urlparse(FRONTEND_URL)
+_frontend_port_str = (_parsed_frontend.netloc or "").split(":")[-1] if ":" in (_parsed_frontend.netloc or "") else ""
+if _frontend_port_str == str(FRONTEND_PORT) and not IS_DEV:
+    _logger.warning(
+        "FRONTEND_URL (%s) uses the Vite dev port %s but ENV=%s. "
+        "Post-login redirects will fail if Vite is not running. "
+        "Set ENV=production or override FRONTEND_URL to your public URL.",
+        FRONTEND_URL,
+        FRONTEND_PORT,
+        ENV,
     )
 
 # Log configuration summary (debug level to avoid noise)
