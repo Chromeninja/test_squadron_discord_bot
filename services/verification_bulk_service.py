@@ -307,7 +307,7 @@ class VerificationBulkService:
         try:
             from helpers.bulk_check import fetch_status_rows
 
-            batch_rows = await fetch_status_rows(members)
+            batch_rows = await fetch_status_rows(members, bot=self.bot)
 
             # If RSI recheck is enabled, verify each member's RSI org status
             if job.recheck_rsi:

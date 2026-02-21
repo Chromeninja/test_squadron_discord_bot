@@ -4,6 +4,7 @@
 
 import { apiClient } from './client';
 import { RoleLevel } from '../utils/permissions';
+import { triggerBlobDownload, extractFilename } from '../utils/download';
 
 // Types
 export interface GuildPermission {
@@ -439,25 +440,11 @@ export const usersApi = {
       responseType: 'blob',
     });
 
-    // Extract filename from Content-Disposition header
-    const contentDisposition = response.headers['content-disposition'];
-    let filename = 'members_export.csv';
-    if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-      if (filenameMatch) {
-        filename = filenameMatch[1];
-      }
-    }
-
-    // Trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    const filename = extractFilename(
+      response.headers['content-disposition'],
+      'members_export.csv',
+    );
+    triggerBlobDownload(response.data, filename);
   },
 };
 
@@ -641,15 +628,7 @@ export const logsApi = {
       responseType: 'blob',
     });
 
-    // Trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'bot.log.tail.txt');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    triggerBlobDownload(response.data, 'bot.log.tail.txt');
   },
   exportBackendLogs: async (maxBytes: number = 1048576) => {
     const response = await apiClient.get('/api/logs/backend-export', {
@@ -657,15 +636,7 @@ export const logsApi = {
       responseType: 'blob',
     });
 
-    // Trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'backend.log.tail.txt');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    triggerBlobDownload(response.data, 'backend.log.tail.txt');
   },
   exportAuditLogs: async (limit: number = 1000) => {
     const response = await apiClient.get('/api/logs/audit-export', {
@@ -673,26 +644,11 @@ export const logsApi = {
       responseType: 'blob',
     });
 
-    // Trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-
-    // Extract filename from Content-Disposition header if available
-    const contentDisposition = response.headers['content-disposition'];
-    let filename = 'audit_log.csv';
-    if (contentDisposition) {
-      const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
-      if (matches != null && matches[1]) {
-        filename = matches[1].replace(/['"]/g, '');
-      }
-    }
-
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    const filename = extractFilename(
+      response.headers['content-disposition'],
+      'audit_log.csv',
+    );
+    triggerBlobDownload(response.data, filename);
   },
 };
 

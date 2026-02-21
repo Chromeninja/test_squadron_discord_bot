@@ -197,7 +197,8 @@ class HTTPClient:
                 try:
                     logger.debug(f"HTTP {method} {url} (attempt {attempt + 1}/{policy.max_attempts})")
 
-                    async with session.get(
+                    request_method = getattr(session, method.lower(), session.get)
+                    async with request_method(
                         url, headers={"User-Agent": self._user_agent}
                     ) as resp:
                         status = resp.status

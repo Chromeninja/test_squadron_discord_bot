@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ext import commands, tasks
 
+from helpers.bot_utils import get_guild_org_sid
 from helpers.discord_api import channel_send_message
 from services.db.repository import BaseRepository
 from utils.logging import get_logger
@@ -194,12 +195,7 @@ async def send_verification_announcements(
         admin_phrase = f" (**{by_admin}** Initiated)"
 
     # Fetch organization SID for dynamic status strings
-    org_sid = "ORG"
-    if hasattr(bot, "services") and bot.services.guild_config:
-        with contextlib.suppress(Exception):
-            org_sid = await bot.services.guild_config.get_setting(
-                member.guild.id, "organization.sid", default="ORG"
-            )
+    org_sid = await get_guild_org_sid(bot, member.guild.id, default="ORG")
 
     if lead_channel:
         try:
@@ -359,21 +355,7 @@ async def enqueue_announcement_for_guild(
 
     try:
         # Get this guild's tracked organization SID
-        guild_org_sid = "TEST"  # Default fallback
-        if (
-            hasattr(bot, "services")
-            and bot.services
-            and hasattr(bot.services, "guild_config")
-        ):
-            try:
-                guild_org_sid = await bot.services.guild_config.get_setting(
-                    member.guild.id, "organization.sid", default="TEST"
-                )
-                # Remove JSON quotes if present
-                if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
-                    guild_org_sid = guild_org_sid.strip('"')
-            except Exception as e:
-                logger.debug(f"Failed to get guild org SID, using TEST: {e}")
+        guild_org_sid = await get_guild_org_sid(bot, member.guild.id)
 
         # Derive status for this guild before and after
         old_status = derive_membership_status(
@@ -639,24 +621,18 @@ class BulkAnnouncer(commands.Cog):
                     continue
 
                 # Fetch guild's organization settings
-                org_sid = None
+                org_sid = await get_guild_org_sid(self.bot, guild_id, default="ORG")
                 org_name = None
                 if hasattr(self.bot, "services") and self.bot.services.guild_config:
                     try:
-                        org_sid = await self.bot.services.guild_config.get_setting(
-                            guild_id, "organization.sid", default=None
-                        )
                         org_name = await self.bot.services.guild_config.get_setting(
                             guild_id, "organization.name", default=None
                         )
                     except Exception as e:
                         logger.warning(
-                            f"Failed to fetch org settings for guild {guild_id}: {e}"
+                            f"Failed to fetch org name for guild {guild_id}: {e}"
                         )
 
-                # Fallback to "ORG" if no settings
-                if not org_sid:
-                    org_sid = "ORG"
                 if not org_name:
                     org_name = "Organization"
 

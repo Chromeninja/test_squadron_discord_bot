@@ -30,6 +30,7 @@ def derive_membership_status(
 
     Checks if the target organization SID appears in the user's main or affiliate
     organization lists and returns the appropriate status.
+    Comparison is case-insensitive and REDACTED entries are excluded.
 
     Args:
         main_orgs: List of main organization SIDs (typically 0 or 1 item)
@@ -45,16 +46,19 @@ def derive_membership_status(
     if not affiliate_orgs:
         affiliate_orgs = []
 
-    # Filter out REDACTED entries and check for target SID
-    non_redacted_main = [sid for sid in main_orgs if sid != "REDACTED"]
-    non_redacted_affiliate = [sid for sid in affiliate_orgs if sid != "REDACTED"]
+    # Normalize to uppercase for case-insensitive comparison
+    target_upper = target_sid.upper()
+    non_redacted_main = [sid.upper() for sid in main_orgs if sid and sid != "REDACTED"]
+    non_redacted_affiliate = [
+        sid.upper() for sid in affiliate_orgs if sid and sid != "REDACTED"
+    ]
 
     # Check main organizations first
-    if target_sid in non_redacted_main:
+    if target_upper in non_redacted_main:
         return "main"
 
     # Check affiliate organizations
-    if target_sid in non_redacted_affiliate:
+    if target_upper in non_redacted_affiliate:
         return "affiliate"
 
     # Not a member of the target organization
@@ -210,7 +214,6 @@ class Database:
             )
             await db.commit()
 
-    @classmethod
     @classmethod
     @asynccontextmanager
     async def get_connection(cls):

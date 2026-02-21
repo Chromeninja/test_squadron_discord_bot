@@ -107,7 +107,7 @@ class VerificationCog(commands.Cog):
         guilds_skipped = 0
         guilds_failed = 0
 
-        for guild in self.bot.guilds:
+        for guild in target_guilds:
             logger.info(f"\n{'=' * 60}")
             logger.info(f"Processing guild: {guild.name} (ID: {guild.id})")
             logger.info(f"{'=' * 60}")

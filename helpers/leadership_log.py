@@ -330,7 +330,7 @@ def _normalize_signature(cs: ChangeSet) -> str:
     return "§".join(parts)
 
 
-def build_embed(bot, cs: ChangeSet) -> discord.Embed:
+async def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     """Create the structured leadership log embed per specification."""
     emoji = _event_emoji(cs)
     duration = ""  # duration tracking removed
@@ -350,12 +350,15 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
         f"{emoji} {_event_title(cs.event)} • {header_initiated}{duration}"
     )
 
+    # Resolve verbosity once (async) so the sync closure can use it
+    verbosity = await _verbosity(bot)
+
     def add_section(label: str, before: str | None, after: str | None):
         if _changed_material(before, after):
             embed.add_field(
                 name=label, value=f"{before or '—'} → {after or '—'}", inline=False
             )
-        elif _verbosity(bot) == "verbose":
+        elif verbosity == "verbose":
             if before:
                 embed.add_field(name=label, value=f"No Change ({before})", inline=False)
 

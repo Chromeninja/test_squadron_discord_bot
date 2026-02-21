@@ -2,7 +2,7 @@
 Statistics endpoints for dashboard overview.
 """
 
-import contextlib
+import json
 
 from core.dependencies import (
     InternalAPIClient,
@@ -10,6 +10,13 @@ from core.dependencies import (
     get_internal_api_client,
     require_staff,
 )
+from core.guild_members import (
+    count_verified_for_member_ids,
+    derive_status_from_orgs,
+    fetch_guild_member_ids,
+    query_verification_chunked,
+)
+from core.guild_settings import get_organization_settings
 from core.pagination import is_all_guilds_mode
 from core.schemas import StatsOverview, StatsResponse, StatusCounts, UserProfile
 from fastapi import APIRouter, Depends
@@ -41,19 +48,23 @@ async def get_stats_overview(
     # Check if in All Guilds mode
     cross_guild = is_all_guilds_mode(current_user.active_guild_id)
 
-    # Get guild_id from user session
+    # Resolve guild_id from user session
     if cross_guild or not current_user.active_guild_id:
-        # In cross-guild mode or no active guild, we can't get single guild member count
         guild_id = None
     else:
         guild_id = int(current_user.active_guild_id)
 
-    # Fetch total guild member count from internal API
+    # ---- Fetch guild member IDs (single-guild only) ----
+    guild_member_ids: set[int] | None = None
+    if guild_id:
+        try:
+            guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
+        except Exception:
+            guild_member_ids = None
+
+    # ---- Total guild member count (for "unknown" calculation) ----
     total_guild_members = 0
-    # Indicates that the breakdown is aggregated across guilds and per-guild "unknown" is not well-defined
-    cross_guild_breakdown = cross_guild
     if cross_guild:
-        # In cross-guild mode, aggregate member counts from all guilds
         try:
             guilds_response = await internal_api.get_guilds()
             for guild_info in guilds_response:
@@ -71,57 +82,53 @@ async def get_stats_overview(
             guild_stats = await internal_api.get_guild_stats(guild_id)
             total_guild_members = guild_stats.get("member_count", 0)
         except Exception:
-            # If internal API call fails, fall back to verification table only
-            # (This provides partial data but prevents complete failure)
             total_guild_members = 0
 
-    # Total verified users
-    cursor = await db.execute("SELECT COUNT(*) FROM verification")
-    row = await cursor.fetchone()
-    total_verified = row[0] if row else 0
+    # ---- Total verified (guild-scoped in single-guild mode) ----
+    if cross_guild:
+        cursor = await db.execute("SELECT COUNT(*) FROM verification")
+        row = await cursor.fetchone()
+        total_verified = row[0] if row else 0
+    elif guild_member_ids is not None:
+        total_verified = await count_verified_for_member_ids(db, guild_member_ids)
+    else:
+        total_verified = 0
 
-    # Count by membership status derived from org lists for this guild
-    import json
-
-    from services.db.database import derive_membership_status
-
+    # ---- Membership status breakdown ----
     status_counts = StatusCounts()
 
-    if cross_guild_breakdown:
-        # In cross-guild mode, we can't derive status per specific guild org
-        # The "unknown" count (unverified guild members) is not well-defined across guilds
-        # Set unknown=0 to avoid misleading numbers; consumers should rely on total_verified
+    if cross_guild:
+        # Cross-guild: per-guild "unknown" is not well-defined; leave at 0
         status_counts.unknown = 0
     else:
-        # Get guild's tracked organization SID
-        guild_org_sid = "TEST"  # Default
+        # Resolve the guild's tracked organization SID via shared helper
+        organization_sid: str | None = None
         if guild_id:
-            cursor = await db.execute(
-                "SELECT value FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
-                (guild_id,),
+            org_settings = await get_organization_settings(db, guild_id)
+            organization_sid = (
+                org_settings.get("organization_sid") if org_settings else None
             )
-            row = await cursor.fetchone()
-            if row and row[0]:
-                guild_org_sid = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-                if isinstance(guild_org_sid, str) and guild_org_sid.startswith('"'):
-                    with contextlib.suppress(Exception):
-                        guild_org_sid = json.loads(guild_org_sid)
 
-        # Derive status for each verified user based on their org lists
-        cursor = await db.execute("SELECT main_orgs, affiliate_orgs FROM verification")
-        rows = await cursor.fetchall()
+        # Query org columns for guild members only (chunked)
+        rows = (
+            await query_verification_chunked(
+                db, guild_member_ids, "main_orgs, affiliate_orgs",
+            )
+            if guild_member_ids
+            else []
+        )
 
-        for row in rows:
-            main_orgs_json, affiliate_orgs_json = row
-            # Treat NULL org lists as "unknown" (not counted in main/affiliate/non_member)
+        for main_orgs_json, affiliate_orgs_json in rows:
+            # NULL org lists → not yet categorised; skip for status breakdown
             if main_orgs_json is None and affiliate_orgs_json is None:
                 continue
+
             main_orgs = json.loads(main_orgs_json) if main_orgs_json else None
             affiliate_orgs = (
                 json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
             )
 
-            status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
+            status = derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
 
             if status == "main":
                 status_counts.main += 1
@@ -130,15 +137,14 @@ async def get_stats_overview(
             elif status == "non_member":
                 status_counts.non_member += 1
 
-        # Calculate true unverified count: all guild members who aren't verified
-        # This includes both users with status="unknown" in DB AND users not in DB at all
+        # Unknown = guild members who haven't verified at all
         if total_guild_members > 0:
             verified_count = (
                 status_counts.main + status_counts.affiliate + status_counts.non_member
             )
             status_counts.unknown = max(0, total_guild_members - verified_count)
 
-    # Active voice channels
+    # ---- Active voice channels ----
     cursor = await db.execute("SELECT COUNT(*) FROM voice_channels WHERE is_active = 1")
     row = await cursor.fetchone()
     voice_active_count = row[0] if row else 0

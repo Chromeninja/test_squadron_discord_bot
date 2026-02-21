@@ -18,6 +18,7 @@ from core.dependencies import (
     require_fresh_guild_access,
     require_staff,
 )
+from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
 from core.guild_settings import get_organization_settings
 from core.pagination import (
     DEFAULT_PAGE_SIZE_USERS,
@@ -30,17 +31,11 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from services.db.database import derive_membership_status
-
 logger = logging.getLogger(__name__)
 
 MEMBER_CACHE_TTL_SECONDS = 60
 MEMBER_CACHE_MAX_ENTRIES = 2000
 _member_cache: "OrderedDict[tuple[int, int], tuple[float, dict]]" = OrderedDict()
-
-# Guild member IDs cache: guild_id -> (expires_at, set_of_member_ids)
-_GUILD_IDS_CACHE_TTL = 30
-_guild_ids_cache: dict[int, tuple[float, set[int]]] = {}
 
 # Shared verification column list for DRY query building
 _VERIFICATION_COLUMNS = (
@@ -238,38 +233,6 @@ def _enriched_user_from_row(
     )
 
 
-async def _fetch_guild_member_ids(
-    internal_api: InternalAPIClient, guild_id: int
-) -> set[int]:
-    """Fetch all member IDs for a guild via paginated internal API calls.
-
-    Results are cached for ``_GUILD_IDS_CACHE_TTL`` seconds to avoid
-    repeated HTTP round-trips on every page load.
-    """
-    now = time.time()
-    cached = _guild_ids_cache.get(guild_id)
-    if cached and cached[0] > now:
-        return cached[1]
-
-    member_ids: set[int] = set()
-    page_num = 1
-    fetch_size = 1000
-    while True:
-        data = await internal_api.get_guild_members(
-            guild_id, page=page_num, page_size=fetch_size
-        )
-        members = data.get("members", [])
-        for m in members:
-            if m.get("user_id"):
-                member_ids.add(int(m["user_id"]))
-        if len(members) < fetch_size:
-            break
-        page_num += 1
-
-    _guild_ids_cache[guild_id] = (now + _GUILD_IDS_CACHE_TTL, member_ids)
-    return member_ids
-
-
 def _derive_and_filter(
     rows: list[tuple],
     status_filters: list[str],
@@ -282,7 +245,7 @@ def _derive_and_filter(
     result: list[tuple[dict, str]] = []
     for row in rows:
         parsed = _parse_verification_row(row)
-        status = _derive_status_from_orgs(
+        status = derive_status_from_orgs(
             parsed["main_orgs"], parsed["affiliate_orgs"], organization_sid
         )
         if status_filters and status not in status_filters:
@@ -306,27 +269,6 @@ def _paginate(
 
 
 router = APIRouter()
-
-
-def _derive_status_from_orgs(
-    main_orgs: list[str] | None,
-    affiliate_orgs: list[str] | None,
-    organization_sid: str | None,
-) -> str:
-    """Derive membership status from org lists and optional org SID.
-
-    - If SID provided, match exactly; else return ``unknown``.
-    - Both lists empty => non_member; both None => unknown.
-    - REDACTED entries are filtered out (treated as unknown orgs).
-    """
-    if main_orgs is None and affiliate_orgs is None:
-        return "unknown"
-
-    if not organization_sid:
-        # No guild org configured — cannot determine membership status
-        return "unknown"
-
-    return derive_membership_status(main_orgs or [], affiliate_orgs or [], organization_sid)
 
 
 @router.get(
@@ -425,7 +367,7 @@ async def search_users(
     for row in rows:
         main_orgs = json.loads(row[5]) if row[5] else None
         affiliate_orgs = json.loads(row[6]) if row[6] else None
-        derived_status = _derive_status_from_orgs(
+        derived_status = derive_status_from_orgs(
             main_orgs, affiliate_orgs, organization_sid
         )
         items.append(
@@ -628,7 +570,7 @@ async def _list_users_single_guild(
 
     # Fetch guild member IDs from Discord (cached for 30s)
     try:
-        guild_member_ids = await _fetch_guild_member_ids(internal_api, guild_id)
+        guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
     except Exception:
         return empty
 
@@ -782,7 +724,7 @@ async def export_users(
     # Filter by guild membership (only export users who are actually in this guild)
     guild_member_ids: set[int] | None = None
     try:
-        guild_member_ids = await _fetch_guild_member_ids(internal_api, guild_id)
+        guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
     except Exception:
         logger.warning("Failed to fetch guild member IDs for export, exporting unfiltered")
 
@@ -863,7 +805,7 @@ async def export_users(
         # Parse org JSON arrays
         main_orgs_list = json.loads(row[5]) if row[5] else []
         affiliate_orgs_list = json.loads(row[6]) if row[6] else []
-        derived_status = _derive_status_from_orgs(
+        derived_status = derive_status_from_orgs(
             main_orgs_list, affiliate_orgs_list, organization_sid
         )
 

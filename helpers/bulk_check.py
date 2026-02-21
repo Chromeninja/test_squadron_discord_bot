@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 import discord
 
+from helpers.bot_utils import get_guild_org_sid
 from services.db.database import derive_membership_status
 from services.db.repository import BaseRepository
 from utils.logging import get_logger
@@ -139,7 +140,10 @@ async def collect_targets(
         return []
 
 
-async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow]:
+async def fetch_status_rows(
+    members: Iterable[discord.Member],
+    bot: object | None = None,
+) -> list[StatusRow]:
     """Batch DB read for verification rows; join with current voice channel if any."""
     if not members:
         return []
@@ -149,25 +153,14 @@ async def fetch_status_rows(members: Iterable[discord.Member]) -> list[StatusRow
 
     async with BaseRepository.transaction() as db:
         # Determine target organization SID for this guild
-        target_sid = "TEST"
-        try:
-            # All members belong to the same guild for bulk checks
-            guild_id = (
-                member_list[0].guild.id
-                if member_list and getattr(member_list[0], "guild", None)
-                else None
-            )
-            if guild_id is not None:
-                cur = await db.execute(
-                    "SELECT json_extract(value, '$') FROM guild_settings WHERE guild_id = ? AND key = 'organization.sid'",
-                    (guild_id,),
-                )
-                sid_row = await cur.fetchone()
-                if sid_row and sid_row[0]:
-                    # Handle cases where json_extract returns quoted string
-                    target_sid = str(sid_row[0]).strip('"')
-        except Exception:
-            # Fallback to default SID
+        guild_id = (
+            member_list[0].guild.id
+            if member_list and getattr(member_list[0], "guild", None)
+            else None
+        )
+        if bot and guild_id is not None:
+            target_sid = await get_guild_org_sid(bot, guild_id)
+        else:
             target_sid = "TEST"
 
         # Fetch verification data for all users at once
