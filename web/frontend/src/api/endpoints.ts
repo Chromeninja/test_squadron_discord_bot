@@ -314,6 +314,8 @@ export interface ExportUsersRequest {
   role_ids?: number[] | null;
   selected_ids?: string[] | null;
   exclude_ids?: string[] | null;
+  search?: string | null;
+  orgs?: string[] | null;
 }
 
 // All Guilds metadata for cross-guild mode (bot owner only)
@@ -396,13 +398,15 @@ export const usersApi = {
   getUsers: async (
     page: number = 1,
     pageSize: number = 25,
-    membershipStatuses?: string[] | null
+    membershipStatuses?: string[] | null,
+    search?: string | null,
+    orgs?: string[] | null,
   ): Promise<UsersListResponse> => {
     const params: Record<string, any> = {
       page,
       page_size: pageSize,
     };
-    
+
     if (membershipStatuses && membershipStatuses.length > 0) {
       const filtered = membershipStatuses.filter(s => s && s !== 'all');
       if (filtered.length > 0) {
@@ -412,8 +416,21 @@ export const usersApi = {
         params.membership_statuses = filtered.join(',');
       }
     }
-    
+
+    if (search && search.trim()) {
+      params.search = search.trim();
+    }
+
+    if (orgs && orgs.length > 0) {
+      params.orgs = orgs.join(',');
+    }
+
     const response = await apiClient.get<UsersListResponse>('/api/users', { params });
+    return response.data;
+  },
+
+  getAvailableOrgs: async (): Promise<{ success: boolean; orgs: string[] }> => {
+    const response = await apiClient.get<{ success: boolean; orgs: string[] }>('/api/users/orgs');
     return response.data;
   },
 
@@ -421,7 +438,7 @@ export const usersApi = {
     const response = await apiClient.post('/api/users/export', filters, {
       responseType: 'blob',
     });
-    
+
     // Extract filename from Content-Disposition header
     const contentDisposition = response.headers['content-disposition'];
     let filename = 'members_export.csv';
@@ -431,7 +448,7 @@ export const usersApi = {
         filename = filenameMatch[1];
       }
     }
-    
+
     // Trigger download
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
@@ -623,7 +640,7 @@ export const logsApi = {
       params: { max_bytes: maxBytes },
       responseType: 'blob',
     });
-    
+
     // Trigger download
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
@@ -639,7 +656,7 @@ export const logsApi = {
       params: { max_bytes: maxBytes },
       responseType: 'blob',
     });
-    
+
     // Trigger download
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
@@ -655,12 +672,12 @@ export const logsApi = {
       params: { limit },
       responseType: 'blob',
     });
-    
+
     // Trigger download
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    
+
     // Extract filename from Content-Disposition header if available
     const contentDisposition = response.headers['content-disposition'];
     let filename = 'audit_log.csv';
@@ -670,7 +687,7 @@ export const logsApi = {
         filename = matches[1].replace(/['"]/g, '');
       }
     }
-    
+
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();

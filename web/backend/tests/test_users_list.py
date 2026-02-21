@@ -197,7 +197,6 @@ async def test_export_users_with_exclusions(
     response = await client.post(
         "/api/users/export",
         json={
-            "membership_statuses": ["main", "affiliate"],
             "exclude_ids": ["123456789"],
         },
         cookies={"session": mock_admin_session},
@@ -244,3 +243,96 @@ async def test_list_users_moderator(
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_list_users_with_search(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test users list filters by search query."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/users?search=TestUser1",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["success"] is True
+    # Should find at least the user with rsi_handle=TestUser1
+    handles = [item["rsi_handle"] for item in data["items"] if item.get("rsi_handle")]
+    assert "TestUser1" in handles
+
+
+@pytest.mark.asyncio
+async def test_list_users_with_orgs_filter(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test users list filters by org SID."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/users?orgs=TEST",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["success"] is True
+    # All returned users should have TEST in their orgs
+    for item in data["items"]:
+        all_orgs = (item.get("main_orgs") or []) + (item.get("affiliate_orgs") or [])
+        assert "TEST" in all_orgs
+
+
+@pytest.mark.asyncio
+async def test_list_users_search_with_wildcard(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test that LIKE wildcards in search are escaped properly."""
+    _use_fixture(fake_internal_api)
+    # Search with % character should be treated literally, not as wildcard
+    response = await client.get(
+        "/api/users?search=100%25match",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["success"] is True
+    # Should return 0 results since no user has "100%match" in their data
+    assert len(data["items"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_available_orgs(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test /api/users/orgs returns distinct org SIDs."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/users/orgs",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["success"] is True
+    assert isinstance(data["orgs"], list)
+    # Our test data has "TEST" as an org
+    assert "TEST" in data["orgs"]
+
+
+@pytest.mark.asyncio
+async def test_export_users_with_search(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test CSV export includes search filter."""
+    _use_fixture(fake_internal_api)
+    response = await client.post(
+        "/api/users/export",
+        json={"search": "TestUser1"},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"

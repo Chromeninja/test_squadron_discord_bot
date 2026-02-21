@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   usersApi,
   authApi,
@@ -15,6 +15,96 @@ import { handleApiError } from '../utils/toast';
 import { hasPermission } from '../utils/permissions';
 import { Alert, Button, Card, Badge, Input } from '../components/ui';
 
+// ---------------------------------------------------------------------------
+// Reusable sub-components (extracted for DRY & readability)
+// ---------------------------------------------------------------------------
+
+/** Renders a list of org badges with RSI links, overflow count, and redacted count. */
+function OrgBadgeList({
+  orgs,
+  maxVisible = Infinity,
+  colorScheme = 'blue',
+}: {
+  orgs: string[] | null | undefined;
+  maxVisible?: number;
+  colorScheme?: 'blue' | 'green';
+}) {
+  if (!orgs || orgs.length === 0) {
+    return <span className="text-gray-500">-</span>;
+  }
+
+  const visible = orgs.filter(o => o !== 'REDACTED');
+  const redactedCount = orgs.length - visible.length;
+  const shown = visible.slice(0, maxVisible);
+  const overflowCount = visible.length - shown.length;
+
+  const colors = colorScheme === 'green'
+    ? 'bg-green-900/30 text-green-300 border-green-700/50 hover:bg-green-900/50 hover:border-green-600/70'
+    : 'bg-blue-900/30 text-blue-300 border-blue-700/50 hover:bg-blue-900/50 hover:border-blue-600/70';
+
+  return (
+    <div className="flex flex-wrap gap-1 max-w-xs">
+      {shown.map((org, idx) => (
+        <a
+          key={idx}
+          href={`https://robertsspaceindustries.com/orgs/${org}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`px-2 py-0.5 text-xs rounded border transition-colors cursor-pointer ${colors}`}
+        >
+          {org}
+        </a>
+      ))}
+      {overflowCount > 0 && (
+        <span
+          className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400"
+          title={visible.slice(maxVisible).join(', ')}
+        >
+          +{overflowCount}
+        </span>
+      )}
+      {redactedCount > 0 && (
+        <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
+          +{redactedCount} redacted
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Renders a truncated list of role badges with overflow tooltip. */
+function RoleBadgeList({ roles }: { roles: Array<{ id: number; name: string }> }) {
+  if (roles.length === 0) {
+    return <span className="text-gray-500">No roles</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1 max-w-xs">
+      {roles.slice(0, 3).map((role) => (
+        <span
+          key={role.id}
+          className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300"
+          title={role.name}
+        >
+          {role.name}
+        </span>
+      ))}
+      {roles.length > 3 && (
+        <span
+          className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400 cursor-help"
+          title={roles.slice(3).map(r => r.name).join(', ')}
+        >
+          +{roles.length - 3}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 function Users() {
   // State
   const [users, setUsers] = useState<EnrichedUser[]>([]);
@@ -23,33 +113,34 @@ function Users() {
   const [activeGuildId, setActiveGuildId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isCrossGuild, setIsCrossGuild] = useState(false);
-  
+
   // Pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  
+
   // Filters
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
   const [orgSearchQuery, setOrgSearchQuery] = useState<string>('');
   const [orgDropdownOpen, setOrgDropdownOpen] = useState<boolean>(false);
-  
+
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  
+
   // Admin actions
   const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
   const [recheckSuccess, setRecheckSuccess] = useState<string | null>(null);
   const [bulkRechecking, setBulkRechecking] = useState(false);
   const [recheckProgress, setRecheckProgress] = useState<BulkRecheckProgress | null>(null);
-  
+
   // Recheck results modal
   const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
   const [showResultsModal, setShowResultsModal] = useState(false);
@@ -59,20 +150,20 @@ function Users() {
     setSelectedIds(new Set());
     setExcludedIds(new Set());
   };
-  
+
   const handleRecheckUser = async (userId: string) => {
     setRecheckingUserId(userId);
     setRecheckSuccess(null);
     setError(null);
-    
+
     try {
       // Use bulk recheck endpoint for consistency (allows single user)
       const response = await adminApi.bulkRecheckUsers([userId]);
-      
+
       // Show results modal
       setRecheckResults(response);
       setShowResultsModal(true);
-      
+
       // Refresh the users list to show updated data
       await fetchUsers();
     } catch (err: any) {
@@ -83,18 +174,18 @@ function Users() {
       setRecheckingUserId(null);
     }
   };
-  
+
   const handleBulkRecheck = async () => {
     if (!hasSelection) {
       setError('No users selected');
       return;
     }
-    
+
     setBulkRechecking(true);
     setRecheckSuccess(null);
     setError(null);
     setRecheckProgress(null);
-    
+
     try {
       // Get the list of selected user IDs
       let userIdsToRecheck: string[];
@@ -107,17 +198,17 @@ function Users() {
         // Only specifically selected users
         userIdsToRecheck = Array.from(selectedIds);
       }
-      
+
       if (userIdsToRecheck.length === 0) {
         setError('No users selected');
         return;
       }
-      
+
       if (userIdsToRecheck.length > 100) {
         setError('Cannot recheck more than 100 users at once');
         return;
       }
-      
+
       // Kick off async bulk recheck and poll progress. If start endpoint is unavailable (404/405), fall back to synchronous flow.
       try {
         const startResp = await adminApi.startBulkRecheckUsers(userIdsToRecheck);
@@ -202,7 +293,7 @@ function Users() {
           throw err;
         }
       }
-      
+
     } catch (err: any) {
       const status = err.response?.status;
       const message = status === 403 ? 'No access - moderator role required' : (err.response?.data?.detail || 'Failed to bulk recheck users');
@@ -217,21 +308,18 @@ function Users() {
       .filter((status) => status && status !== 'all')
       .map((status) => status.toLowerCase());
   }, [selectedStatuses]);
-  
-  // Get unique organizations from all users
-  const availableOrgs = useMemo(() => {
-    const orgSet = new Set<string>();
-    users.forEach(user => {
-      user.main_orgs?.forEach(org => {
-        if (org && org !== 'REDACTED') orgSet.add(org);
-      });
-      user.affiliate_orgs?.forEach(org => {
-        if (org && org !== 'REDACTED') orgSet.add(org);
-      });
-    });
-    return Array.from(orgSet).sort();
-  }, [users]);
-  
+
+  // Fetch available orgs from the API (all orgs across the full dataset)
+  const [availableOrgs, setAvailableOrgs] = useState<string[]>([]);
+  useEffect(() => {
+    if (!activeGuildId) return;
+    let cancelled = false;
+    usersApi.getAvailableOrgs().then(data => {
+      if (!cancelled) setAvailableOrgs(data.orgs);
+    }).catch(() => { /* ignore — org dropdown will be empty */ });
+    return () => { cancelled = true; };
+  }, [activeGuildId]);
+
   // Filter orgs by search query
   const filteredAvailableOrgs = useMemo(() => {
     if (!orgSearchQuery.trim()) {
@@ -240,51 +328,32 @@ function Users() {
     const query = orgSearchQuery.toLowerCase().trim();
     return availableOrgs.filter(org => org.toLowerCase().includes(query));
   }, [availableOrgs, orgSearchQuery]);
-  
-  // Filter users by search query and orgs (client-side)
-  const filteredUsers = useMemo(() => {
-    let filtered = users;
-    
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(user => {
-        // Search by username/global name
-        if (user.username?.toLowerCase().includes(query)) {
-          return true;
-        }
-        if (user.global_name?.toLowerCase().includes(query)) {
-          return true;
-        }
-        // Search by RSI handle
-        if (user.rsi_handle?.toLowerCase().includes(query)) {
-          return true;
-        }
-        // Search by Discord ID (UUID)
-        if (user.discord_id?.toLowerCase().includes(query)) {
-          return true;
-        }
-        return false;
-      });
-    }
-    
-    // Apply org filter (AND logic - user must be in ALL selected orgs)
-    if (selectedOrgs.length > 0) {
-      filtered = filtered.filter(user => {
-        const userOrgs = [
-          ...(user.main_orgs || []),
-          ...(user.affiliate_orgs || [])
-        ];
-        // Check if user has ALL selected orgs
-        return selectedOrgs.every(org => userOrgs.includes(org));
-      });
-    }
-    
-    return filtered;
-  }, [users, searchQuery, selectedOrgs]);
-  
+
+  // Server-side filtering: users are already filtered by the API.
+  // Client-side filteredUsers is kept as a stable reference for selection logic.
+  const filteredUsers = users;
+
   // Export state
   const [exporting, setExporting] = useState(false);
+
+  // Debounce search input (300ms) so we don't hit the API on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset to page 1 when server-side filters change
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setPage(1);
+    resetSelection();
+  }, [debouncedSearch, selectedOrgs]);
 
   // Close org dropdown when clicking outside
   useEffect(() => {
@@ -296,7 +365,7 @@ function Users() {
         }
       }
     };
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [orgDropdownOpen]);
@@ -322,7 +391,7 @@ function Users() {
         handleApiError(err, 'Failed to load user profile');
       }
     };
-    
+
     loadUserProfile();
   }, []);
 
@@ -348,7 +417,7 @@ function Users() {
   }, [activeGuildId]);
 
   // Fetch users
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     if (!activeGuildId) {
       setUsers([]);
       setTotal(0);
@@ -364,7 +433,9 @@ function Users() {
       const data = await usersApi.getUsers(
         page,
         pageSize,
-        normalizedStatusFilters.length > 0 ? normalizedStatusFilters : null
+        normalizedStatusFilters.length > 0 ? normalizedStatusFilters : null,
+        debouncedSearch || null,
+        selectedOrgs.length > 0 ? selectedOrgs : null,
       );
       setUsers(data.items);
       setTotal(data.total);
@@ -372,20 +443,23 @@ function Users() {
       setIsCrossGuild(data.is_cross_guild === true);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load users');
+      setUsers([]);
+      setTotal(0);
+      setTotalPages(0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeGuildId, page, pageSize, normalizedStatusFilters, debouncedSearch, selectedOrgs]);
 
   // Load users on mount and when filters/pagination change
   useEffect(() => {
     fetchUsers();
-  }, [page, pageSize, normalizedStatusFilters, activeGuildId]);
+  }, [page, pageSize, normalizedStatusFilters, activeGuildId, debouncedSearch, selectedOrgs]);
 
   // Filter handlers
   const toggleStatus = (status: string) => {
-    setSelectedStatuses(prev => 
-      prev.includes(status) 
+    setSelectedStatuses(prev =>
+      prev.includes(status)
         ? prev.filter(s => s !== status)
         : [...prev, status]
     );
@@ -403,11 +477,12 @@ function Users() {
   };
 
   const toggleOrg = (org: string) => {
-    setSelectedOrgs(prev => 
+    setSelectedOrgs(prev =>
       prev.includes(org)
         ? prev.filter(o => o !== org)
         : [...prev, org]
     );
+    // Page reset handled by the debouncedSearch/selectedOrgs effect
   };
 
 
@@ -617,6 +692,12 @@ function Users() {
     if (normalizedStatusFilters.length > 0) {
       payload.membership_statuses = normalizedStatusFilters;
     }
+    if (debouncedSearch.trim()) {
+      payload.search = debouncedSearch.trim();
+    }
+    if (selectedOrgs.length > 0) {
+      payload.orgs = selectedOrgs;
+    }
 
     return payload;
   };
@@ -628,7 +709,7 @@ function Users() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">Members</h2>
-      
+
       {/* Success Message */}
       {recheckSuccess && (
         <Alert variant="success" className="mb-6">
@@ -650,14 +731,14 @@ function Users() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          
+
           {/* Organization Filter */}
           <div className="flex-1 min-w-[250px] relative org-dropdown-container">
             <label className="block text-sm font-medium text-gray-400 mb-2">
               Organizations {selectedOrgs.length > 0 && `(${selectedOrgs.length} selected)`}
             </label>
             <div className="relative">
-              <div 
+              <div
                 className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
                 onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
               >
@@ -666,7 +747,7 @@ function Users() {
                     <span className="text-gray-500">All Organizations</span>
                   ) : (
                     selectedOrgs.map(org => (
-                      <span 
+                      <span
                         key={org}
                         className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1"
                         onClick={(e) => {
@@ -682,7 +763,7 @@ function Users() {
                 </div>
                 <span className="text-gray-400 ml-2">{orgDropdownOpen ? '▲' : '▼'}</span>
               </div>
-              
+
               {orgDropdownOpen && (
                 <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
                   <div className="p-2 border-b border-slate-700">
@@ -700,8 +781,8 @@ function Users() {
                       <div className="px-4 py-3 text-sm text-gray-500">No organizations found</div>
                     ) : (
                       filteredAvailableOrgs.map(org => (
-                        <label 
-                          key={org} 
+                        <label
+                          key={org}
                           className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -720,7 +801,7 @@ function Users() {
               )}
             </div>
           </div>
-          
+
           {/* Membership Status Multi-Select */}
           <div className="flex-1 min-w-[250px]">
             <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -772,23 +853,13 @@ function Users() {
               <option value={100}>100</option>
             </select>
           </div>
-
-          {/* Apply Filters Button */}
-          <div className="flex items-end">
-            <Button
-              onClick={fetchUsers}
-              loading={loading}
-            >
-              {loading ? 'Loading...' : 'Apply Filters'}
-            </Button>
-          </div>
         </div>
       </Card>
 
       {/* Cross-Guild Mode Alert */}
       {isCrossGuild && (
         <Alert variant="info" className="mb-6">
-          <strong>🌐 All Guilds Mode</strong> — Viewing users across all servers. 
+          <strong>🌐 All Guilds Mode</strong> — Viewing users across all servers.
           Bulk actions are disabled in cross-guild view. Switch to a specific server to perform actions.
         </Alert>
       )}
@@ -1015,82 +1086,13 @@ function Users() {
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-300">
-                      {user.main_orgs && user.main_orgs.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {user.main_orgs.filter(org => org !== 'REDACTED').map((org, idx) => (
-                            <a
-                              key={idx}
-                              href={`https://robertsspaceindustries.com/orgs/${org}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2 py-0.5 text-xs rounded bg-blue-900/30 text-blue-300 border border-blue-700/50 hover:bg-blue-900/50 hover:border-blue-600/70 transition-colors cursor-pointer"
-                            >
-                              {org}
-                            </a>
-                          ))}
-                          {user.main_orgs.filter(org => org === 'REDACTED').length > 0 && (
-                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
-                              +{user.main_orgs.filter(org => org === 'REDACTED').length} redacted
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">-</span>
-                      )}
+                      <OrgBadgeList orgs={user.main_orgs} colorScheme="blue" />
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-300">
-                      {user.affiliate_orgs && user.affiliate_orgs.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {user.affiliate_orgs.filter(org => org !== 'REDACTED').slice(0, 3).map((org, idx) => (
-                            <a
-                              key={idx}
-                              href={`https://robertsspaceindustries.com/orgs/${org}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2 py-0.5 text-xs rounded bg-green-900/30 text-green-300 border border-green-700/50 hover:bg-green-900/50 hover:border-green-600/70 transition-colors cursor-pointer"
-                            >
-                              {org}
-                            </a>
-                          ))}
-                          {user.affiliate_orgs.filter(org => org !== 'REDACTED').length > 3 && (
-                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title={`${user.affiliate_orgs.filter(org => org !== 'REDACTED').slice(3).join(', ')}`}>
-                              +{user.affiliate_orgs.filter(org => org !== 'REDACTED').length - 3}
-                            </span>
-                          )}
-                          {user.affiliate_orgs.filter(org => org === 'REDACTED').length > 0 && (
-                            <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
-                              +{user.affiliate_orgs.filter(org => org === 'REDACTED').length} redacted
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">-</span>
-                      )}
+                      <OrgBadgeList orgs={user.affiliate_orgs} maxVisible={3} colorScheme="green" />
                     </td>
                     <td className="px-4 py-4 text-sm">
-                      <div className="flex flex-wrap gap-1 max-w-xs">
-                        {user.roles.length > 0 ? (
-                          user.roles.slice(0, 3).map((role) => (
-                            <span
-                              key={role.id}
-                              className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300"
-                              title={role.name}
-                            >
-                              {role.name}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-gray-500">No roles</span>
-                        )}
-                        {user.roles.length > 3 && (
-                          <span 
-                            className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400 cursor-help"
-                            title={user.roles.slice(3).map(r => r.name).join(', ')}
-                          >
-                            +{user.roles.length - 3}
-                          </span>
-                        )}
-                      </div>
+                      <RoleBadgeList roles={user.roles} />
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-400">
                       {formatDateValue(user.joined_at)}
@@ -1166,7 +1168,7 @@ function Users() {
             {searchQuery.trim() ? 'No members match your search' : 'No members found'}
           </div>
           <div className="text-gray-500 text-sm mt-2">
-            {searchQuery.trim() 
+            {searchQuery.trim()
               ? 'Try a different search term or clear your filters'
               : 'Try adjusting your filters or check back later'
             }

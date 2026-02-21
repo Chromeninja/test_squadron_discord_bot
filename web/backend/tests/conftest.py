@@ -62,6 +62,7 @@ async def temp_db():
                 (123, 'roles.bot_admins', '[\"999111222\"]'),
                 (123, 'roles.moderators', '[\"999111223\"]'),
                 (123, 'roles.staff', '[\"999111224\"]'),
+                (123, 'organization.sid', '\"TEST\"'),
                 (1, 'roles.bot_admins', '[\"999111222\"]'),
                 (1, 'roles.moderators', '[\"999111223\"]'),
                 (1, 'roles.staff', '[\"999111224\"]'),
