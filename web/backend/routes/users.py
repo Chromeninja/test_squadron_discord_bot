@@ -26,6 +26,7 @@ from core.pagination import (
     clamp_page_size,
     is_all_guilds_mode,
 )
+from core.env_config import MEMBER_CACHE_MAX_ENTRIES, MEMBER_CACHE_TTL_SECONDS
 from core.rate_limit import limiter
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
 from fastapi import APIRouter, Depends, Query, Request
@@ -34,8 +35,6 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-MEMBER_CACHE_TTL_SECONDS = 60
-MEMBER_CACHE_MAX_ENTRIES = 2000
 _member_cache: "OrderedDict[tuple[int, int], tuple[float, dict]]" = OrderedDict()
 
 # Shared verification column list for DRY query building

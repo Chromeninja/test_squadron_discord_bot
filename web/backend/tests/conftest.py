@@ -2,7 +2,6 @@
 Test configuration and fixtures for backend tests.
 """
 
-import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -28,14 +27,6 @@ from core import dependencies
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest_asyncio.fixture
@@ -133,8 +124,10 @@ async def client(temp_db):
 
     # Initialize in-memory session store (lifespan won't run under ASGITransport)
     from core import session_store
+    from core.rate_limit import limiter
 
     await session_store.initialize()  # defaults to :memory:
+    limiter.reset()  # clear rate-limit counters between tests
 
     # Import app after database and services are initialized
     from app import app

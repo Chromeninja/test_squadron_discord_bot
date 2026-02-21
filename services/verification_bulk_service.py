@@ -367,6 +367,14 @@ class VerificationBulkService:
     ) -> None:
         """Deliver final results to leadership channel (single post with embed + CSV)."""
 
+        leadership_channel_ref = "leadership chat"
+        with contextlib.suppress(Exception):
+            leadership_channel = await self.bot.services.guild_config.get_channel(
+                guild.id, "leadership_announcement_channel_id", guild
+            )
+            if leadership_channel:
+                leadership_channel_ref = leadership_channel.mention
+
         # Get initiator info
         try:
             invoker = await guild.fetch_member(job.invoker_id)
@@ -374,7 +382,8 @@ class VerificationBulkService:
             logger.warning(f"Failed to fetch invoker {job.invoker_id}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    "⚠️ Could not post results to leadership chat.", ephemeral=True
+                    f"⚠️ Could not post results to {leadership_channel_ref}.",
+                    ephemeral=True,
                 )
             return
 
@@ -441,7 +450,7 @@ class VerificationBulkService:
             # Send success ack to invoker
             try:
                 await job.interaction.followup.send(
-                    f"✅ Posted results to #{channel_name}", ephemeral=True
+                    f"✅ Posted results to {leadership_channel_ref}", ephemeral=True
                 )
             except Exception as e:
                 logger.debug(f"Could not send success ack: {e}")
@@ -450,7 +459,7 @@ class VerificationBulkService:
             logger.exception(f"Error posting to leadership channel: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    "❌ Error posting results to leadership chat. Check bot logs for details.",
+                    f"❌ Error posting results to {leadership_channel_ref}. Check bot logs for details.",
                     ephemeral=True,
                 )
 

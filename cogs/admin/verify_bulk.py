@@ -24,6 +24,24 @@ class VerifyCommands(app_commands.Group):
         super().__init__(name="verify", description="Verification management commands")
         self.bot = bot
 
+    async def _get_leadership_channel_reference(
+        self, guild: discord.Guild | None
+    ) -> str:
+        """Return clickable leadership channel mention when configured."""
+        if not guild:
+            return "leadership chat"
+
+        try:
+            channel = await self.bot.services.guild_config.get_channel(
+                guild.id, "leadership_announcement_channel_id", guild
+            )
+            if channel:
+                return channel.mention
+        except Exception as e:
+            logger.debug(f"Could not resolve leadership channel reference: {e}")
+
+        return "leadership chat"
+
     @app_commands.command(
         name="check-user",
         description="Check verification status for a single user with org verification",
@@ -250,6 +268,9 @@ class VerifyCommands(app_commands.Group):
                 .get("batch", {})
                 .get("max_users_per_run", 50)
             )
+            leadership_channel_ref = await self._get_leadership_channel_reference(
+                interaction.guild
+            )
 
             # Check if another job is running
             is_running = self.bot.services.verify_bulk.is_running()
@@ -270,20 +291,20 @@ class VerifyCommands(app_commands.Group):
                     f"⏳ Your verification check has been queued at position {queue_size_before + 1}. "
                     f"There's an active job running.\n"
                     f"Checking {len(members)} users (batch size: {batch_size}). "
-                    f"Final results will be posted in leadership chat.",
+                    f"Final results will be posted in {leadership_channel_ref}.",
                     ephemeral=True,
                 )
             elif queue_size_before > 0:
                 await interaction.followup.send(
                     f"⏳ Your verification check has been queued at position {queue_size_before + 1}.\n"
                     f"Checking {len(members)} users (batch size: {batch_size}). "
-                    f"Final results will be posted in leadership chat.",
+                    f"Final results will be posted in {leadership_channel_ref}.",
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
                     f"⏳ Starting verification check for {len(members)} users (batch size: {batch_size})...\n"
-                    f"Final results will be posted in leadership chat.",
+                    f"Final results will be posted in {leadership_channel_ref}.",
                     ephemeral=True,
                 )
 

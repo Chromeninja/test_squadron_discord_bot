@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+from core.env_config import GUILD_IDS_CACHE_TTL
 from services.db.database import derive_membership_status
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-_GUILD_IDS_CACHE_TTL: int = 30
+_GUILD_IDS_CACHE_TTL: int = GUILD_IDS_CACHE_TTL
 """Seconds before cached guild-member-ID sets expire."""
 
 _SQL_CHUNK_SIZE: int = 900
