@@ -1030,7 +1030,7 @@ class InternalAPIClient:
             csv_filename: Name for the CSV file
 
         Returns:
-            dict with keys: success, channel_name
+            dict with keys: success, channel_name, channel_mention
 
         Raises:
             httpx.HTTPStatusError: If request fails

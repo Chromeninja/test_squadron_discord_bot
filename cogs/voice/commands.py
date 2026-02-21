@@ -288,17 +288,21 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                     if isinstance(channel, discord.VoiceChannel):
                         member_count = len(channel.members)
                         channel_list.append(
-                            f"**{channel.name}** - {owner.mention} ({member_count} members)"
+                            f"{channel.mention} (**{channel.name}**) - {owner.mention} ({member_count} members)"
                         )
                     else:
-                        channel_list.append(f"**{channel.name}** - {owner.mention}")
+                        channel_list.append(
+                            f"{channel.mention} (**{channel.name}**) - {owner.mention}"
+                        )
                 elif channel:
                     if isinstance(channel, discord.VoiceChannel):
                         channel_list.append(
-                            f"**{channel.name}** - Unknown owner ({len(channel.members)} members)"
+                            f"{channel.mention} (**{channel.name}**) - Unknown owner ({len(channel.members)} members)"
                         )
                     else:
-                        channel_list.append(f"**{channel.name}** - Unknown owner")
+                        channel_list.append(
+                            f"{channel.mention} (**{channel.name}**) - Unknown owner"
+                        )
 
             if channel_list:
                 # Split into chunks if too long
@@ -360,7 +364,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if result.success:
                 # Build success message
-                message = f"✅ **Setup complete**\nCreated {num_channels} Join-to-Create channel{'s' if num_channels > 1 else ''} in {category.name}."
+                message = f"✅ **Setup complete**\nCreated {num_channels} Join-to-Create channel{'s' if num_channels > 1 else ''} in {category.mention}."
                 await send_user_success(interaction, message)
             else:
                 # Format error
@@ -442,7 +446,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if success:
                 message = (
-                    f"✅ **{jtc_channel.name}** created and added as a Join-to-Create channel in {category.name}.\n"
+                    f"✅ {jtc_channel.mention} (**{jtc_channel.name}**) created and added as a Join-to-Create channel in {category.mention}.\n"
                     "Existing JTC channels remain active."
                 )
                 await send_user_success(interaction, message)

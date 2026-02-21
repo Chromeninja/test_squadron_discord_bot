@@ -432,7 +432,7 @@ class VerificationBulkService:
         try:
             from helpers.announcement import send_admin_bulk_check_summary
 
-            channel_name = await send_admin_bulk_check_summary(
+            channel_info = await send_admin_bulk_check_summary(
                 self.bot,
                 guild=guild,
                 invoker=invoker,
@@ -443,6 +443,9 @@ class VerificationBulkService:
                 csv_filename=filename,
             )
 
+            channel_name = channel_info.get("name", "unknown")
+            channel_mention = channel_info.get("mention", leadership_channel_ref)
+
             logger.info(
                 f"Posted bulk check results to #{channel_name} for job {job.job_id}"
             )
@@ -450,7 +453,7 @@ class VerificationBulkService:
             # Send success ack to invoker
             try:
                 await job.interaction.followup.send(
-                    f"✅ Posted results to {leadership_channel_ref}", ephemeral=True
+                    f"✅ Posted results to {channel_mention}", ephemeral=True
                 )
             except Exception as e:
                 logger.debug(f"Could not send success ack: {e}")

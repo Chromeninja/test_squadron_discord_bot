@@ -9,6 +9,7 @@ from core.security import (
     generate_oauth_state,
 )
 from httpx import AsyncClient
+from urllib.parse import parse_qs, urlparse
 
 pytestmark = pytest.mark.contract
 
@@ -68,10 +69,16 @@ async def test_login_redirect(client: AsyncClient):
     response = await client.get("/auth/login", follow_redirects=False)
 
     assert response.status_code == 307  # Redirect
-    assert "discord.com" in response.headers["location"]
-    assert "oauth2/authorize" in response.headers["location"]
+    redirect_url = response.headers["location"]
+    parsed = urlparse(redirect_url)
+
+    assert parsed.scheme == "https"
+    assert parsed.hostname == "discord.com"
+    assert parsed.path == "/api/oauth2/authorize"
+
+    query_params = parse_qs(parsed.query)
     # Verify state parameter is included for CSRF protection
-    assert "state=" in response.headers["location"]
+    assert query_params.get("state")
 
 
 @pytest.mark.asyncio

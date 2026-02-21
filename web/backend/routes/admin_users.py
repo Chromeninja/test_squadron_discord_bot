@@ -550,8 +550,9 @@ async def _execute_bulk_recheck(
                 csv_bytes=csv_content,  # Already base64 encoded
                 csv_filename=csv_filename,
             )
+            channel_ref = response.get("channel_mention") or response.get("channel_name")
             logger.info(
-                f"Posted bulk recheck summary to leadership channel: {response.get('channel_name')}"
+                f"Posted bulk recheck summary to leadership channel: {channel_ref}"
             )
         except Exception as e:
             # Log but don't fail the request if posting fails

@@ -224,7 +224,7 @@ async def send_admin_bulk_check_summary(
     embed: discord.Embed,
     csv_bytes: bytes,
     csv_filename: str,
-) -> str:
+) -> dict[str, str]:
     """
     Send bulk verification check summary to leadership/admin announcement channel.
 
@@ -243,7 +243,9 @@ async def send_admin_bulk_check_summary(
         csv_filename: Filename for the CSV attachment
 
     Returns:
-        Channel name (e.g., "leadership-announcements") for user acknowledgment
+        Dict with channel metadata for user acknowledgment/logging:
+        - name: Channel name (e.g., "leadership-announcements")
+        - mention: Channel mention (e.g., "<#1234567890>")
 
     Raises:
         Exception if channel not configured or message fails to send
@@ -273,7 +275,7 @@ async def send_admin_bulk_check_summary(
             f"(scope: {scope_label}, checked: {len(csv_bytes)} bytes CSV)"
         )
 
-        return channel.name
+        return {"name": channel.name, "mention": channel.mention}
 
     except Exception as e:
         logger.exception(

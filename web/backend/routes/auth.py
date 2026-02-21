@@ -3,6 +3,7 @@ Authentication routes for Discord OAuth2 flow.
 """
 
 import logging
+from urllib.parse import urlencode
 
 import httpx
 from core.dependencies import (
@@ -53,6 +54,13 @@ logger = logging.getLogger(__name__)
 # Discord permission bitfield for Administrator
 ADMINISTRATOR_PERMISSION = 0x0000000000000008
 
+_BOT_CALLBACK_ALLOWED_ERRORS = {
+    "access_denied",
+    "invalid_scope",
+    "unauthorized_client",
+    "temporarily_unavailable",
+}
+
 
 def _normalize_guild_id(raw_value) -> str | None:
     """Convert guild IDs from the internal API into canonical string form."""
@@ -80,6 +88,17 @@ def _has_administrator_permission(permissions_str: str | None) -> bool:
         return (permissions & ADMINISTRATOR_PERMISSION) != 0
     except (ValueError, TypeError):
         return False
+
+
+def _safe_bot_callback_error(error: str | None) -> str:
+    """Map untrusted callback error values to known-safe, stable codes."""
+    if not error:
+        return "unknown_error"
+
+    normalized = error.strip().lower()
+    if normalized in _BOT_CALLBACK_ALLOWED_ERRORS:
+        return normalized
+    return "unknown_error"
 
 
 @router.get("/login")
@@ -661,8 +680,6 @@ async def get_bot_invite_url(
     config_dict = config_loader.load_config()
     bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
 
-    from urllib.parse import urlencode
-
     params = {
         "client_id": DISCORD_CLIENT_ID,
         "permissions": str(bot_permissions),
@@ -698,9 +715,10 @@ async def bot_authorization_callback(
     # Check for errors
     if error:
         logger.warning(f"Bot authorization failed: {error} - {error_description}")
+        safe_error = _safe_bot_callback_error(error)
         # Redirect to frontend with error
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/select-server?error={error}",
+            url=f"{FRONTEND_URL}/select-server?{urlencode({'error': safe_error})}",
             status_code=302,
         )
 

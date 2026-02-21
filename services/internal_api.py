@@ -1035,7 +1035,8 @@ class InternalAPIServer:
 
         Returns: {
             "success": bool,
-            "channel_name": str
+            "channel_name": str,
+            "channel_mention": str
         }
         """
         if not self._check_auth(request):
@@ -1117,7 +1118,7 @@ class InternalAPIServer:
 
         # Send to leadership channel using existing helper
         try:
-            channel_name = await send_admin_bulk_check_summary(
+            channel_info = await send_admin_bulk_check_summary(
                 cast("MyBot", self.bot),
                 guild=guild,
                 invoker=invoker,
@@ -1128,8 +1129,15 @@ class InternalAPIServer:
                 csv_filename=csv_filename,
             )
 
+            channel_name = channel_info.get("name", "unknown")
+            channel_mention = channel_info.get("mention", "leadership channel")
+
             return web.json_response(
-                {"success": True, "channel_name": channel_name}
+                {
+                    "success": True,
+                    "channel_name": channel_name,
+                    "channel_mention": channel_mention,
+                }
             )
 
         except Exception as e:
