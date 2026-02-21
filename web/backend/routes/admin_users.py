@@ -154,7 +154,7 @@ async def recheck_user(
             details={"error": str(e)},
             status="error",
         )
-        raise HTTPException(status_code=500, detail=f"Recheck failed: {e!s}")
+        raise HTTPException(status_code=500, detail="Recheck failed. Check server logs for details.")
 
     # Get new verification status after recheck
     cursor = await db.execute(
@@ -658,7 +658,7 @@ async def bulk_recheck_users_start(
             _bulk_recheck_progress[job_id]["status"] = "error"
             _bulk_recheck_progress[job_id]["final_response"] = {
                 "success": False,
-                "message": f"Bulk recheck failed: {e}",
+                "message": "Bulk recheck failed unexpectedly. Check server logs for details.",
                 "total": len(request.user_ids),
                 "successful": 0,
                 "failed": len(request.user_ids),

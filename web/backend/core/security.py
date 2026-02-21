@@ -1,19 +1,23 @@
 """
 Security utilities for session management and authentication.
 
-Switches session handling to server-side storage keyed by a signed, small
-token so browser cookies remain well under size limits even when users have
-hundreds of guilds. Tokens are signed/timestamped with itsdangerous and map to
-in-memory session records containing the actual payload.
+Server-side session storage backed by SQLite so that sessions survive
+process restarts.  Browser cookies carry only a signed, compact token
+that maps to the real payload stored in ``session_store``.
 """
 
+import asyncio
 import copy
+import json
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from . import session_store
 
 # Import all environment configuration from centralized module
 from .env_config import (
@@ -51,6 +55,7 @@ __all__ = [
     "cleanup_expired_states",
     "clear_session_cookie",
     "create_session_token",
+    "create_session_token_async",
     "decode_session_token",
     "generate_oauth_state",
     "get_discord_authorize_url",
@@ -65,28 +70,23 @@ _oauth_states: dict[str, float] = {}
 
 
 # ---------------------------------------------------------------------------
-# Server-side session store (signed, size-safe cookies)
+# Server-side session store (SQLite-backed, signed cookie keys)
 # ---------------------------------------------------------------------------
 
-
-@dataclass
-class SessionRecord:
-    data: dict
-    created_at: datetime
-    expires_at: datetime
-
-
-_session_store: dict[str, SessionRecord] = {}
 _session_signer = URLSafeTimedSerializer(SESSION_SECRET, salt="session")
 
 
 def _cleanup_expired_sessions(now: datetime | None = None) -> None:
-    """Prune expired session records to keep memory bounded."""
+    """Schedule async cleanup of expired sessions (fire-and-forget).
 
-    now = now or datetime.now(UTC)
-    expired_keys = [sid for sid, rec in _session_store.items() if rec.expires_at <= now]
-    for sid in expired_keys:
-        _session_store.pop(sid, None)
+    Kept for call-site compatibility; the actual purge happens in
+    ``session_store.cleanup_expired()``.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(session_store.cleanup_expired())
+    except RuntimeError:
+        pass  # no event loop — skip (e.g. test teardown)
 
 
 def generate_oauth_state() -> str:
@@ -128,10 +128,10 @@ def cleanup_expired_states() -> None:
         _oauth_states.pop(s, None)
 
 
-def set_session_cookie(response: Response, user_data: dict) -> None:
+async def set_session_cookie(response: Response, user_data: dict) -> None:
     """Set a secure session cookie containing a signed session key only."""
 
-    token = create_session_token(user_data)
+    token = await create_session_token_async(user_data)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
@@ -158,10 +158,14 @@ def clear_session_cookie(response: Response) -> None:
 
 def create_session_token(user_data: dict, expires_in_seconds: int | None = None) -> str:
     """
-    Create a signed session token backed by an in-memory session store.
+    Create a signed session token backed by SQLite session store.
 
     The cookie contains only the signed session key; the actual payload lives
     server-side, keeping cookies small even for large guild lists.
+
+    The DB write is scheduled as a fire-and-forget asyncio task so that this
+    function can remain synchronous (required by ``set_session_cookie``).
+    Use ``create_session_token_async`` when you need to await persistence.
 
     Args:
         user_data: Session payload (user profile and permissions)
@@ -178,7 +182,60 @@ def create_session_token(user_data: dict, expires_in_seconds: int | None = None)
     ttl = max(ttl, 0)
     expires_at = now + timedelta(seconds=ttl)
 
-    # Normalize payload to ensure everything is JSON-serializable before storing
+    payload = _normalize_session_payload(user_data, now, expires_at)
+
+    session_id = secrets.token_urlsafe(32)
+
+    # Schedule the async DB write
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            session_store.save(
+                session_id,
+                payload,
+                created_at=now.timestamp(),
+                expires_at=expires_at.timestamp(),
+            )
+        )
+    except RuntimeError:
+        # No running loop — fall back to sync-ish approach (test helpers)
+        pass
+
+    _cleanup_expired_sessions(now)
+
+    return _session_signer.dumps(session_id)
+
+
+async def create_session_token_async(
+    user_data: dict, expires_in_seconds: int | None = None
+) -> str:
+    """Awaitable variant of ``create_session_token`` that guarantees the DB
+    write completes before returning the signed token.
+    """
+
+    now = datetime.now(UTC)
+    ttl = SESSION_MAX_AGE if expires_in_seconds is None else min(expires_in_seconds, SESSION_MAX_AGE)
+    ttl = max(ttl, 0)
+    expires_at = now + timedelta(seconds=ttl)
+
+    payload = _normalize_session_payload(user_data, now, expires_at)
+
+    session_id = secrets.token_urlsafe(32)
+    await session_store.save(
+        session_id,
+        payload,
+        created_at=now.timestamp(),
+        expires_at=expires_at.timestamp(),
+    )
+
+    _cleanup_expired_sessions(now)
+    return _session_signer.dumps(session_id)
+
+
+def _normalize_session_payload(
+    user_data: dict, now: datetime, expires_at: datetime
+) -> dict:
+    """Prepare session payload for storage (normalise guild permissions)."""
     payload = dict(user_data)
     authorized = payload.get("authorized_guilds") or {}
     if isinstance(authorized, dict):
@@ -189,47 +246,30 @@ def create_session_token(user_data: dict, expires_in_seconds: int | None = None)
             elif isinstance(perm, dict):
                 normalized_auth[gid] = perm
             else:
-                # Best-effort conversion; skip invalid entries
                 continue
         payload["authorized_guilds"] = normalized_auth
 
     payload["exp"] = int(expires_at.timestamp())
     payload["iat"] = int(now.timestamp())
-
-    # Store payload server-side keyed by a random session id
-    session_id = secrets.token_urlsafe(32)
-    _session_store[session_id] = SessionRecord(
-        data=payload,
-        created_at=now,
-        expires_at=expires_at,
-    )
-
-    _cleanup_expired_sessions(now)
-
-    return _session_signer.dumps(session_id)
+    return payload
 
 
-def decode_session_token(token: str) -> dict | None:
+async def decode_session_token(token: str) -> dict | None:
     """Resolve a session token to its server-side payload or return None.
 
     Returns a deep copy of the stored data to prevent callers from accidentally
     mutating the session store.
     """
 
-    now = datetime.now(UTC)
-    _cleanup_expired_sessions(now)
+    _cleanup_expired_sessions()
 
     try:
         session_id = _session_signer.loads(token, max_age=SESSION_MAX_AGE)
     except (BadSignature, SignatureExpired):
         return None
 
-    record = _session_store.get(session_id)
+    record = await session_store.load(session_id)
     if not record:
-        return None
-
-    if record.expires_at <= now:
-        _session_store.pop(session_id, None)
         return None
 
     # Return a deep copy to prevent mutation of the stored session data

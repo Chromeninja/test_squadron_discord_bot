@@ -26,8 +26,9 @@ from core.pagination import (
     clamp_page_size,
     is_all_guilds_mode,
 )
+from core.rate_limit import limiter
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -276,7 +277,9 @@ router = APIRouter()
     response_model=UserSearchResponse,
     dependencies=[Depends(require_fresh_guild_access)],
 )
+@limiter.limit("30/minute")
 async def search_users(
+    request: Request,
     query: str = Query(
         "", description="Search by user_id, rsi_handle, or community_moniker"
     ),
@@ -336,12 +339,12 @@ async def search_users(
             rows = await cursor.fetchall()
         except ValueError:
             # Not a valid integer, search by handle or moniker
-            search_pattern = f"%{query}%"
+            search_pattern = f"%{_escape_like(query)}%"
 
             count_cursor = await db.execute(
                 """
                 SELECT COUNT(*) FROM verification
-                WHERE rsi_handle LIKE ? OR community_moniker LIKE ?
+                WHERE rsi_handle LIKE ? ESCAPE '\\' OR community_moniker LIKE ? ESCAPE '\\'
                 """,
                 (search_pattern, search_pattern),
             )
@@ -350,7 +353,7 @@ async def search_users(
 
             cursor = await db.execute(
                 f"SELECT {_VERIFICATION_COLUMNS} FROM verification"
-                " WHERE rsi_handle LIKE ? OR community_moniker LIKE ?"
+                " WHERE rsi_handle LIKE ? ESCAPE '\\' OR community_moniker LIKE ? ESCAPE '\\'"
                 " ORDER BY last_updated DESC LIMIT ? OFFSET ?",
                 (search_pattern, search_pattern, page_size, offset),
             )

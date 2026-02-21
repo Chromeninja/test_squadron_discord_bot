@@ -191,7 +191,7 @@ class VerificationBulkService:
                         # Notify user of failure
                         with contextlib.suppress(Exception):
                             await job.interaction.followup.send(
-                                f"❌ Job failed unexpectedly: {e!s}", ephemeral=True
+                                "❌ Job failed unexpectedly. Check bot logs for details.", ephemeral=True
                             )
                     finally:
                         self.current_job = None
@@ -400,7 +400,7 @@ class VerificationBulkService:
             logger.exception(f"Error building summary embed: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    f"❌ Error building results: {e!s}", ephemeral=True
+                    "❌ Error building results. Check bot logs for details.", ephemeral=True
                 )
             return
 
@@ -450,7 +450,7 @@ class VerificationBulkService:
             logger.exception(f"Error posting to leadership channel: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    f"❌ Error posting results to leadership chat: {e!s}",
+                    "❌ Error posting results to leadership chat. Check bot logs for details.",
                     ephemeral=True,
                 )
 

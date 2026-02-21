@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 import discord  # type: ignore[import-not-found]
 
 from helpers.discord_api import delete_channel
+from helpers.embeds import EmbedColors
 from helpers.task_queue import enqueue_task
 from helpers.voice_permissions import enforce_permission_changes
 from helpers.voice_settings import get_voice_settings_snapshots
@@ -1335,7 +1336,7 @@ class VoiceService(BaseService):
         embed = discord.Embed(
             title="🔧 Voice Channel Settings",
             description="Manage your voice channel settings below.",
-            color=0x7289DA,
+            color=EmbedColors.BLURPLE,
         )
 
         # Add current settings (placeholder implementation)

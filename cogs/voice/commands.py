@@ -5,7 +5,6 @@ Handles all voice-related slash commands and user interactions.
 All business logic is delegated to the VoiceService.
 """
 
-import builtins
 import contextlib
 from typing import TYPE_CHECKING
 
@@ -123,7 +122,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(
@@ -159,7 +158,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in claim_channel command", exc_info=e)
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
@@ -202,7 +201,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in transfer_ownership command", exc_info=e)
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="help", description="Show help for voice commands")
@@ -324,20 +323,20 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="setup", description="Set up the voice channel system")
     @app_commands.describe(
         category="Category to place voice channels in",
-        num_channels="Number of 'Join to Create' channels",
+        num_channels="Number of 'Join to Create' channels (1–10)",
     )
     @require_permission_level(PermissionLevel.MODERATOR)
     async def setup_voice_system(
         self,
         interaction: discord.Interaction,
         category: discord.CategoryChannel,
-        num_channels: int = 1,
+        num_channels: app_commands.Range[int, 1, 10] = 1,
     ) -> None:
         """Set up the voice channel system (Admin only)."""
         from helpers.discord_reply import send_user_error, send_user_success
@@ -371,7 +370,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
         except Exception as e:
             logger.exception("Error in setup_voice_system command", exc_info=e)
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
     @app_commands.command(name="add", description="Add a new Join-to-Create channel")
@@ -449,14 +448,14 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_success(interaction, message)
             else:
                 # If config fails, attempt to delete the channel to avoid orphaning
-                with contextlib.suppress(builtins.BaseException):
+                with contextlib.suppress(Exception):
                     await jtc_channel.delete(reason="Rollback due to config failure")
                 error_msg = format_user_error("UNKNOWN", details=add_error)
                 await send_user_error(interaction, error_msg)
 
         except Exception as e:
             logger.exception("Error in add_jtc_channel command", exc_info=e)
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
@@ -522,7 +521,7 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             logger.exception("Error in admin_list command", exc_info=e)
             from helpers.discord_reply import send_user_error
 
-            with contextlib.suppress(builtins.BaseException):
+            with contextlib.suppress(Exception):
                 await send_user_error(
                     interaction,
                     "Something went wrong while fetching settings. Please try again.",

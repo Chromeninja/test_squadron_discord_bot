@@ -4,7 +4,7 @@ Tests for authentication endpoints.
 
 import pytest
 from core.security import (
-    create_session_token,
+    create_session_token_async,
     decode_session_token,
     generate_oauth_state,
 )
@@ -203,7 +203,7 @@ async def test_select_guild_sets_session_cookie(
     new_session = response.cookies.get("session")
     assert new_session
 
-    decoded = decode_session_token(new_session)
+    decoded = await decode_session_token(new_session)
     assert decoded is not None
     assert decoded["active_guild_id"] == "123"
 
@@ -315,7 +315,7 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
 
     from core.security import decode_session_token
 
-    session_data = decode_session_token(session_cookie)
+    session_data = await decode_session_token(session_cookie)
     assert session_data is not None
     # Check authorized_guilds structure
     assert "246486575137947648" in session_data["authorized_guilds"]
@@ -398,7 +398,7 @@ async def test_callback_grants_access_to_administrator(
 
     from core.security import decode_session_token
 
-    session_data = decode_session_token(session_cookie)
+    session_data = await decode_session_token(session_cookie)
     assert session_data is not None
     # Check authorized_guilds structure
     assert "246486575137947648" in session_data["authorized_guilds"]
@@ -490,9 +490,9 @@ async def test_session_token_contains_expiration():
     """Session tokens should store issued/expiry metadata in server payload."""
 
     user_data = {"user_id": "123", "username": "test"}
-    token = create_session_token(user_data)
+    token = await create_session_token_async(user_data)
 
-    decoded = decode_session_token(token)
+    decoded = await decode_session_token(token)
     assert decoded is not None
     assert "exp" in decoded
     assert "iat" in decoded
@@ -503,11 +503,11 @@ async def test_session_token_contains_expiration():
 async def test_expired_session_token_rejected():
     """Expired server-side session should not resolve."""
 
-    expired_token = create_session_token(
+    expired_token = await create_session_token_async(
         {"user_id": "123", "username": "test"}, expires_in_seconds=0
     )
 
-    result = decode_session_token(expired_token)
+    result = await decode_session_token(expired_token)
     assert result is None
 
 
@@ -515,7 +515,7 @@ async def test_expired_session_token_rejected():
 async def test_expired_session_returns_null_user(client: AsyncClient):
     """API should gracefully return null user for expired session cookie."""
 
-    expired_token = create_session_token(
+    expired_token = await create_session_token_async(
         {"user_id": "123", "username": "test"}, expires_in_seconds=0
     )
 
@@ -534,10 +534,10 @@ async def test_expired_session_returns_null_user(client: AsyncClient):
 async def test_tampered_session_token_rejected():
     """Tampered signed tokens should fail signature validation."""
 
-    valid_token = create_session_token({"user_id": "123", "username": "test"})
+    valid_token = await create_session_token_async({"user_id": "123", "username": "test"})
     tampered_token = valid_token + "broken"
 
-    result = decode_session_token(tampered_token)
+    result = await decode_session_token(tampered_token)
     assert result is None
 
 

@@ -7,6 +7,7 @@ without hitting Discord API rate limits.
 
 import base64
 import os
+import secrets
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
@@ -56,9 +57,13 @@ class InternalAPIServer:
             )
 
         if not self.api_key:
+            # Auto-generate a key for dev/test so the API is never unsecured
+            self.api_key = secrets.token_urlsafe(32)
             logger.warning(
-                "INTERNAL_API_KEY not set - internal API will be unsecured! "
-                "This is only allowed in dev/test environments."
+                "INTERNAL_API_KEY not set — auto-generated a dev key. "
+                "Set this in your web backend .env to authenticate:\n"
+                "  INTERNAL_API_KEY=%s",
+                self.api_key,
             )
 
         # Set up routes
@@ -118,11 +123,10 @@ class InternalAPIServer:
             logger.exception("Error stopping internal API server", exc_info=e)
 
     def _check_auth(self, request: web.Request) -> bool:
-        """Check if request has valid API key."""
-        if not self.api_key:
-            # No API key configured - allow all (not recommended for production)
-            return True
+        """Check if request has valid API key.
 
+        A key is always present — either from env or auto-generated at startup.
+        """
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
@@ -947,7 +951,7 @@ class InternalAPIServer:
 
         except Exception as e:
             logger.exception(f"Error fetching RSI handle for user {user_id}: {e}")
-            return web.json_response({"error": f"Database error: {e!s}"}, status=500)
+            return web.json_response({"error": "Database error. Check server logs for details."}, status=500)
 
         # Use unified recheck service
         if not self.bot:
@@ -1013,7 +1017,7 @@ class InternalAPIServer:
             logger.exception(
                 f"Error rechecking user {user_id} in guild {guild_id}: {e}"
             )
-            return web.json_response({"error": f"Recheck failed: {e!s}"}, status=500)
+            return web.json_response({"error": "Recheck failed. Check server logs for details."}, status=500)
 
     async def post_bulk_recheck_summary(self, request: web.Request) -> web.Response:
         """

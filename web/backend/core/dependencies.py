@@ -220,7 +220,7 @@ async def get_current_user(
         logger.debug("get_current_user: session cookie missing")
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    user_data = decode_session_token(session)
+    user_data = await decode_session_token(session)
     if not user_data:
         logger.warning("get_current_user: invalid or expired session token")
         raise HTTPException(status_code=401, detail="Invalid or expired session")
@@ -529,7 +529,7 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
             detail={"code": "role_revoked", "message": "Session missing"},
         )
 
-    user_data = decode_session_token(raw_session)
+    user_data = await decode_session_token(raw_session)
     if not user_data:
         raise HTTPException(
             status_code=401,
@@ -624,7 +624,7 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
     user_data["roles_validated_at"] = roles_validated_at
 
     if session_mutated:
-        set_session_cookie(response, user_data)
+        await set_session_cookie(response, user_data)
 
     if fail_on_missing and removed & set(guild_ids):
         clear_session_cookie(response)

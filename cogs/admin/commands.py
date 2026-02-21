@@ -338,7 +338,7 @@ class AdminCog(commands.Cog):
         except Exception as e:
             logger.exception("Error in status command", exc_info=e)
             await interaction.followup.send(
-                f"❌ Error retrieving status: {e!s}", ephemeral=True
+                "❌ Error retrieving status. Check bot logs for details.", ephemeral=True
             )
 
     # Removed: guild-config command. Configuration viewing is now Web Admin only.

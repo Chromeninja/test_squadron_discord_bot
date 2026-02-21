@@ -4,7 +4,7 @@ import json
 
 import httpx
 import pytest
-from core.security import create_session_token
+from core.security import create_session_token_async
 from httpx import AsyncClient
 
 from services.db.database import Database
@@ -19,7 +19,7 @@ async def test_get_bot_role_settings_defaults(
     """When no settings exist, all role arrays should be empty."""
     # Use guild ID 888 which has no seeded data
     # First need to create a session for guild 888
-    session_888 = create_session_token(
+    session_888 = await create_session_token_async(
         {
             "user_id": "246604397155581954",
             "username": "TestAdmin",
@@ -272,7 +272,7 @@ async def test_list_guild_members_forbidden_without_matching_active_guild(
     client: AsyncClient,
 ):
     """Users cannot query a guild different from the selected active guild."""
-    mismatch_session = create_session_token(
+    mismatch_session = await create_session_token_async(
         {
             "user_id": "246604397155581954",
             "username": "TestAdmin",

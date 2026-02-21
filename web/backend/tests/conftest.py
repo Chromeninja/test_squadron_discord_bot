@@ -131,6 +131,11 @@ async def client(temp_db):
     # Reset voice service singleton for fresh test state
     dependencies._voice_service = None
 
+    # Initialize in-memory session store (lifespan won't run under ASGITransport)
+    from core import session_store
+
+    await session_store.initialize()  # defaults to :memory:
+
     # Import app after database and services are initialized
     from app import app
 
@@ -139,13 +144,15 @@ async def client(temp_db):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
+    await session_store.close()
 
-@pytest.fixture
-def mock_admin_session():
+
+@pytest_asyncio.fixture
+async def mock_admin_session():
     """Create a mock session token for an admin user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "246604397155581954",  # Admin from config
             "username": "TestAdmin",
@@ -173,12 +180,12 @@ def mock_admin_session():
     )
 
 
-@pytest.fixture
-def mock_moderator_session():
+@pytest_asyncio.fixture
+async def mock_moderator_session():
     """Create a mock session token for a moderator user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "1428084144860303511",  # Moderator from config
             "username": "TestModerator",
@@ -196,12 +203,12 @@ def mock_moderator_session():
     )
 
 
-@pytest.fixture
-def mock_unauthorized_session():
+@pytest_asyncio.fixture
+async def mock_unauthorized_session():
     """Create a mock session token for an unauthorized user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "999999999",
             "username": "UnauthorizedUser",

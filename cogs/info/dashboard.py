@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from config.config_loader import ConfigLoader
 from helpers.decorators import require_permission_level
+from helpers.embeds import DEFAULT_THUMBNAIL, EmbedColors
 from helpers.permissions_helper import PermissionLevel
 from utils.logging import get_logger
 
@@ -44,12 +45,10 @@ class DashboardCog(commands.Cog):
                     f"Login with your Discord account to access Discord Server data, "
                     f"view user data, and access administrative tools."
                 ),
-                color=0x5865F2,  # Discord blurple
+                color=EmbedColors.BLURPLE,
             )
 
-            embed.set_thumbnail(
-                url="https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
-            )
+            embed.set_thumbnail(url=DEFAULT_THUMBNAIL)
 
             embed.set_footer(text="Staff+ access required • Permissions enforced by dashboard")
 

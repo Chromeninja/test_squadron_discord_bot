@@ -41,7 +41,8 @@ from core.security import (
     set_session_cookie,
     validate_oauth_state,
 )
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from core.rate_limit import limiter
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -82,7 +83,8 @@ def _has_administrator_permission(permissions_str: str | None) -> bool:
 
 
 @router.get("/login")
-async def login():
+@limiter.limit("10/minute")
+async def login(request: Request):
     """
     Initiate Discord OAuth2 flow.
 
@@ -96,7 +98,8 @@ async def login():
 
 
 @router.get("/callback")
-async def callback(code: str, state: str | None = None):
+@limiter.limit("10/minute")
+async def callback(request: Request, code: str, state: str | None = None):
     """
     Handle Discord OAuth2 callback.
 
@@ -416,14 +419,14 @@ async def callback(code: str, state: str | None = None):
 
         # Create response with session cookie using centralized helper
         response = RedirectResponse(url=FRONTEND_URL)
-        set_session_cookie(response, session_data)
+        await set_session_cookie(response, session_data)
         return response
 
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Unhandled error in OAuth callback")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}")
+        raise HTTPException(status_code=500, detail="Internal server error during authentication.")
 
 
 @api_router.get("/me", response_model=AuthMeResponse)
@@ -441,7 +444,7 @@ async def get_me(session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME)):
 
     from core.security import decode_session_token
 
-    user_data = decode_session_token(session)
+    user_data = await decode_session_token(session)
     if not user_data:
         return AuthMeResponse(success=True, user=None)
 
@@ -595,7 +598,7 @@ async def select_active_guild(
         # Set active_guild_id to sentinel and return early
         session_payload = current_user.model_dump()
         session_payload["active_guild_id"] = ALL_GUILDS_SENTINEL
-        set_session_cookie(response, session_payload)
+        await set_session_cookie(response, session_payload)
         logger.info(
             "Bot owner entered All Guilds mode",
             extra={"user_id": current_user.user_id},
@@ -629,7 +632,7 @@ async def select_active_guild(
 
     roles_validated_at[payload.guild_id] = int(_t.time())
     session_payload["roles_validated_at"] = roles_validated_at
-    set_session_cookie(response, session_payload)
+    await set_session_cookie(response, session_payload)
 
     return SelectGuildResponse()
 
@@ -725,6 +728,6 @@ async def clear_active_guild(
     """
     session_payload = current_user.model_dump()
     session_payload["active_guild_id"] = None
-    set_session_cookie(response, session_payload)
+    await set_session_cookie(response, session_payload)
 
     return {"success": True}

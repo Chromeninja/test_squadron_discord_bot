@@ -536,6 +536,8 @@ async def cleanup_user_voice_data_unscoped(user_id: int) -> None:
 
     # Validate table and column names against whitelist for security
     valid_tables_columns = {
+        "voice_channels": "owner_id",
+        "channel_settings": "user_id",
         "channel_permissions": "user_id",
         "channel_ptt_settings": "user_id",
         "channel_priority_speaker_settings": "user_id",

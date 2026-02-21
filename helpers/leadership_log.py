@@ -6,6 +6,7 @@ from enum import Enum
 import discord  # embeds no longer dispatched
 
 from helpers.discord_api import channel_send_message
+from helpers.embeds import EmbedColors
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -233,11 +234,13 @@ def is_effectively_unchanged(cs: ChangeSet, bot=None) -> bool:
 
 
 def color_for(cs: ChangeSet) -> int:
-    # Discord color ints (approx): green, yellow, red, blurple
-    GREEN = 0x2ECC71
-    YELLOW = 0xF1C40F
-    RED = 0xE74C3C
-    BLURPLE = 0x5865F2
+    # Use centralized EmbedColors; note the leadership log uses slightly
+    # different shades historically — we keep the semantic mapping but
+    # source from the single constant set.
+    GREEN = EmbedColors.SUCCESS
+    YELLOW = EmbedColors.WARNING
+    RED = EmbedColors.ERROR
+    BLURPLE = EmbedColors.BLURPLE
 
     if cs.notes and any(k in cs.notes.lower() for k in ["error", "fail", "404"]):
         return RED

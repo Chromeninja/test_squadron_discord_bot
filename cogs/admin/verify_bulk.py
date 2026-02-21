@@ -55,7 +55,7 @@ class VerifyCommands(app_commands.Group):
             logger.error(f"Unexpected error in check-user: {e}", exc_info=True)
             try:
                 await interaction.followup.send(
-                    f"❌ An unexpected error occurred: {e!s}", ephemeral=True
+                    "❌ An unexpected error occurred. Check bot logs for details.", ephemeral=True
                 )
             except Exception:
                 pass
@@ -103,7 +103,7 @@ class VerifyCommands(app_commands.Group):
             except Exception as e:
                 logger.exception(f"Error collecting targets: {e}")
                 await interaction.followup.send(
-                    f"❌ Error collecting target members: {e!s}", ephemeral=True
+                    "❌ Error collecting target members. Check bot logs for details.", ephemeral=True
                 )
                 return
 
@@ -121,7 +121,7 @@ class VerifyCommands(app_commands.Group):
             logger.error(f"Unexpected error in check-members: {e}", exc_info=True)
             try:
                 await interaction.followup.send(
-                    f"❌ An unexpected error occurred: {e!s}", ephemeral=True
+                    "❌ An unexpected error occurred. Check bot logs for details.", ephemeral=True
                 )
             except Exception:
                 pass
@@ -163,7 +163,7 @@ class VerifyCommands(app_commands.Group):
             except Exception as e:
                 logger.exception(f"Error collecting targets: {e}")
                 await interaction.followup.send(
-                    f"❌ Error collecting target members: {e!s}", ephemeral=True
+                    "❌ Error collecting target members. Check bot logs for details.", ephemeral=True
                 )
                 return
 
@@ -179,7 +179,7 @@ class VerifyCommands(app_commands.Group):
             logger.error(f"Unexpected error in check-channel: {e}", exc_info=True)
             try:
                 await interaction.followup.send(
-                    f"❌ An unexpected error occurred: {e!s}", ephemeral=True
+                    "❌ An unexpected error occurred. Check bot logs for details.", ephemeral=True
                 )
             except Exception:
                 pass
@@ -217,7 +217,7 @@ class VerifyCommands(app_commands.Group):
             except Exception as e:
                 logger.exception(f"Error collecting targets: {e}")
                 await interaction.followup.send(
-                    f"❌ Error collecting target members: {e!s}", ephemeral=True
+                    "❌ Error collecting target members. Check bot logs for details.", ephemeral=True
                 )
                 return
 
@@ -233,7 +233,7 @@ class VerifyCommands(app_commands.Group):
             logger.error(f"Unexpected error in check-voice: {e}", exc_info=True)
             try:
                 await interaction.followup.send(
-                    f"❌ An unexpected error occurred: {e!s}", ephemeral=True
+                    "❌ An unexpected error occurred. Check bot logs for details.", ephemeral=True
                 )
             except Exception:
                 pass
@@ -295,7 +295,7 @@ class VerifyCommands(app_commands.Group):
         except Exception as e:
             logger.exception(f"Error in check action: {e}")
             await interaction.followup.send(
-                f"❌ Error starting verification check: {e!s}", ephemeral=True
+                "❌ Error starting verification check. Check bot logs for details.", ephemeral=True
             )
 
 
