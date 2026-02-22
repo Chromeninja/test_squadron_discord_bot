@@ -714,11 +714,14 @@ async def bot_authorization_callback(
     """
     # Check for errors
     if error:
-        logger.warning(f"Bot authorization failed: {error} - {error_description}")
         safe_error = _safe_bot_callback_error(error)
+        logger.warning(
+            "Bot authorization failed",
+            extra={"error": safe_error},
+        )
         # Redirect to frontend with error
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/select-server?{urlencode({'error': safe_error})}",
+            url=f"{FRONTEND_URL}/select-server?{urlencode({'error': 'authorization_failed'})}",
             status_code=302,
         )
 

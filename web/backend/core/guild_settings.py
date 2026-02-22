@@ -256,7 +256,9 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
             "Timed out while validating image URL. Please check the URL is accessible."
         ) from exc
     except httpx.RequestError as exc:
-        raise LogoValidationError(f"Failed to reach image URL: {exc}") from exc
+        raise LogoValidationError(
+            "Failed to reach image URL. Please verify the URL is publicly accessible."
+        ) from exc
 
     return url
 

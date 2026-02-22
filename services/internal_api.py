@@ -61,9 +61,8 @@ class InternalAPIServer:
             self.api_key = secrets.token_urlsafe(32)
             logger.warning(
                 "INTERNAL_API_KEY not set — auto-generated a dev key. "
-                "Set this in your web backend .env to authenticate:\n"
-                "  INTERNAL_API_KEY=%s",
-                self.api_key,
+                "Set INTERNAL_API_KEY in your web backend .env to authenticate "
+                "internal requests."
             )
 
         # Set up routes
