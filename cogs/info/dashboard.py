@@ -1,4 +1,4 @@
-"""Dashboard command Cog for TEST Squadron bot."""
+"""Dashboard command Cog for TEST Clanker."""
 
 from __future__ import annotations
 
@@ -40,16 +40,15 @@ class DashboardCog(commands.Cog):
             embed = discord.Embed(
                 title="🌐 Web Admin Dashboard",
                 description=(
-                    f"Access the TEST Clanker's Web Dashboard:\n\n"
+                    f"Access TEST Clanker's Web Dashboard:\n\n"
                     f"[Open Dashboard]({dashboard_url})\n\n"
                     f"Login with your Discord account to access Discord Server data, "
                     f"view user data, and access administrative tools."
                 ),
                 color=EmbedColors.BLURPLE,
             )
-
-            embed.set_thumbnail(url=DEFAULT_THUMBNAIL)
-
+            if DEFAULT_THUMBNAIL:
+                embed.set_thumbnail(url=DEFAULT_THUMBNAIL)
             embed.set_footer(text="Staff+ access required • Permissions enforced by dashboard")
 
             await interaction.response.send_message(embed=embed, ephemeral=True)

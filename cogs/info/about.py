@@ -1,4 +1,4 @@
-"""About command Cog for TEST Squadron bot."""
+"""About command Cog for TEST Clanker."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class AboutCog(commands.Cog):
     @app_commands.command(
         name="about",
         description=(
-            "Shows information about the TEST Squadron bot, privacy summary, and support contact."
+            "Shows information about TEST Clanker, privacy summary, and support contact."
         ),
     )
     async def about(self, interaction: discord.Interaction) -> None:

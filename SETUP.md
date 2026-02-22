@@ -85,8 +85,10 @@ PUBLIC_URL=http://YOUR_PUBLIC_IP
 SESSION_SECRET=generate_with_openssl
 INTERNAL_API_KEY=generate_with_openssl
 
+# === Required for Production ===
+ENV=production
+
 # === Optional ===
-# ENV=production
 # BOT_OWNER_IDS=123456789,987654321
 # INTERNAL_API_HOST=127.0.0.1
 # INTERNAL_API_PORT=8082
@@ -313,16 +315,20 @@ Use the correct health endpoint:
 curl http://127.0.0.1:8081/api/health/liveness
 ```
 
-### OAuth redirects to localhost after login
+### OAuth redirects to wrong URL after login (e.g. :5173)
 
-1. **PUBLIC_URL mismatch**: Ensure `PUBLIC_URL` in `.env` matches your external URL. `FRONTEND_URL` is derived automatically; avoid setting it manually unless overriding a dev setup.
-2. **Discord Portal redirects**: Register both redirect URIs using `PUBLIC_URL`: `/auth/callback` and `/auth/bot-callback`.
-3. **Restart backend**: `sudo systemctl restart test_squadron_backend` after changing `.env`
+If login redirects to `http://YOUR_IP:5173/` instead of `http://YOUR_IP/`, the backend is running in development mode and appending the Vite dev port.
+
+1. **Set `ENV=production`** in `.env`. Without this, the default is `development`, which redirects to port 5173.
+2. **PUBLIC_URL mismatch**: Ensure `PUBLIC_URL` in `.env` matches your external URL (e.g. `http://155.138.227.187` or `https://your-domain.com`).
+3. **FRONTEND_URL override**: If you need an explicit override, set `FRONTEND_URL` in `.env` to your public URL. This takes priority over automatic derivation.
+4. **Discord Portal redirects**: Register both redirect URIs using `PUBLIC_URL`: `/auth/callback` and `/auth/bot-callback`.
+5. **Restart backend**: `sudo systemctl restart test_squadron_backend` after changing `.env`.
 
 Verify:
 ```bash
-grep FRONTEND_URL .env
-sudo journalctl -u test_squadron_backend -n 20 | grep -i redirect
+grep -E 'ENV|PUBLIC_URL|FRONTEND_URL' .env
+sudo journalctl -u test_squadron_backend -n 20 | grep -i frontend_url
 ```
 
 ### Services fail to start

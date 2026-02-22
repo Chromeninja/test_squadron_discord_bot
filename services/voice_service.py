@@ -1428,7 +1428,15 @@ class VoiceService(BaseService):
             )
 
         # Update voice channel members cache
-        if before_channel:
+        # Skip cache updates when the user stayed in the same channel
+        # (mute/deafen/stream toggles still fire voice_state_update)
+        same_channel = (
+            before_channel is not None
+            and after_channel is not None
+            and before_channel.id == after_channel.id
+        )
+
+        if before_channel and not same_channel:
             # Remove user from previous channel
             if before_channel.id in self._voice_channel_members:
                 self._voice_channel_members[before_channel.id].discard(member.id)
@@ -1436,15 +1444,19 @@ class VoiceService(BaseService):
                 if not self._voice_channel_members[before_channel.id]:
                     del self._voice_channel_members[before_channel.id]
 
-        if after_channel:
+        if after_channel and not same_channel:
             # Add user to new channel
             if after_channel.id not in self._voice_channel_members:
                 self._voice_channel_members[after_channel.id] = set()
             self._voice_channel_members[after_channel.id].add(member.id)
 
         # Handle leaving a managed channel - clean up if empty
-        if before_channel and await self._is_managed_channel(before_channel.id):
-            await self._handle_channel_left(before_channel, member)
+        # Skip if the user stayed in the same channel (mute/deafen/stream toggle)
+        left_managed = False
+        if not same_channel and before_channel:
+            left_managed = await self._is_managed_channel(before_channel.id)
+            if left_managed:
+                await self._handle_channel_left(before_channel, member)
 
         # Handle joining a join-to-create channel
         # Treat any move into a JTC (including from another JTC) as a join-to-create
@@ -1455,20 +1467,12 @@ class VoiceService(BaseService):
                 guild_id, after_channel.id
             )
 
-        is_same_channel = (
-            before_channel is not None
-            and after_channel is not None
-            and before_channel.id == after_channel.id
-        )
-
         is_true_join = (
-            after_channel is not None and is_jtc_after and not is_same_channel
+            after_channel is not None and is_jtc_after and not same_channel
         )
 
         # If the user came from a managed channel, allow bypassing cooldown so they can hop back to JTC immediately.
-        bypass_cooldown = False
-        if before_channel and await self._is_managed_channel(before_channel.id):
-            bypass_cooldown = True
+        bypass_cooldown = left_managed
 
         if self.debug_logging_enabled:
             self.logger.info(
@@ -1528,6 +1532,8 @@ class VoiceService(BaseService):
             self.logger.info(
                 f"Member {member.display_name} left managed channel {channel.name} (ID: {channel.id})"
             )
+            # Use the live gateway member list as the authoritative count
+            # (our _voice_channel_members cache is updated *before* this call)
             member_count = self._get_member_count(channel)
             # Check if channel is now empty
             if member_count == 0:
@@ -1536,9 +1542,12 @@ class VoiceService(BaseService):
                 )
                 await self._cleanup_empty_channel(channel)
             else:
-                self.logger.info(
-                    f"Channel {channel.name} still has {member_count} members, no cleanup needed"
-                )
+                if self.debug_logging_enabled:
+                    self.logger.debug(
+                        "Channel %s still has %d members, no cleanup needed",
+                        channel.name,
+                        member_count,
+                    )
         except Exception as e:
             self.logger.exception("Error handling channel left", exc_info=e)
 

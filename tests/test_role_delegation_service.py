@@ -22,6 +22,7 @@ class DummyRole:
     def __init__(self, role_id: int, name: str = "TestRole"):
         self.id = role_id
         self.name = name
+        self.mention = f"<@&{role_id}>"
 
 
 class DummyMember:
@@ -30,12 +31,18 @@ class DummyMember:
         self.roles = [DummyRole(rid) for rid in roles]
         self.add_roles_called = False
         self.add_roles_args = None
+        self.remove_roles_called = False
+        self.remove_roles_args = None
         self.name = name
         self.display_name = name
 
     async def add_roles(self, role_obj, reason=None):
         self.add_roles_called = True
         self.add_roles_args = (role_obj, reason)
+
+    async def remove_roles(self, role_obj, reason=None):
+        self.remove_roles_called = True
+        self.remove_roles_args = (role_obj, reason)
 
 
 class DummyGuild:
@@ -199,7 +206,7 @@ async def test_apply_grant_invokes_discord_add_roles(monkeypatch):
     assert reason == ""
     assert called["member"] is target
     assert called["role"].id == 333
-    assert "Delegated" in (called["reason"] or "")
+    assert called["reason"] == "Delegated role grant"
 
 
 @pytest.mark.asyncio
@@ -313,6 +320,274 @@ async def test_apply_grant_logs_error_when_leadership_log_fails(monkeypatch, cap
     assert reason == ""
 
     # An error should have been logged mentioning the leadership log failure
-    assert any(
-        "leadership" in rec.message.lower() for rec in caplog.records
+    assert any("leadership" in rec.message.lower() for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_fails_when_remove_roles_raises(monkeypatch, caplog):
+    """Verify revoke returns failure when Discord API (remove_roles) raises."""
+    import logging
+
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+
+    async def failing_remove_roles(member, role_obj, reason=None):
+        raise RuntimeError("Simulated Discord API failure")
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", failing_remove_roles
     )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    revoker = DummyMember(10, [111])
+    target = DummyMember(11, [333])
+
+    with caplog.at_level(logging.ERROR):
+        success, reason = await svc.apply_revoke(
+            cast("discord.Guild", guild),
+            cast("discord.Member", revoker),
+            cast("discord.Member", target),
+            333,
+        )
+
+    assert success is False
+    assert reason == "Failed to revoke role"
+
+    # Verify the exception was logged
+    assert any(
+        "failed to remove delegated role" in rec.message.lower()
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_success(monkeypatch):
+    """Verify revoke works when revoker has permission and target has the role."""
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+    called = {}
+
+    async def fake_remove_roles(member, role_obj, reason=None):
+        called["member"] = member
+        called["role"] = role_obj
+        called["reason"] = reason
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", fake_remove_roles
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    revoker = DummyMember(10, [111])
+    # Target has the role that will be revoked (333)
+    target = DummyMember(11, [333])
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    assert success is True
+    assert reason == ""
+    assert called["member"] is target
+    assert called["role"].id == 333
+    assert called["reason"] == "Delegated role revoke"
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_fails_when_target_lacks_role(monkeypatch):
+    """Verify revoke fails when target does not have the role to be removed."""
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+
+    async def fake_remove_roles(member, role_obj, reason=None):
+        pass  # Should not be called
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", fake_remove_roles
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    revoker = DummyMember(10, [111])
+    # Target does NOT have the role (333)
+    target = DummyMember(11, [])
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    assert success is False
+    assert "does not have role" in reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_succeeds_even_when_target_lost_prerequisites(monkeypatch):
+    """Verify revoke succeeds even if target no longer meets grant prerequisites.
+
+    This tests the correct behavior: revocation only requires the revoker to have
+    grantor authority, not that the target currently meets prerequisites.
+    """
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [444],  # Target must have 444 to be granted 333
+        }
+    ]
+    called = {}
+
+    async def fake_remove_roles(member, role_obj, reason=None):
+        called["member"] = member
+        called["role"] = role_obj
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", fake_remove_roles
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333, 444])
+    revoker = DummyMember(10, [111])
+    # Target has role 333 but NOT prerequisite 444 anymore
+    target = DummyMember(11, [333])
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    # Should succeed - revoker has grantor role, target has the role to remove
+    assert success is True
+    assert reason == ""
+    assert called["member"] is target
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_fails_when_revoker_lacks_permission():
+    """Verify revoke fails when revoker does not have the grantor role."""
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    # Revoker does NOT have grantor role (111)
+    revoker = DummyMember(10, [999])
+    target = DummyMember(11, [333])
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    assert success is False
+    assert "permission" in reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_apply_revoke_logs_leadership_change(monkeypatch):
+    """Verify delegated role revokes are logged to the leadership log with expected metadata."""
+    from helpers.leadership_log import (
+        ChangeSet,
+        EventType,
+        InitiatorKind,
+    )
+
+    policies = [
+        {
+            "grantor_role_ids": [111],
+            "target_role_id": 333,
+            "prerequisite_role_ids": [],
+        }
+    ]
+
+    # Track calls to post_if_changed
+    captured_changeset: dict = {}
+
+    async def fake_remove_roles(member, role_obj, reason=None):
+        pass  # No-op for role removal
+
+    async def fake_post_if_changed(bot, change_set: ChangeSet):
+        captured_changeset["value"] = change_set
+
+    monkeypatch.setattr(
+        "services.role_delegation_service.remove_roles", fake_remove_roles
+    )
+    monkeypatch.setattr(
+        "services.role_delegation_service.post_if_changed", fake_post_if_changed
+    )
+
+    svc = RoleDelegationService(DummyConfig(policies), bot=None)
+    await svc.initialize()
+
+    guild = DummyGuild(1, [111, 333])
+    revoker = DummyMember(10, [111], name="RevokerUser")
+    target = DummyMember(11, [333], name="TargetUser")
+
+    success, reason = await svc.apply_revoke(
+        cast("discord.Guild", guild),
+        cast("discord.Member", revoker),
+        cast("discord.Member", target),
+        333,
+    )
+
+    assert success is True
+    assert reason == ""
+    assert "value" in captured_changeset
+
+    cs = captured_changeset["value"]
+    assert isinstance(cs, ChangeSet)
+    assert cs.event is EventType.ADMIN_ACTION
+    assert cs.initiator_kind is InitiatorKind.ADMIN
+    assert cs.user_id == target.id
+    assert cs.guild_id == guild.id
+
+    # Verify roles_removed contains the revoked role name
+    role = guild.get_role(333)
+    assert role is not None
+    assert cs.roles_removed == [role.name]
+
+    # Notes should include role name and revoker display_name with @
+    notes = cs.notes or ""
+    assert role.name in notes
+    assert f"@{revoker.display_name}" in notes
+    assert "revoke" in notes.lower()

@@ -21,6 +21,7 @@ SETTINGS_VERSION_KEY = "meta.settings_version"
 # Organization settings
 CONFIG_ORG_SID = "organization.sid"
 CONFIG_ORG_NAME = "organization.name"
+CONFIG_ORG_LOGO_URL = "organization.logo_url"
 
 # Role settings
 CONFIG_VERIFIED_ROLE = "roles.bot_verified_role"

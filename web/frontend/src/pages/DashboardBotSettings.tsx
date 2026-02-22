@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, RoleDelegationPolicyPayload } from '../api/endpoints';
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
@@ -40,10 +40,19 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [orgValidating, setOrgValidating] = useState(false);
   const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
+  
+  // Logo settings
+  const [orgLogoUrl, setOrgLogoUrl] = useState<string>('');
+  const [logoValidating, setLogoValidating] = useState(false);
+  const [logoValid, setLogoValid] = useState<boolean | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
 
   // Guild header and read-only YAML snapshot
   const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
   const [readOnly, setReadOnly] = useState<ReadOnlyYamlConfig | null>(null);
+
+  // Track mounted state to prevent state updates after unmount
+  const isMountedRef = useRef(true);
 
   const roleOptions: MultiSelectOption[] = useMemo(
     () => roles.map((role) => ({ id: role.id, name: role.name })),
@@ -143,6 +152,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setOrganizationSid(orgSettingsResponse.organization_sid || '');
         setOrganizationName(orgSettingsResponse.organization_name || '');
         setOrgSidInput(orgSettingsResponse.organization_sid || '');
+        setOrgLogoUrl(orgSettingsResponse.organization_logo_url || '');
+        // Mark existing logo as valid if present
+        if (orgSettingsResponse.organization_logo_url) {
+          setLogoValid(true);
+        }
       } catch (err) {
         // Ignore errors from aborted requests
         if (!isMounted) return;
@@ -160,6 +174,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     // Cleanup: mark as unmounted and abort any pending requests
     return () => {
       isMounted = false;
+      isMountedRef.current = false;
       abortController.abort();
     };
   }, [guildId]);
@@ -168,6 +183,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setSaving(true);
     setStatusMessage(null);
     setError(null);
+
+    // Validate logo URL before saving
+    if (logoValid === false) {
+      setError('Please correct the logo URL before saving.');
+      setSaving(false);
+      return;
+    }
 
     try {
       const cleanedPolicies = delegationPolicies
@@ -200,6 +222,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         organization: {
           organization_sid: orgSidInput.trim() || null,
           organization_name: organizationName || null,
+          organization_logo_url: orgLogoUrl.trim() || null,
         },
       };
 
@@ -237,6 +260,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setOrganizationSid(updated.organization.organization_sid || '');
       setOrganizationName(updated.organization.organization_name || '');
       setOrgSidInput(updated.organization.organization_sid || '');
+      setOrgLogoUrl(updated.organization.organization_logo_url || '');
+      if (updated.organization.organization_logo_url) {
+        setLogoValid(true);
+      }
 
       setStatusMessage('Settings saved and applied.');
     } catch (err) {
@@ -260,9 +287,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     try {
       const result = await guildApi.validateOrganizationSid(guildId, orgSidInput.trim());
       
-      if (result.is_valid && result.name) {
-        setOrganizationName(result.name);
-        setOrgStatusMessage(`✓ Valid organization: ${result.name} (${result.sid})`);
+      if (result.is_valid && result.organization_name) {
+        setOrganizationName(result.organization_name);
+        setOrgStatusMessage(`✓ Valid organization: ${result.organization_name} (${result.sid})`);
       } else {
         setOrgError(result.error || 'Organization not found');
         setOrganizationName('');
@@ -272,6 +299,43 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setOrgError('Failed to validate organization SID. Please try again.');
     } finally {
       setOrgValidating(false);
+    }
+  };
+
+  const handleLogoValidate = async () => {
+    const trimmedUrl = orgLogoUrl.trim();
+    
+    // Clear validation state for empty URL (user is clearing the logo)
+    if (!trimmedUrl) {
+      setLogoValid(null);
+      setLogoError(null);
+      return;
+    }
+
+    setLogoValidating(true);
+    setLogoError(null);
+    setLogoValid(null);
+
+    try {
+      const result = await guildApi.validateLogoUrl(guildId, trimmedUrl);
+      
+      if (result.is_valid) {
+        // Use the normalized URL from the server to keep client and server state aligned
+        if (result.url) {
+          setOrgLogoUrl(result.url);
+        }
+        setLogoValid(true);
+        setLogoError(null);
+      } else {
+        setLogoValid(false);
+        setLogoError(result.error || 'Invalid logo URL');
+      }
+    } catch (err) {
+      handleApiError(err, 'Failed to validate logo URL.');
+      setLogoValid(false);
+      setLogoError('Failed to validate logo URL. Please try again.');
+    } finally {
+      setLogoValidating(false);
     }
   };
 
@@ -376,6 +440,79 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               <p className="text-xs text-green-300 mt-1">SID: {orgSidInput || organizationSid}</p>
             </Alert>
           )}
+
+          {/* Logo URL */}
+          <div>
+            <h5 className="text-sm font-semibold text-white mb-1">Organization Logo URL</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              Optional: Provide a direct image URL for your organization's logo. Used in verification embeds.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={orgLogoUrl}
+                onChange={(e) => {
+                  setOrgLogoUrl(e.target.value);
+                  setLogoValid(null);
+                  setLogoError(null);
+                }}
+                placeholder="https://example.com/logo.png"
+                className="flex-1"
+              />
+              <Button
+                onClick={handleLogoValidate}
+                disabled={logoValidating || !orgLogoUrl.trim()}
+                variant="secondary"
+              >
+                {logoValidating ? 'Validating...' : 'Validate'}
+              </Button>
+            </div>
+            {logoError && (
+              <p className="text-xs text-red-400 mt-1">❌ {logoError}</p>
+            )}
+            {logoValid === true && (
+              <p className="text-xs text-green-400 mt-1">✓ Logo URL validated successfully</p>
+            )}
+          </div>
+
+          {/* Logo Preview */}
+          {orgLogoUrl.trim() && logoValid === true && (() => {
+            // SECURITY: Only render image if URL uses safe protocols
+            let sanitizedUrl: string | null = null;
+            try {
+              const url = new URL(orgLogoUrl.trim());
+              if (url.protocol === 'http:' || url.protocol === 'https:') {
+                // Explicitly reconstruct the URL to ensure it's safe
+                sanitizedUrl = url.href;
+              }
+            } catch {
+              // Invalid URL, don't render
+            }
+            
+            if (!sanitizedUrl) {
+              return null;
+            }
+            
+            return (
+              <div className="mt-2">
+                <p className="text-xs text-gray-400 mb-2">Preview:</p>
+                <div className="inline-block p-2 bg-slate-700 rounded-lg">
+                  <img
+                    src={sanitizedUrl}
+                    alt="Organization logo preview"
+                    className="max-h-24 max-w-48 object-contain rounded"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      // Only update state if component is still mounted
+                      if (isMountedRef.current) {
+                        setLogoError('Failed to load image preview');
+                        setLogoValid(false);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="flex justify-end pt-2 text-xs text-gray-400">
             Changes are saved with the main Save button below.
