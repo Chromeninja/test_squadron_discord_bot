@@ -11,6 +11,7 @@ jobs:
   test:
     name: Python ${{ matrix.python-version }} tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +62,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest -q --cov=. --cov-report=xml
+          pytest -q -vv --maxfail=1 --durations=20 --timeout=300 --timeout-method=thread --cov=. --cov-report=xml
 
       - name: Upload coverage as artifact
         uses: actions/upload-artifact@v4
