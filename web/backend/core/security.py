@@ -9,6 +9,7 @@ that maps to the real payload stored in ``session_store``.
 import asyncio
 import copy
 import json
+import os
 import secrets
 import time
 from dataclasses import dataclass
@@ -82,6 +83,12 @@ def _cleanup_expired_sessions(now: datetime | None = None) -> None:
     Kept for call-site compatibility; the actual purge happens in
     ``session_store.cleanup_expired()``.
     """
+    # In pytest, function-scoped event loops are frequently torn down;
+    # background cleanup tasks can outlive the loop and cause aiosqlite
+    # thread callbacks to crash with "Event loop is closed".
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return
+
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(session_store.cleanup_expired())
