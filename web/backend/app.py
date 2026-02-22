@@ -13,6 +13,7 @@ For local development/testing only.
 import os
 import sys
 from contextlib import asynccontextmanager
+from typing import cast
 
 # Import centralized project_root from dependencies
 from core.dependencies import project_root
@@ -22,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import ExceptionHandler
 
 # Use centralized project root
 _PROJECT_ROOT = project_root()
@@ -112,7 +114,10 @@ app = FastAPI(
 
 # Attach rate-limiter state so slowapi can track counters
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(
+    RateLimitExceeded,
+    cast(ExceptionHandler, _rate_limit_exceeded_handler),
+)
 
 # CORS configuration - derive from centralized env_config
 from core.env_config import FRONTEND_URL, IS_DEV, PUBLIC_URL

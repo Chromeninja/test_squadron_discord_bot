@@ -338,7 +338,7 @@ class VerificationCog(commands.Cog):
         # Success! Get guild-specific org branding
         guild_id = interaction.guild.id if interaction.guild else 0
         org_name = await get_org_name(self.bot, guild_id)
-        org_sid = await get_org_sid(self.bot, guild_id)
+        org_sid = (await get_org_sid(self.bot, guild_id)) or ""
         new_status = result["status"]
         description = build_welcome_description(new_status, org_name=org_name, org_sid=org_sid)
         embed = create_success_embed(description)

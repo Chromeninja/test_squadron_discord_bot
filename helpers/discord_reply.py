@@ -67,7 +67,10 @@ async def _dm_send(
 ) -> bool:
     """Send a DM with either *content* or *embed*.  Returns True on success."""
     try:
-        await member.send(content=content, embed=embed)
+        if embed is not None:
+            await member.send(content=content, embed=embed)
+        else:
+            await member.send(content=content)
         logger.debug("Sent %s to %s", label, member.display_name)
         return True
     except discord.Forbidden:

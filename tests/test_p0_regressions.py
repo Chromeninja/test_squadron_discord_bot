@@ -116,7 +116,7 @@ async def test_build_embed_verbose_shows_unchanged_fields():
         "Verbose mode should show unchanged handle field"
     )
     handle_field = next(f for f in embed.fields if f.name == "Handle")
-    assert "No Change" in handle_field.value
+    assert "No Change" in (handle_field.value or "")
 
 
 @pytest.mark.asyncio
