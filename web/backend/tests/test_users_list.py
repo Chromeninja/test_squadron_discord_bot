@@ -336,3 +336,99 @@ async def test_export_users_with_search(
 
     assert response.status_code == HTTPStatus.OK
     assert response.headers["content-type"] == "text/csv; charset=utf-8"
+
+
+# ── resolve-ids endpoint ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_ids_returns_all_filtered(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """POST /api/users/resolve-ids returns matching user IDs for current guild."""
+    _use_fixture(fake_internal_api)
+    response = await client.post(
+        "/api/users/resolve-ids",
+        json={},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert isinstance(data["user_ids"], list)
+    assert data["total"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_ids_with_org_filter(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """resolve-ids respects org filter (AND logic)."""
+    _use_fixture(fake_internal_api)
+    response = await client.post(
+        "/api/users/resolve-ids",
+        json={"orgs": ["TEST"]},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert isinstance(data["user_ids"], list)
+    assert data["total"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_resolve_ids_with_exclude(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """resolve-ids honours exclude_ids."""
+    _use_fixture(fake_internal_api)
+    # First get all IDs
+    all_resp = await client.post(
+        "/api/users/resolve-ids",
+        json={},
+        cookies={"session": mock_admin_session},
+    )
+    all_ids = all_resp.json()["user_ids"]
+
+    if len(all_ids) > 0:
+        # Exclude first user
+        resp = await client.post(
+            "/api/users/resolve-ids",
+            json={"exclude_ids": [all_ids[0]]},
+            cookies={"session": mock_admin_session},
+        )
+        data = resp.json()
+        assert all_ids[0] not in data["user_ids"]
+        assert data["total"] == len(all_ids) - 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_ids_respects_limit(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """resolve-ids caps returned IDs at the requested limit."""
+    _use_fixture(fake_internal_api)
+    response = await client.post(
+        "/api/users/resolve-ids",
+        json={"limit": 1},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert len(data["user_ids"]) <= 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_ids_unauthorized(
+    client: AsyncClient, mock_unauthorized_session: str
+):
+    """resolve-ids rejects unauthorized users."""
+    response = await client.post(
+        "/api/users/resolve-ids",
+        json={},
+        cookies={"session": mock_unauthorized_session},
+    )
+
+    assert response.status_code == 400

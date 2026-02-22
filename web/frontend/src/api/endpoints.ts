@@ -335,6 +335,19 @@ export interface ExportUsersRequest {
   orgs?: string[] | null;
 }
 
+export interface ResolveIdsRequest {
+  membership_statuses?: string[] | null;
+  search?: string | null;
+  orgs?: string[] | null;
+  exclude_ids?: string[] | null;
+  limit?: number | null;
+}
+
+export interface ResolveIdsResponse {
+  user_ids: string[];
+  total: number;
+}
+
 // All Guilds metadata for cross-guild mode (bot owner only)
 export interface AllGuildsMetadataResponse {
   success: boolean;
@@ -461,6 +474,14 @@ export const usersApi = {
       'members_export.csv',
     );
     triggerBlobDownload(response.data, filename);
+  },
+
+  resolveFilteredIds: async (filters: ResolveIdsRequest): Promise<ResolveIdsResponse> => {
+    const response = await apiClient.post<ResolveIdsResponse>(
+      '/api/users/resolve-ids',
+      filters,
+    );
+    return response.data;
   },
 };
 

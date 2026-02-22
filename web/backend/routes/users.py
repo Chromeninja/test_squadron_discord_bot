@@ -442,6 +442,16 @@ class ExportUsersRequest(BaseModel):
     orgs: list[str] | None = None
 
 
+class ResolveIdsRequest(BaseModel):
+    """Request payload for resolving filtered user IDs server-side."""
+
+    membership_statuses: list[str] | None = None
+    search: str | None = None
+    orgs: list[str] | None = None
+    exclude_ids: list[str] | None = None
+    limit: int | None = None
+
+
 @router.get("", response_model=UsersListResponse)
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
@@ -657,6 +667,79 @@ async def get_available_orgs(
 
     _orgs_cache = (now + _ORGS_CACHE_TTL, org_list)
     return {"success": True, "orgs": org_list}
+
+
+@router.post("/resolve-ids")
+async def resolve_filtered_ids(
+    request: ResolveIdsRequest,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_staff()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+) -> dict:
+    """Resolve the set of Discord user IDs matching the given filters.
+
+    Returns up to ``limit`` IDs (default 100) after applying status,
+    search, org, and exclusion filters against the full dataset for
+    the active guild.  This is used by the frontend for server-side
+    "select all filtered" bulk actions that span multiple pages.
+
+    Requires: Staff role or higher
+    """
+    max_ids = min(request.limit or 100, 500)
+
+    if not current_user.active_guild_id:
+        return {"user_ids": [], "total": 0}
+
+    if is_all_guilds_mode(current_user.active_guild_id):
+        return {"user_ids": [], "total": 0}
+
+    guild_id = int(current_user.active_guild_id)
+    status_filters = _build_status_filters(list_values=request.membership_statuses)
+    search_text = request.search.strip() if request.search else None
+    org_sids = request.orgs or []
+    where_clause, where_params = _build_search_where(search_text, org_sids)
+
+    try:
+        guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
+    except Exception:
+        return {"user_ids": [], "total": 0}
+
+    if not guild_member_ids:
+        return {"user_ids": [], "total": 0}
+
+    id_list = list(guild_member_ids)
+    placeholders = ",".join("?" * len(id_list))
+    member_filter = f"user_id IN ({placeholders})"
+    combined_where = (
+        f"{member_filter} AND {where_clause}" if where_clause else member_filter
+    )
+    query = (
+        f"SELECT {_VERIFICATION_COLUMNS} FROM verification "
+        f"WHERE {combined_where} ORDER BY last_updated DESC"
+    )
+    cursor = await db.execute(query, id_list + where_params)
+    rows = await cursor.fetchall()
+
+    org_settings = await get_organization_settings(db, guild_id)
+    organization_sid = org_settings.get("organization_sid") if org_settings else None
+
+    derived = _derive_and_filter(rows, status_filters, organization_sid)
+    exclude_set = set(request.exclude_ids or [])
+
+    user_ids: list[str] = []
+    for parsed, _status in derived:
+        uid = str(parsed["user_id"])
+        if uid in exclude_set:
+            continue
+        user_ids.append(uid)
+        if len(user_ids) >= max_ids:
+            break
+
+    filtered_total = sum(
+        1 for parsed, _ in derived if str(parsed["user_id"]) not in exclude_set
+    )
+
+    return {"user_ids": user_ids, "total": filtered_total}
 
 
 @router.post("/export")

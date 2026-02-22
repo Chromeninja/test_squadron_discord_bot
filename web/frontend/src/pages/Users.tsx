@@ -187,13 +187,27 @@ function Users() {
     setRecheckProgress(null);
 
     try {
-      // Get the list of selected user IDs
+      // Resolve the list of user IDs to recheck.
+      // When "select all filtered" is active the IDs are resolved
+      // server-side so the recheck covers *all* matching DB rows,
+      // not just the current page.
       let userIdsToRecheck: string[];
       if (selectAllFiltered) {
-        // All filtered users except excluded ones
-        userIdsToRecheck = filteredUsers
-          .filter(u => !excludedIds.has(u.discord_id))
-          .map(u => u.discord_id);
+        const resolved = await usersApi.resolveFilteredIds({
+          membership_statuses: normalizedStatusFilters.length > 0 ? normalizedStatusFilters : null,
+          search: debouncedSearch || null,
+          orgs: selectedOrgs.length > 0 ? selectedOrgs : null,
+          exclude_ids: excludedIds.size > 0 ? Array.from(excludedIds) : null,
+          limit: 100,
+        });
+        userIdsToRecheck = resolved.user_ids;
+
+        if (resolved.total > 100) {
+          setError(
+            `${resolved.total} users match the current filters. ` +
+            'Only the first 100 will be rechecked. Narrow your filters to target fewer users.',
+          );
+        }
       } else {
         // Only specifically selected users
         userIdsToRecheck = Array.from(selectedIds);
