@@ -100,7 +100,7 @@ async def export_backend_logs(
     except Exception as e:
         logger.exception("Failed to export backend logs")
         raise HTTPException(
-            status_code=500, detail=f"Failed to export backend logs: {e}"
+            status_code=500, detail="Failed to export backend logs. Check server logs for details."
         ) from e
 
 
@@ -162,5 +162,5 @@ async def export_audit_logs(
     except Exception as e:
         logger.exception("Failed to export audit logs")
         raise HTTPException(
-            status_code=500, detail=f"Failed to export audit logs: {e}"
+            status_code=500, detail="Failed to export audit logs. Check server logs for details."
         ) from e

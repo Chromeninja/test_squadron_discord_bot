@@ -40,22 +40,24 @@ class TestInternalAPIAuthentication:
         assert "INTERNAL_API_KEY must be set in production" in str(exc_info.value)
 
     def test_dev_mode_allows_no_api_key(self, mock_services, monkeypatch):
-        """Test that dev mode allows operation without API key (with warning)."""
+        """Test that dev mode auto-generates a key when INTERNAL_API_KEY is not set."""
         monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
         monkeypatch.setenv("ENV", "dev")
 
-        # Should not raise in dev mode
+        # Should not raise in dev mode — auto-generates a key
         server = InternalAPIServer(mock_services)
-        assert server.api_key == ""
+        assert server.api_key != ""
+        assert len(server.api_key) > 0
 
     def test_test_mode_allows_no_api_key(self, mock_services, monkeypatch):
-        """Test that test mode allows operation without API key."""
+        """Test that test mode auto-generates a key when INTERNAL_API_KEY is not set."""
         monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
         monkeypatch.setenv("ENV", "test")
 
-        # Should not raise in test mode
+        # Should not raise in test mode — auto-generates a key
         server = InternalAPIServer(mock_services)
-        assert server.api_key == ""
+        assert server.api_key != ""
+        assert len(server.api_key) > 0
 
     def test_api_key_loaded_from_env(self, mock_services, monkeypatch):
         """Test that API key is correctly loaded from environment."""
@@ -122,20 +124,26 @@ class TestInternalAPIAuthentication:
 
         assert server._check_auth(mock_request) is False
 
-    def test_check_auth_allows_all_when_no_key_configured(
+    def test_check_auth_requires_key_even_when_auto_generated(
         self, mock_services, monkeypatch
     ):
-        """Test that _check_auth allows all requests when no API key is configured (dev mode)."""
+        """Test that _check_auth requires the auto-generated key in dev mode."""
         monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
         monkeypatch.setenv("ENV", "dev")
 
         server = InternalAPIServer(mock_services)
 
-        # Any request should be allowed when no API key is configured
+        # Request without header should be rejected even with auto-gen key
         mock_request = MagicMock()
         mock_request.headers = {}
+        assert server._check_auth(mock_request) is False
 
-        assert server._check_auth(mock_request) is True
+        # Request with correct auto-gen key should succeed
+        mock_request_valid = MagicMock()
+        mock_request_valid.headers = {
+            "Authorization": f"Bearer {server.api_key}"
+        }
+        assert server._check_auth(mock_request_valid) is True
 
     def test_host_and_port_configuration(self, mock_services, monkeypatch):
         """Test that host and port can be configured via environment."""

@@ -3,6 +3,7 @@ from typing import Any
 
 import discord
 
+from helpers.bot_utils import get_guild_org_sid
 from services.db.database import derive_membership_status
 from services.db.repository import BaseRepository
 from utils.logging import get_logger
@@ -76,33 +77,18 @@ async def snapshot_member_state(
 
         # Derive status from org lists for this guild
         # (run regardless of whether row exists - overrides may have been provided)
-        if (
-            hasattr(bot, "services")
-            and bot.services
-            and hasattr(bot.services, "guild_config")
-        ):
-            try:
-                guild_org_sid = await bot.services.guild_config.get_setting(
-                    member.guild.id, "organization.sid", default="TEST"
-                )
-                # Remove JSON quotes if present
-                if isinstance(guild_org_sid, str) and guild_org_sid.startswith(
-                    '"'
-                ):
-                    guild_org_sid = guild_org_sid.strip('"')
-                status = derive_membership_status(
-                    main_orgs, affiliate_orgs, guild_org_sid
-                )
-            except Exception as e:
-                logger.debug(
-                    f"Failed to get guild org SID for status derivation: {e}"
-                )
-                status = derive_membership_status(
-                    main_orgs, affiliate_orgs, "TEST"
-                )
-        else:
-            # Fallback to TEST if services not available
-            status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
+        try:
+            guild_org_sid = await get_guild_org_sid(bot, member.guild.id)
+            status = derive_membership_status(
+                main_orgs, affiliate_orgs, guild_org_sid
+            )
+        except Exception as e:
+            logger.debug(
+                "Failed to derive status for %s: %s", member.id, e
+            )
+            status = derive_membership_status(
+                main_orgs, affiliate_orgs, "TEST"
+            )
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 

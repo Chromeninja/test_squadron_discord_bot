@@ -14,6 +14,8 @@ from utils.logging import get_logger
 if TYPE_CHECKING:
     from services.role_delegation_service import RoleDelegationService
 
+from helpers.decorators import require_staff
+
 logger = get_logger(__name__)
 
 
@@ -35,6 +37,8 @@ class RoleDelegationCog(commands.Cog):
     )
     @app_commands.describe(member="Member to grant the role to", role="Role to grant")
     @app_commands.guild_only()
+    @app_commands.default_permissions(manage_roles=True)
+    @require_staff()
     async def role_grant(
         self,
         interaction: discord.Interaction,

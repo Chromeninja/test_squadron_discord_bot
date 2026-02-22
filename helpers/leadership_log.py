@@ -6,6 +6,7 @@ from enum import Enum
 import discord  # embeds no longer dispatched
 
 from helpers.discord_api import channel_send_message
+from helpers.embeds import EmbedColors
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -233,11 +234,13 @@ def is_effectively_unchanged(cs: ChangeSet, bot=None) -> bool:
 
 
 def color_for(cs: ChangeSet) -> int:
-    # Discord color ints (approx): green, yellow, red, blurple
-    GREEN = 0x2ECC71
-    YELLOW = 0xF1C40F
-    RED = 0xE74C3C
-    BLURPLE = 0x5865F2
+    # Use centralized EmbedColors; note the leadership log uses slightly
+    # different shades historically — we keep the semantic mapping but
+    # source from the single constant set.
+    GREEN = EmbedColors.SUCCESS
+    YELLOW = EmbedColors.WARNING
+    RED = EmbedColors.ERROR
+    BLURPLE = EmbedColors.BLURPLE
 
     if cs.notes and any(k in cs.notes.lower() for k in ["error", "fail", "404"]):
         return RED
@@ -330,7 +333,7 @@ def _normalize_signature(cs: ChangeSet) -> str:
     return "§".join(parts)
 
 
-def build_embed(bot, cs: ChangeSet) -> discord.Embed:
+async def build_embed(bot, cs: ChangeSet) -> discord.Embed:
     """Create the structured leadership log embed per specification."""
     emoji = _event_emoji(cs)
     duration = ""  # duration tracking removed
@@ -350,12 +353,15 @@ def build_embed(bot, cs: ChangeSet) -> discord.Embed:
         f"{emoji} {_event_title(cs.event)} • {header_initiated}{duration}"
     )
 
+    # Resolve verbosity once (async) so the sync closure can use it
+    verbosity = await _verbosity(bot)
+
     def add_section(label: str, before: str | None, after: str | None):
         if _changed_material(before, after):
             embed.add_field(
                 name=label, value=f"{before or '—'} → {after or '—'}", inline=False
             )
-        elif _verbosity(bot) == "verbose":
+        elif verbosity == "verbose":
             if before:
                 embed.add_field(name=label, value=f"No Change ({before})", inline=False)
 

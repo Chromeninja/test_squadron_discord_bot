@@ -1,4 +1,3 @@
-import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,14 +16,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
-
-
-# Ensure pytest-asyncio uses a dedicated loop
-@pytest_asyncio.fixture(scope="session")  # type: ignore[misc]
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture

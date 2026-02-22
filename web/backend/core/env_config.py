@@ -138,6 +138,13 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
 
 # ---------------------------------------------------------------------------
+# Cache Tuning (overridable via environment for operational flexibility)
+# ---------------------------------------------------------------------------
+MEMBER_CACHE_TTL_SECONDS = int(os.getenv("MEMBER_CACHE_TTL_SECONDS", "60"))
+MEMBER_CACHE_MAX_ENTRIES = int(os.getenv("MEMBER_CACHE_MAX_ENTRIES", "2000"))
+GUILD_IDS_CACHE_TTL = int(os.getenv("GUILD_IDS_CACHE_TTL", "30"))
+
+# ---------------------------------------------------------------------------
 # Validation & Warnings
 # ---------------------------------------------------------------------------
 _logger = logging.getLogger(__name__)

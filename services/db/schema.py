@@ -67,6 +67,9 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_verification_moniker ON verification(community_moniker)"
     )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verification_last_updated ON verification(last_updated DESC)"
+    )
 
     # User guild membership tracking - tracks which guilds each verified user is active in
     await db.execute(
@@ -370,6 +373,31 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     # Composite index for common query pattern: pending announcements by guild
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_announcement_events_pending ON announcement_events(guild_id, announced_at) WHERE announced_at IS NULL"
+    )
+
+    # Pending role-sync queue: tracks grant/revoke operations that failed due
+    # to transient Discord API errors and should be retried automatically.
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pending_role_sync (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id    INTEGER NOT NULL,
+            user_id     INTEGER NOT NULL,
+            role_id     INTEGER NOT NULL,
+            action      TEXT    NOT NULL CHECK (action IN ('grant', 'revoke')),
+            reason      TEXT,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            next_retry_at INTEGER NOT NULL DEFAULT 0,
+            fail_count  INTEGER NOT NULL DEFAULT 0,
+            last_error  TEXT
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_role_sync_retry ON pending_role_sync(next_retry_at)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_role_sync_guild ON pending_role_sync(guild_id)"
     )
 
     # Record that the canonical schema has been applied

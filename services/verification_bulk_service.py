@@ -191,7 +191,7 @@ class VerificationBulkService:
                         # Notify user of failure
                         with contextlib.suppress(Exception):
                             await job.interaction.followup.send(
-                                f"❌ Job failed unexpectedly: {e!s}", ephemeral=True
+                                "❌ Job failed unexpectedly. Check bot logs for details.", ephemeral=True
                             )
                     finally:
                         self.current_job = None
@@ -307,7 +307,7 @@ class VerificationBulkService:
         try:
             from helpers.bulk_check import fetch_status_rows
 
-            batch_rows = await fetch_status_rows(members)
+            batch_rows = await fetch_status_rows(members, bot=self.bot)
 
             # If RSI recheck is enabled, verify each member's RSI org status
             if job.recheck_rsi:
@@ -367,6 +367,14 @@ class VerificationBulkService:
     ) -> None:
         """Deliver final results to leadership channel (single post with embed + CSV)."""
 
+        leadership_channel_ref = "leadership chat"
+        with contextlib.suppress(Exception):
+            leadership_channel = await self.bot.services.guild_config.get_channel(
+                guild.id, "leadership_announcement_channel_id", guild
+            )
+            if leadership_channel:
+                leadership_channel_ref = leadership_channel.mention
+
         # Get initiator info
         try:
             invoker = await guild.fetch_member(job.invoker_id)
@@ -374,7 +382,8 @@ class VerificationBulkService:
             logger.warning(f"Failed to fetch invoker {job.invoker_id}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    "⚠️ Could not post results to leadership chat.", ephemeral=True
+                    f"⚠️ Could not post results to {leadership_channel_ref}.",
+                    ephemeral=True,
                 )
             return
 
@@ -400,7 +409,7 @@ class VerificationBulkService:
             logger.exception(f"Error building summary embed: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    f"❌ Error building results: {e!s}", ephemeral=True
+                    "❌ Error building results. Check bot logs for details.", ephemeral=True
                 )
             return
 
@@ -423,7 +432,7 @@ class VerificationBulkService:
         try:
             from helpers.announcement import send_admin_bulk_check_summary
 
-            channel_name = await send_admin_bulk_check_summary(
+            channel_info = await send_admin_bulk_check_summary(
                 self.bot,
                 guild=guild,
                 invoker=invoker,
@@ -434,6 +443,9 @@ class VerificationBulkService:
                 csv_filename=filename,
             )
 
+            channel_name = channel_info.get("name", "unknown")
+            channel_mention = channel_info.get("mention", leadership_channel_ref)
+
             logger.info(
                 f"Posted bulk check results to #{channel_name} for job {job.job_id}"
             )
@@ -441,7 +453,7 @@ class VerificationBulkService:
             # Send success ack to invoker
             try:
                 await job.interaction.followup.send(
-                    f"✅ Posted results to #{channel_name}", ephemeral=True
+                    f"✅ Posted results to {channel_mention}", ephemeral=True
                 )
             except Exception as e:
                 logger.debug(f"Could not send success ack: {e}")
@@ -450,7 +462,7 @@ class VerificationBulkService:
             logger.exception(f"Error posting to leadership channel: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    f"❌ Error posting results to leadership chat: {e!s}",
+                    f"❌ Error posting results to {leadership_channel_ref}. Check bot logs for details.",
                     ephemeral=True,
                 )
 

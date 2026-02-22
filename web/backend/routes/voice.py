@@ -1152,5 +1152,5 @@ async def reset_user_voice_settings(
             status="error",
         )
         raise HTTPException(
-            status_code=500, detail=f"Failed to reset voice settings: {e!s}"
+            status_code=500, detail="Failed to reset voice settings. Check server logs for details."
         )

@@ -48,18 +48,18 @@ class EmbedColors:
     VOICE_SAVED = 0x3498DB  # Blue - saved settings
     VERIFICATION = 0xFFBB00  # Yellow - verification embeds
     ADMIN = 0xE74C3C  # Red-ish - admin actions
+    BLURPLE = 0x5865F2  # Discord blurple
 
 
-# Standard thumbnail URL - set to None for org-agnostic deployments
-# Individual guilds can configure organization.logo_url
-DEFAULT_THUMBNAIL: str | None = None
+# Standard thumbnail URL
+DEFAULT_THUMBNAIL = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
 
 
 def create_embed(
     title: str,
     description: str,
-    color: int = 0x00FF00,
-    thumbnail_url: str | None = None,
+    color: int = EmbedColors.SUCCESS,
+    thumbnail_url: str = DEFAULT_THUMBNAIL,
 ) -> discord.Embed:
     """
     Creates a Discord embed with the given parameters.
@@ -96,8 +96,7 @@ def create_verification_embed(thumbnail_url: str | None = None) -> discord.Embed
         "If you don't have an RSI account, you can [sign-up here]"
         "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G)"
     )
-    color = 0xFFBB00  # Yellow
-    # Use provided thumbnail or fall back to DEFAULT_THUMBNAIL
+    color = EmbedColors.VERIFICATION
     return create_embed(title, description, color, thumbnail_url or DEFAULT_THUMBNAIL)
 
 
@@ -107,7 +106,7 @@ def build_about_embed() -> discord.Embed:
     embed = create_embed(
         title=f"{BOT_NAME} – About",
         description=BOT_DESCRIPTION,
-        color=0xFFBB00,
+        color=EmbedColors.PRIMARY,
     )
 
     embed.add_field(
@@ -173,7 +172,7 @@ def create_token_embed(token: str, expires_unix: int) -> discord.Embed:
         "(https://robertsspaceindustries.com/enlist?referral=STAR-MXL7-VM6G).\n\n"
         f":information_source: *Note: The PIN expires <t:{expires_unix}:R>.*"
     )
-    color = 0x00FF00  # Green
+    color = EmbedColors.SUCCESS
 
     embed = create_embed(title, description, color, DEFAULT_THUMBNAIL)
     embed.add_field(
@@ -203,7 +202,7 @@ def create_error_embed(message: str) -> discord.Embed:
         discord.Embed: The created error embed.
     """
     title = "❌ Verification Failed"
-    color = 0xFF0000  # Red
+    color = EmbedColors.ERROR
     return create_embed(title, message, color, DEFAULT_THUMBNAIL)
 
 
@@ -218,7 +217,7 @@ def create_success_embed(message: str) -> discord.Embed:
         discord.Embed: The created success embed.
     """
     title = "🎉 Verification Successful!"
-    color = 0x00FF00  # Green
+    color = EmbedColors.SUCCESS
     return create_embed(title, message, color, DEFAULT_THUMBNAIL)
 
 
@@ -237,7 +236,7 @@ def create_cooldown_embed(wait_until: int) -> discord.Embed:
         "You have reached the maximum number of verification attempts.\n"
         f"Please try again <t:{wait_until}:R>."
     )
-    color = 0xFFA500  # Orange
+    color = EmbedColors.WARNING
     return create_embed(title, description, color, DEFAULT_THUMBNAIL)
 
 

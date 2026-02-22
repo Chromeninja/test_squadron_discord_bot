@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 # Ensure we can import from backend
@@ -11,13 +12,13 @@ backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
 
 from app import app
-from core.security import create_session_token
+from core.security import create_session_token_async
 
 pytestmark = pytest.mark.contract
 
 
-@pytest.fixture
-def admin_user_token():
+@pytest_asyncio.fixture
+async def admin_user_token():
     """Create a session token for an admin user."""
     user_data = {
         "user_id": "12345",
@@ -33,7 +34,7 @@ def admin_user_token():
         },
         "active_guild_id": "123",
     }
-    return create_session_token(user_data)
+    return await create_session_token_async(user_data)
 
 
 @pytest.mark.asyncio

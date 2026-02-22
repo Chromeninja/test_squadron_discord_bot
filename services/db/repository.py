@@ -335,43 +335,8 @@ def parse_snowflake_strict(value: Any, name: str = "ID") -> int:
 # Organization Data Utilities
 # -----------------------------------------------------------------------------
 
-
-def derive_membership_status(
-    main_orgs: list[str] | None,
-    affiliate_orgs: list[str] | None,
-    target_sid: str = "TEST",
-) -> str:
-    """
-    Derive membership status from organization SID lists.
-
-    Checks if the target organization SID appears in the user's main or affiliate
-    organization lists and returns the appropriate status.
-
-    Args:
-        main_orgs: List of main organization SIDs
-        affiliate_orgs: List of affiliate organization SIDs
-        target_sid: Organization SID to check for (defaults to "TEST")
-
-    Returns:
-        str: One of "main", "affiliate", or "non_member"
-    """
-    if not main_orgs:
-        main_orgs = []
-    if not affiliate_orgs:
-        affiliate_orgs = []
-
-    # Normalize to uppercase for comparison
-    target_upper = target_sid.upper()
-    main_upper = [sid.upper() for sid in main_orgs if sid and sid != "REDACTED"]
-    affiliate_upper = [
-        sid.upper() for sid in affiliate_orgs if sid and sid != "REDACTED"
-    ]
-
-    if target_upper in main_upper:
-        return "main"
-    if target_upper in affiliate_upper:
-        return "affiliate"
-    return "non_member"
+# Canonical implementation lives in database.py; re-export for backward compat
+from .database import derive_membership_status  # noqa: F401
 
 
 def parse_org_lists(

@@ -113,7 +113,7 @@ async def recheck_user(
         (user_id_int,),
     )
     row = await cursor.fetchone()
-    row[0] if row else None
+    old_rsi_handle = row[0] if row else None
 
     # Determine old status from org lists
     import json
@@ -154,7 +154,7 @@ async def recheck_user(
             details={"error": str(e)},
             status="error",
         )
-        raise HTTPException(status_code=500, detail=f"Recheck failed: {e!s}")
+        raise HTTPException(status_code=500, detail="Recheck failed. Check server logs for details.")
 
     # Get new verification status after recheck
     cursor = await db.execute(
@@ -550,8 +550,9 @@ async def _execute_bulk_recheck(
                 csv_bytes=csv_content,  # Already base64 encoded
                 csv_filename=csv_filename,
             )
+            channel_ref = response.get("channel_mention") or response.get("channel_name")
             logger.info(
-                f"Posted bulk recheck summary to leadership channel: {response.get('channel_name')}"
+                f"Posted bulk recheck summary to leadership channel: {channel_ref}"
             )
         except Exception as e:
             # Log but don't fail the request if posting fails
@@ -658,7 +659,7 @@ async def bulk_recheck_users_start(
             _bulk_recheck_progress[job_id]["status"] = "error"
             _bulk_recheck_progress[job_id]["final_response"] = {
                 "success": False,
-                "message": f"Bulk recheck failed: {e}",
+                "message": "Bulk recheck failed unexpectedly. Check server logs for details.",
                 "total": len(request.user_ids),
                 "successful": 0,
                 "failed": len(request.user_ids),

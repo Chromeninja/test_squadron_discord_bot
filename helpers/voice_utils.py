@@ -11,8 +11,8 @@ logger = get_logger(__name__)
 
 
 async def get_user_channel(
-    bot, user: discord.abc.User, guild_id=None, jtc_channel_id=None
-) -> None:
+    bot, user: discord.abc.User, guild_id: int | None = None, jtc_channel_id: int | None = None
+) -> discord.VoiceChannel | None:
     """
     Return the voice channel owned by this user, or None if none exists.
     Tries cache first, then fetches from the API. Cleans up stale mappings.
@@ -79,7 +79,7 @@ async def get_user_channel(
     return None
 
 
-def get_user_game_name(member) -> None:
+def get_user_game_name(member) -> str | None:
     """
     Retrieves the name of the game the user is currently playing.
     """

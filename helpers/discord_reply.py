@@ -26,6 +26,66 @@ logger = get_logger(__name__)
 
 
 # -----------------------------------------------------------------------------
+# Internal: shared interaction message dispatch
+# -----------------------------------------------------------------------------
+
+
+async def _send_interaction_message(
+    interaction: discord.Interaction,
+    text: str,
+    *,
+    ephemeral: bool = True,
+    prefix: str | None = None,
+    label: str = "message",
+) -> None:
+    """Send *text* as an interaction response or followup.
+
+    If *prefix* is given and *text* does not already start with it, the prefix
+    is prepended.  This is the single implementation behind
+    :func:`send_user_error`, :func:`send_user_success`, and
+    :func:`send_user_info`.
+    """
+    if prefix and not text.startswith(prefix):
+        text = f"{prefix} {text}"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(text, ephemeral=ephemeral)
+    except discord.HTTPException as e:
+        logger.exception("Failed to send %s to user: %s", label, e)
+    except Exception as e:
+        logger.exception("Unexpected error sending user %s", label, exc_info=e)
+
+
+async def _dm_send(
+    member: discord.Member,
+    *,
+    content: str | None = None,
+    embed: discord.Embed | None = None,
+    label: str = "DM",
+) -> bool:
+    """Send a DM with either *content* or *embed*.  Returns True on success."""
+    try:
+        await member.send(content=content, embed=embed)
+        logger.debug("Sent %s to %s", label, member.display_name)
+        return True
+    except discord.Forbidden:
+        logger.debug(
+            "Cannot send %s to %s (DMs disabled or bot blocked)", label, member.display_name
+        )
+        return False
+    except discord.HTTPException as e:
+        logger.warning("Failed to send %s to %s: %s", label, member.display_name, e)
+        return False
+    except Exception as e:
+        logger.exception(
+            "Unexpected error sending %s to %s", label, member.display_name, exc_info=e
+        )
+        return False
+
+
+# -----------------------------------------------------------------------------
 # Core Response Helper (unified interface)
 # -----------------------------------------------------------------------------
 
@@ -110,20 +170,9 @@ async def send_user_error(
     Example:
         await send_user_error(interaction, "❌ **Owner is still present**\\nYou can't claim this channel.")
     """
-    try:
-        # Ensure text has error emoji if not present
-        if not text.startswith("❌"):
-            text = f"❌ {text}"
-
-        # Check if interaction has already been responded to
-        if interaction.response.is_done():
-            await interaction.followup.send(text, ephemeral=ephemeral)
-        else:
-            await interaction.response.send_message(text, ephemeral=ephemeral)
-    except discord.HTTPException as e:
-        logger.exception(f"Failed to send error message to user: {e}")
-    except Exception as e:
-        logger.exception("Unexpected error sending user error", exc_info=e)
+    await _send_interaction_message(
+        interaction, text, ephemeral=ephemeral, prefix="❌", label="error"
+    )
 
 
 async def send_user_success(
@@ -146,20 +195,9 @@ async def send_user_success(
     Example:
         await send_user_success(interaction, "✅ Successfully claimed ownership of voice channel!")
     """
-    try:
-        # Ensure text has success emoji if not present
-        if not text.startswith("✅"):
-            text = f"✅ {text}"
-
-        # Check if interaction has already been responded to
-        if interaction.response.is_done():
-            await interaction.followup.send(text, ephemeral=ephemeral)
-        else:
-            await interaction.response.send_message(text, ephemeral=ephemeral)
-    except discord.HTTPException as e:
-        logger.exception(f"Failed to send success message to user: {e}")
-    except Exception as e:
-        logger.exception("Unexpected error sending user success", exc_info=e)
+    await _send_interaction_message(
+        interaction, text, ephemeral=ephemeral, prefix="✅", label="success"
+    )
 
 
 async def send_user_info(
@@ -181,16 +219,9 @@ async def send_user_info(
     Example:
         await send_user_info(interaction, "📋 Here are your voice channel settings...")
     """
-    try:
-        # Check if interaction has already been responded to
-        if interaction.response.is_done():
-            await interaction.followup.send(text, ephemeral=ephemeral)
-        else:
-            await interaction.response.send_message(text, ephemeral=ephemeral)
-    except discord.HTTPException as e:
-        logger.exception(f"Failed to send info message to user: {e}")
-    except Exception as e:
-        logger.exception("Unexpected error sending user info", exc_info=e)
+    await _send_interaction_message(
+        interaction, text, ephemeral=ephemeral, label="info"
+    )
 
 
 async def dm_user(member: discord.Member, text: str) -> bool:
@@ -214,26 +245,7 @@ async def dm_user(member: discord.Member, text: str) -> bool:
     Example:
         await dm_user(member, "⚠️ You're creating channels too fast. Please wait 5s.")
     """
-    try:
-        await member.send(text)
-        logger.debug(f"Sent DM to {member.display_name}: {text[:50]}...")
-        return True
-    except discord.Forbidden:
-        # User has DMs disabled or blocked the bot
-        logger.debug(
-            f"Cannot send DM to {member.display_name} (DMs disabled or bot blocked)"
-        )
-        return False
-    except discord.HTTPException as e:
-        # Other Discord API errors
-        logger.warning(f"Failed to send DM to {member.display_name}: {e}")
-        return False
-    except Exception as e:
-        # Unexpected errors
-        logger.exception(
-            f"Unexpected error sending DM to {member.display_name}", exc_info=e
-        )
-        return False
+    return await _dm_send(member, content=text, label="text DM")
 
 
 async def dm_embed(member: Member, embed: Embed) -> bool:
@@ -249,23 +261,7 @@ async def dm_embed(member: Member, embed: Embed) -> bool:
     Returns:
         True if DM was sent successfully, False otherwise
     """
-    try:
-        await member.send(embed=embed)
-        logger.debug(f"Sent embed DM to {member.display_name}")
-        return True
-    except discord.Forbidden:
-        logger.debug(
-            f"Cannot send embed DM to {member.display_name} (DMs disabled or bot blocked)"
-        )
-        return False
-    except discord.HTTPException as e:
-        logger.warning(f"Failed to send embed DM to {member.display_name}: {e}")
-        return False
-    except Exception as e:
-        logger.exception(
-            f"Unexpected error sending embed DM to {member.display_name}", exc_info=e
-        )
-        return False
+    return await _dm_send(member, embed=embed, label="embed DM")
 
 
 async def send_embed_error(

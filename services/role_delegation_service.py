@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from helpers.discord_api import add_roles, remove_roles
@@ -13,6 +14,7 @@ from helpers.leadership_log import (
     post_if_changed,
 )
 from services.base import BaseService
+from services.db.database import Database
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -159,7 +161,7 @@ class RoleDelegationService(BaseService):
         apply_reason = reason or "Delegated role grant"
         try:
             await add_roles(target_member, role_obj, reason=apply_reason)
-        except Exception:  # pragma: no cover - Discord API errors
+        except Exception as exc:  # pragma: no cover - Discord API errors
             self.logger.exception(
                 "Failed to apply delegated role",
                 extra={
@@ -169,7 +171,16 @@ class RoleDelegationService(BaseService):
                     "role_id": role_id,
                 },
             )
-            return False, "Failed to grant role"
+            # Persist the failure for automatic retry
+            await self._enqueue_pending_sync(
+                guild_id=guild.id,
+                user_id=target_member.id,
+                role_id=int(role_id),
+                action="grant",
+                reason=apply_reason,
+                error=str(exc),
+            )
+            return False, "Failed to grant role (queued for retry)"
 
         self.logger.info(
             "Delegated role granted",
@@ -327,6 +338,73 @@ class RoleDelegationService(BaseService):
             name = getattr(role_obj, "name", None) if role_obj else None
             formatted.append(mention or name or f"<@&{rid}>")
         return ", ".join(formatted)
+
+    # ------------------------------------------------------------------
+    # Pending role-sync helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _enqueue_pending_sync(
+        *,
+        guild_id: int,
+        user_id: int,
+        role_id: int,
+        action: str,
+        reason: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Insert a failed role operation into the retry queue."""
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO pending_role_sync
+                    (guild_id, user_id, role_id, action, reason, next_retry_at, fail_count, last_error)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                """,
+                (guild_id, user_id, role_id, action, reason, int(time.time()) + 60, error),
+            )
+            await db.commit()
+
+    @staticmethod
+    async def get_due_pending_syncs(limit: int = 50) -> list[dict]:
+        """Return pending role-sync rows whose retry time has arrived."""
+        now = int(time.time())
+        async with Database.get_connection() as db:
+            cur = await db.execute(
+                """
+                SELECT id, guild_id, user_id, role_id, action, reason, fail_count
+                FROM pending_role_sync
+                WHERE next_retry_at <= ?
+                ORDER BY next_retry_at
+                LIMIT ?
+                """,
+                (now, limit),
+            )
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    async def mark_sync_success(row_id: int) -> None:
+        """Remove a successfully processed pending sync entry."""
+        async with Database.get_connection() as db:
+            await db.execute("DELETE FROM pending_role_sync WHERE id = ?", (row_id,))
+            await db.commit()
+
+    @staticmethod
+    async def mark_sync_failure(row_id: int, error: str) -> None:
+        """Bump fail_count and backoff the next retry, capped at 6 hours."""
+        async with Database.get_connection() as db:
+            await db.execute(
+                """
+                UPDATE pending_role_sync
+                SET fail_count = fail_count + 1,
+                    next_retry_at = ? + MIN(60 * (1 << MIN(fail_count, 8)), 21600),
+                    last_error = ?
+                WHERE id = ?
+                """,
+                (int(time.time()), error, row_id),
+            )
+            await db.commit()
 
     def _normalize_policies(
         self, raw_policies: Any, guild_id: int

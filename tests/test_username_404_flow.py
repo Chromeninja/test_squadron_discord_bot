@@ -109,6 +109,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
             "verification_channel_id": verification_chan,
         }.get(key)
     )
+    mock_guild_config.get_org_sid = AsyncMock(return_value="TEST")
     bot.services.guild_config = mock_guild_config
 
     # Mock config service for get_guild_setting (used by _gather_managed_roles)
@@ -203,6 +204,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
         }.get(key)
 
     mock_guild_config.get_channel = get_channel_mock
+    mock_guild_config.get_org_sid = AsyncMock(return_value="TEST")
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()
@@ -274,6 +276,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
         }.get(key)
 
     mock_guild_config.get_channel = get_channel_mock
+    mock_guild_config.get_org_sid = AsyncMock(return_value="TEST")
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=222, display_name="UserGone")
@@ -440,6 +443,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
         }.get(key)
 
     mock_guild_config.get_channel = get_channel_mock
+    mock_guild_config.get_org_sid = AsyncMock(return_value="TEST")
     bot.services.guild_config = mock_guild_config
 
     member = FakeMember(uid=555, display_name="LostUser")
@@ -629,6 +633,7 @@ async def test_handle_username_404_new_handle_triggers_again(
         }.get(key)
 
     mock_guild_config.get_channel = get_channel_mock
+    mock_guild_config.get_org_sid = AsyncMock(return_value="TEST")
     bot.services.guild_config = mock_guild_config
 
     send_mock = AsyncMock()

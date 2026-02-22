@@ -3,6 +3,7 @@ Authentication routes for Discord OAuth2 flow.
 """
 
 import logging
+from urllib.parse import urlencode
 
 import httpx
 from core.dependencies import (
@@ -41,7 +42,8 @@ from core.security import (
     set_session_cookie,
     validate_oauth_state,
 )
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from core.rate_limit import limiter
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -51,6 +53,13 @@ logger = logging.getLogger(__name__)
 
 # Discord permission bitfield for Administrator
 ADMINISTRATOR_PERMISSION = 0x0000000000000008
+
+_BOT_CALLBACK_ALLOWED_ERRORS = {
+    "access_denied",
+    "invalid_scope",
+    "unauthorized_client",
+    "temporarily_unavailable",
+}
 
 
 def _normalize_guild_id(raw_value) -> str | None:
@@ -81,8 +90,20 @@ def _has_administrator_permission(permissions_str: str | None) -> bool:
         return False
 
 
+def _safe_bot_callback_error(error: str | None) -> str:
+    """Map untrusted callback error values to known-safe, stable codes."""
+    if not error:
+        return "unknown_error"
+
+    normalized = error.strip().lower()
+    if normalized in _BOT_CALLBACK_ALLOWED_ERRORS:
+        return normalized
+    return "unknown_error"
+
+
 @router.get("/login")
-async def login():
+@limiter.limit("10/minute")
+async def login(request: Request):
     """
     Initiate Discord OAuth2 flow.
 
@@ -96,7 +117,8 @@ async def login():
 
 
 @router.get("/callback")
-async def callback(code: str, state: str | None = None):
+@limiter.limit("10/minute")
+async def callback(request: Request, code: str, state: str | None = None):
     """
     Handle Discord OAuth2 callback.
 
@@ -416,14 +438,14 @@ async def callback(code: str, state: str | None = None):
 
         # Create response with session cookie using centralized helper
         response = RedirectResponse(url=FRONTEND_URL)
-        set_session_cookie(response, session_data)
+        await set_session_cookie(response, session_data)
         return response
 
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Unhandled error in OAuth callback")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}")
+        raise HTTPException(status_code=500, detail="Internal server error during authentication.")
 
 
 @api_router.get("/me", response_model=AuthMeResponse)
@@ -441,7 +463,7 @@ async def get_me(session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME)):
 
     from core.security import decode_session_token
 
-    user_data = decode_session_token(session)
+    user_data = await decode_session_token(session)
     if not user_data:
         return AuthMeResponse(success=True, user=None)
 
@@ -595,7 +617,7 @@ async def select_active_guild(
         # Set active_guild_id to sentinel and return early
         session_payload = current_user.model_dump()
         session_payload["active_guild_id"] = ALL_GUILDS_SENTINEL
-        set_session_cookie(response, session_payload)
+        await set_session_cookie(response, session_payload)
         logger.info(
             "Bot owner entered All Guilds mode",
             extra={"user_id": current_user.user_id},
@@ -629,7 +651,7 @@ async def select_active_guild(
 
     roles_validated_at[payload.guild_id] = int(_t.time())
     session_payload["roles_validated_at"] = roles_validated_at
-    set_session_cookie(response, session_payload)
+    await set_session_cookie(response, session_payload)
 
     return SelectGuildResponse()
 
@@ -657,8 +679,6 @@ async def get_bot_invite_url(
     # Use centralized ConfigLoader (already initialized at startup)
     config_dict = config_loader.load_config()
     bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
-
-    from urllib.parse import urlencode
 
     params = {
         "client_id": DISCORD_CLIENT_ID,
@@ -694,10 +714,14 @@ async def bot_authorization_callback(
     """
     # Check for errors
     if error:
-        logger.warning(f"Bot authorization failed: {error} - {error_description}")
+        safe_error = _safe_bot_callback_error(error)
+        logger.warning(
+            "Bot authorization failed",
+            extra={"error": safe_error},
+        )
         # Redirect to frontend with error
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/select-server?error={error}",
+            url=f"{FRONTEND_URL}/select-server?{urlencode({'error': 'authorization_failed'})}",
             status_code=302,
         )
 
@@ -725,6 +749,6 @@ async def clear_active_guild(
     """
     session_payload = current_user.model_dump()
     session_payload["active_guild_id"] = None
-    set_session_cookie(response, session_payload)
+    await set_session_cookie(response, session_payload)
 
     return {"success": True}

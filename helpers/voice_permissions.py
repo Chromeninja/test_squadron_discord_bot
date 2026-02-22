@@ -7,6 +7,7 @@ on user-created voice channels.
 
 import discord  # type: ignore[import-not-found]
 
+from helpers.permissions_helper import FEATURE_CONFIG
 from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
@@ -115,27 +116,7 @@ async def enforce_permission_changes(
         logger.exception(f"Error enforcing permission changes for channel {channel.id}")
 
 
-# Feature mapping configuration
-FEATURE_CONFIG = {
-    "ptt": {
-        "overwrite_property": "use_voice_activation",
-        "db_table": "channel_ptt_settings",
-        "db_column": "ptt_enabled",
-        "inverted": True,  # PTT disabled = use_voice_activation True
-    },
-    "priority_speaker": {
-        "overwrite_property": "priority_speaker",
-        "db_table": "channel_priority_speaker_settings",
-        "db_column": "priority_enabled",
-        "inverted": False,
-    },
-    "soundboard": {
-        "overwrite_property": "use_soundboard",
-        "db_table": "channel_soundboard_settings",
-        "db_column": "soundboard_enabled",
-        "inverted": False,
-    },
-}
+# FEATURE_CONFIG is imported from helpers.permissions_helper (single source of truth)
 
 
 async def _apply_database_settings(

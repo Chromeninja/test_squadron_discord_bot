@@ -51,7 +51,11 @@ else:
     logger.warning("INTERNAL_API_KEY not found in environment")
 
 from core.dependencies import initialize_services, shutdown_services
+from core.rate_limit import limiter
 from core.request_id import RequestIDMiddleware
+from core import session_store
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from routes import (
     admin_users,
     auth,
@@ -89,9 +93,14 @@ async def lifespan(app: FastAPI):
             "Set a secure value before deploying to production."
         )
 
+    # Initialize SQLite session store (lives alongside main DB)
+    session_db_path = _PROJECT_ROOT / "web" / "backend" / "sessions.db"
+    await session_store.initialize(session_db_path)
+
     await initialize_services()
     yield
     await shutdown_services()
+    await session_store.close()
 
 
 app = FastAPI(
@@ -100,6 +109,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Attach rate-limiter state so slowapi can track counters
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS configuration - derive from centralized env_config
 from core.env_config import FRONTEND_URL, IS_DEV, PUBLIC_URL

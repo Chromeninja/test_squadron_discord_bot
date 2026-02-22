@@ -1,6 +1,7 @@
 import discord
 from discord.ui import Modal, TextInput
 
+from helpers.bot_utils import bot_has_guild_config, get_guild_org_sid
 from helpers.constants import DEFAULT_ORG_SID
 from helpers.discord_api import edit_channel, followup_send_message
 from helpers.embeds import (
@@ -40,8 +41,8 @@ async def get_org_name(bot, guild_id: int) -> str:
     Returns:
         Organization name (defaults to 'Organization' if not configured)
     """
-    org_name = "Organization"  # Default fallback
-    if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
+    org_name = "TEST"  # Default fallback
+    if bot_has_guild_config(bot):
         try:
             org_name_config = await bot.services.guild_config.get_setting(
                 guild_id, "organization.name", default="Organization"
@@ -66,18 +67,8 @@ async def get_org_sid(bot, guild_id: int) -> str | None:
     Returns:
         Organization SID (uppercase) or None if not configured
     """
-    if hasattr(bot, "services") and hasattr(bot.services, "guild_config"):
-        try:
-            org_sid_config = await bot.services.guild_config.get_setting(
-                guild_id, "organization.sid", default=None
-            )
-            if org_sid_config:
-                return org_sid_config.strip().upper()
-        except Exception as e:
-            logger.warning(
-                f"Failed to get org SID from config: {e}", extra={"guild_id": guild_id}
-            )
-    return None
+    result = await get_guild_org_sid(bot, guild_id, default="")
+    return result if result else None
 
 
 class HandleModal(Modal, title="Verification"):

@@ -2,7 +2,6 @@
 Test configuration and fixtures for backend tests.
 """
 
-import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -30,14 +29,6 @@ from services.config_service import ConfigService
 from services.db.database import Database
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture
 async def temp_db():
     """Create a temporary database for testing."""
@@ -62,6 +53,7 @@ async def temp_db():
                 (123, 'roles.bot_admins', '[\"999111222\"]'),
                 (123, 'roles.moderators', '[\"999111223\"]'),
                 (123, 'roles.staff', '[\"999111224\"]'),
+                (123, 'organization.sid', '\"TEST\"'),
                 (1, 'roles.bot_admins', '[\"999111222\"]'),
                 (1, 'roles.moderators', '[\"999111223\"]'),
                 (1, 'roles.staff', '[\"999111224\"]'),
@@ -130,6 +122,18 @@ async def client(temp_db):
     # Reset voice service singleton for fresh test state
     dependencies._voice_service = None
 
+    # Initialize in-memory session store (lifespan won't run under ASGITransport)
+    from core import session_store
+    from core.rate_limit import limiter
+
+    # Ensure a clean session store state for each test in case a previous test
+    # aborted during setup/teardown.
+    with contextlib.suppress(Exception):
+        await session_store.close()
+
+    await session_store.initialize()  # defaults to :memory:
+    limiter.reset()  # clear rate-limit counters between tests
+
     # Import app after database and services are initialized
     from app import app
 
@@ -138,13 +142,15 @@ async def client(temp_db):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
+    await session_store.close()
 
-@pytest.fixture
-def mock_admin_session():
+
+@pytest_asyncio.fixture
+async def mock_admin_session():
     """Create a mock session token for an admin user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "246604397155581954",  # Admin from config
             "username": "TestAdmin",
@@ -172,12 +178,12 @@ def mock_admin_session():
     )
 
 
-@pytest.fixture
-def mock_moderator_session():
+@pytest_asyncio.fixture
+async def mock_moderator_session():
     """Create a mock session token for a moderator user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "1428084144860303511",  # Moderator from config
             "username": "TestModerator",
@@ -195,12 +201,12 @@ def mock_moderator_session():
     )
 
 
-@pytest.fixture
-def mock_unauthorized_session():
+@pytest_asyncio.fixture
+async def mock_unauthorized_session():
     """Create a mock session token for an unauthorized user."""
-    from core.security import create_session_token
+    from core.security import create_session_token_async
 
-    return create_session_token(
+    return await create_session_token_async(
         {
             "user_id": "999999999",
             "username": "UnauthorizedUser",
