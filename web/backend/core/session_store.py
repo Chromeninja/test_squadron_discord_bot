@@ -17,6 +17,7 @@ under WAL mode.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -38,6 +39,7 @@ _init_lock: asyncio.Lock | None = None
 
 # Shared in-memory connection (only used when _db_path == ":memory:")
 _memory_conn: aiosqlite.Connection | None = None
+_memory_conn_loop: asyncio.AbstractEventLoop | None = None
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -73,7 +75,7 @@ async def initialize(db_path: str | Path | None = None) -> None:
         File path for the session SQLite database.  When *None* an in-memory
         database is used (useful for tests).
     """
-    global _db_path, _initialized, _memory_conn
+    global _db_path, _initialized, _memory_conn, _memory_conn_loop
 
     async with _get_lock():
         if _initialized:
@@ -88,6 +90,7 @@ async def initialize(db_path: str | Path | None = None) -> None:
             await _memory_conn.execute(_CREATE_TABLE)
             await _memory_conn.execute(_CREATE_INDEX)
             await _memory_conn.commit()
+            _memory_conn_loop = asyncio.get_running_loop()
         else:
             async with aiosqlite.connect(_db_path) as db:
                 await db.execute("PRAGMA journal_mode=WAL")
@@ -102,12 +105,40 @@ async def initialize(db_path: str | Path | None = None) -> None:
 
 async def close() -> None:
     """Shut down the store and release resources."""
-    global _initialized, _memory_conn, _init_lock
+    global _initialized, _memory_conn, _memory_conn_loop, _init_lock
     if _memory_conn is not None:
         await _memory_conn.close()
         _memory_conn = None
+    _memory_conn_loop = None
     _initialized = False
     _init_lock = None  # recreate in the next event loop
+
+
+async def _ensure_memory_conn_for_current_loop() -> None:
+    """Recreate in-memory connection when pytest/event loop scope changes."""
+    global _memory_conn, _memory_conn_loop
+
+    if _db_path != ":memory:":
+        return
+
+    current_loop = asyncio.get_running_loop()
+    if _memory_conn is not None and _memory_conn_loop is current_loop:
+        return
+
+    async with _get_lock():
+        current_loop = asyncio.get_running_loop()
+        if _memory_conn is not None and _memory_conn_loop is current_loop:
+            return
+
+        if _memory_conn is not None:
+            with contextlib.suppress(Exception):
+                await _memory_conn.close()
+
+        _memory_conn = await aiosqlite.connect(":memory:")
+        await _memory_conn.execute(_CREATE_TABLE)
+        await _memory_conn.execute(_CREATE_INDEX)
+        await _memory_conn.commit()
+        _memory_conn_loop = current_loop
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +154,9 @@ async def _connect():
     operations hit the same data.  For file-backed databases each caller
     gets its own short-lived connection.
     """
+    if _db_path == ":memory:":
+        await _ensure_memory_conn_for_current_loop()
+
     if _memory_conn is not None:
         # Shared in-memory connection — do NOT close it on exit.
         yield _memory_conn

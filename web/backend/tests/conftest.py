@@ -126,6 +126,11 @@ async def client(temp_db):
     from core import session_store
     from core.rate_limit import limiter
 
+    # Ensure a clean session store state for each test in case a previous test
+    # aborted during setup/teardown.
+    with contextlib.suppress(Exception):
+        await session_store.close()
+
     await session_store.initialize()  # defaults to :memory:
     limiter.reset()  # clear rate-limit counters between tests
 
