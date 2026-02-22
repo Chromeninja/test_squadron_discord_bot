@@ -13,7 +13,7 @@ For local development/testing only.
 import os
 import sys
 from contextlib import asynccontextmanager
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 # Import centralized project_root from dependencies
 from core.dependencies import project_root
@@ -23,7 +23,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.types import ExceptionHandler
+
+if TYPE_CHECKING:
+    from starlette.types import ExceptionHandler
 
 # Use centralized project root
 _PROJECT_ROOT = project_root()
@@ -52,12 +54,10 @@ if api_key:
 else:
     logger.warning("INTERNAL_API_KEY not found in environment")
 
+from core import session_store
 from core.dependencies import initialize_services, shutdown_services
 from core.rate_limit import limiter
 from core.request_id import RequestIDMiddleware
-from core import session_store
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from routes import (
     admin_users,
     auth,
@@ -69,6 +69,8 @@ from routes import (
     users,
     voice,
 )
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 
 @asynccontextmanager
@@ -116,7 +118,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(
     RateLimitExceeded,
-    cast(ExceptionHandler, _rate_limit_exceeded_handler),
+    cast("ExceptionHandler", _rate_limit_exceeded_handler),
 )
 
 # CORS configuration - derive from centralized env_config

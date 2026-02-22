@@ -8,11 +8,8 @@ that maps to the real payload stored in ``session_store``.
 
 import asyncio
 import copy
-import json
 import os
 import secrets
-import time
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Response

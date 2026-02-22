@@ -7,14 +7,11 @@ Covers:
   - fetch_html dispatching on method parameter
 """
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from services.db.database import derive_membership_status
-
 
 # =============================================================================
 # derive_membership_status — case-insensitive comparison
@@ -79,6 +76,7 @@ class TestDeriveMembershipStatus:
 async def test_build_embed_is_async_and_awaits_verbosity():
     """build_embed must be a coroutine and must await _verbosity."""
     import inspect
+
     from helpers.leadership_log import build_embed
 
     assert inspect.iscoroutinefunction(build_embed), "build_embed must be async"
@@ -188,7 +186,7 @@ async def test_fetch_html_dispatches_on_method():
 
     # Test GET (default)
     with patch("helpers.http_helper.asyncio.sleep", new_callable=AsyncMock):
-        result = await client.fetch_html("http://example.com", method="GET", retry=False)
+        await client.fetch_html("http://example.com", method="GET", retry=False)
         mock_session.get.assert_called()
 
     # Reset counts
@@ -196,5 +194,5 @@ async def test_fetch_html_dispatches_on_method():
 
     # Test POST
     with patch("helpers.http_helper.asyncio.sleep", new_callable=AsyncMock):
-        result = await client.fetch_html("http://example.com", method="POST", retry=False)
+        await client.fetch_html("http://example.com", method="POST", retry=False)
         mock_session.post.assert_called()

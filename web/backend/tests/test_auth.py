@@ -2,6 +2,8 @@
 Tests for authentication endpoints.
 """
 
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from core.security import (
     create_session_token_async,
@@ -9,7 +11,6 @@ from core.security import (
     generate_oauth_state,
 )
 from httpx import AsyncClient
-from urllib.parse import parse_qs, urlparse
 
 pytestmark = pytest.mark.contract
 
@@ -558,3 +559,36 @@ async def test_session_max_age_is_7_days():
 
     # JWT expiration should be 7 days in hours
     assert JWT_EXPIRATION_HOURS == 24 * 7  # 168 hours
+
+
+@pytest.mark.asyncio
+async def test_bot_invite_url_uses_least_privilege_permissions(client: AsyncClient):
+    """Bot invite URL should not request Administrator permissions by default."""
+
+    owner_session = await create_session_token_async(
+        {
+            "user_id": "1",
+            "username": "BotOwner",
+            "discriminator": "0001",
+            "avatar": None,
+            "authorized_guilds": {},
+            "is_bot_owner": True,
+        }
+    )
+
+    response = await client.get(
+        "/api/auth/bot-invite-url",
+        cookies={"session": owner_session},
+    )
+
+    assert response.status_code == 200
+    invite_url = response.json().get("invite_url")
+    assert invite_url
+
+    parsed = urlparse(invite_url)
+    query = parse_qs(parsed.query)
+
+    assert query.get("scope") == ["bot applications.commands"]
+    assert query.get("permissions") == ["4400715255056"]
+    assert query.get("redirect_uri")
+    assert query["redirect_uri"][0].endswith("/auth/bot-callback")

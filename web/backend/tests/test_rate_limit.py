@@ -3,10 +3,8 @@ Integration test verifying that slowapi rate limits return 429 responses.
 """
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient
-
 from core.rate_limit import limiter
+from httpx import AsyncClient
 
 
 class TestRateLimiting:

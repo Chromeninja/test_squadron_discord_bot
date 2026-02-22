@@ -18,6 +18,7 @@ from core.dependencies import (
     require_fresh_guild_access,
     require_staff,
 )
+from core.env_config import MEMBER_CACHE_MAX_ENTRIES, MEMBER_CACHE_TTL_SECONDS
 from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
 from core.guild_settings import get_organization_settings
 from core.pagination import (
@@ -26,7 +27,6 @@ from core.pagination import (
     clamp_page_size,
     is_all_guilds_mode,
 )
-from core.env_config import MEMBER_CACHE_MAX_ENTRIES, MEMBER_CACHE_TTL_SECONDS
 from core.rate_limit import limiter
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
 from fastapi import APIRouter, Depends, Query, Request
@@ -624,7 +624,7 @@ async def _list_users_single_guild(
 
     items = [
         _enriched_user_from_row(parsed, status, member_data)
-        for (parsed, status), member_data in zip(page_items, member_results)
+        for (parsed, status), member_data in zip(page_items, member_results, strict=False)
     ]
 
     return UsersListResponse(

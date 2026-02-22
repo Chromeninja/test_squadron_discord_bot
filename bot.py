@@ -380,10 +380,14 @@ class MyBot(commands.Bot):
             "view_channel",
             "send_messages",
             "embed_links",
+            "attach_files",
             "read_message_history",
             "use_application_commands",
             "connect",
             "move_members",
+            "priority_speaker",
+            "use_voice_activation",
+            "use_soundboard",
         ]
 
         if not guild or not guild.me:

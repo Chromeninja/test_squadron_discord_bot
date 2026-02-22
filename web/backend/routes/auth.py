@@ -7,9 +7,7 @@ from urllib.parse import urlencode
 
 import httpx
 from core.dependencies import (
-    ConfigLoader,
     InternalAPIClient,
-    get_config_loader,
     get_internal_api_client,
     require_any_guild_access,
     require_is_bot_owner,
@@ -26,6 +24,7 @@ from core.env_config import (
     DISCORD_TOKEN_URL,
     FRONTEND_URL,
 )
+from core.rate_limit import limiter
 from core.schemas import (
     AuthMeResponse,
     GuildListResponse,
@@ -42,7 +41,6 @@ from core.security import (
     set_session_cookie,
     validate_oauth_state,
 )
-from core.rate_limit import limiter
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -53,6 +51,15 @@ logger = logging.getLogger(__name__)
 
 # Discord permission bitfield for Administrator
 ADMINISTRATOR_PERMISSION = 0x0000000000000008
+
+# Least-privilege permission bitfield covering every Discord permission
+# the bot exercises at runtime (guild-level grants required for channel
+# overwrite escalation per Discord API rules):
+#   manage_roles, manage_channels, change_nickname, manage_nicknames,
+#   view_channel, send_messages, embed_links, attach_files,
+#   read_message_history, use_application_commands, connect,
+#   move_members, priority_speaker, use_voice_activation, use_soundboard
+DEFAULT_BOT_INVITE_PERMISSIONS = 4400715255056
 
 _BOT_CALLBACK_ALLOWED_ERRORS = {
     "access_denied",
@@ -443,7 +450,7 @@ async def callback(request: Request, code: str, state: str | None = None):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Unhandled error in OAuth callback")
         raise HTTPException(status_code=500, detail="Internal server error during authentication.")
 
@@ -666,23 +673,19 @@ async def logout(response: Response):
 @api_router.get("/bot-invite-url")
 async def get_bot_invite_url(
     current_user: UserProfile = Depends(require_is_bot_owner),
-    config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """
     Get Discord bot authorization URL for inviting bot to a server.
 
-    Bot owner only - uses bot permissions from config and sets redirect URI to bot callback endpoint.
+    Bot owner only - uses hard-coded least-privilege bot permissions
+    and sets redirect URI to bot callback endpoint.
 
     Returns:
         JSON with invite_url field
     """
-    # Use centralized ConfigLoader (already initialized at startup)
-    config_dict = config_loader.load_config()
-    bot_permissions = config_dict.get("discord", {}).get("bot_permissions", 8)
-
     params = {
         "client_id": DISCORD_CLIENT_ID,
-        "permissions": str(bot_permissions),
+        "permissions": str(DEFAULT_BOT_INVITE_PERMISSIONS),
         "scope": "bot applications.commands",
         "redirect_uri": DISCORD_BOT_REDIRECT_URI,
     }

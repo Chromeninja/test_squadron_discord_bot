@@ -1541,13 +1541,12 @@ class VoiceService(BaseService):
                     f"Channel {channel.name} (ID: {channel.id}) is now empty, performing immediate cleanup"
                 )
                 await self._cleanup_empty_channel(channel)
-            else:
-                if self.debug_logging_enabled:
-                    self.logger.debug(
-                        "Channel %s still has %d members, no cleanup needed",
-                        channel.name,
-                        member_count,
-                    )
+            elif self.debug_logging_enabled:
+                self.logger.debug(
+                    "Channel %s still has %d members, no cleanup needed",
+                    channel.name,
+                    member_count,
+                )
         except Exception as e:
             self.logger.exception("Error handling channel left", exc_info=e)
 

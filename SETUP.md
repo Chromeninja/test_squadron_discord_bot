@@ -265,7 +265,7 @@ cd /home/chrome/test_squadron_discord_bot
 git pull
 source .venv/bin/activate
 pip install -r requirements.txt -r web/backend/requirements.txt
-cd web/frontend && npm install && VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build && cd ../..
+cd web/frontend && npm install && npm run build && cd ../..
 sudo systemctl start test_squadron_backend test_squadron_bot
 ```
 
@@ -329,6 +329,33 @@ Verify:
 ```bash
 grep -E 'ENV|PUBLIC_URL|FRONTEND_URL' .env
 sudo journalctl -u test_squadron_backend -n 20 | grep -i frontend_url
+```
+
+### Invalid OAuth2 redirect URL (Discord)
+
+This means the callback URL in Discord Developer Portal does not exactly match what the backend is using.
+
+1. Set `PUBLIC_URL` in `.env` (no trailing slash), e.g. `PUBLIC_URL=https://your-domain.com`.
+2. In Discord Developer Portal → **OAuth2** → **Redirects**, add both exact URLs:
+     - `PUBLIC_URL/auth/callback`
+     - `PUBLIC_URL/auth/bot-callback`
+3. Save in the portal, then restart backend: `sudo systemctl restart test_squadron_backend`.
+4. Verify backend-derived URLs:
+
+```bash
+grep -E 'PUBLIC_URL|ENV' .env
+sudo journalctl -u test_squadron_backend -n 50 --no-pager | grep -Ei 'discord_redirect_uri|public_url'
+```
+
+### Bot invite asks for Administrator permission
+
+Bot invite permissions are hard-coded to least-privilege in the backend.
+
+If your invite screen still shows Administrator, restart backend so `/api/auth/bot-invite-url`
+serves the current code:
+
+```bash
+sudo systemctl restart test_squadron_backend
 ```
 
 ### Services fail to start

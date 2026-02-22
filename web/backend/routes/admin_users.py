@@ -113,7 +113,6 @@ async def recheck_user(
         (user_id_int,),
     )
     row = await cursor.fetchone()
-    old_rsi_handle = row[0] if row else None
 
     # Determine old status from org lists
     import json

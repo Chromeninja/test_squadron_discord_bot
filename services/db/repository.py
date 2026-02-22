@@ -336,7 +336,7 @@ def parse_snowflake_strict(value: Any, name: str = "ID") -> int:
 # -----------------------------------------------------------------------------
 
 # Canonical implementation lives in database.py; re-export for backward compat
-from .database import derive_membership_status  # noqa: F401
+from .database import derive_membership_status
 
 
 def parse_org_lists(
