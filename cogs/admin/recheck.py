@@ -12,7 +12,7 @@ from helpers.http_helper import NotFoundError
 from helpers.leadership_log import EventType, resolve_leadership_channel
 from helpers.task_queue import flush_tasks
 from helpers.username_404 import handle_username_404
-from helpers.verification_logging import log_guild_sync
+from helpers.verification_logging import _has_meaningful_change, log_guild_sync
 from services.db.database import Database
 from services.guild_sync import sync_user_to_all_guilds
 from services.verification_scheduler import (
@@ -24,24 +24,6 @@ from services.verification_state import compute_global_state, store_global_state
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def _auto_diff_changed(diff: dict) -> bool:
-    if not diff:
-        return False
-
-    return any(
-        [
-            diff.get("status_before") != diff.get("status_after"),
-            diff.get("moniker_before") != diff.get("moniker_after"),
-            diff.get("handle_before") != diff.get("handle_after"),
-            diff.get("username_before") != diff.get("username_after"),
-            diff.get("main_orgs_before") != diff.get("main_orgs_after"),
-            diff.get("affiliate_orgs_before") != diff.get("affiliate_orgs_after"),
-            bool(diff.get("roles_added")),
-            bool(diff.get("roles_removed")),
-        ]
-    )
 
 
 def _build_auto_check_csv(rows: list[dict], guild_name: str) -> tuple[str, bytes]:
@@ -259,7 +241,7 @@ class AutoRecheck(commands.Cog):
             for res in results:
                 summary = guild_summaries[res.guild_id]
                 summary["checked"] += 1
-                if _auto_diff_changed(res.diff):
+                if _has_meaningful_change(res.diff):
                     summary["changed"] += 1
                     summary["rows"].append({"member": res.member, "diff": res.diff})
 
@@ -347,7 +329,12 @@ class AutoRecheck(commands.Cog):
                 )
 
     async def _post_auto_summaries(self, guild_summaries: dict[int, dict]) -> None:
-        """Post per-guild auto-check summaries to the leadership channel."""
+        """Post per-guild auto-check summaries to the leadership channel.
+
+        Always posts when at least one member was checked, even if there
+        are zero changes.  A CSV attachment is included only when there
+        are actual changes.
+        """
         for guild_id, data in guild_summaries.items():
             checked = data.get("checked", 0)
             changed = data.get("changed", 0)

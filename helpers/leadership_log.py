@@ -78,7 +78,6 @@ class ChangeSet:
     duration_ms: int = 0
 
     def __post_init__(self):
-        # Normalize legacy string literals to enums for safety
         if isinstance(self.event, str):
             try:
                 self.event = EventType(self.event)

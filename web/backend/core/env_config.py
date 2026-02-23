@@ -89,9 +89,6 @@ INTERNAL_API_PORT = int(os.getenv("INTERNAL_API_PORT", "8082"))
 INTERNAL_API_URL = f"http://{INTERNAL_API_HOST}:{INTERNAL_API_PORT}"
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
-# ---------------------------------------------------------------------------
-# Bot Owner IDs (supports list and legacy single env var)
-# ---------------------------------------------------------------------------
 def _parse_owner_ids(raw: str) -> set[int]:
     owner_ids: set[int] = set()
     for _id_str in raw.split(","):

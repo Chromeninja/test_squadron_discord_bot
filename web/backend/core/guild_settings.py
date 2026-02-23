@@ -272,7 +272,6 @@ AFFILIATE_ROLE_KEY = "roles.affiliate_role"
 NONMEMBER_ROLE_KEY = "roles.nonmember_role"
 SELECTABLE_ROLES_KEY = "selectable_roles"
 DELEGATION_POLICIES_KEY = "roles.delegation_policies"
-# Compatibility alias retained until callers are migrated.
 ROLE_DELEGATION_POLICIES_KEY = DELEGATION_POLICIES_KEY
 
 SETTINGS_VERSION_KEY = "meta.settings_version"

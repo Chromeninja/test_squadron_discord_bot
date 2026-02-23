@@ -16,7 +16,6 @@ DEFAULT_PAGE_SIZE_VOICE = 50
 MAX_PAGE_SIZE_USERS = 200
 MAX_PAGE_SIZE_VOICE = 100
 
-# Legacy maximum (for backward compatibility with existing search endpoints)
 LEGACY_MAX_PAGE_SIZE = 100
 
 

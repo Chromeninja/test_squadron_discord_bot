@@ -61,9 +61,6 @@ __all__ = [
     "validate_oauth_state",
 ]
 
-# OAuth state management: in-memory store with 5-minute expiration.
-# Acceptable for single-instance deployments. If scaling to multiple instances
-# or workers, migrate to Redis or database-backed storage.
 _oauth_states: dict[str, float] = {}
 
 
