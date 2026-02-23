@@ -101,6 +101,7 @@ class InternalAPIServer:
         self.app.router.add_get("/guilds/{guild_id}/metrics/games/top", self.get_metrics_top_games)
         self.app.router.add_get("/guilds/{guild_id}/metrics/timeseries", self.get_metrics_timeseries)
         self.app.router.add_get("/guilds/{guild_id}/metrics/user/{user_id}", self.get_metrics_user)
+        self.app.router.add_delete("/guilds/{guild_id}/metrics/user/{user_id}", self.delete_metrics_user)
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -133,11 +134,12 @@ class InternalAPIServer:
         """Check if request has valid API key.
 
         A key is always present — either from env or auto-generated at startup.
+        Uses constant-time comparison to prevent timing side-channels.
         """
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-            return token == self.api_key
+            return secrets.compare_digest(token, self.api_key)
 
         return False
 
@@ -1378,4 +1380,35 @@ class InternalAPIServer:
             logger.exception("Error fetching user metrics")
             return web.json_response(
                 {"error": f"Failed to fetch user metrics: {e!s}"}, status=500
+            )
+
+    async def delete_metrics_user(self, request: web.Request) -> web.Response:
+        """
+        Delete all metrics data for a specific user in a guild (data erasure).
+
+        Path: DELETE /guilds/{guild_id}/metrics/user/{user_id}
+        Headers: Authorization: Bearer <api_key>
+
+        Returns: { "deleted": { table_name: row_count, ... } }
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+            user_id = int(request.match_info["user_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild/user ID"}, status=400)
+
+        try:
+            deleted = await metrics.delete_user_metrics(guild_id, user_id)
+            return web.json_response({"deleted": deleted})
+        except Exception:
+            logger.exception("Error deleting user metrics")
+            return web.json_response(
+                {"error": "Failed to delete user metrics"}, status=500
             )

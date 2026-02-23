@@ -1142,3 +1142,14 @@ class InternalAPIClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def delete_metrics_user(
+        self, guild_id: int, user_id: int
+    ) -> dict:
+        """Delete all metrics data for a specific user (data erasure)."""
+        client = await self._get_client()
+        response = await client.delete(
+            f"/guilds/{guild_id}/metrics/user/{user_id}"
+        )
+        response.raise_for_status()
+        return response.json()

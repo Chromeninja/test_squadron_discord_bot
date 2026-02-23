@@ -80,8 +80,9 @@ The bot requires specific Discord permissions to function properly. **Do not gra
 Metrics collection depends on privileged intents. In Discord Developer Portal → **Bot**:
 
 - Enable **SERVER MEMBERS INTENT**
-- Enable **MESSAGE CONTENT INTENT** (required for message metrics)
 - Enable **PRESENCE INTENT** (required for game/activity metrics)
+
+> **Note:** The `messages` intent (non-privileged) is used to receive message events for counting. The **MESSAGE CONTENT** privileged intent is **not** required — the bot only counts messages, it never reads their content.
 
 Voice time metrics are tracked from voice state events across **all voice channels**, not just channels created by the bot.
 

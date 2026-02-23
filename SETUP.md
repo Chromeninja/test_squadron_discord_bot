@@ -15,10 +15,11 @@ Deploy the Discord bot, FastAPI backend, and Vite frontend on a single Debian-ba
 In Discord Developer Portal → **Bot**, enable these intents before starting services:
 
 - **SERVER MEMBERS INTENT**
-- **MESSAGE CONTENT INTENT**
 - **PRESENCE INTENT**
 
-Without message content and presence intents, metrics pages will load but message/game data will remain empty.
+> **Note:** The `messages` intent (non-privileged) is used to receive message events for counting. The **MESSAGE CONTENT** privileged intent is **not** required — the bot only counts messages, it never reads their content.
+
+Without the presence intent, metrics pages will load but game/activity data will remain empty.
 
 ## 1. System Prep (root or sudo)
 

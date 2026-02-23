@@ -103,7 +103,6 @@ intents.members = True  # Required: Member join/leave, role updates for verifica
 intents.voice_states = True  # Required: Voice channel join/leave for voice system
 intents.messages = True  # Required: Receive guild message events for metrics
 intents.presences = True  # Required: Game/activity tracking for metrics
-intents.message_content = True  # Required: Message counting for metrics
 
 # List of initial extensions to load
 initial_extensions = [

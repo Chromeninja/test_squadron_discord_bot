@@ -1004,6 +1004,61 @@ class MetricsService(BaseService):
             self.logger.exception("Failed to purge old metrics data")
 
     # ------------------------------------------------------------------
+    # Per-user data erasure (GDPR / Discord data deletion)
+    # ------------------------------------------------------------------
+
+    async def delete_user_metrics(self, guild_id: int, user_id: int) -> dict[str, int]:
+        """
+        Delete all metrics data for a specific user in a guild.
+
+        Returns a dict mapping table name -> number of rows deleted.
+        Used to honour data-deletion / right-to-erasure requests.
+        """
+        self._ensure_initialized()
+        deleted: dict[str, int] = {}
+
+        # Also purge the in-memory buffers for this user
+        async with self._message_buffer_lock:
+            keys_to_remove = [
+                k for k in self._message_buffer if k[0] == guild_id and k[1] == user_id
+            ]
+            for k in keys_to_remove:
+                del self._message_buffer[k]
+
+        self._voice_sessions.pop((guild_id, user_id), None)
+        self._game_sessions.pop((guild_id, user_id), None)
+
+        try:
+            async with MetricsDatabase.get_connection() as db:
+                for table in (
+                    "voice_sessions",
+                    "game_sessions",
+                    "message_counts",
+                    "metrics_user_hourly",
+                ):
+                    cursor = await db.execute(
+                        f"DELETE FROM {table} WHERE guild_id = ? AND user_id = ?",
+                        (guild_id, user_id),
+                    )
+                    deleted[table] = cursor.rowcount
+                await db.commit()
+        except Exception:
+            self.logger.exception(
+                "Failed to delete metrics for user %d in guild %d",
+                user_id,
+                guild_id,
+            )
+            raise
+
+        self.logger.info(
+            "Deleted metrics for user %d in guild %d: %s",
+            user_id,
+            guild_id,
+            deleted,
+        )
+        return deleted
+
+    # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
 

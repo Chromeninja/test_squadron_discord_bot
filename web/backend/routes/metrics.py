@@ -62,8 +62,8 @@ async def get_metrics_overview(
     try:
         result = await internal_api.get_metrics_overview(guild_id, days=days)
         return MetricsOverviewResponse(data=MetricsOverview(**result))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Metrics unavailable: {e!s}")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Metrics unavailable")
 
 
 @router.get("/voice/leaderboard", response_model=LeaderboardResponse)
@@ -85,9 +85,9 @@ async def get_voice_leaderboard(
             guild_id, days=days, limit=limit
         )
         return LeaderboardResponse(entries=result.get("entries", []))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=502, detail=f"Voice leaderboard unavailable: {e!s}"
+            status_code=502, detail="Voice leaderboard unavailable"
         )
 
 
@@ -110,9 +110,9 @@ async def get_message_leaderboard(
             guild_id, days=days, limit=limit
         )
         return LeaderboardResponse(entries=result.get("entries", []))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=502, detail=f"Message leaderboard unavailable: {e!s}"
+            status_code=502, detail="Message leaderboard unavailable"
         )
 
 
@@ -135,9 +135,9 @@ async def get_top_games(
             guild_id, days=days, limit=limit
         )
         return TopGamesResponse(games=result.get("games", []))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=502, detail=f"Game stats unavailable: {e!s}"
+            status_code=502, detail="Game stats unavailable"
         )
 
 
@@ -166,9 +166,9 @@ async def get_timeseries(
             days=result.get("days", days),
             data=result.get("data", []),
         )
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=502, detail=f"Timeseries unavailable: {e!s}"
+            status_code=502, detail="Timeseries unavailable"
         )
 
 
@@ -191,7 +191,31 @@ async def get_user_metrics(
     try:
         result = await internal_api.get_metrics_user(guild_id, user_id, days=days)
         return UserMetricsResponse(data=UserMetrics(**result))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=502, detail=f"User metrics unavailable: {e!s}"
+            status_code=502, detail="User metrics unavailable"
+        )
+
+
+@router.delete("/user/{user_id}")
+async def delete_user_metrics(
+    user_id: int,
+    current_user: UserProfile = Depends(require_bot_admin()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """
+    Delete all metrics data for a specific user (data erasure).
+
+    Supports GDPR right-to-erasure and Discord data deletion requests.
+
+    Requires: Bot Admin role or higher
+    """
+    guild_id = _resolve_guild_id(current_user)
+
+    try:
+        result = await internal_api.delete_metrics_user(guild_id, user_id)
+        return result
+    except Exception:
+        raise HTTPException(
+            status_code=502, detail="Failed to delete user metrics"
         )

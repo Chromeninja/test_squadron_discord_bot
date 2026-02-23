@@ -31,6 +31,7 @@ This document explains what personal data TEST Clanker processes, why it is proc
 ## How Deletion Requests Are Processed
 - Users open a Discord support ticket requesting deletion.
 - Staff verify ownership, then remove verification records, voice channel preferences, metrics records, and related audit entries using the existing admin tooling.
+- Per-user metrics deletion is supported via the admin dashboard API (`DELETE /api/metrics/user/{user_id}`), which purges all voice sessions, game sessions, message counts, and per-user rollup records for the user in the selected guild.
 - Direct messages are not stored; we never archive message content.
 
 ## Retention
