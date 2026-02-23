@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response models.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Auth schemas
@@ -451,6 +451,8 @@ class MetricsSettings(BaseModel):
     """Guild-scoped metrics collection settings."""
 
     excluded_channel_ids: list[str] = Field(default_factory=list)
+    tracked_games_mode: str = Field(default="all")  # "all" or "specific"
+    tracked_games: list[str] = Field(default_factory=list)
 
 
 class RoleDelegationConfig(BaseModel):
@@ -721,12 +723,22 @@ class UserMetrics(BaseModel):
     """Detailed metrics for a single user."""
 
     user_id: str
+    username: str | None = None
+    avatar_url: str | None = None
     total_messages: int = 0
     total_voice_seconds: int = 0
     avg_messages_per_day: float = 0.0
     avg_voice_per_day: int = 0
     top_games: list[UserGameStats] = []
     timeseries: list[UserTimeSeriesPoint] = []
+    # Per-dimension activity tiers
+    voice_tier: str | None = None
+    chat_tier: str | None = None
+    game_tier: str | None = None
+    combined_tier: str | None = None
+    last_voice_at: int | None = None
+    last_chat_at: int | None = None
+    last_game_at: int | None = None
 
 
 class UserMetricsResponse(BaseModel):
@@ -734,3 +746,31 @@ class UserMetricsResponse(BaseModel):
 
     success: bool = True
     data: UserMetrics
+
+
+class ActivityTierCounts(BaseModel):
+    """Counts of members per activity tier for one dimension."""
+
+    hardcore: int = 0
+    regular: int = 0
+    casual: int = 0
+    reserve: int = 0
+    inactive: int = 0
+
+
+class ActivityGroupCounts(BaseModel):
+    """Per-dimension activity group counts."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    all: ActivityTierCounts = Field(default_factory=ActivityTierCounts, validation_alias="combined")
+    voice: ActivityTierCounts = Field(default_factory=ActivityTierCounts)
+    chat: ActivityTierCounts = Field(default_factory=ActivityTierCounts)
+    game: ActivityTierCounts = Field(default_factory=ActivityTierCounts)
+
+
+class ActivityGroupCountsResponse(BaseModel):
+    """Response for /api/metrics/activity-groups."""
+
+    success: bool = True
+    data: ActivityGroupCounts

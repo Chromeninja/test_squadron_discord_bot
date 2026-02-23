@@ -275,7 +275,6 @@ class VoiceService(BaseService):
                 self.logger.info(log_msg)
 
         except sqlite3.OperationalError as exc:
-            # Handle missing tables gracefully (e.g., migrations not yet applied)
             self.logger.warning(
                 "Voice tables unavailable while loading managed channels: %s", exc
             )

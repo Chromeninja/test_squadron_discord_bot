@@ -90,6 +90,8 @@ export interface VoiceSelectableRolesPayload {
 
 export interface MetricsSettingsPayload {
   excluded_channel_ids: string[];
+  tracked_games_mode?: string;
+  tracked_games?: string[];
 }
 
 export interface OrganizationSettingsPayload {
@@ -486,12 +488,44 @@ export interface UserTimeSeriesPoint {
 
 export interface UserMetrics {
   user_id: string;
+  username?: string | null;
+  avatar_url?: string | null;
   total_messages: number;
   total_voice_seconds: number;
   avg_messages_per_day: number;
   avg_voice_per_day: number;
   top_games: UserGameStats[];
   timeseries: UserTimeSeriesPoint[];
+  voice_tier?: string | null;
+  chat_tier?: string | null;
+  game_tier?: string | null;
+  combined_tier?: string | null;
+  last_voice_at?: number | null;
+  last_chat_at?: number | null;
+  last_game_at?: number | null;
+}
+
+export type ActivityDimension = 'all' | 'voice' | 'chat' | 'game';
+export type ActivityTier = 'hardcore' | 'regular' | 'casual' | 'reserve' | 'inactive';
+
+export interface ActivityTierCounts {
+  hardcore: number;
+  regular: number;
+  casual: number;
+  reserve: number;
+  inactive: number;
+}
+
+export interface ActivityGroupCounts {
+  all: ActivityTierCounts;
+  voice: ActivityTierCounts;
+  chat: ActivityTierCounts;
+  game: ActivityTierCounts;
+}
+
+export interface ActivityGroupCountsResponse {
+  success: boolean;
+  data: ActivityGroupCounts;
 }
 
 // ============================================================================
@@ -499,42 +533,69 @@ export interface UserMetrics {
 // ============================================================================
 
 export const metricsApi = {
-  getOverview: async (days: number = 7) => {
+  getOverview: async (days: number = 7, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
+    const params: Record<string, any> = { days };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; data: MetricsOverview }>(
       '/api/metrics/overview',
-      { params: { days } }
+      { params }
     );
     return response.data;
   },
 
-  getVoiceLeaderboard: async (days: number = 7, limit: number = 10) => {
+  getVoiceLeaderboard: async (days: number = 7, limit: number = 10, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
+    const params: Record<string, any> = { days, limit };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; entries: VoiceLeaderboardEntry[] }>(
       '/api/metrics/voice/leaderboard',
-      { params: { days, limit } }
+      { params }
     );
-    return response.data;
+    return {
+      ...response.data,
+      entries: (response.data.entries || []).map((entry) => ({
+        ...entry,
+        user_id: String((entry as any).user_id),
+      })),
+    };
   },
 
-  getMessageLeaderboard: async (days: number = 7, limit: number = 10) => {
+  getMessageLeaderboard: async (days: number = 7, limit: number = 10, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
+    const params: Record<string, any> = { days, limit };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; entries: MessageLeaderboardEntry[] }>(
       '/api/metrics/messages/leaderboard',
-      { params: { days, limit } }
+      { params }
     );
-    return response.data;
+    return {
+      ...response.data,
+      entries: (response.data.entries || []).map((entry) => ({
+        ...entry,
+        user_id: String((entry as any).user_id),
+      })),
+    };
   },
 
-  getTopGames: async (days: number = 7, limit: number = 10) => {
+  getTopGames: async (days: number = 7, limit: number = 10, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
+    const params: Record<string, any> = { days, limit };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; games: GameStatsEntry[] }>(
       '/api/metrics/games/top',
-      { params: { days, limit } }
+      { params }
     );
     return response.data;
   },
 
-  getTimeSeries: async (metric: string = 'messages', days: number = 7) => {
+  getTimeSeries: async (metric: string = 'messages', days: number = 7, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
+    const params: Record<string, any> = { metric, days };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; metric: string; days: number; data: TimeSeriesPoint[] }>(
       '/api/metrics/timeseries',
-      { params: { metric, days } }
+      { params }
     );
     return response.data;
   },
@@ -543,6 +604,21 @@ export const metricsApi = {
     const response = await apiClient.get<{ success: boolean; data: UserMetrics }>(
       `/api/metrics/user/${userId}`,
       { params: { days } }
+    );
+    return response.data;
+  },
+
+  getActivityGroups: async (
+    days: number = 7,
+    dimension?: ActivityDimension | ActivityDimension[],
+    tier?: ActivityTier | ActivityTier[]
+  ) => {
+    const params: Record<string, any> = { days };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
+    const response = await apiClient.get<ActivityGroupCountsResponse>(
+      '/api/metrics/activity-groups',
+      { params }
     );
     return response.data;
   },

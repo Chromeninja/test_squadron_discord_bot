@@ -39,7 +39,6 @@ async def get_last_errors(
     try:
         result = await internal_api.get_last_errors(limit=limit)
 
-        # Transform to structured error objects, mapping legacy keys
         transformed: list[StructuredError] = []
         for error in result.get("errors", []):
             if not isinstance(error, dict):

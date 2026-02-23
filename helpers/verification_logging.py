@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from helpers.announcement import enqueue_announcement_for_guild
+from helpers.daily_activity_tracker import DailyActivityTracker
 from helpers.leadership_log import (
     ChangeSet,
     EventType,
@@ -81,10 +82,64 @@ def _maybe_announce(sync_result, diff: dict, bot) -> None:
         logger.warning("Failed to queue public announcement: %s", e)
 
 
+def _has_meaningful_change(diff: dict) -> bool:
+    """Return True when any before/after field actually differs."""
+    if not diff:
+        return False
+    return any(
+        [
+            diff.get("status_before") != diff.get("status_after"),
+            diff.get("moniker_before") != diff.get("moniker_after"),
+            diff.get("handle_before") != diff.get("handle_after"),
+            diff.get("username_before") != diff.get("username_after"),
+            diff.get("main_orgs_before") != diff.get("main_orgs_after"),
+            diff.get("affiliate_orgs_before") != diff.get("affiliate_orgs_after"),
+            bool(diff.get("roles_added")),
+            bool(diff.get("roles_removed")),
+        ]
+    )
+
+
+def _track_daily_activity(
+    guild_id: int | None,
+    event: EventType,
+    initiator_info: dict[str, Any],
+    diff: dict | None,
+) -> None:
+    """Classify the event and record it in the daily activity tracker."""
+    if not guild_id:
+        return
+
+    tracker = DailyActivityTracker.get()
+    kind = initiator_info.get("kind", InitiatorKind.AUTO)
+
+    changed = _has_meaningful_change(diff) if diff else False
+    tracker.record_check(guild_id, changed=changed)
+
+    # Category classification — admin-triggered rechecks count in both buckets
+    is_admin = event in (EventType.ADMIN_ACTION, EventType.ADMIN_CHECK) or kind in (
+        InitiatorKind.ADMIN,
+        "Admin",
+    )
+    is_recheck = event in (EventType.RECHECK, EventType.AUTO_CHECK)
+
+    if event == EventType.VERIFICATION and kind in (InitiatorKind.USER, "User"):
+        tracker.record_first_time_manual(guild_id)
+    else:
+        if is_admin:
+            tracker.record_admin(guild_id)
+        if is_recheck:
+            tracker.record_recheck(guild_id)
+
+
 async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None) -> None:
     """Post leadership log entry based on diff and event type."""
     diff = sync_result.diff
     initiator_info = initiator or {}
+
+    # Track daily activity before suppression so all attempts are counted
+    _track_daily_activity(sync_result.guild_id, event, initiator_info, diff)
+
     notes = initiator_info.get("notes")
     if _should_suppress(diff, notes=notes):
         return

@@ -8,7 +8,9 @@ from discord.ext import commands, tasks
 
 from helpers.bot_utils import get_guild_org_sid
 from helpers.constants import DEFAULT_ORG_SID
+from helpers.daily_activity_tracker import DailyActivityTracker
 from helpers.discord_api import channel_send_message
+from helpers.leadership_log import resolve_leadership_channel
 from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
@@ -842,14 +844,75 @@ class BulkAnnouncer(commands.Cog):
         )
         return int(count)
 
+    # ---------- Daily leadership summary ----------
+
+    async def _post_daily_leadership_summary(self) -> None:
+        """Post a once-daily summary to each guild's leadership channel.
+
+        Includes total checked, changed, first-time manual, recheck, and
+        admin-triggered counts.  Counters are always reset after the
+        snapshot regardless of send outcome (reset-on-flush policy).
+        """
+        tracker = DailyActivityTracker.get()
+        snapshot = tracker.snapshot_and_reset()
+
+        if not snapshot:
+            logger.debug("DailyLeadershipSummary: nothing to report.")
+            return
+
+        for guild_id, totals in snapshot.items():
+            checked = totals.get("checked", 0)
+            changed = totals.get("changed", 0)
+            first_time = totals.get("first_time_manual", 0)
+            recheck = totals.get("recheck", 0)
+            admin = totals.get("admin", 0)
+
+            if checked == 0:
+                continue
+
+            channel = await resolve_leadership_channel(self.bot, guild_id)
+            if not channel:
+                logger.debug(
+                    "DailyLeadershipSummary: no leadership channel for guild %s",
+                    guild_id,
+                )
+                continue
+
+            lines = [
+                "📊 **Daily Verification Summary**",
+                f"• Checked: **{checked}**",
+                f"• Changed: **{changed}**",
+                f"• First-time verifications: **{first_time}**",
+                f"• Rechecks: **{recheck}**",
+                f"• Admin-triggered: **{admin}**",
+            ]
+            content = "\n".join(lines)
+
+            try:
+                await channel.send(content)
+                logger.info(
+                    "DailyLeadershipSummary sent for guild %s: checked=%d changed=%d",
+                    guild_id,
+                    checked,
+                    changed,
+                )
+            except Exception as e:
+                logger.warning(
+                    "DailyLeadershipSummary: failed for guild %s: %s",
+                    guild_id,
+                    e,
+                )
+
             # ---------- Tasks ----------
 
     @tasks.loop()
     async def daily_flush(self):
         """
         Fires at the configured UTC time daily, flushing all pending events.
+        Also posts a daily leadership summary with verification activity totals.
         """
         await self.flush_pending()
+        await self._post_daily_leadership_summary()
 
     @daily_flush.before_loop
     async def before_daily(self):

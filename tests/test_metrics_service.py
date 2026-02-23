@@ -556,7 +556,20 @@ class TestQueryMethods:
         assert [point["value"] for point in voice_series] == [300, 120]
 
         games_series = await metrics_service.get_timeseries(guild_id=100, metric="games", days=7)
+        assert [point["value"] for point in games_series] == [300, 60]
+        assert [point["unique_users"] for point in games_series] == [2, 1]
         assert [point["top_game"] for point in games_series] == ["Star Citizen", "EVE Online"]
+
+        filtered_games_series = await metrics_service.get_timeseries(
+            guild_id=100,
+            metric="games",
+            days=7,
+            user_ids=[2],
+        )
+        assert len(filtered_games_series) == 1
+        assert filtered_games_series[0]["value"] == 100
+        assert filtered_games_series[0]["unique_users"] == 1
+        assert filtered_games_series[0]["top_game"] == "Star Citizen"
 
     @pytest.mark.asyncio
     async def test_get_top_games_empty(
@@ -689,3 +702,204 @@ class TestHealthCheck:
         assert health["active_voice_sessions"] == 1
         assert health["message_buffer_size"] == 1
         assert health["total_messages_buffered"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Tier derivation
+# ---------------------------------------------------------------------------
+
+
+class TestTierFromRecency:
+    """Unit tests for the static _tier_from_recency helper."""
+
+    def test_none_last_active_is_inactive(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(None, now) == "inactive"
+
+    def test_within_24h_is_hardcore(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 3600, now) == "hardcore"
+
+    def test_exactly_24h_is_hardcore(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 24 * 3600, now) == "hardcore"
+
+    def test_just_over_24h_is_regular(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 24 * 3600 - 1, now) == "regular"
+
+    def test_within_3d_is_regular(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 2 * 86400, now) == "regular"
+
+    def test_exactly_3d_is_regular(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 3 * 86400, now) == "regular"
+
+    def test_just_over_3d_is_casual(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 3 * 86400 - 1, now) == "casual"
+
+    def test_within_7d_is_casual(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 5 * 86400, now) == "casual"
+
+    def test_exactly_7d_is_casual(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 7 * 86400, now) == "casual"
+
+    def test_just_over_7d_is_reserve(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 7 * 86400 - 1, now) == "reserve"
+
+    def test_within_30d_is_reserve(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 20 * 86400, now) == "reserve"
+
+    def test_exactly_30d_is_reserve(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 30 * 86400, now) == "reserve"
+
+    def test_over_30d_is_inactive(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now - 31 * 86400, now) == "inactive"
+
+    def test_zero_age_is_hardcore(self) -> None:
+        now = int(time.time())
+        assert MetricsService._tier_from_recency(now, now) == "hardcore"
+
+
+# ---------------------------------------------------------------------------
+# Activity bucket computation (integration)
+# ---------------------------------------------------------------------------
+
+
+class TestActivityBuckets:
+    """Integration tests for get_member_activity_buckets with real DB."""
+
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty(self, metrics_service: MetricsService) -> None:
+        result = await metrics_service.get_member_activity_buckets(guild_id=999)
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_chat_activity_populates_chat_tier(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now = int(time.time())
+        # Record a message and flush so it goes to DB
+        metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, now_utc=now
+        )
+        assert 1 in result
+        assert result[1]["chat_tier"] == "hardcore"
+        # voice_tier should be absent or inactive since there's no voice data
+        assert result[1].get("voice_tier", "inactive") == "inactive"
+
+    @pytest.mark.asyncio
+    async def test_voice_activity_populates_voice_tier(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now = int(time.time())
+        await metrics_service.record_voice_join(guild_id=100, user_id=2, channel_id=10)
+        await metrics_service.record_voice_leave(guild_id=100, user_id=2)
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, now_utc=now
+        )
+        assert 2 in result
+        assert result[2]["voice_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_combined_tier_uses_most_recent(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now = int(time.time())
+        metrics_service.record_message(guild_id=100, user_id=3, channel_id=10)
+        await metrics_service._flush_message_buffer()
+        await metrics_service.record_voice_join(guild_id=100, user_id=3, channel_id=10)
+        await metrics_service.record_voice_leave(guild_id=100, user_id=3)
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, now_utc=now
+        )
+        assert 3 in result
+        assert result[3]["combined_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_group_counts_structure(
+        self, metrics_service: MetricsService
+    ) -> None:
+        # Record some activity to get non-empty results
+        metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        counts = await metrics_service.get_activity_group_counts(guild_id=100)
+        assert "voice" in counts
+        assert "chat" in counts
+        assert "game" in counts
+        assert "combined" in counts
+        for dim_counts in counts.values():
+            for tier in ("hardcore", "regular", "casual", "reserve", "inactive"):
+                assert tier in dim_counts
+
+    @pytest.mark.asyncio
+    async def test_get_user_ids_for_tier(
+        self, metrics_service: MetricsService
+    ) -> None:
+        metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        ids = await metrics_service.get_activity_group_user_ids(
+            guild_id=100, dimension="chat", tier="hardcore"
+        )
+        assert 1 in ids
+
+    @pytest.mark.asyncio
+    async def test_get_user_ids_bulk(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Bulk endpoint returns matching IDs for multiple dimension+tier combos."""
+        metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+        await metrics_service.record_voice_join(guild_id=100, user_id=2, channel_id=10)
+        await metrics_service.record_voice_leave(guild_id=100, user_id=2)
+
+        result = await metrics_service.get_activity_group_user_ids_bulk(
+            guild_id=100,
+            dimensions=["chat", "voice"],
+            tiers=["hardcore", "inactive"],
+        )
+        assert "chat" in result
+        assert "voice" in result
+        assert 1 in result["chat"]["hardcore"]
+        assert 2 in result["voice"]["hardcore"]
+
+    @pytest.mark.asyncio
+    async def test_get_user_ids_bulk_empty(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Bulk endpoint returns empty lists when no activity matches."""
+        result = await metrics_service.get_activity_group_user_ids_bulk(
+            guild_id=999,
+            dimensions=["voice"],
+            tiers=["hardcore"],
+        )
+        assert result == {"voice": {"hardcore": []}}
+
+
+class TestGuildMetricsAverages:
+    """Tests for unique_users=0 handling in get_guild_metrics."""
+
+    @pytest.mark.asyncio
+    async def test_empty_guild_returns_zero_averages(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """When no activity exists, averages should be 0, not divide-by-zero."""
+        result = await metrics_service.get_guild_metrics(guild_id=999, days=7)
+        assert result["unique_users"] == 0
+        assert result["avg_messages_per_user"] == 0.0
+        assert result["avg_voice_per_user"] == 0

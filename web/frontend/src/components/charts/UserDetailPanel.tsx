@@ -17,8 +17,46 @@ import {
 import { metricsApi, UserMetrics } from '../../api/endpoints';
 import { handleApiError } from '../../utils/toast';
 
+const TIER_BADGE_COLORS: Record<string, string> = {
+  hardcore: 'bg-red-600/20 text-red-400 border-red-600/40',
+  regular: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+  casual: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
+  reserve: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+  inactive: 'bg-gray-700/20 text-gray-500 border-gray-600/40',
+};
+
+const TIER_ICONS: Record<string, string> = {
+  voice: '🎤',
+  chat: '💬',
+  game: '🎮',
+};
+
+const TIER_HELP_TEXT: Record<string, string> = {
+  hardcore: 'Active within the last 24 hours (daily active).',
+  regular: 'Active within the last 3 days.',
+  casual: 'Active within the last 7 days (weekly active).',
+  reserve: 'Active within the last 30 days (monthly active).',
+  inactive: 'No qualifying activity in the last 30 days.',
+};
+
+function TierBadge({ label, tier }: { label: string; tier: string | null | undefined }) {
+  const t = tier ?? 'inactive';
+  const colorClass = TIER_BADGE_COLORS[t] || TIER_BADGE_COLORS.inactive;
+  return (
+    <div
+      title={TIER_HELP_TEXT[t] ?? TIER_HELP_TEXT.inactive}
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium ${colorClass}`}
+    >
+      <span>{TIER_ICONS[label] ?? ''}</span>
+      <span className="text-gray-400">{label.charAt(0).toUpperCase() + label.slice(1)}</span>
+      <span className="capitalize">{t}</span>
+    </div>
+  );
+}
+
 interface UserDetailPanelProps {
   userId: string;
+  username?: string | null;
   days: number;
   onClose: () => void;
 }
@@ -35,7 +73,7 @@ function formatTimestamp(epoch: number): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function UserDetailPanel({ userId, days, onClose }: UserDetailPanelProps) {
+export default function UserDetailPanel({ userId, username, days, onClose }: UserDetailPanelProps) {
   const [data, setData] = useState<UserMetrics | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,9 +112,18 @@ export default function UserDetailPanel({ userId, days, onClose }: UserDetailPan
       <div className="bg-slate-800 border border-slate-700 rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-          <h3 className="text-lg font-semibold text-white">
-            User Metrics — {userId.slice(-8)}…
-          </h3>
+          <div className="flex items-center gap-4 flex-wrap">
+            <h3 className="text-lg font-semibold text-white">
+              User Metrics — {(data?.username?.trim() || username?.trim()) ? (data?.username?.trim() || username?.trim()) : `${userId.slice(-8)}…`}
+            </h3>
+            {data && (data.voice_tier || data.chat_tier || data.game_tier) && (
+              <div className="flex items-center gap-1.5">
+                <TierBadge label="voice" tier={data.voice_tier} />
+                <TierBadge label="chat" tier={data.chat_tier} />
+                <TierBadge label="game" tier={data.game_tier} />
+              </div>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition text-xl leading-none"

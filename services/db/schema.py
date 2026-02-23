@@ -22,7 +22,6 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     # Enable foreign key constraints
     await db.execute("PRAGMA foreign_keys=ON")
 
-    # Schema migrations tracking (single canonical version)
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
