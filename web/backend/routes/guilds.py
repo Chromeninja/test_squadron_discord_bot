@@ -35,6 +35,7 @@ from core.guild_settings import (
     ORGANIZATION_SID_KEY,
     PUBLIC_ANNOUNCEMENT_CHANNEL_KEY,
     SELECTABLE_ROLES_KEY,
+    SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE,
     STAFF_KEY,
     VERIFICATION_CHANNEL_KEY,
     LogoValidationError,
@@ -1118,7 +1119,7 @@ async def update_new_member_role_settings_endpoint(
     # Fire-and-forget notification to bot
     try:
         await internal_api.notify_guild_settings_refresh(
-            guild_id, source="new_member_role"
+            guild_id, source=SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE
         )
     except Exception as exc:  # pragma: no cover - network errors
         logger.warning(

@@ -331,16 +331,14 @@ class AutoRecheck(commands.Cog):
     async def _post_auto_summaries(self, guild_summaries: dict[int, dict]) -> None:
         """Post per-guild auto-check summaries to the leadership channel.
 
-        Always posts when at least one member was checked, even if there
-        are zero changes.  A CSV attachment is included only when there
-        are actual changes.
+        Summaries are silenced when there are zero changes to avoid noise.
         """
         for guild_id, data in guild_summaries.items():
             checked = data.get("checked", 0)
             changed = data.get("changed", 0)
             rows = data.get("rows", [])
 
-            if checked == 0:
+            if checked == 0 or changed == 0:
                 continue
 
             channel = await resolve_leadership_channel(self.bot, guild_id)

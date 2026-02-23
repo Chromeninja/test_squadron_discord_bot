@@ -49,8 +49,8 @@ class NewMemberRoleWorker(commands.Cog):
             count = await process_expired_roles(self.bot)
             if count:
                 logger.info("Processed %d expired new-member role(s)", count)
-        except Exception as e:
-            logger.exception("Error in new-member role expiry loop", exc_info=e)
+        except Exception:
+            logger.exception("Error in new-member role expiry loop")
 
     @_expiry_loop.before_loop
     async def _before_expiry_loop(self) -> None:
@@ -80,12 +80,11 @@ class NewMemberRoleWorker(commands.Cog):
         # Check if any removed role matches an active new-member assignment
         try:
             assignment = await get_active_assignment(guild_id, user_id)
-        except Exception as e:
+        except Exception:
             logger.exception(
                 "Failed to check new-member assignment for user %s in guild %s",
                 user_id,
                 guild_id,
-                exc_info=e,
             )
             return
 
@@ -102,12 +101,11 @@ class NewMemberRoleWorker(commands.Cog):
             )
             try:
                 await mark_removed(guild_id, user_id, reason="manual")
-            except Exception as e:
+            except Exception:
                 logger.exception(
                     "Failed to mark new-member role as manually removed for user %s in guild %s",
                     user_id,
                     guild_id,
-                    exc_info=e,
                 )
 
 

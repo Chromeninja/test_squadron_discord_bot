@@ -1060,11 +1060,17 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   selected={newMemberRoleId}
                   onChange={(val) => setNewMemberRoleId(val)}
                   placeholder="Select a role..."
-                  label="New member role"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  The Discord role assigned to newly verified members.
-                </p>
+                {!newMemberRoleId && (
+                  <p className="text-xs text-amber-400 mt-1">
+                    ⚠ A role must be selected before the module can be saved.
+                  </p>
+                )}
+                {newMemberRoleId && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    The Discord role assigned to newly verified members.
+                  </p>
+                )}
               </div>
 
               {/* Duration */}
@@ -1118,7 +1124,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           <div className="flex justify-end">
             <Button
               onClick={handleSaveNewMemberRole}
-              disabled={newMemberSaving}
+              disabled={newMemberSaving || (newMemberEnabled && !newMemberRoleId)}
               variant="success"
               size="sm"
             >

@@ -266,12 +266,11 @@ async def assign_if_eligible(
     # Assign the role via Discord API
     try:
         await member.add_roles(role, reason="New member role (first verification)")
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Failed to assign new-member role to user %s in guild %s",
             member.id,
             member.guild.id,
-            exc_info=e,
         )
         return False
 
@@ -318,13 +317,12 @@ async def remove_expired_role(
 
     try:
         await member.remove_roles(role, reason="New member role expired")
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Failed to remove expired new-member role %s from user %s in guild %s",
             role_id,
             user_id,
             guild_id,
-            exc_info=e,
         )
         return False
 

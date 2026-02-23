@@ -172,3 +172,24 @@ async def test_get_new_member_role_fresh_guild(
     data = response.json()
     assert data["enabled"] is False
     assert data["role_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_max_server_age_days_zero_rejected(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+):
+    """max_server_age_days=0 should be rejected by Pydantic ge=1 validation."""
+    payload = {
+        "enabled": True,
+        "role_id": "555",
+        "duration_days": 7,
+        "max_server_age_days": 0,
+    }
+    response = await client.put(
+        "/api/guilds/123/settings/new-member-role",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == 422

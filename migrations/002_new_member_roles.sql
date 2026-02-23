@@ -1,6 +1,10 @@
 -- Migration 002: New-member role tracking table
 -- Tracks temporary "new member" role assignments given on first verification.
 -- The role is auto-removed after a configured number of days or when removed manually.
+--
+-- NOTE: The canonical DDL lives in services/db/schema.py and is applied on every
+-- bot start-up via ensure_schema().  This migration file exists for auditability
+-- and for manual/sequential migration tooling.  Keep both copies in sync.
 
 CREATE TABLE IF NOT EXISTS new_member_roles (
     guild_id       INTEGER NOT NULL,

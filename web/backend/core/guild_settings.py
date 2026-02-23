@@ -1047,7 +1047,13 @@ async def get_new_member_role_settings(
         if key == NEW_MEMBER_ROLE_ENABLED_KEY:
             result["enabled"] = bool(parsed)
         elif key == NEW_MEMBER_ROLE_ID_KEY:
-            result["role_id"] = str(int(parsed)) if parsed is not None else None
+            if parsed is not None:
+                try:
+                    result["role_id"] = str(int(parsed))
+                except (TypeError, ValueError):
+                    result["role_id"] = None
+            else:
+                result["role_id"] = None
         elif key == NEW_MEMBER_ROLE_DURATION_DAYS_KEY:
             try:
                 result["duration_days"] = max(1, int(parsed))
