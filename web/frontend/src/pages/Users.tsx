@@ -476,6 +476,18 @@ function Users() {
     fetchUsers();
   }, [page, pageSize, normalizedStatusFilters, activeGuildId, debouncedSearch, selectedOrgs]);
 
+  // Keep modal user details in sync with latest table data after refreshes/rechecks
+  useEffect(() => {
+    if (!showUserModal || !selectedUser) {
+      return;
+    }
+
+    const updatedUser = users.find((user) => user.discord_id === selectedUser.discord_id);
+    if (updatedUser) {
+      setSelectedUser(updatedUser);
+    }
+  }, [users, showUserModal, selectedUser]);
+
   // Filter handlers
   const toggleStatus = (status: string) => {
     setSelectedStatuses(prev =>
@@ -837,17 +849,19 @@ function Users() {
                     <span className="text-gray-500">All Statuses</span>
                   ) : (
                     selectedStatuses.map(status => (
-                      <span
+                      <button
                         key={status}
-                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1"
+                        type="button"
+                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1 hover:bg-indigo-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleStatus(status);
                         }}
+                        aria-label={`Remove ${status.replace('_', ' ')} status filter`}
                       >
                         {status.replace('_', ' ')}
-                        <span className="hover:text-indigo-100">×</span>
-                      </span>
+                        <span className="hover:text-indigo-100" aria-hidden="true">×</span>
+                      </button>
                     ))
                   )}
                 </div>
@@ -1057,18 +1071,7 @@ function Users() {
                   return (
                     <tr
                       key={user.discord_id}
-                      className="hover:bg-slate-700/50 cursor-pointer transition-colors"
-                      onClick={(e) => {
-                        // Don't open modal when clicking checkboxes, buttons, or links
-                        const target = e.target as HTMLElement;
-                        if (
-                          target.closest('input[type="checkbox"]') ||
-                          target.closest('button') ||
-                          target.closest('a')
-                        ) return;
-                        setSelectedUser(user);
-                        setShowUserModal(true);
-                      }}
+                      className="hover:bg-slate-700/50 transition-colors"
                     >
                     {/* Hide checkbox in cross-guild mode */}
                     {!isCrossGuild && (
@@ -1090,27 +1093,37 @@ function Users() {
                       </td>
                     )}
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        {user.avatar_url ? (
-                          <img
-                            src={user.avatar_url}
-                            alt={user.username}
-                            className="w-8 h-8 rounded-full flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-sm font-bold flex-shrink-0">
-                            {user.username.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-white truncate">
-                            {user.global_name || user.username}
-                          </div>
-                          <div className="text-xs text-gray-400 truncate">
-                            {user.username}
+                      <button
+                        type="button"
+                        className="w-full text-left rounded px-1 py-1 -mx-1 -my-1 hover:bg-slate-700/40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setShowUserModal(true);
+                        }}
+                        aria-label={`View details for ${user.global_name || user.username}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {user.avatar_url ? (
+                            <img
+                              src={user.avatar_url}
+                              alt={user.username}
+                              className="w-8 h-8 rounded-full flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-sm font-bold flex-shrink-0">
+                              {user.username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-white truncate">
+                              {user.global_name || user.username}
+                            </div>
+                            <div className="text-xs text-gray-400 truncate">
+                              {user.username}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant={getStatusVariant(user.membership_status)} className="text-xs">
