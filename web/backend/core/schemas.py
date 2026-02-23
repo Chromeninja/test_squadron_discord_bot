@@ -455,6 +455,21 @@ class MetricsSettings(BaseModel):
     tracked_games: list[str] = Field(default_factory=list)
 
 
+class NewMemberRoleSettings(BaseModel):
+    """Per-guild new-member role module configuration.
+
+    When enabled, a configurable role is assigned on first verification
+    and automatically removed after ``duration_days``.  An optional
+    ``max_server_age_days`` gate skips assignment for members who joined
+    more than N days ago (null = no gate).
+    """
+
+    enabled: bool = False
+    role_id: str | None = None  # Discord role snowflake (string for precision)
+    duration_days: int = Field(default=14, ge=1)
+    max_server_age_days: int | None = Field(default=None, ge=1)
+
+
 class RoleDelegationConfig(BaseModel):
     """Collection of delegation policies for a guild (compat endpoint wrapper)."""
 

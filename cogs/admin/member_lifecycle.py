@@ -186,6 +186,19 @@ class MemberLifecycle(commands.Cog):
                 logger.info(
                     "Applied stored verification (%s) to member %s in guild %s", state.status, user_id, guild.name
                 )
+
+            # Assign new-member role if eligible (first verification per guild)
+            try:
+                from services.new_member_role_service import assign_if_eligible
+
+                await assign_if_eligible(member, self.bot)
+            except Exception as e:
+                logger.warning(
+                    "Failed to assign new-member role to rejoining member %s in guild %s: %s",
+                    user_id,
+                    guild.name,
+                    e,
+                )
         except Exception as e:
             logger.exception(
                 "Failed to restore verification for member %s in guild %s: %s",

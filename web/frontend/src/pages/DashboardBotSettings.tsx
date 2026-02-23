@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, RoleDelegationPolicyPayload } from '../api/endpoints';
+import { guildApi, GuildRole, DiscordChannel, GuildInfo, ReadOnlyYamlConfig, RoleDelegationPolicyPayload, NewMemberRoleSettingsPayload } from '../api/endpoints';
 import SearchableMultiSelect, { MultiSelectOption } from '../components/SearchableMultiSelect';
 import SearchableSelect, { SelectOption } from '../components/SearchableSelect';
 import AccordionSection from '../components/AccordionSection';
@@ -54,6 +54,15 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   // Guild header and read-only YAML snapshot
   const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
   const [readOnly, setReadOnly] = useState<ReadOnlyYamlConfig | null>(null);
+
+  // New-member role settings
+  const [newMemberEnabled, setNewMemberEnabled] = useState(false);
+  const [newMemberRoleId, setNewMemberRoleId] = useState<string | null>(null);
+  const [newMemberDurationDays, setNewMemberDurationDays] = useState(14);
+  const [newMemberMaxServerAgeDays, setNewMemberMaxServerAgeDays] = useState<number | null>(null);
+  const [newMemberSaving, setNewMemberSaving] = useState(false);
+  const [newMemberStatus, setNewMemberStatus] = useState<string | null>(null);
+  const [newMemberError, setNewMemberError] = useState<string | null>(null);
 
   // Track mounted state to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -130,7 +139,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setError(null);
 
       try {
-        const [infoResponse, configResponse, rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse, orgSettingsResponse] = await Promise.all([
+        const [infoResponse, configResponse, rolesResponse, settingsResponse, voiceSelectableResponse, channelsResponse, channelSettingsResponse, orgSettingsResponse, newMemberResponse] = await Promise.all([
           guildApi.getGuildInfo(guildId),
           guildApi.getGuildConfig(guildId),
           guildApi.getDiscordRoles(guildId),
@@ -139,6 +148,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           guildApi.getDiscordChannels(guildId),
           guildApi.getBotChannelSettings(guildId),
           guildApi.getOrganizationSettings(guildId),
+          guildApi.getNewMemberRoleSettings(guildId),
         ]);
 
         // Only update state if component is still mounted
@@ -180,6 +190,12 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         if (orgSettingsResponse.organization_logo_url) {
           setLogoValid(true);
         }
+
+        // New-member role settings
+        setNewMemberEnabled(newMemberResponse.enabled ?? false);
+        setNewMemberRoleId(newMemberResponse.role_id ?? null);
+        setNewMemberDurationDays(newMemberResponse.duration_days ?? 14);
+        setNewMemberMaxServerAgeDays(newMemberResponse.max_server_age_days ?? null);
       } catch (err) {
         // Ignore errors from aborted requests
         if (!isMounted) return;
@@ -304,6 +320,32 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setError('Failed to save settings.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveNewMemberRole = async () => {
+    setNewMemberSaving(true);
+    setNewMemberStatus(null);
+    setNewMemberError(null);
+
+    try {
+      const payload: NewMemberRoleSettingsPayload = {
+        enabled: newMemberEnabled,
+        role_id: newMemberRoleId,
+        duration_days: newMemberDurationDays,
+        max_server_age_days: newMemberMaxServerAgeDays,
+      };
+      const updated = await guildApi.updateNewMemberRoleSettings(guildId, payload);
+      setNewMemberEnabled(updated.enabled);
+      setNewMemberRoleId(updated.role_id);
+      setNewMemberDurationDays(updated.duration_days);
+      setNewMemberMaxServerAgeDays(updated.max_server_age_days);
+      setNewMemberStatus('New-member role settings saved.');
+    } catch (err) {
+      handleApiError(err, 'Failed to save new-member role settings.');
+      setNewMemberError('Failed to save new-member role settings.');
+    } finally {
+      setNewMemberSaving(false);
     }
   };
 
@@ -980,6 +1022,108 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
           <div className="flex justify-end text-xs text-gray-400">
             Changes are saved with the main Save button below.
+          </div>
+        </div>
+      </AccordionSection>
+
+      {/* New Member Role Module */}
+      <AccordionSection title="🆕 New Member Role" level={1}>
+        <div className="space-y-4">
+          <Alert variant="info" className="text-xs">
+            When enabled, a temporary role is assigned on first verification and removed after a
+            configurable number of days. Use the server-age gate to skip assignment for long-standing
+            members.
+          </Alert>
+
+          {/* Enable / Disable toggle */}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newMemberEnabled}
+                onChange={(e) => setNewMemberEnabled(e.target.checked)}
+                className="accent-indigo-500 w-4 h-4"
+              />
+              Enable New Member Role module
+            </label>
+          </div>
+
+          {newMemberEnabled && (
+            <>
+              {/* Role selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  New Member Role
+                </label>
+                <SearchableSelect
+                  options={roleOptions.map((r) => ({ id: r.id, name: r.name }))}
+                  selected={newMemberRoleId}
+                  onChange={(val) => setNewMemberRoleId(val)}
+                  placeholder="Select a role..."
+                  label="New member role"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  The Discord role assigned to newly verified members.
+                </p>
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Duration (days)
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={newMemberDurationDays}
+                  onChange={(e) => setNewMemberDurationDays(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-32"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  How many days to keep the role before auto-removal.
+                </p>
+              </div>
+
+              {/* Max server age gate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Max Server Age (days) — optional
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={newMemberMaxServerAgeDays ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value.trim();
+                    setNewMemberMaxServerAgeDays(val === '' ? null : Math.max(1, parseInt(val) || 1));
+                  }}
+                  placeholder="Leave blank for no limit"
+                  className="w-48"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Only assign the role if the member joined the server less than this many days ago.
+                  Leave blank to grant regardless of join date.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Save & status */}
+          {newMemberStatus && (
+            <Alert variant="success" className="text-xs">{newMemberStatus}</Alert>
+          )}
+          {newMemberError && (
+            <Alert variant="error" className="text-xs">{newMemberError}</Alert>
+          )}
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSaveNewMemberRole}
+              disabled={newMemberSaving}
+              variant="success"
+              size="sm"
+            >
+              {newMemberSaving ? 'Saving...' : 'Save New Member Role Settings'}
+            </Button>
           </div>
         </div>
       </AccordionSection>

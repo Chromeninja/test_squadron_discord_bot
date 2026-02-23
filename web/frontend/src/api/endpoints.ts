@@ -94,6 +94,13 @@ export interface MetricsSettingsPayload {
   tracked_games?: string[];
 }
 
+export interface NewMemberRoleSettingsPayload {
+  enabled: boolean;
+  role_id: string | null;
+  duration_days: number;
+  max_server_age_days: number | null;
+}
+
 export interface OrganizationSettingsPayload {
   organization_sid: string | null;
   organization_name: string | null;
@@ -985,6 +992,22 @@ export const guildApi = {
   updateOrganizationSettings: async (guildId: string, payload: OrganizationSettingsPayload) => {
     const response = await apiClient.put<OrganizationSettingsPayload>(
       `/api/guilds/${guildId}/settings/organization`,
+      payload
+    );
+    return response.data;
+  },
+  getNewMemberRoleSettings: async (guildId: string) => {
+    const response = await apiClient.get<NewMemberRoleSettingsPayload>(
+      `/api/guilds/${guildId}/settings/new-member-role`
+    );
+    return response.data;
+  },
+  updateNewMemberRoleSettings: async (
+    guildId: string,
+    payload: NewMemberRoleSettingsPayload
+  ) => {
+    const response = await apiClient.put<NewMemberRoleSettingsPayload>(
+      `/api/guilds/${guildId}/settings/new-member-role`,
       payload
     );
     return response.data;

@@ -33,6 +33,12 @@ CONFIG_DISCORD_MANAGERS = "roles.discord_managers"
 CONFIG_MODERATORS = "roles.moderators"
 CONFIG_STAFF = "roles.staff"
 
+# New-member role settings
+CONFIG_NEW_MEMBER_ENABLED = "new_member_role.enabled"
+CONFIG_NEW_MEMBER_ROLE_ID = "new_member_role.role_id"
+CONFIG_NEW_MEMBER_DURATION_DAYS = "new_member_role.duration_days"
+CONFIG_NEW_MEMBER_MAX_SERVER_AGE_DAYS = "new_member_role.max_server_age_days"
+
 # Channel settings
 CONFIG_VERIFICATION_CHANNEL = "channels.verification_channel_id"
 CONFIG_BOT_SPAM_CHANNEL = "channels.bot_spam_channel_id"

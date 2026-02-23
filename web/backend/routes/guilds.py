@@ -42,11 +42,13 @@ from core.guild_settings import (
     get_bot_channel_settings,
     get_bot_role_settings,
     get_metrics_settings,
+    get_new_member_role_settings,
     get_organization_settings,
     get_voice_selectable_roles,
     set_bot_channel_settings,
     set_bot_role_settings,
     set_metrics_settings,
+    set_new_member_role_settings,
     set_organization_settings,
     set_voice_selectable_roles,
     validate_logo_url,
@@ -70,6 +72,7 @@ from core.schemas import (
     LogoValidationRequest,
     LogoValidationResponse,
     MetricsSettings,
+    NewMemberRoleSettings,
     OrganizationSettings,
     OrganizationSettingsResponse,
     OrganizationValidationRequest,
@@ -1071,6 +1074,61 @@ async def patch_guild_config(
     return await get_guild_config(
         guild_id, db=db, current_user=current_user, config_loader=config_loader
     )
+
+
+@router.get(
+    "/{guild_id}/settings/new-member-role",
+    response_model=NewMemberRoleSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def get_new_member_role_settings_endpoint(
+    guild_id: int,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_staff()),
+):
+    """Fetch new-member role module settings for a guild."""
+    ensure_guild_match(guild_id, current_user)
+    settings = await get_new_member_role_settings(db, guild_id)
+    return NewMemberRoleSettings(**settings)
+
+
+@router.put(
+    "/{guild_id}/settings/new-member-role",
+    response_model=NewMemberRoleSettings,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def update_new_member_role_settings_endpoint(
+    guild_id: int,
+    payload: NewMemberRoleSettings,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_bot_admin()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Persist new-member role module settings for a guild."""
+    ensure_guild_match(guild_id, current_user)
+    await set_new_member_role_settings(
+        db,
+        guild_id,
+        enabled=payload.enabled,
+        role_id=payload.role_id,
+        duration_days=payload.duration_days,
+        max_server_age_days=payload.max_server_age_days,
+    )
+
+    # Fire-and-forget notification to bot
+    try:
+        await internal_api.notify_guild_settings_refresh(
+            guild_id, source="new_member_role"
+        )
+    except Exception as exc:  # pragma: no cover - network errors
+        logger.warning(
+            "Failed to notify bot about guild %s new-member-role change: %s",
+            guild_id,
+            exc,
+        )
+
+    updated = await get_new_member_role_settings(db, guild_id)
+    return NewMemberRoleSettings(**updated)
 
 
 @router.post("/{guild_id}/leave")

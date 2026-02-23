@@ -399,6 +399,29 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_pending_role_sync_guild ON pending_role_sync(guild_id)"
     )
 
+    # New-member role assignments (tracks temporary role given on first verification)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS new_member_roles (
+            guild_id    INTEGER NOT NULL,
+            user_id     INTEGER NOT NULL,
+            role_id     INTEGER NOT NULL,
+            assigned_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            expires_at  INTEGER NOT NULL,
+            removed_at  INTEGER DEFAULT NULL,
+            removed_reason TEXT DEFAULT NULL,
+            active      INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_new_member_roles_active ON new_member_roles(active, expires_at)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_new_member_roles_guild ON new_member_roles(guild_id)"
+    )
+
     # Record that the canonical schema has been applied
     await db.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"
