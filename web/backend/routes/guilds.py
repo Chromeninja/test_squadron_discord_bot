@@ -983,16 +983,17 @@ async def patch_guild_config(
             guild_id,
             payload.metrics.excluded_channel_ids,
         )
+        updated_metrics = await get_metrics_settings(db, guild_id)
         if (
             current_metrics.get("excluded_channel_ids")
-            != payload.metrics.excluded_channel_ids
+            != updated_metrics.get("excluded_channel_ids")
         ):
             await _audit_change(
                 db,
                 guild_id,
                 METRICS_EXCLUDED_CHANNEL_IDS_KEY,
                 current_metrics.get("excluded_channel_ids"),
-                payload.metrics.excluded_channel_ids,
+                updated_metrics.get("excluded_channel_ids"),
                 actor_user_id,
             )
 

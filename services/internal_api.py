@@ -1192,7 +1192,10 @@ class InternalAPIServer:
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild ID"}, status=400)
 
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
 
         try:
@@ -1233,9 +1236,15 @@ class InternalAPIServer:
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild ID"}, status=400)
 
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
-        limit = int(request.query.get("limit", "10"))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
         limit = max(1, min(limit, 50))
 
         try:
@@ -1266,9 +1275,15 @@ class InternalAPIServer:
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild ID"}, status=400)
 
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
-        limit = int(request.query.get("limit", "10"))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
         limit = max(1, min(limit, 50))
 
         try:
@@ -1299,9 +1314,15 @@ class InternalAPIServer:
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild ID"}, status=400)
 
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
-        limit = int(request.query.get("limit", "10"))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
         limit = max(1, min(limit, 50))
 
         try:
@@ -1338,7 +1359,10 @@ class InternalAPIServer:
                 {"error": f"Invalid metric: {metric}. Use messages, voice, or games"},
                 status=400,
             )
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
 
         try:
@@ -1370,7 +1394,10 @@ class InternalAPIServer:
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild/user ID"}, status=400)
 
-        days = int(request.query.get("days", "7"))
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
         days = max(1, min(days, 365))
 
         try:

@@ -3015,13 +3015,8 @@ class VoiceService(BaseService):
         if not success:
             return VoiceChannelResult(success=False, error="DB_TEMP_ERROR")
 
-        # Cast for type-checker; duck typing lets test doubles work too.
-        channel_for_perms = cast(
-            "discord.VoiceChannel | discord.StageChannel", channel
-        )
-
         await update_channel_owner(
-            channel=channel_for_perms,
+            channel=channel,
             new_owner_id=new_owner_id,
             previous_owner_id=previous_owner_id,
             guild_id=guild_id,

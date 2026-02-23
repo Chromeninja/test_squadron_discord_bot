@@ -14,6 +14,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
@@ -161,6 +162,34 @@ class TestExcludedChannelSettings:
 
         first = await metrics_service.get_excluded_channel_ids(123)
         second = await metrics_service.get_excluded_channel_ids(123)
+
+        assert first == {100}
+        assert second == {100}
+        get_setting_mock.assert_awaited_once_with(
+            123,
+            "metrics.excluded_channel_ids",
+            [],
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_excluded_channel_ids_dedupes_concurrent_fetches(
+        self, metrics_service: MetricsService
+    ) -> None:
+        get_setting_mock = cast(
+            AsyncMock,
+            metrics_service._config_service.get_guild_setting,
+        )
+
+        async def delayed_fetch(*_args, **_kwargs):
+            await asyncio.sleep(0.01)
+            return ["100"]
+
+        get_setting_mock.side_effect = delayed_fetch
+
+        first, second = await asyncio.gather(
+            metrics_service.get_excluded_channel_ids(123),
+            metrics_service.get_excluded_channel_ids(123),
+        )
 
         assert first == {100}
         assert second == {100}
@@ -399,7 +428,7 @@ class TestLiveSnapshot:
         )
 
         snap = metrics_service.get_live_snapshot(guild_id=100)
-        assert snap.active_game_sessions == 2  # 2 unique games
+        assert snap.active_game_sessions == 3  # 3 active sessions
         assert snap.top_game == "Star Citizen"  # 2 players vs 1
 
 
@@ -454,6 +483,80 @@ class TestQueryMethods:
         assert result["total_messages"] == 0
         assert result["total_voice_seconds"] == 0
         assert result["top_games"] == []
+
+    @pytest.mark.asyncio
+    async def test_query_methods_use_hourly_rollups(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now_bucket = _hour_bucket(int(time.time()))
+        hour_1 = now_bucket - 7200
+        hour_2 = now_bucket - 3600
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO metrics_hourly "
+                "(guild_id, hour_bucket, total_messages, unique_messagers, total_voice_seconds, unique_voice_users, top_game) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (100, hour_1, 15, 5, 300, 3, "Star Citizen"),
+            )
+            await db.execute(
+                "INSERT INTO metrics_hourly "
+                "(guild_id, hour_bucket, total_messages, unique_messagers, total_voice_seconds, unique_voice_users, top_game) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (100, hour_2, 5, 2, 120, 2, "EVE Online"),
+            )
+
+            await db.execute(
+                "INSERT INTO metrics_user_hourly "
+                "(guild_id, user_id, hour_bucket, messages_sent, voice_seconds, games_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 1, hour_1, 10, 200, '{"Star Citizen": 200}'),
+            )
+            await db.execute(
+                "INSERT INTO metrics_user_hourly "
+                "(guild_id, user_id, hour_bucket, messages_sent, voice_seconds, games_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 2, hour_1, 5, 100, '{"Star Citizen": 100}'),
+            )
+            await db.execute(
+                "INSERT INTO metrics_user_hourly "
+                "(guild_id, user_id, hour_bucket, messages_sent, voice_seconds, games_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 1, hour_2, 3, 60, '{"EVE Online": 60}'),
+            )
+            await db.execute(
+                "INSERT INTO metrics_user_hourly "
+                "(guild_id, user_id, hour_bucket, messages_sent, voice_seconds, games_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 3, hour_2, 2, 60, None),
+            )
+            await db.commit()
+
+        guild_metrics = await metrics_service.get_guild_metrics(guild_id=100, days=7)
+        assert guild_metrics["total_messages"] == 20
+        assert guild_metrics["unique_messagers"] == 7
+        assert guild_metrics["total_voice_seconds"] == 420
+        assert guild_metrics["unique_voice_users"] == 5
+        assert guild_metrics["unique_users"] == 3
+        assert guild_metrics["top_games"][0]["game_name"] == "Star Citizen"
+        assert guild_metrics["top_games"][0]["total_seconds"] == 300
+
+        voice_lb = await metrics_service.get_voice_leaderboard(guild_id=100, days=7)
+        assert voice_lb[0]["user_id"] == 1
+        assert voice_lb[0]["total_seconds"] == 260
+
+        msg_lb = await metrics_service.get_message_leaderboard(guild_id=100, days=7)
+        assert msg_lb[0]["user_id"] == 1
+        assert msg_lb[0]["total_messages"] == 13
+
+        msg_series = await metrics_service.get_timeseries(guild_id=100, metric="messages", days=7)
+        assert [point["value"] for point in msg_series] == [15, 5]
+
+        voice_series = await metrics_service.get_timeseries(guild_id=100, metric="voice", days=7)
+        assert [point["value"] for point in voice_series] == [300, 120]
+
+        games_series = await metrics_service.get_timeseries(guild_id=100, metric="games", days=7)
+        assert [point["top_game"] for point in games_series] == ["Star Citizen", "EVE Online"]
 
     @pytest.mark.asyncio
     async def test_get_top_games_empty(

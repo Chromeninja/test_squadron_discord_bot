@@ -143,7 +143,7 @@ async def get_top_games(
 
 @router.get("/timeseries", response_model=TimeSeriesResponse)
 async def get_timeseries(
-    metric: str = Query(default="messages", pattern="^(messages|voice|games)$"),
+    metric: str = Query(default="messages", regex="^(messages|voice|games)$"),
     days: int = Query(default=7, ge=1, le=365),
     current_user: UserProfile = Depends(require_bot_admin()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
