@@ -2979,6 +2979,59 @@ class VoiceService(BaseService):
 
         return embed
 
+    async def _perform_ownership_transfer(
+        self,
+        channel: "discord.VoiceChannel | discord.StageChannel",
+        new_owner_id: int,
+        previous_owner_id: int,
+        guild_id: int,
+        jtc_channel_id: int,
+    ) -> VoiceChannelResult:
+        """Shared helper that performs the DB ownership transfer and Discord
+        permission update.  Both *claim* and *transfer* delegate here so the
+        two code-paths stay in sync.
+
+        Args:
+            channel: The voice/stage channel whose ownership is changing.
+            new_owner_id: Discord user ID of the incoming owner.
+            previous_owner_id: Discord user ID of the outgoing owner (or the
+                effective previous owner for orphaned channels).
+            guild_id: Discord guild ID.
+            jtc_channel_id: The join-to-create channel that spawned *channel*.
+
+        Returns:
+            VoiceChannelResult with success/failure status.
+        """
+        from helpers.permissions_helper import update_channel_owner
+        from helpers.voice_repo import transfer_channel_owner
+
+        success = await transfer_channel_owner(
+            voice_channel_id=channel.id,
+            new_owner_id=new_owner_id,
+            guild_id=guild_id,
+            jtc_channel_id=jtc_channel_id,
+        )
+
+        if not success:
+            return VoiceChannelResult(success=False, error="DB_TEMP_ERROR")
+
+        # Cast for type-checker; duck typing lets test doubles work too.
+        channel_for_perms = cast(
+            "discord.VoiceChannel | discord.StageChannel", channel
+        )
+
+        await update_channel_owner(
+            channel=channel_for_perms,
+            new_owner_id=new_owner_id,
+            previous_owner_id=previous_owner_id,
+            guild_id=guild_id,
+            jtc_channel_id=jtc_channel_id,
+        )
+
+        return VoiceChannelResult(
+            success=True, channel_id=channel.id, channel_mention=channel.mention
+        )
+
     async def claim_voice_channel(
         self, guild_id: int, user_id: int, user: discord.Member
     ) -> VoiceChannelResult:
@@ -3033,42 +3086,12 @@ class VoiceService(BaseService):
                         error="OWNER_PRESENT",
                     )
 
-            # Use the comprehensive transfer method from voice_repo
-            from helpers.voice_repo import transfer_channel_owner
-
-            success = await transfer_channel_owner(
-                voice_channel_id=channel.id,
-                new_owner_id=user_id,
-                guild_id=guild_id,
-                jtc_channel_id=jtc_channel_id,
-            )
-
-            if not success:
-                return VoiceChannelResult(
-                    success=False,
-                    error="DB_TEMP_ERROR",
-                )
-
-            # Update permission overwrites using permissions helper
-
-            from helpers.permissions_helper import update_channel_owner
-
-            # Cast for type-checker: allow voice or stage channels.
-            channel_for_perms = cast(
-                "discord.VoiceChannel | discord.StageChannel", channel
-            )
-
-            # Rely on duck typing so test doubles (MockVoiceChannel) still exercise the path.
-            await update_channel_owner(
-                channel=channel_for_perms,
+            return await self._perform_ownership_transfer(
+                channel=channel,
                 new_owner_id=user_id,
                 previous_owner_id=effective_previous_owner,
                 guild_id=guild_id,
                 jtc_channel_id=jtc_channel_id,
-            )
-
-            return VoiceChannelResult(
-                success=True, channel_id=channel.id, channel_mention=channel.mention
             )
 
         except Exception as e:
@@ -3120,44 +3143,12 @@ class VoiceService(BaseService):
                     error="NOT_IN_CHANNEL",
                 )
 
-            # Use the comprehensive transfer method from voice_repo
-            from helpers.voice_repo import transfer_channel_owner
-
-            success = await transfer_channel_owner(
-                voice_channel_id=voice_channel_id,
+            return await self._perform_ownership_transfer(
+                channel=channel,
                 new_owner_id=new_owner_id,
+                previous_owner_id=current_owner_id,
                 guild_id=guild_id,
                 jtc_channel_id=jtc_channel_id,
-            )
-
-            if not success:
-                return VoiceChannelResult(
-                    success=False,
-                    error="DB_TEMP_ERROR",
-                )
-
-                # Update permission overwrites using permissions helper
-                from helpers.permissions_helper import update_channel_owner
-
-                # Cast for type-checker: allow voice or stage channels. Still allow mocks by duck typing.
-                if isinstance(
-                    channel, (discord.VoiceChannel, discord.StageChannel)
-                ) or (hasattr(channel, "edit") and hasattr(channel, "mention")):
-                    channel_for_perms = cast(
-                        "discord.VoiceChannel | discord.StageChannel", channel
-                    )
-                    await update_channel_owner(
-                        channel=channel_for_perms,
-                        new_owner_id=new_owner_id,
-                        previous_owner_id=current_owner_id,
-                        guild_id=guild_id,
-                        jtc_channel_id=jtc_channel_id,
-                    )
-
-            return VoiceChannelResult(
-                success=True,
-                channel_id=voice_channel_id,
-                channel_mention=channel.mention,
             )
 
         except Exception as e:

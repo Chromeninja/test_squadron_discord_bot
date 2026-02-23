@@ -88,6 +88,10 @@ export interface VoiceSelectableRolesPayload {
   selectable_roles: string[];
 }
 
+export interface MetricsSettingsPayload {
+  excluded_channel_ids: string[];
+}
+
 export interface OrganizationSettingsPayload {
   organization_sid: string | null;
   organization_name: string | null;
@@ -127,6 +131,7 @@ export interface GuildConfigData {
   roles: BotRoleSettingsPayload;
   channels: BotChannelSettingsPayload;
   voice: VoiceSelectableRolesPayload;
+  metrics: MetricsSettingsPayload;
   organization: OrganizationSettingsPayload;
   read_only?: ReadOnlyYamlConfig | null;
 }
@@ -135,6 +140,7 @@ export interface GuildConfigUpdateRequest {
   roles?: BotRoleSettingsPayload;
   channels?: BotChannelSettingsPayload;
   voice?: VoiceSelectableRolesPayload;
+  metrics?: MetricsSettingsPayload;
   organization?: OrganizationSettingsPayload;
 }
 
@@ -407,6 +413,137 @@ export const authApi = {
 export const statsApi = {
   getOverview: async () => {
     const response = await apiClient.get<{ success: boolean; data: StatsOverview }>('/api/stats/overview');
+    return response.data;
+  },
+};
+
+// ============================================================================
+// Metrics types
+// ============================================================================
+
+export interface MetricsLive {
+  messages_today: number;
+  active_voice_users: number;
+  active_game_sessions: number;
+  top_game: string | null;
+}
+
+export interface MetricsPeriod {
+  total_messages: number;
+  unique_messagers: number;
+  avg_messages_per_user: number;
+  total_voice_seconds: number;
+  unique_voice_users: number;
+  avg_voice_per_user: number;
+  unique_users: number;
+  top_games: GameStatsEntry[];
+}
+
+export interface MetricsOverview {
+  live: MetricsLive;
+  period: MetricsPeriod;
+}
+
+export interface VoiceLeaderboardEntry {
+  user_id: string;
+  total_seconds: number;
+  username?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface MessageLeaderboardEntry {
+  user_id: string;
+  total_messages: number;
+  username?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface GameStatsEntry {
+  game_name: string;
+  total_seconds: number;
+  session_count: number;
+  avg_seconds: number;
+  unique_players?: number;
+}
+
+export interface TimeSeriesPoint {
+  timestamp: number;
+  value?: number;
+  unique_users?: number;
+  top_game?: string;
+}
+
+export interface UserGameStats {
+  game_name: string;
+  total_seconds: number;
+}
+
+export interface UserTimeSeriesPoint {
+  timestamp: number;
+  messages: number;
+  voice_seconds: number;
+}
+
+export interface UserMetrics {
+  user_id: string;
+  total_messages: number;
+  total_voice_seconds: number;
+  avg_messages_per_day: number;
+  avg_voice_per_day: number;
+  top_games: UserGameStats[];
+  timeseries: UserTimeSeriesPoint[];
+}
+
+// ============================================================================
+// Metrics API
+// ============================================================================
+
+export const metricsApi = {
+  getOverview: async (days: number = 7) => {
+    const response = await apiClient.get<{ success: boolean; data: MetricsOverview }>(
+      '/api/metrics/overview',
+      { params: { days } }
+    );
+    return response.data;
+  },
+
+  getVoiceLeaderboard: async (days: number = 7, limit: number = 10) => {
+    const response = await apiClient.get<{ success: boolean; entries: VoiceLeaderboardEntry[] }>(
+      '/api/metrics/voice/leaderboard',
+      { params: { days, limit } }
+    );
+    return response.data;
+  },
+
+  getMessageLeaderboard: async (days: number = 7, limit: number = 10) => {
+    const response = await apiClient.get<{ success: boolean; entries: MessageLeaderboardEntry[] }>(
+      '/api/metrics/messages/leaderboard',
+      { params: { days, limit } }
+    );
+    return response.data;
+  },
+
+  getTopGames: async (days: number = 7, limit: number = 10) => {
+    const response = await apiClient.get<{ success: boolean; games: GameStatsEntry[] }>(
+      '/api/metrics/games/top',
+      { params: { days, limit } }
+    );
+    return response.data;
+  },
+
+  getTimeSeries: async (metric: string = 'messages', days: number = 7) => {
+    const response = await apiClient.get<{ success: boolean; metric: string; days: number; data: TimeSeriesPoint[] }>(
+      '/api/metrics/timeseries',
+      { params: { metric, days } }
+    );
+    return response.data;
+  },
+
+  getUserMetrics: async (userId: string, days: number = 7) => {
+    const response = await apiClient.get<{ success: boolean; data: UserMetrics }>(
+      `/api/metrics/user/${userId}`,
+      { params: { days } }
+    );
     return response.data;
   },
 };

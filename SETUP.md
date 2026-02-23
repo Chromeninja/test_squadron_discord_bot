@@ -10,6 +10,16 @@ Deploy the Discord bot, FastAPI backend, and Vite frontend on a single Debian-ba
 - Discord OAuth app (client ID, secret, redirect URI)
 - Domain name for HTTPS (recommended)
 
+## Discord Portal Prerequisites (required for metrics)
+
+In Discord Developer Portal → **Bot**, enable these intents before starting services:
+
+- **SERVER MEMBERS INTENT**
+- **MESSAGE CONTENT INTENT**
+- **PRESENCE INTENT**
+
+Without message content and presence intents, metrics pages will load but message/game data will remain empty.
+
 ## 1. System Prep (root or sudo)
 
 ```bash
@@ -111,6 +121,7 @@ cp config/config-example.yaml config/config.yaml
 - `PUBLIC_URL` is the single source of truth. It replaces legacy variables (`DISCORD_REDIRECT_URI`, `DISCORD_BOT_REDIRECT_URI`, `FRONTEND_URL`, `VITE_API_BASE`); these are derived automatically.
 - In the Discord Developer Portal, register both redirect URIs: `PUBLIC_URL/auth/callback` and `PUBLIC_URL/auth/bot-callback`.
 - `COOKIE_SECURE` auto-detects from `PUBLIC_URL` scheme (`https` => true). Override only if necessary via `.env`.
+- Metrics config lives under `metrics:` in `config/config.yaml` (see `config/config-example.yaml`).
 
 ## 7. systemd Services
 
@@ -255,6 +266,7 @@ sudo ufw status
 - Backend health: `curl https://your-domain.com/api/health`
 - Discord bot: run `/status` in a server where the bot is installed
 - OAuth: open https://your-domain.com, log in with Discord, and confirm dashboard loads
+- Metrics: join and leave any voice channel, then confirm dashboard metrics update within ~1 minute
 - Logs: `journalctl -u test_squadron_backend -f` and `journalctl -u test_squadron_bot -f`
 
 ## 12. Updating

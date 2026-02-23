@@ -23,6 +23,13 @@ voice:
 database:
   path: "TESTDatabase.db"
 
+metrics:
+  enabled: true
+  database_path: metrics.db       # Separate DB file for metrics data
+  retention_days: 90              # Auto-purge metrics older than this
+  rollup_interval_minutes: 60     # Hourly aggregation interval
+  buffer_flush_seconds: 30        # Message buffer flush interval
+
 bulk_announcement:
   hour_utc: 17                 # UTC hour to run the daily digest
   minute_utc: 13               # UTC minute to run the daily digest

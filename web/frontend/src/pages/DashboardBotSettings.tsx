@@ -24,6 +24,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [nonmemberRole, setNonmemberRole] = useState<string[]>([]);
   const [delegationPolicies, setDelegationPolicies] = useState<RoleDelegationPolicyPayload[]>([]);
   const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<string[]>([]);
+  const [metricsExcludedChannels, setMetricsExcludedChannels] = useState<string[]>([]);
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
@@ -66,6 +67,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         name: channel.name,
         category: channel.category ?? undefined,
       })),
+    [channels]
+  );
+
+  const channelMultiOptions: MultiSelectOption[] = useMemo(
+    () => channels.map((channel) => ({ id: channel.id, name: channel.name })),
     [channels]
   );
 
@@ -145,6 +151,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         }));
         setDelegationPolicies(normalizedPolicies);
         setVoiceSelectableRoles(voiceSelectableResponse.selectable_roles || []);
+        setMetricsExcludedChannels(configResponse.data.metrics?.excluded_channel_ids || []);
         setVerificationChannelId(channelSettingsResponse.verification_channel_id);
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
@@ -219,6 +226,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           leadership_announcement_channel_id: leadershipAnnouncementChannelId,
         },
         voice: { selectable_roles: voiceSelectableRoles },
+        metrics: {
+          excluded_channel_ids: metricsExcludedChannels,
+        },
         organization: {
           organization_sid: orgSidInput.trim() || null,
           organization_name: organizationName || null,
@@ -255,6 +265,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
       // Voice selectable roles
       setVoiceSelectableRoles(updated.voice.selectable_roles || []);
+
+      // Metrics settings
+      setMetricsExcludedChannels(updated.metrics.excluded_channel_ids || []);
 
       // Organization
       setOrganizationSid(updated.organization.organization_sid || '');
@@ -845,6 +858,20 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               selected={leadershipAnnouncementChannelId}
               onChange={setLeadershipAnnouncementChannelId}
               placeholder="Search and select leadership channel"
+            />
+          </div>
+
+          <div>
+            <h5 className="text-sm font-semibold text-white mb-1">Metrics Excluded Channels</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              Exclude these channels from message and voice metrics tracking.
+            </p>
+            <SearchableMultiSelect
+              options={channelMultiOptions}
+              selected={metricsExcludedChannels}
+              onChange={setMetricsExcludedChannels}
+              placeholder="Search and select channels to exclude"
+              componentId="metrics-excluded-channels"
             />
           </div>
 

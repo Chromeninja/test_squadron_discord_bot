@@ -12,6 +12,7 @@ from .config_service import ConfigService
 from .guild_config_helper import GuildConfigHelper
 from .guild_service import GuildService
 from .health_service import HealthService
+from .metrics_service import MetricsService
 from .role_delegation_service import RoleDelegationService
 from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
@@ -36,6 +37,7 @@ class ServiceContainer:
         self._guild: GuildService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
+        self._metrics: MetricsService | None = None
         self._role_delegation: RoleDelegationService | None = None
         self._verify_bulk: VerificationBulkService | None = None
         self._initialized = False
@@ -76,6 +78,13 @@ class ServiceContainer:
         return self._health
 
     @property
+    def metrics(self) -> MetricsService:
+        """Get the metrics service."""
+        if self._metrics is None:
+            raise RuntimeError("MetricsService not initialized")
+        return self._metrics
+
+    @property
     def role_delegation(self) -> RoleDelegationService:
         """Get the role delegation service."""
         if self._role_delegation is None:
@@ -101,6 +110,8 @@ class ServiceContainer:
             services.append(self._voice)
         if self._health:
             services.append(self._health)
+        if self._metrics:
+            services.append(self._metrics)
         if self._role_delegation:
             services.append(self._role_delegation)
         if self._verify_bulk:
@@ -147,6 +158,11 @@ class ServiceContainer:
             await self._health.initialize()
             self.logger.debug("HealthService initialized")
 
+            # Initialize metrics service (depends on config and bot)
+            self._metrics = MetricsService(self._config, self.bot)
+            await self._metrics.initialize()
+            self.logger.debug("MetricsService initialized")
+
             # Initialize verification bulk service (depends on bot and config)
             if self.bot:
                 self._verify_bulk = VerificationBulkService(self.bot)  # type: ignore[arg-type]
@@ -171,6 +187,10 @@ class ServiceContainer:
         if self._verify_bulk:
             await self._verify_bulk.shutdown()
             self._verify_bulk = None
+
+        if self._metrics:
+            await self._metrics.shutdown()
+            self._metrics = None
 
         if self._health:
             await self._health.shutdown()

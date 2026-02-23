@@ -283,6 +283,7 @@ VERIFICATION_CHANNEL_KEY = "channels.verification_channel_id"
 BOT_SPAM_CHANNEL_KEY = "channels.bot_spam_channel_id"
 PUBLIC_ANNOUNCEMENT_CHANNEL_KEY = "channels.public_announcement_channel_id"
 LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY = "channels.leadership_announcement_channel_id"
+METRICS_EXCLUDED_CHANNEL_IDS_KEY = "metrics.excluded_channel_ids"
 
 ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
@@ -316,6 +317,11 @@ def _coerce_role_list(value: Any) -> list[str]:
         except (TypeError, ValueError):
             continue
     return cleaned
+
+
+def _coerce_channel_list(value: Any) -> list[str]:
+    """Convert stored JSON values into a list of unique string channel IDs."""
+    return _coerce_role_list(value)
 
 
 def _normalize_policy_roles(raw_roles: Any) -> list[str]:
@@ -731,6 +737,54 @@ async def set_voice_selectable_roles(
         (guild_id, SELECTABLE_ROLES_KEY, json.dumps(_normalize(selectable_roles))),
     )
     await _touch_settings_version(db, guild_id, source="voice_selectable_roles")
+    await db.commit()
+
+
+async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
+    """Fetch metrics settings for a guild."""
+    cursor = await db.execute(
+        """
+        SELECT value
+        FROM guild_settings
+        WHERE guild_id = ? AND key = ?
+        """,
+        (guild_id, METRICS_EXCLUDED_CHANNEL_IDS_KEY),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return {"excluded_channel_ids": []}
+    return {"excluded_channel_ids": _coerce_channel_list(row[0])}
+
+
+async def set_metrics_settings(
+    db: Connection,
+    guild_id: int,
+    excluded_channel_ids: list[str],
+) -> None:
+    """Persist metrics settings for a guild."""
+
+    normalized: list[str] = []
+    seen = set()
+    for value in excluded_channel_ids:
+        try:
+            channel_id = str(int(value))
+        except (TypeError, ValueError):
+            continue
+        if channel_id in seen:
+            continue
+        seen.add(channel_id)
+        normalized.append(channel_id)
+
+    normalized.sort(key=lambda x: int(x))
+
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        (guild_id, METRICS_EXCLUDED_CHANNEL_IDS_KEY, json.dumps(normalized)),
+    )
+    await _touch_settings_version(db, guild_id, source="metrics_settings")
     await db.commit()
 
 
