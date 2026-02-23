@@ -1189,3 +1189,24 @@ class InternalAPIClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_activity_group_members_bulk(
+        self,
+        guild_id: int,
+        dimensions: list[str],
+        tiers: list[str],
+    ) -> dict[str, dict[str, list[int]]]:
+        """Get user IDs for multiple dimension+tier combos in one call.
+
+        Returns ``{dimension: {tier: [user_id, ...], ...}, ...}``.
+        """
+        client = await self._get_client()
+        response = await client.get(
+            f"/guilds/{guild_id}/metrics/activity-group-members-bulk",
+            params={
+                "dimensions": ",".join(dimensions),
+                "tiers": ",".join(tiers),
+            },
+        )
+        response.raise_for_status()
+        return response.json()

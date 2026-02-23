@@ -395,3 +395,55 @@ async def test_activity_groups_requires_auth(client: AsyncClient):
     """Activity-groups rejects unauthenticated requests."""
     response = await client.get("/api/metrics/activity-groups")
     assert response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
+
+
+# ---------------------------------------------------------------------------
+# Activity filter uses bulk endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overview_multi_dimension_filter(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Overview accepts comma-separated dimensions and resolves via bulk endpoint."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=voice,chat&tier=hardcore",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert "data" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_filter_all_dimension_maps_to_combined(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """'all' dimension is mapped to 'combined' before calling bulk endpoint."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=all&tier=regular",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+
+
+@pytest.mark.asyncio
+async def test_filter_returns_none_when_no_match(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """When bulk endpoint returns empty lists, filter resolves to None (unfiltered)."""
+
+    async def _empty_bulk(
+        guild_id: int, dimensions: list[str], tiers: list[str]
+    ) -> dict[str, dict[str, list[int]]]:
+        return {d: {t: [] for t in tiers} for d in dimensions}
+
+    fake_internal_api.get_activity_group_members_bulk = _empty_bulk
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=voice&tier=inactive",
+        cookies={"session": mock_admin_session},
+    )
+    # Should still succeed — falls back to unfiltered
+    assert response.status_code == HTTPStatus.OK

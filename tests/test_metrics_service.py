@@ -837,7 +837,6 @@ class TestActivityBuckets:
     async def test_get_user_ids_for_tier(
         self, metrics_service: MetricsService
     ) -> None:
-        now = int(time.time())
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
 
@@ -845,3 +844,49 @@ class TestActivityBuckets:
             guild_id=100, dimension="chat", tier="hardcore"
         )
         assert 1 in ids
+
+    @pytest.mark.asyncio
+    async def test_get_user_ids_bulk(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Bulk endpoint returns matching IDs for multiple dimension+tier combos."""
+        metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+        await metrics_service.record_voice_join(guild_id=100, user_id=2, channel_id=10)
+        await metrics_service.record_voice_leave(guild_id=100, user_id=2)
+
+        result = await metrics_service.get_activity_group_user_ids_bulk(
+            guild_id=100,
+            dimensions=["chat", "voice"],
+            tiers=["hardcore", "inactive"],
+        )
+        assert "chat" in result
+        assert "voice" in result
+        assert 1 in result["chat"]["hardcore"]
+        assert 2 in result["voice"]["hardcore"]
+
+    @pytest.mark.asyncio
+    async def test_get_user_ids_bulk_empty(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Bulk endpoint returns empty lists when no activity matches."""
+        result = await metrics_service.get_activity_group_user_ids_bulk(
+            guild_id=999,
+            dimensions=["voice"],
+            tiers=["hardcore"],
+        )
+        assert result == {"voice": {"hardcore": []}}
+
+
+class TestGuildMetricsAverages:
+    """Tests for unique_users=0 handling in get_guild_metrics."""
+
+    @pytest.mark.asyncio
+    async def test_empty_guild_returns_zero_averages(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """When no activity exists, averages should be 0, not divide-by-zero."""
+        result = await metrics_service.get_guild_metrics(guild_id=999, days=7)
+        assert result["unique_users"] == 0
+        assert result["avg_messages_per_user"] == 0.0
+        assert result["avg_voice_per_user"] == 0

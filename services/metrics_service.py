@@ -435,6 +435,34 @@ class MetricsService(BaseService):
         key = f"{dimension}_tier"
         return [uid for uid, data in buckets.items() if data.get(key) == tier]
 
+    async def get_activity_group_user_ids_bulk(
+        self,
+        guild_id: int,
+        dimensions: list[str],
+        tiers: list[str],
+    ) -> dict[str, dict[str, list[int]]]:
+        """Return user IDs for multiple dimension+tier combos in one call.
+
+        Returns a nested mapping of ``{dimension: {tier: [user_id, ...]}}``.
+        Only requested dimension/tier pairs are included.
+
+        AI Notes:
+            This avoids O(dimensions × tiers) separate HTTP round-trips when
+            the web backend resolves activity filters.  A single call to
+            ``get_member_activity_buckets`` is shared across all combos.
+        """
+        buckets = await self.get_member_activity_buckets(guild_id)
+        result: dict[str, dict[str, list[int]]] = {}
+        for dim in dimensions:
+            key = f"{dim}_tier"
+            tier_map: dict[str, list[int]] = {}
+            for t in tiers:
+                tier_map[t] = [
+                    uid for uid, data in buckets.items() if data.get(key) == t
+                ]
+            result[dim] = tier_map
+        return result
+
     def record_message(self, guild_id: int, user_id: int, channel_id: int | None = None) -> None:
         """
         Record a message event (non-async for minimal overhead).
@@ -610,7 +638,7 @@ class MetricsService(BaseService):
                 [guild_id, cutoff_hour, *uid_params],
             )
             row = await cursor.fetchone()
-            unique_users = row[0] if row else 1
+            unique_users = row[0] if row else 0
 
             # Top games from per-user rollup JSON payloads
             cursor = await db.execute(
@@ -653,8 +681,8 @@ class MetricsService(BaseService):
                 )[:10]
             ]
 
-        avg_messages = round(total_messages / max(unique_users, 1), 1)
-        avg_voice = round(total_voice_seconds / max(unique_users, 1))
+        avg_messages = round(total_messages / unique_users, 1) if unique_users else 0.0
+        avg_voice = round(total_voice_seconds / unique_users) if unique_users else 0
 
         return {
             "total_messages": total_messages,

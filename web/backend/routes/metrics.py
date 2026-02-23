@@ -56,8 +56,11 @@ async def _resolve_activity_filter(
 ) -> list[int] | None:
     """Resolve dimension+tier into a list of user IDs, or None if no filter.
 
-    Supports comma-separated dimensions; users are matched if they belong to
-    the selected tier in ANY selected dimension.
+    Supports comma-separated dimensions and tiers; users are matched if they
+    belong to the selected tier in ANY selected dimension.
+
+    Uses the bulk internal endpoint to resolve all dimension×tier combos in a
+    single HTTP call instead of issuing one request per pair.
     """
     if not dimension or not tier:
         return None
@@ -79,18 +82,22 @@ async def _resolve_activity_filter(
             resolved_tiers.append(raw)
 
     try:
+        bulk = await internal_api.get_activity_group_members_bulk(
+            guild_id, resolved_dims, resolved_tiers
+        )
         merged_user_ids: set[int] = set()
-        for resolved_dim in resolved_dims:
-            for resolved_tier in resolved_tiers:
-                result = await internal_api.get_activity_group_members(
-                    guild_id, resolved_dim, resolved_tier
-                )
-                for uid in result.get("user_ids", []):
+        for _dim_key, tier_map in bulk.items():
+            if not isinstance(tier_map, dict):
+                continue
+            for _tier_key, uid_list in tier_map.items():
+                if not isinstance(uid_list, list):
+                    continue
+                for uid in uid_list:
                     try:
                         merged_user_ids.add(int(uid))
                     except (TypeError, ValueError):
                         continue
-        return sorted(merged_user_ids)
+        return sorted(merged_user_ids) if merged_user_ids else None
     except Exception:
         logger.warning("Failed to resolve activity filter dimension=%s tier=%s", dimension, tier)
         return None

@@ -567,6 +567,21 @@ class FakeInternalAPIClient:
             "user_ids": [123456789, 987654321],
         }
 
+    async def get_activity_group_members_bulk(
+        self,
+        guild_id: int,
+        dimensions: list[str],
+        tiers: list[str],
+    ) -> dict[str, dict[str, list[int]]]:
+        """Return user IDs for multiple dimension+tier combos."""
+        result: dict[str, dict[str, list[int]]] = {}
+        for dim in dimensions:
+            tier_map: dict[str, list[int]] = {}
+            for t in tiers:
+                tier_map[t] = [123456789, 987654321]
+            result[dim] = tier_map
+        return result
+
 
 @pytest.fixture(autouse=True)
 def fake_internal_api(monkeypatch):

@@ -168,3 +168,59 @@ class TestInternalAPIAuthentication:
 
         assert server.host == "127.0.0.1"
         assert server.port == 8082
+
+
+class TestParseUserIds:
+    """Tests for InternalAPIServer._parse_user_ids static method."""
+
+    @staticmethod
+    def _make_request(query_string: str = ""):
+        """Build a minimal mock request with query params."""
+        from unittest.mock import MagicMock
+
+        request = MagicMock()
+        # aiohttp stores query as a MultiDict; for our static method we just
+        # need .query.get() to work.
+        parsed = {}
+        for pair in query_string.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                parsed[k] = v
+        request.query = parsed
+        return request
+
+    def test_absent_param_returns_none(self) -> None:
+        """No user_ids param → None (no filter)."""
+        req = self._make_request("")
+        assert InternalAPIServer._parse_user_ids(req) is None
+
+    def test_valid_csv(self) -> None:
+        """Comma-separated integers are parsed correctly."""
+        req = self._make_request("user_ids=1,2,3")
+        assert InternalAPIServer._parse_user_ids(req) == [1, 2, 3]
+
+    def test_single_id(self) -> None:
+        """A single user ID is returned as a one-element list."""
+        req = self._make_request("user_ids=42")
+        assert InternalAPIServer._parse_user_ids(req) == [42]
+
+    def test_malformed_raises_400(self) -> None:
+        """Non-numeric user_ids raise an HTTP 400 error."""
+        from aiohttp.web import HTTPBadRequest
+
+        req = self._make_request("user_ids=abc,def")
+        with pytest.raises(HTTPBadRequest):
+            InternalAPIServer._parse_user_ids(req)
+
+    def test_mixed_valid_invalid_raises_400(self) -> None:
+        """Even one non-numeric value in user_ids raises HTTP 400."""
+        from aiohttp.web import HTTPBadRequest
+
+        req = self._make_request("user_ids=1,bad,3")
+        with pytest.raises(HTTPBadRequest):
+            InternalAPIServer._parse_user_ids(req)
+
+    def test_empty_string_returns_none(self) -> None:
+        """Empty user_ids param → None."""
+        req = self._make_request("user_ids=")
+        assert InternalAPIServer._parse_user_ids(req) is None
