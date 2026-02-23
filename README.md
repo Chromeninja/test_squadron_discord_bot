@@ -8,6 +8,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 - **Role Assignment:** Automatically assigns roles based on verification status.
 - **Cooldown System:** Limits verification attempts to prevent spam and abuse.
 - **Voice Channel Management:** Users can create and customize their voice channels via bot commands (the bot retains channel management permissions; users manage through the bot).
+- **Activity Metrics Dashboard:** Tracks server-wide and per-user voice time (all voice channels), message counts, and game activity with leaderboard/time-series views.
 - **Persistent Settings:** User channel settings are stored in a database for a consistent experience.
 - **Interactive Modals and Views:** Provides an interactive user experience with Discord's UI components.
 - **Persistent Verification Message:** The bot keeps a single verification message in the verification channel — it stores the message ID in `verification_message_id.json` and will reuse that message instead of creating duplicates. It does not currently delete old messages on startup.
@@ -73,6 +74,17 @@ The bot requires specific Discord permissions to function properly. **Do not gra
 3. Enable only the permissions listed above
 4. Ensure the bot's role is positioned high enough to manage the roles it needs to assign
 5. For voice categories: Right-click the voice category → Edit Category → Permissions → Add bot role with "Manage Channels" permission
+
+#### Required Gateway Intents (Discord Developer Portal)
+
+Metrics collection depends on privileged intents. In Discord Developer Portal → **Bot**:
+
+- Enable **SERVER MEMBERS INTENT**
+- Enable **PRESENCE INTENT** (required for game/activity metrics)
+
+> **Note:** The `messages` intent (non-privileged) is used to receive message events for counting. The **MESSAGE CONTENT** privileged intent is **not** required — the bot only counts messages, it never reads their content.
+
+Voice time metrics are tracked from voice state events across **all voice channels**, not just channels created by the bot.
 
 #### Role Configuration:
 Configure role access levels in the **Web Dashboard → Guild Settings → Roles**. Role lists are stored in the database (per guild) and kept in sync with Discord role IDs.

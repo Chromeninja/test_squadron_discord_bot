@@ -94,6 +94,15 @@ class InternalAPIServer:
         self.app.router.add_post("/guilds/{guild_id}/leave", self.leave_guild)
         self.app.router.add_get("/bot-owner-ids", self.get_bot_owner_ids)
 
+        # Metrics endpoints
+        self.app.router.add_get("/guilds/{guild_id}/metrics/overview", self.get_metrics_overview)
+        self.app.router.add_get("/guilds/{guild_id}/metrics/voice/leaderboard", self.get_metrics_voice_leaderboard)
+        self.app.router.add_get("/guilds/{guild_id}/metrics/messages/leaderboard", self.get_metrics_message_leaderboard)
+        self.app.router.add_get("/guilds/{guild_id}/metrics/games/top", self.get_metrics_top_games)
+        self.app.router.add_get("/guilds/{guild_id}/metrics/timeseries", self.get_metrics_timeseries)
+        self.app.router.add_get("/guilds/{guild_id}/metrics/user/{user_id}", self.get_metrics_user)
+        self.app.router.add_delete("/guilds/{guild_id}/metrics/user/{user_id}", self.delete_metrics_user)
+
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
     async def start(self):
@@ -125,11 +134,12 @@ class InternalAPIServer:
         """Check if request has valid API key.
 
         A key is always present — either from env or auto-generated at startup.
+        Uses constant-time comparison to prevent timing side-channels.
         """
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-            return token == self.api_key
+            return secrets.compare_digest(token, self.api_key)
 
         return False
 
@@ -1145,4 +1155,287 @@ class InternalAPIServer:
             )
             return web.json_response(
                 {"error": f"Failed to post to leadership channel: {e!s}"}, status=500
+            )
+
+    # ------------------------------------------------------------------
+    # Metrics endpoints
+    # ------------------------------------------------------------------
+
+    def _get_metrics_service(self):
+        """Get the metrics service, returning None if unavailable."""
+        try:
+            return self.services.metrics
+        except (AttributeError, RuntimeError):
+            return None
+
+    async def get_metrics_overview(self, request: web.Request) -> web.Response:
+        """
+        Get metrics overview for a guild: live snapshot + aggregated period data.
+
+        Path: GET /guilds/{guild_id}/metrics/overview
+        Query params: days (int, default 7)
+
+        Returns: {
+            "live": { messages_today, active_voice_users, active_game_sessions, top_game },
+            "period": { total_messages, avg_messages_per_user, total_voice_seconds, ... }
+        }
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+
+        try:
+            live = metrics.get_live_snapshot(guild_id)
+            period = await metrics.get_guild_metrics(guild_id, days=days)
+
+            return web.json_response({
+                "live": {
+                    "messages_today": live.messages_today,
+                    "active_voice_users": live.active_voice_users,
+                    "active_game_sessions": live.active_game_sessions,
+                    "top_game": live.top_game,
+                },
+                "period": period,
+            })
+        except Exception as e:
+            logger.exception("Error fetching metrics overview")
+            return web.json_response(
+                {"error": f"Failed to fetch metrics: {e!s}"}, status=500
+            )
+
+    async def get_metrics_voice_leaderboard(self, request: web.Request) -> web.Response:
+        """
+        Get top users by voice time.
+
+        Path: GET /guilds/{guild_id}/metrics/voice/leaderboard
+        Query params: days (int, default 7), limit (int, default 10)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
+        limit = max(1, min(limit, 50))
+
+        try:
+            leaderboard = await metrics.get_voice_leaderboard(guild_id, days=days, limit=limit)
+            return web.json_response({"entries": leaderboard})
+        except Exception as e:
+            logger.exception("Error fetching voice leaderboard")
+            return web.json_response(
+                {"error": f"Failed to fetch voice leaderboard: {e!s}"}, status=500
+            )
+
+    async def get_metrics_message_leaderboard(self, request: web.Request) -> web.Response:
+        """
+        Get top users by message count.
+
+        Path: GET /guilds/{guild_id}/metrics/messages/leaderboard
+        Query params: days (int, default 7), limit (int, default 10)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
+        limit = max(1, min(limit, 50))
+
+        try:
+            leaderboard = await metrics.get_message_leaderboard(guild_id, days=days, limit=limit)
+            return web.json_response({"entries": leaderboard})
+        except Exception as e:
+            logger.exception("Error fetching message leaderboard")
+            return web.json_response(
+                {"error": f"Failed to fetch message leaderboard: {e!s}"}, status=500
+            )
+
+    async def get_metrics_top_games(self, request: web.Request) -> web.Response:
+        """
+        Get top games by total play time.
+
+        Path: GET /guilds/{guild_id}/metrics/games/top
+        Query params: days (int, default 7), limit (int, default 10)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+        try:
+            limit = int(request.query.get("limit", "10"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
+        limit = max(1, min(limit, 50))
+
+        try:
+            games = await metrics.get_top_games(guild_id, days=days, limit=limit)
+            return web.json_response({"games": games})
+        except Exception as e:
+            logger.exception("Error fetching top games")
+            return web.json_response(
+                {"error": f"Failed to fetch top games: {e!s}"}, status=500
+            )
+
+    async def get_metrics_timeseries(self, request: web.Request) -> web.Response:
+        """
+        Get hourly time-series data for charts.
+
+        Path: GET /guilds/{guild_id}/metrics/timeseries
+        Query params: metric (messages|voice|games, default messages), days (int, default 7)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        metric = request.query.get("metric", "messages")
+        if metric not in ("messages", "voice", "games"):
+            return web.json_response(
+                {"error": f"Invalid metric: {metric}. Use messages, voice, or games"},
+                status=400,
+            )
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+
+        try:
+            data = await metrics.get_timeseries(guild_id, metric=metric, days=days)
+            return web.json_response({"metric": metric, "days": days, "data": data})
+        except Exception as e:
+            logger.exception("Error fetching timeseries")
+            return web.json_response(
+                {"error": f"Failed to fetch timeseries: {e!s}"}, status=500
+            )
+
+    async def get_metrics_user(self, request: web.Request) -> web.Response:
+        """
+        Get detailed metrics for a specific user.
+
+        Path: GET /guilds/{guild_id}/metrics/user/{user_id}
+        Query params: days (int, default 7)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+            user_id = int(request.match_info["user_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild/user ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+
+        try:
+            data = await metrics.get_user_metrics(guild_id, user_id, days=days)
+            return web.json_response(data)
+        except Exception as e:
+            logger.exception("Error fetching user metrics")
+            return web.json_response(
+                {"error": f"Failed to fetch user metrics: {e!s}"}, status=500
+            )
+
+    async def delete_metrics_user(self, request: web.Request) -> web.Response:
+        """
+        Delete all metrics data for a specific user in a guild (data erasure).
+
+        Path: DELETE /guilds/{guild_id}/metrics/user/{user_id}
+        Headers: Authorization: Bearer <api_key>
+
+        Returns: { "deleted": { table_name: row_count, ... } }
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+            user_id = int(request.match_info["user_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild/user ID"}, status=400)
+
+        try:
+            deleted = await metrics.delete_user_metrics(guild_id, user_id)
+            return web.json_response({"deleted": deleted})
+        except Exception:
+            logger.exception("Error deleting user metrics")
+            return web.json_response(
+                {"error": "Failed to delete user metrics"}, status=500
             )

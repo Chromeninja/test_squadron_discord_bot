@@ -24,6 +24,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [nonmemberRole, setNonmemberRole] = useState<string[]>([]);
   const [delegationPolicies, setDelegationPolicies] = useState<RoleDelegationPolicyPayload[]>([]);
   const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<string[]>([]);
+  const [metricsExcludedChannels, setMetricsExcludedChannels] = useState<string[]>([]);
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
@@ -32,7 +33,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Organization settings
   const [organizationSid, setOrganizationSid] = useState<string>('');
   const [organizationName, setOrganizationName] = useState<string>('');
@@ -40,7 +41,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [orgValidating, setOrgValidating] = useState(false);
   const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
-  
+
   // Logo settings
   const [orgLogoUrl, setOrgLogoUrl] = useState<string>('');
   const [logoValidating, setLogoValidating] = useState(false);
@@ -66,6 +67,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         name: channel.name,
         category: channel.category ?? undefined,
       })),
+    [channels]
+  );
+
+  const channelMultiOptions: MultiSelectOption[] = useMemo(
+    () => channels.map((channel) => ({ id: channel.id, name: channel.name })),
     [channels]
   );
 
@@ -145,6 +151,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         }));
         setDelegationPolicies(normalizedPolicies);
         setVoiceSelectableRoles(voiceSelectableResponse.selectable_roles || []);
+        setMetricsExcludedChannels(configResponse.data.metrics?.excluded_channel_ids || []);
         setVerificationChannelId(channelSettingsResponse.verification_channel_id);
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
@@ -219,6 +226,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           leadership_announcement_channel_id: leadershipAnnouncementChannelId,
         },
         voice: { selectable_roles: voiceSelectableRoles },
+        metrics: {
+          excluded_channel_ids: metricsExcludedChannels,
+        },
         organization: {
           organization_sid: orgSidInput.trim() || null,
           organization_name: organizationName || null,
@@ -256,6 +266,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       // Voice selectable roles
       setVoiceSelectableRoles(updated.voice.selectable_roles || []);
 
+      // Metrics settings
+      setMetricsExcludedChannels(updated.metrics.excluded_channel_ids || []);
+
       // Organization
       setOrganizationSid(updated.organization.organization_sid || '');
       setOrganizationName(updated.organization.organization_name || '');
@@ -286,7 +299,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
     try {
       const result = await guildApi.validateOrganizationSid(guildId, orgSidInput.trim());
-      
+
       if (result.is_valid && result.organization_name) {
         setOrganizationName(result.organization_name);
         setOrgStatusMessage(`✓ Valid organization: ${result.organization_name} (${result.sid})`);
@@ -304,7 +317,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
   const handleLogoValidate = async () => {
     const trimmedUrl = orgLogoUrl.trim();
-    
+
     // Clear validation state for empty URL (user is clearing the logo)
     if (!trimmedUrl) {
       setLogoValid(null);
@@ -318,7 +331,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
     try {
       const result = await guildApi.validateLogoUrl(guildId, trimmedUrl);
-      
+
       if (result.is_valid) {
         // Use the normalized URL from the server to keep client and server state aligned
         if (result.url) {
@@ -409,7 +422,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           <p className="text-sm text-gray-300">
             Configure the Star Citizen organization for member verification. Enter your organization's SID (Spectrum ID) to validate members.
           </p>
-          
+
           <div>
             <h5 className="text-sm font-semibold text-white mb-1">Organization SID</h5>
             <p className="text-xs text-gray-400 mb-2">
@@ -487,11 +500,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             } catch {
               // Invalid URL, don't render
             }
-            
+
             if (!sanitizedUrl) {
               return null;
             }
-            
+
             return (
               <div className="mt-2">
                 <p className="text-xs text-gray-400 mb-2">Preview:</p>
@@ -529,7 +542,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               <Alert variant="info" className="mb-4">
                 <h5 className="text-sm font-semibold text-indigo-200 mb-1">Permission Hierarchy</h5>
                 <p className="text-xs text-indigo-100">
-                  Permissions are inherited from higher levels. Bot Admins have all permissions, 
+                  Permissions are inherited from higher levels. Bot Admins have all permissions,
                   Discord Managers can manage users, Moderators handle moderation, and Staff have basic access.
                 </p>
                 <div className="mt-2 text-xs text-indigo-200 font-mono">
@@ -845,6 +858,20 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               selected={leadershipAnnouncementChannelId}
               onChange={setLeadershipAnnouncementChannelId}
               placeholder="Search and select leadership channel"
+            />
+          </div>
+
+          <div>
+            <h5 className="text-sm font-semibold text-white mb-1">Metrics Excluded Channels</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              Exclude these channels from message and voice metrics tracking.
+            </p>
+            <SearchableMultiSelect
+              options={channelMultiOptions}
+              selected={metricsExcludedChannels}
+              onChange={setMetricsExcludedChannels}
+              placeholder="Search and select channels to exclude"
+              componentId="metrics-excluded-channels"
             />
           </div>
 

@@ -367,3 +367,49 @@ async def test_get_guild_member_detail_http_status_error(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Member not found"
+
+
+@pytest.mark.asyncio
+async def test_get_guild_config_metrics_defaults(
+    client: AsyncClient, mock_admin_session: str
+):
+    """Guild config includes metrics settings defaults."""
+    response = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["metrics"]["excluded_channel_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_config_metrics_persists(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """PATCH /config persists and normalizes metrics excluded channel IDs."""
+    payload = {
+        "metrics": {
+            "excluded_channel_ids": ["200", "100", "200", "invalid"],
+        }
+    }
+
+    response = await client.patch(
+        "/api/guilds/123/config",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["metrics"]["excluded_channel_ids"] == ["100", "200"]
+
+    follow_up = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+    assert follow_up.status_code == 200
+    assert follow_up.json()["data"]["metrics"]["excluded_channel_ids"] == ["100", "200"]
+
+    assert fake_internal_api.refresh_calls

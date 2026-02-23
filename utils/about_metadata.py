@@ -25,10 +25,11 @@ BOT_PURPOSE_ITEMS = [
 
 PRIVACY_SUMMARY = (
     "We collect only the data required to operate the bot: Discord user ID, username, and "
-    "avatar; RSI handle and membership status; voice channel ownership/settings; and "
-    "moderation/operational logs. Data is used solely to run TEST Squadron automation and "
-    "is not sold or shared externally. Processing is based on Legitimate Interests under "
-    "GDPR Article 6(1)(f)."
+    "avatar; RSI handle and membership status; voice channel ownership/settings; activity "
+    "metrics (message counts, voice/game session durations, aggregated analytics); and "
+    "moderation/operational logs. We do not store message content. Data is used solely to run "
+    "TEST Squadron automation and is not sold. Processing is based on Legitimate Interests "
+    "under GDPR Article 6(1)(f), with retention limits (metrics default: 90 days)."
 )
 
 USER_RIGHTS_SUMMARY = (

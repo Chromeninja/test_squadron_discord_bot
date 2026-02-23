@@ -65,6 +65,7 @@ from routes import (
     guilds,
     health,
     logs,
+    metrics,
     stats,
     users,
     voice,
@@ -156,6 +157,7 @@ app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
 app.include_router(guilds.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
+app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])

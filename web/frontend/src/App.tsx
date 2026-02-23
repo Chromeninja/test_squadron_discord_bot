@@ -4,12 +4,13 @@ import { authApi, UserProfile } from './api/endpoints';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Voice from './pages/Voice';
+import Metrics from './pages/Metrics';
 import SelectServer from './pages/SelectServer';
 import DashboardBotSettings from './pages/DashboardBotSettings';
 import { handleApiError } from './utils/toast';
 import { hasPermission, getRoleBadgeColor, getRoleDisplayName, RoleLevel } from './utils/permissions';
 
-type Tab = 'dashboard' | 'users' | 'voice' | 'bot-settings';
+type Tab = 'dashboard' | 'metrics' | 'users' | 'voice' | 'bot-settings';
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -206,6 +207,16 @@ function App() {
               Dashboard
             </button>
             <button
+              onClick={() => setActiveTab('metrics')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
+                activeTab === 'metrics'
+                  ? 'border-indigo-500 text-indigo-500'
+                  : 'border-transparent text-gray-400 hover:text-gray-300'
+              }`}
+            >
+              Metrics
+            </button>
+            <button
               onClick={() => setActiveTab('users')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
                 activeTab === 'users'
@@ -244,6 +255,7 @@ function App() {
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'metrics' && <Metrics />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'voice' && <Voice />}
         {activeTab === 'bot-settings' && userHasPermission('bot_admin') && user.active_guild_id && (

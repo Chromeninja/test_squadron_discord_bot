@@ -237,6 +237,13 @@ class FakeInternalAPIClient:
         self._health_report_override = None
         self._last_errors_override = None
         self._export_logs_override = None
+        # Metrics overrides
+        self._metrics_overview_override = None
+        self._metrics_voice_lb_override = None
+        self._metrics_msg_lb_override = None
+        self._metrics_top_games_override = None
+        self._metrics_timeseries_override = None
+        self._metrics_user_override = None
 
     async def get_guilds(self) -> list[dict]:
         return self.guilds
@@ -401,6 +408,137 @@ class FakeInternalAPIClient:
         return {
             "status": "success",
             "message": "Verification message resent",
+        }
+
+    # ------------------------------------------------------------------
+    # Metrics endpoints
+    # ------------------------------------------------------------------
+    async def get_metrics_overview(self, guild_id: int, days: int = 7) -> dict:
+        """Return metrics overview data."""
+        if self._metrics_overview_override is not None:
+            if isinstance(self._metrics_overview_override, Exception):
+                raise self._metrics_overview_override
+            return self._metrics_overview_override
+        return {
+            "live": {
+                "messages_today": 42,
+                "active_voice_users": 3,
+                "top_game": "Star Citizen",
+                "active_game_sessions": 5,
+            },
+            "period": {
+                "total_messages": 1200,
+                "unique_messagers": 25,
+                "avg_messages_per_user": 48.0,
+                "total_voice_seconds": 360000,
+                "unique_voice_users": 18,
+                "avg_voice_per_user": 20000,
+                "unique_users": 30,
+                "top_games": [],
+            },
+        }
+
+    async def get_metrics_voice_leaderboard(
+        self, guild_id: int, days: int = 7, limit: int = 10
+    ) -> dict:
+        """Return voice leaderboard data."""
+        if self._metrics_voice_lb_override is not None:
+            if isinstance(self._metrics_voice_lb_override, Exception):
+                raise self._metrics_voice_lb_override
+            return self._metrics_voice_lb_override
+        return {
+            "entries": [
+                {"user_id": 123456789, "value": 7200.0},
+                {"user_id": 987654321, "value": 3600.0},
+            ]
+        }
+
+    async def get_metrics_message_leaderboard(
+        self, guild_id: int, days: int = 7, limit: int = 10
+    ) -> dict:
+        """Return message leaderboard data."""
+        if self._metrics_msg_lb_override is not None:
+            if isinstance(self._metrics_msg_lb_override, Exception):
+                raise self._metrics_msg_lb_override
+            return self._metrics_msg_lb_override
+        return {
+            "entries": [
+                {"user_id": 123456789, "value": 500},
+                {"user_id": 987654321, "value": 250},
+            ]
+        }
+
+    async def get_metrics_top_games(
+        self, guild_id: int, days: int = 7, limit: int = 10
+    ) -> dict:
+        """Return top games data."""
+        if self._metrics_top_games_override is not None:
+            if isinstance(self._metrics_top_games_override, Exception):
+                raise self._metrics_top_games_override
+            return self._metrics_top_games_override
+        return {
+            "games": [
+                {
+                    "game_name": "Star Citizen",
+                    "total_seconds": 72000,
+                    "session_count": 20,
+                    "avg_seconds": 3600,
+                    "unique_players": 10,
+                },
+                {
+                    "game_name": "Elite Dangerous",
+                    "total_seconds": 36000,
+                    "session_count": 10,
+                    "avg_seconds": 3600,
+                    "unique_players": 5,
+                },
+            ]
+        }
+
+    async def get_metrics_timeseries(
+        self, guild_id: int, metric: str = "messages", days: int = 7
+    ) -> dict:
+        """Return time-series data."""
+        if self._metrics_timeseries_override is not None:
+            if isinstance(self._metrics_timeseries_override, Exception):
+                raise self._metrics_timeseries_override
+            return self._metrics_timeseries_override
+        return {
+            "metric": metric,
+            "days": days,
+            "data": [
+                {"hour": "2025-01-01T00:00:00", "value": 10.0},
+                {"hour": "2025-01-01T01:00:00", "value": 15.0},
+            ],
+        }
+
+    async def get_metrics_user(
+        self, guild_id: int, user_id: int, days: int = 7
+    ) -> dict:
+        """Return per-user metrics data."""
+        if self._metrics_user_override is not None:
+            if isinstance(self._metrics_user_override, Exception):
+                raise self._metrics_user_override
+            return self._metrics_user_override
+        return {
+            "user_id": str(user_id),
+            "total_messages": 150,
+            "total_voice_seconds": 36000,
+            "avg_messages_per_day": 21.4,
+            "avg_voice_per_day": 5143,
+            "top_games": [
+                {
+                    "game_name": "Star Citizen",
+                    "total_seconds": 14400,
+                }
+            ],
+            "timeseries": [
+                {
+                    "timestamp": 1735689600,
+                    "messages": 5,
+                    "voice_seconds": 1800,
+                }
+            ],
         }
 
 

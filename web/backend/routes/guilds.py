@@ -27,6 +27,7 @@ from core.guild_settings import (
     DISCORD_MANAGERS_KEY,
     LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
     MAIN_ROLE_KEY,
+    METRICS_EXCLUDED_CHANNEL_IDS_KEY,
     MODERATORS_KEY,
     NONMEMBER_ROLE_KEY,
     ORGANIZATION_LOGO_URL_KEY,
@@ -40,10 +41,12 @@ from core.guild_settings import (
     _normalize_delegation_policies,
     get_bot_channel_settings,
     get_bot_role_settings,
+    get_metrics_settings,
     get_organization_settings,
     get_voice_selectable_roles,
     set_bot_channel_settings,
     set_bot_role_settings,
+    set_metrics_settings,
     set_organization_settings,
     set_voice_selectable_roles,
     validate_logo_url,
@@ -66,6 +69,7 @@ from core.schemas import (
     GuildRolesResponse,
     LogoValidationRequest,
     LogoValidationResponse,
+    MetricsSettings,
     OrganizationSettings,
     OrganizationSettingsResponse,
     OrganizationValidationRequest,
@@ -708,6 +712,7 @@ async def get_guild_config(
     roles = await get_bot_role_settings(db, guild_id)
     channels = await get_bot_channel_settings(db, guild_id)
     voice_roles = await get_voice_selectable_roles(db, guild_id)
+    metrics = await get_metrics_settings(db, guild_id)
     org = await get_organization_settings(db, guild_id)
 
     ro = _read_only_yaml_snapshot(config_loader)
@@ -730,6 +735,7 @@ async def get_guild_config(
         ),
         channels=BotChannelSettings(**channels),
         voice=VoiceSelectableRoles(selectable_roles=voice_roles),
+        metrics=MetricsSettings(**metrics),
         organization=OrganizationSettings(**org),
         read_only=ReadOnlyYamlConfig(**ro),
     )
@@ -781,6 +787,7 @@ async def patch_guild_config(
     current_roles = await get_bot_role_settings(db, guild_id)
     current_channels = await get_bot_channel_settings(db, guild_id)
     current_voice = await get_voice_selectable_roles(db, guild_id)
+    current_metrics = await get_metrics_settings(db, guild_id)
     current_org = await get_organization_settings(db, guild_id)
 
     # Track whether verification channel changed for resend trigger
@@ -967,6 +974,26 @@ async def patch_guild_config(
                 SELECTABLE_ROLES_KEY,
                 current_voice,
                 payload.voice.selectable_roles,
+                actor_user_id,
+            )
+
+    if payload.metrics is not None:
+        await set_metrics_settings(
+            db,
+            guild_id,
+            payload.metrics.excluded_channel_ids,
+        )
+        updated_metrics = await get_metrics_settings(db, guild_id)
+        if (
+            current_metrics.get("excluded_channel_ids")
+            != updated_metrics.get("excluded_channel_ids")
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                METRICS_EXCLUDED_CHANNEL_IDS_KEY,
+                current_metrics.get("excluded_channel_ids"),
+                updated_metrics.get("excluded_channel_ids"),
                 actor_user_id,
             )
 

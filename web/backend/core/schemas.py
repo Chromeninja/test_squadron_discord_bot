@@ -447,6 +447,12 @@ class VoiceSelectableRoles(BaseModel):
     selectable_roles: list[str] = Field(default_factory=list)
 
 
+class MetricsSettings(BaseModel):
+    """Guild-scoped metrics collection settings."""
+
+    excluded_channel_ids: list[str] = Field(default_factory=list)
+
+
 class RoleDelegationConfig(BaseModel):
     """Collection of delegation policies for a guild (compat endpoint wrapper)."""
 
@@ -573,6 +579,7 @@ class GuildConfigData(BaseModel):
     roles: BotRoleSettings
     channels: BotChannelSettings
     voice: VoiceSelectableRoles
+    metrics: MetricsSettings
     organization: OrganizationSettings
     read_only: ReadOnlyYamlConfig | None = None
 
@@ -590,4 +597,140 @@ class GuildConfigUpdateRequest(BaseModel):
     roles: BotRoleSettings | None = None
     channels: BotChannelSettings | None = None
     voice: VoiceSelectableRoles | None = None
+    metrics: MetricsSettings | None = None
     organization: OrganizationSettings | None = None
+
+
+# ============================================================================
+# Metrics schemas
+# ============================================================================
+
+
+class MetricsLive(BaseModel):
+    """Live snapshot of current metrics."""
+
+    messages_today: int = 0
+    active_voice_users: int = 0
+    active_game_sessions: int = 0
+    top_game: str | None = None
+
+
+class MetricsPeriod(BaseModel):
+    """Aggregated metrics for a time period."""
+
+    total_messages: int = 0
+    unique_messagers: int = 0
+    avg_messages_per_user: float = 0.0
+    total_voice_seconds: int = 0
+    unique_voice_users: int = 0
+    avg_voice_per_user: int = 0
+    unique_users: int = 0
+    top_games: list[dict] = []
+
+
+class MetricsOverview(BaseModel):
+    """Combined live + period metrics overview."""
+
+    live: MetricsLive
+    period: MetricsPeriod
+
+
+class MetricsOverviewResponse(BaseModel):
+    """Response for /api/metrics/overview."""
+
+    success: bool = True
+    data: MetricsOverview
+
+
+class VoiceLeaderboardEntry(BaseModel):
+    """Single entry in voice time leaderboard."""
+
+    user_id: str
+    total_seconds: int
+    username: str | None = None
+    avatar_url: str | None = None
+
+
+class MessageLeaderboardEntry(BaseModel):
+    """Single entry in message count leaderboard."""
+
+    user_id: str
+    total_messages: int
+    username: str | None = None
+    avatar_url: str | None = None
+
+
+class LeaderboardResponse(BaseModel):
+    """Response for leaderboard endpoints."""
+
+    success: bool = True
+    entries: list[dict]
+
+
+class GameStats(BaseModel):
+    """Stats for a single game."""
+
+    game_name: str
+    total_seconds: int
+    session_count: int
+    avg_seconds: int = 0
+    unique_players: int = 0
+
+
+class TopGamesResponse(BaseModel):
+    """Response for /api/metrics/games/top."""
+
+    success: bool = True
+    games: list[GameStats]
+
+
+class TimeSeriesPoint(BaseModel):
+    """Single data point in a time series."""
+
+    timestamp: int
+    value: int | None = None
+    unique_users: int | None = None
+    top_game: str | None = None
+
+
+class TimeSeriesResponse(BaseModel):
+    """Response for /api/metrics/timeseries."""
+
+    success: bool = True
+    metric: str
+    days: int
+    data: list[dict]
+
+
+class UserGameStats(BaseModel):
+    """Per-user game breakdown."""
+
+    game_name: str
+    total_seconds: int
+
+
+class UserTimeSeriesPoint(BaseModel):
+    """Per-user time series point."""
+
+    timestamp: int
+    messages: int = 0
+    voice_seconds: int = 0
+
+
+class UserMetrics(BaseModel):
+    """Detailed metrics for a single user."""
+
+    user_id: str
+    total_messages: int = 0
+    total_voice_seconds: int = 0
+    avg_messages_per_day: float = 0.0
+    avg_voice_per_day: int = 0
+    top_games: list[UserGameStats] = []
+    timeseries: list[UserTimeSeriesPoint] = []
+
+
+class UserMetricsResponse(BaseModel):
+    """Response for /api/metrics/user/{user_id}."""
+
+    success: bool = True
+    data: UserMetrics
