@@ -13,7 +13,7 @@ import {
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { handleApiError } from '../utils/toast';
 import { hasPermission } from '../utils/permissions';
-import { Alert, Button, Card, Badge, Input } from '../components/ui';
+import { Alert, Button, Card, Badge, Input, Modal } from '../components/ui';
 
 // ---------------------------------------------------------------------------
 // Reusable sub-components (extracted for DRY & readability)
@@ -72,31 +72,25 @@ function OrgBadgeList({
   );
 }
 
-/** Renders a truncated list of role badges with overflow tooltip. */
+/** Renders all role badges with a scrollable container for large role sets. */
 function RoleBadgeList({ roles }: { roles: Array<{ id: number; name: string }> }) {
   if (roles.length === 0) {
     return <span className="text-gray-500">No roles</span>;
   }
 
   return (
-    <div className="flex flex-wrap gap-1 max-w-xs">
-      {roles.slice(0, 3).map((role) => (
-        <span
-          key={role.id}
-          className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300"
-          title={role.name}
-        >
-          {role.name}
-        </span>
-      ))}
-      {roles.length > 3 && (
-        <span
-          className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-400 cursor-help"
-          title={roles.slice(3).map(r => r.name).join(', ')}
-        >
-          +{roles.length - 3}
-        </span>
-      )}
+    <div className="max-h-44 overflow-y-auto pr-1">
+      <div className="flex flex-wrap gap-1.5">
+        {roles.map((role) => (
+          <span
+            key={role.id}
+            className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300 border border-slate-600"
+            title={role.name}
+          >
+            {role.name}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -127,6 +121,7 @@ function Users() {
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
   const [orgSearchQuery, setOrgSearchQuery] = useState<string>('');
   const [orgDropdownOpen, setOrgDropdownOpen] = useState<boolean>(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState<boolean>(false);
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -144,6 +139,10 @@ function Users() {
   // Recheck results modal
   const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
   const [showResultsModal, setShowResultsModal] = useState(false);
+
+  // User detail modal
+  const [selectedUser, setSelectedUser] = useState<EnrichedUser | null>(null);
+  const [showUserModal, setShowUserModal] = useState(false);
 
   const resetSelection = () => {
     setSelectAllFiltered(false);
@@ -369,20 +368,27 @@ function Users() {
     resetSelection();
   }, [debouncedSearch, selectedOrgs]);
 
-  // Close org dropdown when clicking outside
+  // Close filter dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
       if (orgDropdownOpen) {
-        const target = event.target as HTMLElement;
         if (!target.closest('.org-dropdown-container')) {
           setOrgDropdownOpen(false);
+        }
+      }
+
+      if (statusDropdownOpen) {
+        if (!target.closest('.status-dropdown-container')) {
+          setStatusDropdownOpen(false);
         }
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [orgDropdownOpen]);
+  }, [orgDropdownOpen, statusDropdownOpen]);
 
   // Cleanup interval on unmount to prevent memory leaks
   useEffect(() => {
@@ -469,6 +475,18 @@ function Users() {
   useEffect(() => {
     fetchUsers();
   }, [page, pageSize, normalizedStatusFilters, activeGuildId, debouncedSearch, selectedOrgs]);
+
+  // Keep modal user details in sync with latest table data after refreshes/rechecks
+  useEffect(() => {
+    if (!showUserModal || !selectedUser) {
+      return;
+    }
+
+    const updatedUser = users.find((user) => user.discord_id === selectedUser.discord_id);
+    if (updatedUser) {
+      setSelectedUser(updatedUser);
+    }
+  }, [users, showUserModal, selectedUser]);
 
   // Filter handlers
   const toggleStatus = (status: string) => {
@@ -817,22 +835,60 @@ function Users() {
           </div>
 
           {/* Membership Status Multi-Select */}
-          <div className="flex-1 min-w-[250px]">
+          <div className="flex-1 min-w-[250px] relative status-dropdown-container">
             <label className="block text-sm font-medium text-gray-400 mb-2">
-              Membership Status
+              Membership Status {selectedStatuses.length > 0 && `(${selectedStatuses.length} selected)`}
             </label>
-            <div className="bg-slate-900 border border-slate-600 rounded px-4 py-2">
-              {['main', 'affiliate', 'non_member', 'unknown'].map(status => (
-                <label key={status} className="flex items-center py-1 cursor-pointer hover:bg-slate-800 px-2 rounded">
-                  <input
-                    type="checkbox"
-                    checked={selectedStatuses.includes(status)}
-                    onChange={() => toggleStatus(status)}
-                    className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                  />
-                  <span className="text-white capitalize">{status.replace('_', ' ')}</span>
-                </label>
-              ))}
+            <div className="relative">
+              <div
+                className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              >
+                <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
+                  {selectedStatuses.length === 0 ? (
+                    <span className="text-gray-500">All Statuses</span>
+                  ) : (
+                    selectedStatuses.map(status => (
+                      <button
+                        key={status}
+                        type="button"
+                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1 hover:bg-indigo-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStatus(status);
+                        }}
+                        aria-label={`Remove ${status.replace('_', ' ')} status filter`}
+                      >
+                        {status.replace('_', ' ')}
+                        <span className="hover:text-indigo-100" aria-hidden="true">×</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <span className="text-gray-400 ml-2">{statusDropdownOpen ? '▲' : '▼'}</span>
+              </div>
+
+              {statusDropdownOpen && (
+                <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+                  <div className="max-h-48 overflow-y-auto">
+                    {['main', 'affiliate', 'non_member', 'unknown'].map(status => (
+                      <label
+                        key={status}
+                        className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedStatuses.includes(status)}
+                          onChange={() => toggleStatus(status)}
+                          className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                        />
+                        <span className="capitalize">{status.replace('_', ' ')}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -976,7 +1032,7 @@ function Users() {
                 <tr>
                   {/* Hide checkbox column in cross-guild mode (no bulk actions) */}
                   {!isCrossGuild && (
-                    <th className="px-4 py-3 text-left">
+                    <th className="px-3 py-2 text-left w-10">
                       <input
                         ref={headerCheckboxRef}
                         type="checkbox"
@@ -988,43 +1044,22 @@ function Users() {
                   )}
                   {/* Show guild column in cross-guild mode */}
                   {isCrossGuild && (
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                       Guild
                     </th>
                   )}
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    User
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                    Member
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    RSI Handle
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Main Org
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Affiliates
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                    Affiliate Orgs
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Roles
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Joined Server
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Account Created
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                    Last Verified
-                  </th>
-                  {/* Hide actions column in cross-guild mode */}
-                  {!isCrossGuild && (
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                      Actions
-                    </th>
-                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
@@ -1034,10 +1069,13 @@ function Users() {
                     : selectedIds.has(user.discord_id);
 
                   return (
-                    <tr key={user.discord_id} className="hover:bg-slate-700/50">
+                    <tr
+                      key={user.discord_id}
+                      className="hover:bg-slate-700/50 transition-colors"
+                    >
                     {/* Hide checkbox in cross-guild mode */}
                     {!isCrossGuild && (
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-2 w-10">
                         <input
                           type="checkbox"
                           checked={isRowSelected}
@@ -1048,92 +1086,56 @@ function Users() {
                     )}
                     {/* Show guild in cross-guild mode */}
                     {isCrossGuild && (
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-2">
                         <Badge variant="purple" className="text-xs">
                           {user.guild_name || user.guild_id || 'Unknown'}
                         </Badge>
                       </td>
                     )}
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        {user.avatar_url ? (
-                          <img
-                            src={user.avatar_url}
-                            alt={user.username}
-                            className="w-10 h-10 rounded-full"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 font-bold">
-                            {user.username.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-medium text-white">
-                            {user.global_name || user.username}
-                          </div>
-                          <div className="text-sm text-gray-400">
-                            {user.username}#{user.discriminator}
-                          </div>
-                          <div className="text-xs text-gray-500 font-mono mt-0.5">
-                            {user.discord_id}
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="w-full text-left rounded px-1 py-1 -mx-1 -my-1 hover:bg-slate-700/40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setShowUserModal(true);
+                        }}
+                        aria-label={`View details for ${user.global_name || user.username}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {user.avatar_url ? (
+                            <img
+                              src={user.avatar_url}
+                              alt={user.username}
+                              className="w-8 h-8 rounded-full flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-sm font-bold flex-shrink-0">
+                              {user.username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-white truncate">
+                              {user.global_name || user.username}
+                            </div>
+                            <div className="text-xs text-gray-400 truncate">
+                              {user.username}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     </td>
-                    <td className="px-4 py-4">
-                      <Badge variant={getStatusVariant(user.membership_status)}>
+                    <td className="px-3 py-2">
+                      <Badge variant={getStatusVariant(user.membership_status)} className="text-xs">
                         {user.membership_status || 'unknown'}
                       </Badge>
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-300">
-                      {user.rsi_handle ? (
-                        <a
-                          href={`https://robertsspaceindustries.com/citizens/${user.rsi_handle}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 hover:underline"
-                        >
-                          {user.rsi_handle}
-                        </a>
-                      ) : (
-                        '-'
-                      )}
+                    <td className="px-3 py-2 text-sm text-gray-300">
+                      <OrgBadgeList orgs={user.main_orgs} maxVisible={2} colorScheme="blue" />
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-300">
-                      <OrgBadgeList orgs={user.main_orgs} colorScheme="blue" />
+                    <td className="px-3 py-2 text-sm text-gray-300">
+                      <OrgBadgeList orgs={user.affiliate_orgs} maxVisible={2} colorScheme="green" />
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-300">
-                      <OrgBadgeList orgs={user.affiliate_orgs} maxVisible={3} colorScheme="green" />
-                    </td>
-                    <td className="px-4 py-4 text-sm">
-                      <RoleBadgeList roles={user.roles} />
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-400">
-                      {formatDateValue(user.joined_at)}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-400">
-                      {formatDateValue(user.created_at)}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-400">
-                      {formatDateValue(user.last_updated)}
-                    </td>
-                    {/* Hide actions in cross-guild mode */}
-                    {!isCrossGuild && (
-                      <td className="px-4 py-4">
-                        {canRecheck ? (
-                          <Button
-                            size="sm"
-                            onClick={() => handleRecheckUser(user.discord_id)}
-                            loading={recheckingUserId === user.discord_id}
-                            title="Re-verify this user's RSI membership and update roles"
-                          >
-                            {recheckingUserId === user.discord_id ? 'Rechecking...' : 'Recheck'}
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-gray-500">-</span>
-                        )}
-                      </td>
-                    )}
                   </tr>
                   );
                 })}
@@ -1188,6 +1190,151 @@ function Users() {
             }
           </div>
         </Card>
+      )}
+
+      {/* User Detail Modal */}
+      {selectedUser && (
+        <Modal
+          open={showUserModal}
+          onClose={() => {
+            setShowUserModal(false);
+            setSelectedUser(null);
+          }}
+          title="Member Details"
+          size="lg"
+          headerVariant="default"
+          footer={
+            <div className="flex items-center justify-between w-full">
+              <div>
+                {!isCrossGuild && canRecheck && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      handleRecheckUser(selectedUser.discord_id);
+                    }}
+                    loading={recheckingUserId === selectedUser.discord_id}
+                    title="Re-verify this user's RSI membership and update roles"
+                  >
+                    {recheckingUserId === selectedUser.discord_id ? 'Rechecking...' : 'Recheck Membership'}
+                  </Button>
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setShowUserModal(false);
+                  setSelectedUser(null);
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          }
+        >
+          {/* User header */}
+          <div className="flex items-center gap-4 mb-6">
+            {selectedUser.avatar_url ? (
+              <img
+                src={selectedUser.avatar_url}
+                alt={selectedUser.username}
+                className="w-16 h-16 rounded-full"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-2xl font-bold">
+                {selectedUser.username.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <h4 className="text-lg font-semibold text-white">
+                {selectedUser.global_name || selectedUser.username}
+              </h4>
+              <p className="text-sm text-gray-400">
+                {selectedUser.username}#{selectedUser.discriminator}
+              </p>
+              <p className="text-xs text-gray-500 font-mono mt-0.5">
+                {selectedUser.discord_id}
+              </p>
+            </div>
+            <div className="ml-auto">
+              <Badge variant={getStatusVariant(selectedUser.membership_status)}>
+                {selectedUser.membership_status || 'unknown'}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Detail grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            {/* RSI Handle */}
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">RSI Handle</div>
+              <div className="text-gray-200">
+                {selectedUser.rsi_handle ? (
+                  <a
+                    href={`https://robertsspaceindustries.com/citizens/${selectedUser.rsi_handle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 hover:underline"
+                  >
+                    {selectedUser.rsi_handle}
+                  </a>
+                ) : (
+                  <span className="text-gray-500">—</span>
+                )}
+              </div>
+            </div>
+
+            {/* Guild (cross-guild mode) */}
+            {isCrossGuild && (
+              <div className="bg-slate-900/50 rounded-lg p-3">
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Guild</div>
+                <div className="text-gray-200">
+                  <Badge variant="purple" className="text-xs">
+                    {selectedUser.guild_name || selectedUser.guild_id || 'Unknown'}
+                  </Badge>
+                </div>
+              </div>
+            )}
+
+            {/* Main Orgs */}
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Main Organizations</div>
+              <div className="mt-1">
+                <OrgBadgeList orgs={selectedUser.main_orgs} colorScheme="blue" />
+              </div>
+            </div>
+
+            {/* Affiliate Orgs */}
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Affiliate Organizations</div>
+              <div className="mt-1">
+                <OrgBadgeList orgs={selectedUser.affiliate_orgs} colorScheme="green" />
+              </div>
+            </div>
+
+            {/* Roles */}
+            <div className="bg-slate-900/50 rounded-lg p-3 sm:col-span-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Roles</div>
+              <div className="mt-1">
+                <RoleBadgeList roles={selectedUser.roles} />
+              </div>
+            </div>
+
+            {/* Timestamps */}
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Joined Server</div>
+              <div className="text-gray-200">{formatDateValue(selectedUser.joined_at)}</div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Account Created</div>
+              <div className="text-gray-200">{formatDateValue(selectedUser.created_at)}</div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Last Verified</div>
+              <div className="text-gray-200">{formatDateValue(selectedUser.last_updated)}</div>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Recheck Results Modal */}
