@@ -1074,59 +1074,74 @@ class InternalAPIClient:
     # Metrics endpoints
     # ------------------------------------------------------------------
 
-    async def get_metrics_overview(self, guild_id: int, days: int = 7) -> dict:
+    async def get_metrics_overview(self, guild_id: int, days: int = 7, user_ids: list[int] | None = None) -> dict:
         """Get metrics overview (live snapshot + aggregated period data)."""
         client = await self._get_client()
+        params: dict = {"days": days}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
-            f"/guilds/{guild_id}/metrics/overview", params={"days": days}
+            f"/guilds/{guild_id}/metrics/overview", params=params
         )
         response.raise_for_status()
         return response.json()
 
     async def get_metrics_voice_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Get top users by voice time."""
         client = await self._get_client()
+        params: dict = {"days": days, "limit": limit}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/voice/leaderboard",
-            params={"days": days, "limit": limit},
+            params=params,
         )
         response.raise_for_status()
         return response.json()
 
     async def get_metrics_message_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Get top users by message count."""
         client = await self._get_client()
+        params: dict = {"days": days, "limit": limit}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/messages/leaderboard",
-            params={"days": days, "limit": limit},
+            params=params,
         )
         response.raise_for_status()
         return response.json()
 
     async def get_metrics_top_games(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Get top games by total play time."""
         client = await self._get_client()
+        params: dict = {"days": days, "limit": limit}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/games/top",
-            params={"days": days, "limit": limit},
+            params=params,
         )
         response.raise_for_status()
         return response.json()
 
     async def get_metrics_timeseries(
-        self, guild_id: int, metric: str = "messages", days: int = 7
+        self, guild_id: int, metric: str = "messages", days: int = 7, user_ids: list[int] | None = None
     ) -> dict:
         """Get hourly time-series data for charts."""
         client = await self._get_client()
+        params: dict = {"metric": metric, "days": days}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/timeseries",
-            params={"metric": metric, "days": days},
+            params=params,
         )
         response.raise_for_status()
         return response.json()
@@ -1150,6 +1165,27 @@ class InternalAPIClient:
         client = await self._get_client()
         response = await client.delete(
             f"/guilds/{guild_id}/metrics/user/{user_id}"
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_activity_groups(self, guild_id: int) -> dict:
+        """Get activity group tier counts per dimension."""
+        client = await self._get_client()
+        response = await client.get(
+            f"/guilds/{guild_id}/metrics/activity-groups"
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_activity_group_members(
+        self, guild_id: int, dimension: str, tier: str
+    ) -> dict:
+        """Get user IDs for a specific dimension+tier activity group."""
+        client = await self._get_client()
+        response = await client.get(
+            f"/guilds/{guild_id}/metrics/activity-group-members",
+            params={"dimension": dimension, "tier": tier},
         )
         response.raise_for_status()
         return response.json()

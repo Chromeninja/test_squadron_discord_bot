@@ -94,7 +94,7 @@ async def test_voice_leaderboard(
     body = response.json()
     assert "entries" in body
     assert len(body["entries"]) == 2
-    assert body["entries"][0]["user_id"] == 123456789
+    assert body["entries"][0]["user_id"] == "123456789"
 
 
 @pytest.mark.asyncio
@@ -273,13 +273,18 @@ async def test_user_metrics(
 async def test_user_metrics_internal_error(
     client: AsyncClient, mock_admin_session: str, fake_internal_api
 ):
-    """User metrics returns 502 on internal failure."""
+    """User metrics returns safe fallback payload on internal failure."""
     fake_internal_api._metrics_user_override = RuntimeError("user not found")
     response = await client.get(
         "/api/metrics/user/123456789",
         cookies={"session": mock_admin_session},
     )
-    assert response.status_code == HTTPStatus.BAD_GATEWAY
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["user_id"] == "123456789"
+    assert body["data"]["total_messages"] == 0
+    assert body["data"]["total_voice_seconds"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -298,3 +303,95 @@ async def test_moderator_cannot_view_metrics(
         cookies={"session": mock_moderator_session},
     )
     assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
+# Activity group filters on existing routes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overview_with_dimension_tier_filter(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Overview endpoint accepts dimension and tier query params."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=voice&tier=hardcore",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert "data" in body
+
+
+@pytest.mark.asyncio
+async def test_overview_bad_dimension_rejected(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Overview rejects invalid dimension values."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=invalid",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_overview_bad_tier_rejected(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Overview rejects invalid tier values."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7&tier=diamond",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_voice_leaderboard_with_filter(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Voice leaderboard accepts dimension+tier filters."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/voice/leaderboard?days=7&dimension=all&tier=regular",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert "entries" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/metrics/activity-groups
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_activity_groups_returns_counts(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Activity-groups endpoint returns tier counts per dimension."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/activity-groups",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is True
+    data = body["data"]
+    for dim in ("all", "voice", "chat", "game"):
+        assert dim in data
+        for tier in ("hardcore", "regular", "casual", "reserve", "inactive"):
+            assert tier in data[dim]
+
+
+@pytest.mark.asyncio
+async def test_activity_groups_requires_auth(client: AsyncClient):
+    """Activity-groups rejects unauthenticated requests."""
+    response = await client.get("/api/metrics/activity-groups")
+    assert response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)

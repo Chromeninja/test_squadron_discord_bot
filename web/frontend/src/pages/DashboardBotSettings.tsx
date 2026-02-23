@@ -25,6 +25,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [delegationPolicies, setDelegationPolicies] = useState<RoleDelegationPolicyPayload[]>([]);
   const [voiceSelectableRoles, setVoiceSelectableRoles] = useState<string[]>([]);
   const [metricsExcludedChannels, setMetricsExcludedChannels] = useState<string[]>([]);
+  const [trackedGamesMode, setTrackedGamesMode] = useState<string>('all');
+  const [trackedGames, setTrackedGames] = useState<string[]>([]);
+  const [trackedGameInput, setTrackedGameInput] = useState<string>('');
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
@@ -152,6 +155,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setDelegationPolicies(normalizedPolicies);
         setVoiceSelectableRoles(voiceSelectableResponse.selectable_roles || []);
         setMetricsExcludedChannels(configResponse.data.metrics?.excluded_channel_ids || []);
+        setTrackedGamesMode(configResponse.data.metrics?.tracked_games_mode || 'all');
+        setTrackedGames(configResponse.data.metrics?.tracked_games || []);
         setVerificationChannelId(channelSettingsResponse.verification_channel_id);
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
@@ -228,6 +233,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         voice: { selectable_roles: voiceSelectableRoles },
         metrics: {
           excluded_channel_ids: metricsExcludedChannels,
+          tracked_games_mode: trackedGamesMode,
+          tracked_games: trackedGames,
         },
         organization: {
           organization_sid: orgSidInput.trim() || null,
@@ -268,6 +275,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
       // Metrics settings
       setMetricsExcludedChannels(updated.metrics.excluded_channel_ids || []);
+      setTrackedGamesMode(updated.metrics.tracked_games_mode || 'all');
+      setTrackedGames(updated.metrics.tracked_games || []);
 
       // Organization
       setOrganizationSid(updated.organization.organization_sid || '');
@@ -873,6 +882,96 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               placeholder="Search and select channels to exclude"
               componentId="metrics-excluded-channels"
             />
+          </div>
+
+          <div>
+            <h5 className="text-sm font-semibold text-white mb-1">Tracked Games for Activity</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              Choose which games count toward the Game-in-Voice activity tier.
+            </p>
+            <div className="flex items-center gap-4 mb-3">
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input
+                  type="radio"
+                  name="trackedGamesMode"
+                  value="all"
+                  checked={trackedGamesMode === 'all'}
+                  onChange={() => setTrackedGamesMode('all')}
+                  className="accent-indigo-500"
+                />
+                All games
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input
+                  type="radio"
+                  name="trackedGamesMode"
+                  value="specific"
+                  checked={trackedGamesMode === 'specific'}
+                  onChange={() => setTrackedGamesMode('specific')}
+                  className="accent-indigo-500"
+                />
+                Specific games only
+              </label>
+            </div>
+            {trackedGamesMode === 'specific' && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Input
+                    type="text"
+                    value={trackedGameInput}
+                    onChange={(e) => setTrackedGameInput(e.target.value)}
+                    placeholder="Type a game name and press Enter"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = trackedGameInput.trim();
+                        if (val && !trackedGames.includes(val)) {
+                          setTrackedGames([...trackedGames, val]);
+                        }
+                        setTrackedGameInput('');
+                      }
+                    }}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const val = trackedGameInput.trim();
+                      if (val && !trackedGames.includes(val)) {
+                        setTrackedGames([...trackedGames, val]);
+                      }
+                      setTrackedGameInput('');
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {trackedGames.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {trackedGames.map((game) => (
+                      <span
+                        key={game}
+                        className="inline-flex items-center gap-1 bg-slate-700 text-gray-200 text-xs px-2.5 py-1 rounded-full"
+                      >
+                        🎮 {game}
+                        <button
+                          onClick={() => setTrackedGames(trackedGames.filter((g) => g !== game))}
+                          className="text-gray-400 hover:text-red-400 transition ml-0.5"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {trackedGames.length === 0 && (
+                  <p className="text-xs text-gray-500 italic">
+                    No games added yet. With no games specified, all games will be tracked.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end text-xs text-gray-400">

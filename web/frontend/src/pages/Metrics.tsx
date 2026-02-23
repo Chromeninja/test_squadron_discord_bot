@@ -9,7 +9,7 @@
  * - Per-user drill-down on click
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   metricsApi,
   MetricsOverview,
@@ -17,6 +17,9 @@ import {
   MessageLeaderboardEntry,
   GameStatsEntry,
   TimeSeriesPoint,
+  ActivityDimension,
+  ActivityTier,
+  ActivityGroupCounts,
 } from '../api/endpoints';
 import { handleApiError } from '../utils/toast';
 import {
@@ -28,6 +31,47 @@ import {
 } from '../components/charts';
 
 type TimeRange = 7 | 30 | 90;
+
+const TIER_LABELS: Record<ActivityTier, string> = {
+  hardcore: 'Hardcore',
+  regular: 'Regular',
+  casual: 'Casual',
+  reserve: 'Reserve',
+  inactive: 'Inactive',
+};
+
+const TIER_COLORS: Record<ActivityTier, string> = {
+  hardcore: 'bg-red-600 text-white',
+  regular: 'bg-amber-500 text-white',
+  casual: 'bg-sky-500 text-white',
+  reserve: 'bg-slate-500 text-white',
+  inactive: 'bg-gray-700 text-gray-300',
+};
+
+const TIER_COLORS_OUTLINE: Record<ActivityTier, string> = {
+  hardcore: 'border-red-600 text-red-400',
+  regular: 'border-amber-500 text-amber-400',
+  casual: 'border-sky-500 text-sky-400',
+  reserve: 'border-slate-500 text-slate-300',
+  inactive: 'border-gray-600 text-gray-400',
+};
+
+const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
+  { value: 'all', label: '🌐 All Activity' },
+  { value: 'voice', label: '🎤 Voice' },
+  { value: 'chat', label: '💬 Chat' },
+  { value: 'game', label: '🎮 Game-in-Voice' },
+];
+
+const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', 'inactive'];
+
+const TIER_HELP_TEXT: Record<ActivityTier, string> = {
+  hardcore: 'Active within the last 24 hours (daily active).',
+  regular: 'Active within the last 3 days.',
+  casual: 'Active within the last 7 days (weekly active).',
+  reserve: 'Active within the last 30 days (monthly active).',
+  inactive: 'No qualifying activity in the last 30 days.',
+};
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -51,21 +95,39 @@ export default function Metrics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
+  const [selectedDimensions, setSelectedDimensions] = useState<ActivityDimension[]>(['all']);
+  const [selectedTiers, setSelectedTiers] = useState<ActivityTier[]>([]);
+  const [dimensionDropdownOpen, setDimensionDropdownOpen] = useState<boolean>(false);
+  const [activityCounts, setActivityCounts] = useState<ActivityGroupCounts | null>(null);
+  const dimensionDropdownRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchData = async (range: TimeRange) => {
+  const fetchData = async (range: TimeRange, dims?: ActivityDimension[], tiers?: ActivityTier[]) => {
     setLoading(true);
     setError(null);
 
+    const filterDims = dims ?? selectedDimensions;
+    const filterTiers = tiers ?? selectedTiers;
+    const hasSpecificDim = filterDims.some((value) => value !== 'all');
+    const specificDims: ActivityDimension[] = filterDims.filter(
+      (value): value is Exclude<ActivityDimension, 'all'> => value !== 'all'
+    );
+    const filterParam: ActivityDimension[] | undefined = hasSpecificDim
+      ? specificDims
+      : (filterTiers.length > 0 ? ['all'] : undefined);
+    const tierParam: ActivityTier[] | undefined = filterTiers.length > 0 ? filterTiers : undefined;
+
     try {
-      // Fetch all metrics data in parallel
-      const [overviewResp, voiceResp, msgResp, gamesResp, msgTsResp, voiceTsResp] =
+      // Fetch all metrics data in parallel (include activity group counts)
+      const [overviewResp, voiceResp, msgResp, gamesResp, msgTsResp, voiceTsResp, groupsResp] =
         await Promise.all([
-          metricsApi.getOverview(range),
-          metricsApi.getVoiceLeaderboard(range, 10),
-          metricsApi.getMessageLeaderboard(range, 10),
-          metricsApi.getTopGames(range, 10),
-          metricsApi.getTimeSeries('messages', range),
-          metricsApi.getTimeSeries('voice', range),
+          metricsApi.getOverview(range, filterParam, tierParam),
+          metricsApi.getVoiceLeaderboard(range, 10, filterParam, tierParam),
+          metricsApi.getMessageLeaderboard(range, 10, filterParam, tierParam),
+          metricsApi.getTopGames(range, 10, filterParam, tierParam),
+          metricsApi.getTimeSeries('messages', range, filterParam, tierParam),
+          metricsApi.getTimeSeries('voice', range, filterParam, tierParam),
+          metricsApi.getActivityGroups(),
         ]);
 
       setOverview(overviewResp.data);
@@ -74,6 +136,7 @@ export default function Metrics() {
       setTopGames(gamesResp.games);
       setMessageTimeSeries(msgTsResp.data);
       setVoiceTimeSeries(voiceTsResp.data);
+      setActivityCounts(groupsResp.data);
     } catch (err) {
       setError('Failed to load metrics data');
       handleApiError(err, 'Failed to load metrics');
@@ -84,11 +147,53 @@ export default function Metrics() {
 
   useEffect(() => {
     fetchData(days);
-  }, [days]);
+  }, [days, selectedDimensions, selectedTiers]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!dimensionDropdownRef.current) return;
+      if (!dimensionDropdownRef.current.contains(event.target as Node)) {
+        setDimensionDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleTimeRangeChange = (range: TimeRange) => {
     setDays(range);
   };
+
+  const handleTierClick = (tier: ActivityTier) => {
+    setSelectedTiers((prev) => (prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]));
+  };
+
+  const toggleDimension = (dimension: ActivityDimension) => {
+    if (dimension === 'all') {
+      setSelectedDimensions(['all']);
+      return;
+    }
+    setSelectedDimensions((prev) => {
+      const withoutAll = prev.filter((value) => value !== 'all');
+      if (withoutAll.includes(dimension)) {
+        const next = withoutAll.filter((value) => value !== dimension);
+        return next.length > 0 ? next : ['all'];
+      }
+      return [...withoutAll, dimension];
+    });
+  };
+
+  const openUserPanel = (userId: string) => {
+    const voiceEntry = voiceLeaderboard.find((entry) => entry.user_id === userId);
+    const messageEntry = messageLeaderboard.find((entry) => entry.user_id === userId);
+    setSelectedUsername(voiceEntry?.username ?? messageEntry?.username ?? null);
+    setSelectedUserId(userId);
+  };
+
+  // Get the tier counts for the currently selected dimension
+  const currentDimensionForCounts: ActivityDimension = selectedDimensions.length === 1 ? selectedDimensions[0] : 'all';
+  const currentCounts = activityCounts?.[currentDimensionForCounts] ?? null;
 
   if (loading) {
     return (
@@ -148,6 +253,115 @@ export default function Metrics() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Activity Group Filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Dimension dropdown (Users-page style) */}
+        <div className="flex-1 min-w-[250px] max-w-[420px] relative" ref={dimensionDropdownRef}>
+          <div className="relative">
+            <div
+              className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+              onClick={() => setDimensionDropdownOpen((prev) => !prev)}
+            >
+              <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
+                {selectedDimensions.length === 1 && selectedDimensions[0] === 'all' ? (
+                  <span className="text-gray-500">All Activity Groups</span>
+                ) : (
+                  selectedDimensions.map((dimension) => {
+                    const dim = DIMENSIONS.find((item) => item.value === dimension);
+                    return (
+                      <button
+                        key={dimension}
+                        type="button"
+                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1 hover:bg-indigo-900/50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDimension(dimension);
+                        }}
+                        aria-label={`Remove ${dim?.label || dimension} filter`}
+                      >
+                        {dim?.label || dimension}
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <span className="text-gray-400 ml-2">{dimensionDropdownOpen ? '▲' : '▼'}</span>
+            </div>
+
+            {dimensionDropdownOpen && (
+              <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+                <div className="max-h-48 overflow-y-auto">
+                  {DIMENSIONS.map((dimension) => (
+                    <label
+                      key={dimension.value}
+                      className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDimensions.includes(dimension.value)}
+                        onChange={() => toggleDimension(dimension.value)}
+                        className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                      />
+                      {dimension.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Tier chips */}
+        <div className="flex items-center gap-1.5">
+          {ALL_TIERS.map((tier) => {
+            const count = currentCounts?.[tier] ?? 0;
+            const isActive = selectedTiers.includes(tier);
+            return (
+              <div key={tier} className="relative group">
+                <button
+                  onClick={() => handleTierClick(tier)}
+                  title={TIER_HELP_TEXT[tier]}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border transition ${
+                    isActive
+                      ? TIER_COLORS[tier]
+                      : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-slate-800'
+                  }`}
+                >
+                  {TIER_LABELS[tier]}
+                  <span
+                    className={`inline-flex items-center justify-center text-[10px] min-w-[18px] h-[18px] rounded-full px-1 ${
+                      isActive ? 'bg-black/25' : 'bg-slate-800'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+                <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-10 hidden group-hover:block z-20">
+                  <div className="whitespace-nowrap rounded bg-slate-900 border border-slate-600 px-2 py-1 text-[11px] text-gray-200 shadow-lg">
+                    {TIER_HELP_TEXT[tier]}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Active filter indicator */}
+        {(selectedTiers.length > 0 || !(selectedDimensions.length === 1 && selectedDimensions[0] === 'all')) && (
+          <button
+            onClick={() => {
+              setSelectedTiers([]);
+              setSelectedDimensions(['all']);
+            }}
+            className="text-xs text-gray-400 hover:text-white transition"
+          >
+            ✕ Clear filters
+          </button>
+        )}
       </div>
 
       {/* Summary KPI Cards */}
@@ -227,7 +441,7 @@ export default function Metrics() {
           color="#22c55e"
           valueLabel="Time"
           formatValue={formatDuration}
-          onBarClick={(userId) => setSelectedUserId(userId)}
+          onBarClick={openUserPanel}
         />
         <LeaderboardChart
           data={messageLeaderboard.map((e) => ({
@@ -238,7 +452,7 @@ export default function Metrics() {
           title="💬 Messages Leaderboard"
           color="#6366f1"
           valueLabel="Messages"
-          onBarClick={(userId) => setSelectedUserId(userId)}
+          onBarClick={openUserPanel}
         />
         <GamePieChart data={topGames} title="🎮 Top Games" />
       </div>
@@ -287,8 +501,12 @@ export default function Metrics() {
       {selectedUserId && (
         <UserDetailPanel
           userId={selectedUserId}
+          username={selectedUsername}
           days={days}
-          onClose={() => setSelectedUserId(null)}
+          onClose={() => {
+            setSelectedUserId(null);
+            setSelectedUsername(null);
+          }}
         />
       )}
     </div>

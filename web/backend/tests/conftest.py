@@ -413,7 +413,7 @@ class FakeInternalAPIClient:
     # ------------------------------------------------------------------
     # Metrics endpoints
     # ------------------------------------------------------------------
-    async def get_metrics_overview(self, guild_id: int, days: int = 7) -> dict:
+    async def get_metrics_overview(self, guild_id: int, days: int = 7, user_ids: list[int] | None = None) -> dict:
         """Return metrics overview data."""
         if self._metrics_overview_override is not None:
             if isinstance(self._metrics_overview_override, Exception):
@@ -439,7 +439,7 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_voice_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Return voice leaderboard data."""
         if self._metrics_voice_lb_override is not None:
@@ -454,7 +454,7 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_message_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Return message leaderboard data."""
         if self._metrics_msg_lb_override is not None:
@@ -469,7 +469,7 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_top_games(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
     ) -> dict:
         """Return top games data."""
         if self._metrics_top_games_override is not None:
@@ -496,7 +496,7 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_timeseries(
-        self, guild_id: int, metric: str = "messages", days: int = 7
+        self, guild_id: int, metric: str = "messages", days: int = 7, user_ids: list[int] | None = None
     ) -> dict:
         """Return time-series data."""
         if self._metrics_timeseries_override is not None:
@@ -513,7 +513,7 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_user(
-        self, guild_id: int, user_id: int, days: int = 7
+        self, guild_id: int, user_id: int, days: int = 7, user_ids: list[int] | None = None
     ) -> dict:
         """Return per-user metrics data."""
         if self._metrics_user_override is not None:
@@ -539,6 +539,32 @@ class FakeInternalAPIClient:
                     "voice_seconds": 1800,
                 }
             ],
+        }
+
+    async def get_activity_groups(self, guild_id: int) -> dict:
+        """Return activity group counts."""
+        tier_counts = {
+            "hardcore": 2,
+            "regular": 5,
+            "casual": 8,
+            "reserve": 10,
+            "inactive": 25,
+        }
+        return {
+            "all": tier_counts,
+            "voice": tier_counts,
+            "chat": tier_counts,
+            "game": tier_counts,
+        }
+
+    async def get_activity_group_members(
+        self, guild_id: int, dimension: str, tier: str
+    ) -> dict:
+        """Return user IDs for a specific activity tier."""
+        return {
+            "dimension": dimension,
+            "tier": tier,
+            "user_ids": [123456789, 987654321],
         }
 
 

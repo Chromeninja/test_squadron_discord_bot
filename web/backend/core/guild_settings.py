@@ -284,6 +284,8 @@ BOT_SPAM_CHANNEL_KEY = "channels.bot_spam_channel_id"
 PUBLIC_ANNOUNCEMENT_CHANNEL_KEY = "channels.public_announcement_channel_id"
 LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY = "channels.leadership_announcement_channel_id"
 METRICS_EXCLUDED_CHANNEL_IDS_KEY = "metrics.excluded_channel_ids"
+METRICS_TRACKED_GAMES_MODE_KEY = "metrics.tracked_games_mode"
+METRICS_TRACKED_GAMES_KEY = "metrics.tracked_games"
 
 ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
@@ -740,26 +742,56 @@ async def set_voice_selectable_roles(
     await db.commit()
 
 
-async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, list[str]]:
+async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, Any]:
     """Fetch metrics settings for a guild."""
     cursor = await db.execute(
         """
-        SELECT value
+        SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key = ?
+        WHERE guild_id = ? AND key IN (?, ?, ?)
         """,
-        (guild_id, METRICS_EXCLUDED_CHANNEL_IDS_KEY),
+        (
+            guild_id,
+            METRICS_EXCLUDED_CHANNEL_IDS_KEY,
+            METRICS_TRACKED_GAMES_MODE_KEY,
+            METRICS_TRACKED_GAMES_KEY,
+        ),
     )
-    row = await cursor.fetchone()
-    if not row:
-        return {"excluded_channel_ids": []}
-    return {"excluded_channel_ids": _coerce_channel_list(row[0])}
+    rows = await cursor.fetchall()
+
+    result: dict[str, Any] = {
+        "excluded_channel_ids": [],
+        "tracked_games_mode": "all",
+        "tracked_games": [],
+    }
+    for key, value in rows:
+        if key == METRICS_EXCLUDED_CHANNEL_IDS_KEY:
+            result["excluded_channel_ids"] = _coerce_channel_list(value)
+        elif key == METRICS_TRACKED_GAMES_MODE_KEY:
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                result["tracked_games_mode"] = (
+                    parsed if parsed in ("all", "specific") else "all"
+                )
+            except (TypeError, json.JSONDecodeError):
+                pass
+        elif key == METRICS_TRACKED_GAMES_KEY:
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                result["tracked_games"] = (
+                    [str(g) for g in parsed] if isinstance(parsed, list) else []
+                )
+            except (TypeError, json.JSONDecodeError):
+                pass
+    return result
 
 
 async def set_metrics_settings(
     db: Connection,
     guild_id: int,
     excluded_channel_ids: list[str],
+    tracked_games_mode: str = "all",
+    tracked_games: list[str] | None = None,
 ) -> None:
     """Persist metrics settings for a guild."""
 
@@ -784,6 +816,31 @@ async def set_metrics_settings(
         """,
         (guild_id, METRICS_EXCLUDED_CHANNEL_IDS_KEY, json.dumps(normalized)),
     )
+
+    # Tracked games mode
+    mode = tracked_games_mode if tracked_games_mode in ("all", "specific") else "all"
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        (guild_id, METRICS_TRACKED_GAMES_MODE_KEY, json.dumps(mode)),
+    )
+
+    # Tracked games list
+    games_list = (
+        [str(g).strip() for g in tracked_games if str(g).strip()]
+        if tracked_games
+        else []
+    )
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        (guild_id, METRICS_TRACKED_GAMES_KEY, json.dumps(games_list)),
+    )
+
     await _touch_settings_version(db, guild_id, source="metrics_settings")
     await db.commit()
 

@@ -119,6 +119,11 @@ class MetricsService(BaseService):
         self._excluded_channels_ttl_seconds: int = 30
         self._excluded_channels_lock = asyncio.Lock()
 
+        # Guild-level tracked games config cache
+        self._tracked_games_cache: dict[int, tuple[float, str, set[str]]] = {}
+        self._tracked_games_ttl_seconds: int = 30
+        self._tracked_games_lock = asyncio.Lock()
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -222,6 +227,213 @@ class MetricsService(BaseService):
 
             self._excluded_channels_cache[guild_id] = (time.monotonic(), parsed)
             return set(parsed)
+
+    async def get_tracked_game_config(
+        self, guild_id: int, *, force_refresh: bool = False
+    ) -> tuple[str, set[str]]:
+        """Return (mode, game_names) for activity-group game tracking.
+
+        mode is 'all' or 'specific'. When 'all', game_names is empty and
+        every game counts. When 'specific', only games in game_names count.
+        """
+        async with self._tracked_games_lock:
+            now = time.monotonic()
+            cached = self._tracked_games_cache.get(guild_id)
+            if (
+                not force_refresh
+                and cached is not None
+                and (now - cached[0]) < self._tracked_games_ttl_seconds
+            ):
+                return cached[1], set(cached[2])
+
+            mode_raw = await self._config_service.get_guild_setting(
+                guild_id, "metrics.tracked_games_mode", "all"
+            )
+            mode = mode_raw if mode_raw in ("all", "specific") else "all"
+
+            games_raw = await self._config_service.get_guild_setting(
+                guild_id, "metrics.tracked_games", []
+            )
+            games: set[str] = set()
+            if isinstance(games_raw, list):
+                for item in games_raw:
+                    name = str(item).strip()
+                    if name:
+                        games.add(name)
+
+            self._tracked_games_cache[guild_id] = (time.monotonic(), mode, games)
+            return mode, set(games)
+
+    # ------------------------------------------------------------------
+    # Activity-group bucket computation
+    # ------------------------------------------------------------------
+
+    # Tier thresholds in seconds (UTC rolling windows)
+    _TIER_THRESHOLDS: list[tuple[str, int]] = [
+        ("hardcore", 24 * 3600),       # ≤ 24 hours
+        ("regular", 3 * 24 * 3600),    # ≤ 3 days
+        ("casual", 7 * 24 * 3600),     # ≤ 7 days
+        ("reserve", 30 * 24 * 3600),   # ≤ 30 days
+    ]
+
+    @staticmethod
+    def _tier_from_recency(last_active: int | None, now: int) -> str:
+        """Derive a tier label from a last-active timestamp."""
+        if last_active is None:
+            return "inactive"
+        age = now - last_active
+        for tier_name, threshold in MetricsService._TIER_THRESHOLDS:
+            if age <= threshold:
+                return tier_name
+        return "inactive"
+
+    async def get_member_activity_buckets(
+        self,
+        guild_id: int,
+        user_ids: list[int] | None = None,
+        now_utc: int | None = None,
+    ) -> dict[int, dict[str, Any]]:
+        """Compute per-dimension activity tiers for members.
+
+        Returns {user_id: {
+            voice_tier, chat_tier, game_tier, combined_tier,
+            last_voice_at, last_chat_at, last_game_at
+        }}
+        """
+        self._ensure_initialized()
+        now = now_utc or int(time.time())
+        cutoff_30d = now - (30 * 86400)
+
+        excluded = await self.get_excluded_channel_ids(guild_id)
+        game_mode, tracked_games = await self.get_tracked_game_config(guild_id)
+
+        user_filter_sql = ""
+        params_prefix: list[Any] = [guild_id]
+        if user_ids is not None:
+            if not user_ids:
+                return {}
+            placeholders = ",".join("?" for _ in user_ids)
+            user_filter_sql = f" AND user_id IN ({placeholders})"
+            params_prefix = [guild_id, *user_ids]
+
+        result: dict[int, dict[str, Any]] = {}
+
+        async with MetricsDatabase.get_connection() as db:
+            # --- Chat: latest message per user ---
+            sql_msg = (
+                "SELECT user_id, MAX(hour_bucket) "
+                "FROM message_counts "
+                f"WHERE guild_id = ? {user_filter_sql} AND hour_bucket >= ? "
+                "GROUP BY user_id"
+            )
+            cursor = await db.execute(sql_msg, [*params_prefix, cutoff_30d])
+            for uid, last_bucket in await cursor.fetchall():
+                result.setdefault(uid, {})["last_chat_at"] = last_bucket
+
+            # --- Voice: latest voice activity per user ---
+            # Use MAX of (left_at, joined_at for open sessions mapped to now)
+            sql_voice = (
+                "SELECT user_id, MAX(COALESCE(left_at, ?)) "
+                "FROM voice_sessions "
+                f"WHERE guild_id = ? {user_filter_sql} AND joined_at >= ? "
+                "GROUP BY user_id"
+            )
+            voice_params = [now, *params_prefix, cutoff_30d]
+            cursor = await db.execute(sql_voice, voice_params)
+            for uid, last_ts in await cursor.fetchall():
+                result.setdefault(uid, {})["last_voice_at"] = last_ts
+
+            # --- Game-in-voice: latest qualifying game session ---
+            # Game sessions that overlap with a voice session in a non-excluded channel
+            excl_clause = ""
+            excl_params: list[Any] = []
+            if excluded:
+                excl_placeholders = ",".join("?" for _ in excluded)
+                excl_clause = f" AND v.channel_id NOT IN ({excl_placeholders})"
+                excl_params = list(excluded)
+
+            game_name_clause = ""
+            game_name_params: list[Any] = []
+            if game_mode == "specific" and tracked_games:
+                gn_placeholders = ",".join("?" for _ in tracked_games)
+                game_name_clause = f" AND g.game_name IN ({gn_placeholders})"
+                game_name_params = list(tracked_games)
+
+            game_user_filter = ""
+            game_user_params: list[Any] = []
+            if user_ids is not None:
+                placeholders = ",".join("?" for _ in user_ids)
+                game_user_filter = f" AND g.user_id IN ({placeholders})"
+                game_user_params = list(user_ids)
+
+            sql_game = (
+                "SELECT g.user_id, MAX(COALESCE(g.ended_at, ?)) "
+                "FROM game_sessions g "
+                "JOIN voice_sessions v "
+                "  ON g.guild_id = v.guild_id AND g.user_id = v.user_id "
+                "  AND g.started_at < COALESCE(v.left_at, ?) "
+                "  AND COALESCE(g.ended_at, ?) > v.joined_at "
+                f"WHERE g.guild_id = ? AND g.started_at >= ?"
+                f"{game_user_filter}{excl_clause}{game_name_clause} "
+                "GROUP BY g.user_id"
+            )
+            game_params: list[Any] = [
+                now,  # COALESCE(g.ended_at, ?)
+                now,  # COALESCE(v.left_at, ?)
+                now,  # COALESCE(g.ended_at, ?) in join
+                guild_id,
+                cutoff_30d,
+                *game_user_params,
+                *excl_params,
+                *game_name_params,
+            ]
+            cursor = await db.execute(sql_game, game_params)
+            for uid, last_ts in await cursor.fetchall():
+                result.setdefault(uid, {})["last_game_at"] = last_ts
+
+        # Compute tiers per dimension and combined
+        for uid, data in result.items():
+            data["voice_tier"] = self._tier_from_recency(data.get("last_voice_at"), now)
+            data["chat_tier"] = self._tier_from_recency(data.get("last_chat_at"), now)
+            data["game_tier"] = self._tier_from_recency(data.get("last_game_at"), now)
+            combined_last = max(
+                data.get("last_voice_at") or 0,
+                data.get("last_chat_at") or 0,
+                data.get("last_game_at") or 0,
+            ) or None
+            data["combined_tier"] = self._tier_from_recency(combined_last, now)
+
+        return result
+
+    async def get_activity_group_counts(
+        self, guild_id: int
+    ) -> dict[str, dict[str, int]]:
+        """Return tier counts per dimension for the Metrics page chips.
+
+        Returns: {
+            "voice": {"hardcore": N, "regular": N, ...},
+            "chat": {...}, "game": {...}, "combined": {...}
+        }
+        """
+        buckets = await self.get_member_activity_buckets(guild_id)
+        dimensions = ("voice", "chat", "game", "combined")
+        tier_names = ("hardcore", "regular", "casual", "reserve", "inactive")
+        counts: dict[str, dict[str, int]] = {
+            dim: {t: 0 for t in tier_names} for dim in dimensions
+        }
+        for _uid, data in buckets.items():
+            for dim in dimensions:
+                tier = data.get(f"{dim}_tier", "inactive")
+                counts[dim][tier] = counts[dim].get(tier, 0) + 1
+        return counts
+
+    async def get_activity_group_user_ids(
+        self, guild_id: int, dimension: str, tier: str
+    ) -> list[int]:
+        """Return user IDs matching a specific dimension+tier combo."""
+        buckets = await self.get_member_activity_buckets(guild_id)
+        key = f"{dimension}_tier"
+        return [uid for uid, data in buckets.items() if data.get(key) == tier]
 
     def record_message(self, guild_id: int, user_id: int, channel_id: int | None = None) -> None:
         """
@@ -334,54 +546,79 @@ class MetricsService(BaseService):
     # ------------------------------------------------------------------
 
     async def get_guild_metrics(
-        self, guild_id: int, days: int = 7
+        self, guild_id: int, days: int = 7, user_ids: list[int] | None = None
     ) -> dict[str, Any]:
         """
         Get aggregated metrics for a guild over the given period.
 
-        Returns:
-            Dict with total_messages, avg_messages_per_user, total_voice_seconds,
-            avg_voice_per_user, unique_users, top_games.
+        When user_ids is provided, only those users' data is included.
         """
         self._ensure_initialized()
         cutoff_hour = _hour_bucket(int(time.time()) - (days * 86400))
 
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return {
+                    "total_messages": 0, "unique_messagers": 0,
+                    "avg_messages_per_user": 0.0, "total_voice_seconds": 0,
+                    "unique_voice_users": 0, "avg_voice_per_user": 0,
+                    "unique_users": 0, "top_games": [],
+                }
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
+
         async with MetricsDatabase.get_connection() as db:
-            # Server-wide totals from hourly rollups
-            cursor = await db.execute(
-                "SELECT "
-                "COALESCE(SUM(total_messages), 0), "
-                "COALESCE(SUM(unique_messagers), 0), "
-                "COALESCE(SUM(total_voice_seconds), 0), "
-                "COALESCE(SUM(unique_voice_users), 0) "
-                "FROM metrics_hourly "
-                "WHERE guild_id = ? AND hour_bucket >= ?",
-                (guild_id, cutoff_hour),
-            )
+            if user_ids is not None:
+                # Filtered path: use per-user hourly rollups
+                cursor = await db.execute(
+                    "SELECT "
+                    "COALESCE(SUM(messages_sent), 0), "
+                    "COUNT(DISTINCT CASE WHEN messages_sent > 0 THEN user_id END), "
+                    "COALESCE(SUM(voice_seconds), 0), "
+                    "COUNT(DISTINCT CASE WHEN voice_seconds > 0 THEN user_id END) "
+                    "FROM metrics_user_hourly "
+                    f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter}",
+                    [guild_id, cutoff_hour, *uid_params],
+                )
+            else:
+                # Unfiltered path: use aggregate rollup table
+                cursor = await db.execute(
+                    "SELECT "
+                    "COALESCE(SUM(total_messages), 0), "
+                    "COALESCE(SUM(unique_messagers), 0), "
+                    "COALESCE(SUM(total_voice_seconds), 0), "
+                    "COALESCE(SUM(unique_voice_users), 0) "
+                    "FROM metrics_hourly "
+                    "WHERE guild_id = ? AND hour_bucket >= ?",
+                    (guild_id, cutoff_hour),
+                )
             row = await cursor.fetchone()
             total_messages = row[0] if row else 0
             unique_messagers = row[1] if row else 0
             total_voice_seconds = row[2] if row else 0
             unique_voice_users = row[3] if row else 0
 
-            # Unique users across all tracked activity sources (via per-user rollups)
+            # Unique users across all tracked activity sources
             cursor = await db.execute(
                 "SELECT COUNT(DISTINCT user_id) "
                 "FROM metrics_user_hourly "
-                "WHERE guild_id = ? AND hour_bucket >= ? "
+                f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter} "
                 "AND (messages_sent > 0 OR voice_seconds > 0 OR (games_json IS NOT NULL AND games_json != '{}' AND games_json != 'null'))",
-                (guild_id, cutoff_hour),
+                [guild_id, cutoff_hour, *uid_params],
             )
             row = await cursor.fetchone()
-            unique_users = row[0] if row else 1  # avoid div-by-zero
+            unique_users = row[0] if row else 1
 
             # Top games from per-user rollup JSON payloads
             cursor = await db.execute(
                 "SELECT games_json "
                 "FROM metrics_user_hourly "
-                "WHERE guild_id = ? AND hour_bucket >= ? "
+                f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter} "
                 "AND games_json IS NOT NULL AND games_json != '{}' AND games_json != 'null'",
-                (guild_id, cutoff_hour),
+                [guild_id, cutoff_hour, *uid_params],
             )
             game_totals: defaultdict[str, int] = defaultdict(int)
             game_samples: defaultdict[str, int] = defaultdict(int)
@@ -431,19 +668,29 @@ class MetricsService(BaseService):
         }
 
     async def get_voice_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top users by voice time."""
         self._ensure_initialized()
         cutoff_hour = _hour_bucket(int(time.time()) - (days * 86400))
 
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return []
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
+
         async with MetricsDatabase.get_connection() as db:
             cursor = await db.execute(
                 "SELECT user_id, SUM(voice_seconds) as total "
                 "FROM metrics_user_hourly "
-                "WHERE guild_id = ? AND hour_bucket >= ? AND voice_seconds > 0 "
+                f"WHERE guild_id = ? AND hour_bucket >= ? AND voice_seconds > 0{uid_filter} "
                 "GROUP BY user_id ORDER BY total DESC LIMIT ?",
-                (guild_id, cutoff_hour, limit),
+                [guild_id, cutoff_hour, *uid_params, limit],
             )
             return [
                 {"user_id": r[0], "total_seconds": r[1]}
@@ -451,19 +698,29 @@ class MetricsService(BaseService):
             ]
 
     async def get_message_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top users by message count."""
         self._ensure_initialized()
         cutoff_hour = _hour_bucket(int(time.time()) - (days * 86400))
 
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return []
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
+
         async with MetricsDatabase.get_connection() as db:
             cursor = await db.execute(
                 "SELECT user_id, SUM(messages_sent) as total "
                 "FROM metrics_user_hourly "
-                "WHERE guild_id = ? AND hour_bucket >= ? AND messages_sent > 0 "
+                f"WHERE guild_id = ? AND hour_bucket >= ? AND messages_sent > 0{uid_filter} "
                 "GROUP BY user_id ORDER BY total DESC LIMIT ?",
-                (guild_id, cutoff_hour, limit),
+                [guild_id, cutoff_hour, *uid_params, limit],
             )
             return [
                 {"user_id": r[0], "total_messages": r[1]}
@@ -471,38 +728,69 @@ class MetricsService(BaseService):
             ]
 
     async def get_timeseries(
-        self, guild_id: int, metric: str = "messages", days: int = 7
+        self, guild_id: int, metric: str = "messages", days: int = 7,
+        user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get hourly time-series data for a guild.
 
         Args:
             metric: One of "messages", "voice", "games"
+            user_ids: Optional filter to specific users
         """
         self._ensure_initialized()
         cutoff_hour = _hour_bucket(int(time.time()) - (days * 86400))
 
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return []
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
+
         async with MetricsDatabase.get_connection() as db:
             if metric == "messages":
-                cursor = await db.execute(
-                    "SELECT hour_bucket, total_messages, unique_messagers "
-                    "FROM metrics_hourly "
-                    "WHERE guild_id = ? AND hour_bucket >= ? "
-                    "ORDER BY hour_bucket",
-                    (guild_id, cutoff_hour),
-                )
+                if user_ids is not None:
+                    cursor = await db.execute(
+                        "SELECT hour_bucket, SUM(messages_sent), COUNT(DISTINCT user_id) "
+                        "FROM metrics_user_hourly "
+                        f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter} "
+                        "AND messages_sent > 0 "
+                        "GROUP BY hour_bucket ORDER BY hour_bucket",
+                        [guild_id, cutoff_hour, *uid_params],
+                    )
+                else:
+                    cursor = await db.execute(
+                        "SELECT hour_bucket, total_messages, unique_messagers "
+                        "FROM metrics_hourly "
+                        "WHERE guild_id = ? AND hour_bucket >= ? "
+                        "ORDER BY hour_bucket",
+                        (guild_id, cutoff_hour),
+                    )
                 return [
                     {"timestamp": r[0], "value": r[1], "unique_users": r[2]}
                     for r in await cursor.fetchall()
                 ]
             elif metric == "voice":
-                cursor = await db.execute(
-                    "SELECT hour_bucket, total_voice_seconds, unique_voice_users "
-                    "FROM metrics_hourly "
-                    "WHERE guild_id = ? AND hour_bucket >= ? "
-                    "ORDER BY hour_bucket",
-                    (guild_id, cutoff_hour),
-                )
+                if user_ids is not None:
+                    cursor = await db.execute(
+                        "SELECT hour_bucket, SUM(voice_seconds), COUNT(DISTINCT user_id) "
+                        "FROM metrics_user_hourly "
+                        f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter} "
+                        "AND voice_seconds > 0 "
+                        "GROUP BY hour_bucket ORDER BY hour_bucket",
+                        [guild_id, cutoff_hour, *uid_params],
+                    )
+                else:
+                    cursor = await db.execute(
+                        "SELECT hour_bucket, total_voice_seconds, unique_voice_users "
+                        "FROM metrics_hourly "
+                        "WHERE guild_id = ? AND hour_bucket >= ? "
+                        "ORDER BY hour_bucket",
+                        (guild_id, cutoff_hour),
+                    )
                 return [
                     {"timestamp": r[0], "value": r[1], "unique_users": r[2]}
                     for r in await cursor.fetchall()
@@ -523,11 +811,21 @@ class MetricsService(BaseService):
                 return []
 
     async def get_top_games(
-        self, guild_id: int, days: int = 7, limit: int = 10
+        self, guild_id: int, days: int = 7, limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top games by total play time."""
         self._ensure_initialized()
         cutoff = int(time.time()) - (days * 86400)
+
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return []
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
 
         async with MetricsDatabase.get_connection() as db:
             cursor = await db.execute(
@@ -536,9 +834,9 @@ class MetricsService(BaseService):
                 "AVG(duration_seconds) as avg_time, "
                 "COUNT(DISTINCT user_id) as unique_players "
                 "FROM game_sessions "
-                "WHERE guild_id = ? AND started_at >= ? AND duration_seconds IS NOT NULL "
+                f"WHERE guild_id = ? AND started_at >= ? AND duration_seconds IS NOT NULL{uid_filter} "
                 "GROUP BY game_name ORDER BY total_time DESC LIMIT ?",
-                (guild_id, cutoff, limit),
+                [guild_id, cutoff, *uid_params, limit],
             )
             return [
                 {
