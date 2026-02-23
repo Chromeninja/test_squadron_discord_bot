@@ -23,5 +23,5 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-PyYAML, types-beautifulsoup4]
-        args: [--strict, --ignore-missing-imports]
+        args: [--config-file, pyproject.toml]
         exclude: ^tests/

@@ -64,6 +64,11 @@ jobs:
           mkdir -p config
           cp config/config-example.yaml config/config.yaml
 
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit --strict --desc on 2>&1 || echo "::warning::pip-audit found vulnerabilities — review output above"
+
       - name: Run tests with coverage
         run: |
           pytest -q -vv --maxfail=1 --durations=20 --timeout=300 --timeout-method=signal --cov=. --cov-report=xml
