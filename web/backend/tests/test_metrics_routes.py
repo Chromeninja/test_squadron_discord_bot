@@ -296,13 +296,26 @@ async def test_user_metrics_internal_error(
 async def test_moderator_cannot_view_metrics(
     client: AsyncClient, mock_moderator_session: str, fake_internal_api
 ):
-    """Moderators are denied access to metrics endpoints (bot-admin+ only)."""
+    """Moderators are denied access to metrics endpoints (discord-manager+ only)."""
     _use_fixture(fake_internal_api)
     response = await client.get(
         "/api/metrics/overview?days=7",
         cookies={"session": mock_moderator_session},
     )
     assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_discord_manager_can_view_metrics(
+    client: AsyncClient, mock_discord_manager_session: str, fake_internal_api
+):
+    """Discord managers can access metrics endpoints."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/overview?days=7",
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert response.status_code == HTTPStatus.OK
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +401,20 @@ async def test_activity_groups_returns_counts(
         assert dim in data
         for tier in ("hardcore", "regular", "casual", "reserve", "inactive"):
             assert tier in data[dim]
+
+
+@pytest.mark.asyncio
+async def test_activity_groups_accepts_filters(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Activity-groups endpoint accepts days + dimension/tier filters."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/activity-groups?days=30&dimension=voice,chat&tier=regular",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["success"] is True
 
 
 @pytest.mark.asyncio

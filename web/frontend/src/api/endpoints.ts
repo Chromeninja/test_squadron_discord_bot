@@ -608,9 +608,17 @@ export const metricsApi = {
     return response.data;
   },
 
-  getActivityGroups: async () => {
+  getActivityGroups: async (
+    days: number = 7,
+    dimension?: ActivityDimension | ActivityDimension[],
+    tier?: ActivityTier | ActivityTier[]
+  ) => {
+    const params: Record<string, any> = { days };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<ActivityGroupCountsResponse>(
-      '/api/metrics/activity-groups'
+      '/api/metrics/activity-groups',
+      { params }
     );
     return response.data;
   },

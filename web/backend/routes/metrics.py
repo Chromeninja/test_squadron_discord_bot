@@ -10,7 +10,7 @@ import logging
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
-    require_bot_admin,
+    require_discord_manager,
 )
 from core.pagination import is_all_guilds_mode
 from core.schemas import (
@@ -108,7 +108,7 @@ async def get_metrics_overview(
     days: int = Query(default=7, ge=1, le=365),
     dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
     tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -116,7 +116,7 @@ async def get_metrics_overview(
 
     Optional dimension/tier filter to scope to an activity group.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -134,13 +134,13 @@ async def get_voice_leaderboard(
     limit: int = Query(default=10, ge=1, le=50),
     dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
     tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     Get top users ranked by voice channel time.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -171,13 +171,13 @@ async def get_message_leaderboard(
     limit: int = Query(default=10, ge=1, le=50),
     dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
     tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     Get top users ranked by message count.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -208,13 +208,13 @@ async def get_top_games(
     limit: int = Query(default=10, ge=1, le=50),
     dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
     tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
     Get top games ranked by total play time.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -236,7 +236,7 @@ async def get_timeseries(
     days: int = Query(default=7, ge=1, le=365),
     dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
     tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -244,7 +244,7 @@ async def get_timeseries(
 
     Supports metrics: messages, voice, games
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -266,7 +266,10 @@ async def get_timeseries(
 
 @router.get("/activity-groups", response_model=ActivityGroupCountsResponse)
 async def get_activity_groups(
-    current_user: UserProfile = Depends(require_bot_admin()),
+    days: int = Query(default=7, ge=1, le=365),
+    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
+    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -275,12 +278,13 @@ async def get_activity_groups(
     Returns count of members in each tier (hardcore, regular, casual, reserve, inactive)
     for each activity dimension.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        result = await internal_api.get_activity_groups(guild_id)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        result = await internal_api.get_activity_groups(guild_id, days=days, user_ids=user_ids)
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
     except Exception:
         raise HTTPException(
@@ -292,7 +296,7 @@ async def get_activity_groups(
 async def get_user_metrics(
     user_id: int,
     days: int = Query(default=7, ge=1, le=365),
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -301,7 +305,7 @@ async def get_user_metrics(
     Includes totals, daily averages, game breakdown, time-series,
     and per-dimension activity tiers.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 
@@ -325,7 +329,7 @@ async def get_user_metrics(
 @router.delete("/user/{user_id}")
 async def delete_user_metrics(
     user_id: int,
-    current_user: UserProfile = Depends(require_bot_admin()),
+    current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
     """
@@ -333,7 +337,7 @@ async def delete_user_metrics(
 
     Supports GDPR right-to-erasure and Discord data deletion requests.
 
-    Requires: Bot Admin role or higher
+    Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
 

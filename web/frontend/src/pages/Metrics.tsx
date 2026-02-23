@@ -127,7 +127,7 @@ export default function Metrics() {
           metricsApi.getTopGames(range, 10, filterParam, tierParam),
           metricsApi.getTimeSeries('messages', range, filterParam, tierParam),
           metricsApi.getTimeSeries('voice', range, filterParam, tierParam),
-          metricsApi.getActivityGroups(),
+          metricsApi.getActivityGroups(range, filterParam, tierParam),
         ]);
 
       setOverview(overviewResp.data);

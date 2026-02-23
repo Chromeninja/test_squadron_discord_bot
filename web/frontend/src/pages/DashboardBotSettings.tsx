@@ -105,6 +105,17 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
     setDelegationPolicies((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const addTrackedGame = () => {
+    const value = trackedGameInput.trim();
+    if (!value) {
+      setTrackedGameInput('');
+      return;
+    }
+
+    setTrackedGames((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setTrackedGameInput('');
+  };
+
   useEffect(() => {
     // AbortController to cancel requests if component unmounts during fetch
     const abortController = new AbortController();
@@ -896,7 +907,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   name="trackedGamesMode"
                   value="all"
                   checked={trackedGamesMode === 'all'}
-                  onChange={() => setTrackedGamesMode('all')}
+                  onChange={() => {
+                    setTrackedGamesMode('all');
+                    setTrackedGames([]);
+                  }}
                   className="accent-indigo-500"
                 />
                 All games
@@ -924,11 +938,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        const val = trackedGameInput.trim();
-                        if (val && !trackedGames.includes(val)) {
-                          setTrackedGames([...trackedGames, val]);
-                        }
-                        setTrackedGameInput('');
+                        addTrackedGame();
                       }
                     }}
                     className="flex-1"
@@ -936,13 +946,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => {
-                      const val = trackedGameInput.trim();
-                      if (val && !trackedGames.includes(val)) {
-                        setTrackedGames([...trackedGames, val]);
-                      }
-                      setTrackedGameInput('');
-                    }}
+                    onClick={addTrackedGame}
                   >
                     Add
                   </Button>

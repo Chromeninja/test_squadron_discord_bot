@@ -1169,11 +1169,20 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
-    async def get_activity_groups(self, guild_id: int) -> dict:
+    async def get_activity_groups(
+        self,
+        guild_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
         """Get activity group tier counts per dimension."""
         client = await self._get_client()
+        params: dict[str, int | str] = {"days": days}
+        if user_ids:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
-            f"/guilds/{guild_id}/metrics/activity-groups"
+            f"/guilds/{guild_id}/metrics/activity-groups",
+            params=params,
         )
         response.raise_for_status()
         return response.json()

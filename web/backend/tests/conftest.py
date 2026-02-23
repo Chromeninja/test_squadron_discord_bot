@@ -51,16 +51,20 @@ async def temp_db():
             INSERT INTO guild_settings (guild_id, key, value)
             VALUES
                 (123, 'roles.bot_admins', '[\"999111222\"]'),
+                (123, 'roles.discord_managers', '[\"999111225\"]'),
                 (123, 'roles.moderators', '[\"999111223\"]'),
                 (123, 'roles.staff', '[\"999111224\"]'),
                 (123, 'organization.sid', '\"TEST\"'),
                 (1, 'roles.bot_admins', '[\"999111222\"]'),
+                (1, 'roles.discord_managers', '[\"999111225\"]'),
                 (1, 'roles.moderators', '[\"999111223\"]'),
                 (1, 'roles.staff', '[\"999111224\"]'),
                 (2, 'roles.bot_admins', '[\"999111222\"]'),
+                (2, 'roles.discord_managers', '[\"999111225\"]'),
                 (2, 'roles.moderators', '[\"999111223\"]'),
                 (2, 'roles.staff', '[\"999111224\"]'),
                 (999, 'roles.bot_admins', '[\"999111222\"]'),
+                (999, 'roles.discord_managers', '[\"999111225\"]'),
                 (999, 'roles.moderators', '[\"999111223\"]'),
                 (999, 'roles.staff', '[\"999111224\"]')
             """
@@ -202,6 +206,29 @@ async def mock_moderator_session():
 
 
 @pytest_asyncio.fixture
+async def mock_discord_manager_session():
+    """Create a mock session token for a discord manager user."""
+    from core.security import create_session_token_async
+
+    return await create_session_token_async(
+        {
+            "user_id": "333222111",  # Discord manager test user
+            "username": "TestDiscordManager",
+            "discriminator": "0004",
+            "avatar": None,
+            "active_guild_id": "123",  # Default test guild
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "discord_manager",
+                    "source": "discord_manager_role",
+                },
+            },
+        }
+    )
+
+
+@pytest_asyncio.fixture
 async def mock_unauthorized_session():
     """Create a mock session token for an unauthorized user."""
     from core.security import create_session_token_async
@@ -291,7 +318,8 @@ class FakeInternalAPIClient:
                 member["source"] = "discord"
 
             # For role validation to pass, we need to ensure the user has one of the
-            # configured role IDs (999111222 for bot_admin, 999111223 for moderator, 999111224 for staff)
+            # configured role IDs (999111222 for bot_admin, 999111225 for discord_manager,
+            # 999111223 for moderator, 999111224 for staff)
             # Add the appropriate validation role ID based on user_id
             if user_id == 1428084144860303511:
                 # Moderator user - ensure moderator role ID is present
@@ -301,6 +329,14 @@ class FakeInternalAPIClient:
                     if "role_ids" not in member:
                         member["role_ids"] = []
                     member["role_ids"].append("999111223")
+            elif user_id == 333222111:
+                # Discord manager user - ensure discord manager role ID is present
+                if "role_ids" not in member or "999111225" not in member.get(
+                    "role_ids", []
+                ):
+                    if "role_ids" not in member:
+                        member["role_ids"] = []
+                    member["role_ids"].append("999111225")
             # All other users - ensure bot_admin role ID is present
             elif "role_ids" not in member or "999111222" not in str(
                 member.get("role_ids", [])
@@ -311,14 +347,18 @@ class FakeInternalAPIClient:
 
             return member
 
-        # Default member data - include test admin/moderator roles
+        # Default member data - include test admin/discord-manager/moderator roles
         # Admin user: 246604397155581954 - gets bot_admin role ID 999111222
+        # Discord manager user: 333222111 - gets discord_manager role ID 999111225
         # Moderator user: 1428084144860303511 - gets moderator role ID 999111223
         # Any other user: gets bot_admin role by default (for tests that use custom user IDs)
         roles = []
         if user_id == 1428084144860303511:
             # Moderator user gets moderator role
             roles = [{"id": "999111223", "name": "Moderator"}]
+        elif user_id == 333222111:
+            # Discord manager user gets discord manager role
+            roles = [{"id": "999111225", "name": "Discord Manager"}]
         else:
             # All other users get bot_admin role (including 246604397155581954 and test-specific IDs)
             roles = [{"id": "999111222", "name": "Bot Admin"}]
@@ -541,7 +581,12 @@ class FakeInternalAPIClient:
             ],
         }
 
-    async def get_activity_groups(self, guild_id: int) -> dict:
+    async def get_activity_groups(
+        self,
+        guild_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
         """Return activity group counts."""
         tier_counts = {
             "hardcore": 2,
@@ -599,6 +644,7 @@ def fake_internal_api(monkeypatch):
         {"user_id": 444555666},
         {"user_id": 555555555},  # Unverified user for voice settings tests
         {"user_id": 246604397155581954},  # Admin user from test sessions
+        {"user_id": 333222111},  # Discord manager user
         {"user_id": 1428084144860303511},  # Moderator user
     ]
 

@@ -120,6 +120,8 @@ function App() {
     return <SelectServer onSelected={fetchUserProfile} user={user} />;
   }
 
+  const canViewMetrics = userHasPermission('discord_manager');
+
   const handleSwitchServer = async () => {
     try {
       await authApi.clearActiveGuild();
@@ -206,16 +208,18 @@ function App() {
             >
               Dashboard
             </button>
-            <button
-              onClick={() => setActiveTab('metrics')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                activeTab === 'metrics'
-                  ? 'border-indigo-500 text-indigo-500'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Metrics
-            </button>
+            {canViewMetrics && (
+              <button
+                onClick={() => setActiveTab('metrics')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
+                  activeTab === 'metrics'
+                    ? 'border-indigo-500 text-indigo-500'
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                Metrics
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('users')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
@@ -255,7 +259,7 @@ function App() {
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'metrics' && <Metrics />}
+        {activeTab === 'metrics' && canViewMetrics && <Metrics />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'voice' && <Voice />}
         {activeTab === 'bot-settings' && userHasPermission('bot_admin') && user.active_guild_id && (

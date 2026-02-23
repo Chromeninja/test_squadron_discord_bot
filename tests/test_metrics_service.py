@@ -556,7 +556,20 @@ class TestQueryMethods:
         assert [point["value"] for point in voice_series] == [300, 120]
 
         games_series = await metrics_service.get_timeseries(guild_id=100, metric="games", days=7)
+        assert [point["value"] for point in games_series] == [300, 60]
+        assert [point["unique_users"] for point in games_series] == [2, 1]
         assert [point["top_game"] for point in games_series] == ["Star Citizen", "EVE Online"]
+
+        filtered_games_series = await metrics_service.get_timeseries(
+            guild_id=100,
+            metric="games",
+            days=7,
+            user_ids=[2],
+        )
+        assert len(filtered_games_series) == 1
+        assert filtered_games_series[0]["value"] == 100
+        assert filtered_games_series[0]["unique_users"] == 1
+        assert filtered_games_series[0]["top_game"] == "Star Citizen"
 
     @pytest.mark.asyncio
     async def test_get_top_games_empty(

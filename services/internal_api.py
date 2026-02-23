@@ -1560,7 +1560,22 @@ class InternalAPIServer:
             return web.json_response({"error": "Invalid guild ID"}, status=400)
 
         try:
-            counts = await metrics.get_activity_group_counts(guild_id)
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+
+        try:
+            user_ids = self._parse_user_ids(request)
+        except web.HTTPBadRequest as exc:
+            return web.json_response({"error": str(exc.reason)}, status=400)
+
+        try:
+            counts = await metrics.get_activity_group_counts(
+                guild_id,
+                user_ids=user_ids,
+                days=days,
+            )
             return web.json_response(counts)
         except Exception as e:
             logger.exception("Error fetching activity groups")

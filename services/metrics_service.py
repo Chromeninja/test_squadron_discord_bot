@@ -291,6 +291,7 @@ class MetricsService(BaseService):
         self,
         guild_id: int,
         user_ids: list[int] | None = None,
+        lookback_days: int = 30,
         now_utc: int | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Compute per-dimension activity tiers for members.
@@ -302,7 +303,8 @@ class MetricsService(BaseService):
         """
         self._ensure_initialized()
         now = now_utc or int(time.time())
-        cutoff_30d = now - (30 * 86400)
+        normalized_lookback_days = max(1, min(lookback_days, 365))
+        cutoff_window = now - (normalized_lookback_days * 86400)
 
         excluded = await self.get_excluded_channel_ids(guild_id)
         game_mode, tracked_games = await self.get_tracked_game_config(guild_id)
@@ -326,7 +328,7 @@ class MetricsService(BaseService):
                 f"WHERE guild_id = ? {user_filter_sql} AND hour_bucket >= ? "
                 "GROUP BY user_id"
             )
-            cursor = await db.execute(sql_msg, [*params_prefix, cutoff_30d])
+            cursor = await db.execute(sql_msg, [*params_prefix, cutoff_window])
             for uid, last_bucket in await cursor.fetchall():
                 result.setdefault(uid, {})["last_chat_at"] = last_bucket
 
@@ -338,7 +340,7 @@ class MetricsService(BaseService):
                 f"WHERE guild_id = ? {user_filter_sql} AND joined_at >= ? "
                 "GROUP BY user_id"
             )
-            voice_params = [now, *params_prefix, cutoff_30d]
+            voice_params = [now, *params_prefix, cutoff_window]
             cursor = await db.execute(sql_voice, voice_params)
             for uid, last_ts in await cursor.fetchall():
                 result.setdefault(uid, {})["last_voice_at"] = last_ts
@@ -382,7 +384,7 @@ class MetricsService(BaseService):
                 now,  # COALESCE(v.left_at, ?)
                 now,  # COALESCE(g.ended_at, ?) in join
                 guild_id,
-                cutoff_30d,
+                cutoff_window,
                 *game_user_params,
                 *excl_params,
                 *game_name_params,
@@ -406,7 +408,10 @@ class MetricsService(BaseService):
         return result
 
     async def get_activity_group_counts(
-        self, guild_id: int
+        self,
+        guild_id: int,
+        user_ids: list[int] | None = None,
+        days: int = 30,
     ) -> dict[str, dict[str, int]]:
         """Return tier counts per dimension for the Metrics page chips.
 
@@ -415,7 +420,11 @@ class MetricsService(BaseService):
             "chat": {...}, "game": {...}, "combined": {...}
         }
         """
-        buckets = await self.get_member_activity_buckets(guild_id)
+        buckets = await self.get_member_activity_buckets(
+            guild_id,
+            user_ids=user_ids,
+            lookback_days=days,
+        )
         dimensions = ("voice", "chat", "game", "combined")
         tier_names = ("hardcore", "regular", "casual", "reserve", "inactive")
         counts: dict[str, dict[str, int]] = {
@@ -825,16 +834,61 @@ class MetricsService(BaseService):
                 ]
             elif metric == "games":
                 cursor = await db.execute(
-                    "SELECT hour_bucket, top_game "
-                    "FROM metrics_hourly "
-                    "WHERE guild_id = ? AND hour_bucket >= ? AND top_game IS NOT NULL "
+                    "SELECT hour_bucket, user_id, games_json "
+                    "FROM metrics_user_hourly "
+                    f"WHERE guild_id = ? AND hour_bucket >= ?{uid_filter} "
+                    "AND games_json IS NOT NULL AND games_json != '{}' AND games_json != 'null' "
                     "ORDER BY hour_bucket",
-                    (guild_id, cutoff_hour),
+                    [guild_id, cutoff_hour, *uid_params],
                 )
-                return [
-                    {"timestamp": hour_bucket, "top_game": game_name}
-                    for hour_bucket, game_name in await cursor.fetchall()
-                ]
+                rows = await cursor.fetchall()
+
+                by_hour_seconds: defaultdict[int, int] = defaultdict(int)
+                by_hour_users: defaultdict[int, set[int]] = defaultdict(set)
+                by_hour_games: defaultdict[int, defaultdict[str, int]] = defaultdict(
+                    lambda: defaultdict(int)
+                )
+
+                for hour_bucket, user_id, games_json in rows:
+                    try:
+                        payload = json.loads(games_json) if games_json else {}
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+
+                    row_total = 0
+                    for game_name, seconds in payload.items():
+                        if not isinstance(game_name, str):
+                            continue
+                        try:
+                            duration = int(seconds)
+                        except (TypeError, ValueError):
+                            continue
+                        if duration <= 0:
+                            continue
+                        row_total += duration
+                        by_hour_games[hour_bucket][game_name] += duration
+
+                    if row_total <= 0:
+                        continue
+                    by_hour_seconds[hour_bucket] += row_total
+                    by_hour_users[hour_bucket].add(int(user_id))
+
+                data: list[dict[str, Any]] = []
+                for hour_bucket in sorted(by_hour_seconds):
+                    game_totals = by_hour_games[hour_bucket]
+                    top_game = max(game_totals.items(), key=lambda item: item[1])[0] if game_totals else None
+                    data.append(
+                        {
+                            "timestamp": hour_bucket,
+                            "value": by_hour_seconds[hour_bucket],
+                            "unique_users": len(by_hour_users[hour_bucket]),
+                            "top_game": top_game,
+                        }
+                    )
+
+                return data
             else:
                 return []
 
