@@ -33,7 +33,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Organization settings
   const [organizationSid, setOrganizationSid] = useState<string>('');
   const [organizationName, setOrganizationName] = useState<string>('');
@@ -41,7 +41,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [orgValidating, setOrgValidating] = useState(false);
   const [orgStatusMessage, setOrgStatusMessage] = useState<string | null>(null);
   const [orgError, setOrgError] = useState<string | null>(null);
-  
+
   // Logo settings
   const [orgLogoUrl, setOrgLogoUrl] = useState<string>('');
   const [logoValidating, setLogoValidating] = useState(false);
@@ -299,7 +299,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
     try {
       const result = await guildApi.validateOrganizationSid(guildId, orgSidInput.trim());
-      
+
       if (result.is_valid && result.organization_name) {
         setOrganizationName(result.organization_name);
         setOrgStatusMessage(`✓ Valid organization: ${result.organization_name} (${result.sid})`);
@@ -317,7 +317,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
   const handleLogoValidate = async () => {
     const trimmedUrl = orgLogoUrl.trim();
-    
+
     // Clear validation state for empty URL (user is clearing the logo)
     if (!trimmedUrl) {
       setLogoValid(null);
@@ -331,7 +331,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
     try {
       const result = await guildApi.validateLogoUrl(guildId, trimmedUrl);
-      
+
       if (result.is_valid) {
         // Use the normalized URL from the server to keep client and server state aligned
         if (result.url) {
@@ -422,7 +422,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           <p className="text-sm text-gray-300">
             Configure the Star Citizen organization for member verification. Enter your organization's SID (Spectrum ID) to validate members.
           </p>
-          
+
           <div>
             <h5 className="text-sm font-semibold text-white mb-1">Organization SID</h5>
             <p className="text-xs text-gray-400 mb-2">
@@ -500,11 +500,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             } catch {
               // Invalid URL, don't render
             }
-            
+
             if (!sanitizedUrl) {
               return null;
             }
-            
+
             return (
               <div className="mt-2">
                 <p className="text-xs text-gray-400 mb-2">Preview:</p>
@@ -542,7 +542,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               <Alert variant="info" className="mb-4">
                 <h5 className="text-sm font-semibold text-indigo-200 mb-1">Permission Hierarchy</h5>
                 <p className="text-xs text-indigo-100">
-                  Permissions are inherited from higher levels. Bot Admins have all permissions, 
+                  Permissions are inherited from higher levels. Bot Admins have all permissions,
                   Discord Managers can manage users, Moderators handle moderation, and Staff have basic access.
                 </p>
                 <div className="mt-2 text-xs text-indigo-200 font-mono">
