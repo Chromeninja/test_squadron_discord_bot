@@ -104,6 +104,8 @@ export default function TimeSeriesChart({
                 color: '#e2e8f0',
                 fontSize: '12px',
               }}
+              labelStyle={{ color: '#e2e8f0' }}
+              itemStyle={{ color: '#e2e8f0' }}
               formatter={(value: number | undefined) => [fmtVal(value ?? 0), valueLabel]}
               labelFormatter={(label) => label}
             />

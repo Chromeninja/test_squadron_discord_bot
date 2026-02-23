@@ -95,6 +95,8 @@ export default function LeaderboardChart({
                 color: '#e2e8f0',
                 fontSize: '12px',
               }}
+              labelStyle={{ color: '#e2e8f0' }}
+              itemStyle={{ color: '#e2e8f0' }}
               formatter={(value: number | undefined) => [fmtVal(value ?? 0), valueLabel]}
               cursor={{ fill: 'rgba(99, 102, 241, 0.1)' }}
             />

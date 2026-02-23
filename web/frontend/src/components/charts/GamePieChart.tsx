@@ -96,11 +96,13 @@ export default function GamePieChart({ data, title }: GamePieChartProps) {
                 color: '#e2e8f0',
                 fontSize: '12px',
               }}
+              labelStyle={{ color: '#e2e8f0' }}
+              itemStyle={{ color: '#e2e8f0' }}
               formatter={((value: number | undefined, _name: string | undefined, props: any) => {
                 const { payload } = props;
                 const v = value ?? 0;
                 return [
-                  <div key="tip" className="space-y-1">
+                  <div key="tip" className="space-y-1 text-slate-200">
                     <div>Total: {formatDuration(v)}</div>
                     <div>Sessions: {payload.sessions}</div>
                     <div>Avg: {formatDuration(payload.avgTime)}</div>
