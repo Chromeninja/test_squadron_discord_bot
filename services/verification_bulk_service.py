@@ -191,7 +191,8 @@ class VerificationBulkService:
                         # Notify user of failure
                         with contextlib.suppress(Exception):
                             await job.interaction.followup.send(
-                                "❌ Job failed unexpectedly. Check bot logs for details.", ephemeral=True
+                                "❌ Job failed unexpectedly. Check bot logs for details.",
+                                ephemeral=True,
                             )
                     finally:
                         self.current_job = None
@@ -325,9 +326,7 @@ class VerificationBulkService:
                     )
                 )
 
-    async def _perform_rsi_recheck(
-        self, status_rows: list, guild_id: int
-    ) -> list:
+    async def _perform_rsi_recheck(self, status_rows: list, guild_id: int) -> list:
         """
         Perform live RSI verification for each member in the batch using the unified pipeline.
 
@@ -409,7 +408,8 @@ class VerificationBulkService:
             logger.exception(f"Error building summary embed: {e}")
             with contextlib.suppress(Exception):
                 await job.interaction.followup.send(
-                    "❌ Error building results. Check bot logs for details.", ephemeral=True
+                    "❌ Error building results. Check bot logs for details.",
+                    ephemeral=True,
                 )
             return
 
@@ -492,9 +492,7 @@ class VerificationBulkService:
 
         # Get organization config
         org_name = "test"  # Default fallback
-        if hasattr(self.bot, "services") and hasattr(
-            self.bot.services, "guild_config"
-        ):
+        if hasattr(self.bot, "services") and hasattr(self.bot.services, "guild_config"):
             try:
                 org_name_config = await self.bot.services.guild_config.get_setting(
                     guild_id, "organization.name", default="test"

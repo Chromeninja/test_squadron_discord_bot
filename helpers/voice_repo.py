@@ -144,8 +144,8 @@ async def upsert_channel_settings(
 
         await BaseRepository.execute(
             f"""
-            INSERT INTO channel_settings ({', '.join(columns)})
-            VALUES ({', '.join(placeholders)})
+            INSERT INTO channel_settings ({", ".join(columns)})
+            VALUES ({", ".join(placeholders)})
             """,
             tuple(values),
         )

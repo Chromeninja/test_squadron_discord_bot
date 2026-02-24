@@ -8,9 +8,9 @@
     "tests",
     "web/backend/tests"
   ],
-  "python.testing.pytestPath": "${workspaceFolder:🤖 Bot (Root)}/.venv/bin/pytest",
-  "python.testing.cwd": "${workspaceFolder:🤖 Bot (Root)}",
+  "python.testing.pytestPath": "../../.venv/bin/pytest",
+  "python.testing.cwd": "../..",
   "python.analysis.extraPaths": [
-    "${workspaceFolder:🤖 Bot (Root)}"
+    "../.."
   ]
 }

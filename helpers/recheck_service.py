@@ -196,7 +196,11 @@ async def perform_recheck(
             event = (
                 EventType.ADMIN_ACTION
                 if initiator_kind == InitiatorKind.ADMIN
-                else (EventType.AUTO_CHECK if initiator_kind == InitiatorKind.AUTO else EventType.RECHECK)
+                else (
+                    EventType.AUTO_CHECK
+                    if initiator_kind == InitiatorKind.AUTO
+                    else EventType.RECHECK
+                )
             )
 
             await log_guild_sync(

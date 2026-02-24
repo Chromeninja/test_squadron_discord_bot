@@ -361,7 +361,15 @@ class RoleDelegationService(BaseService):
                     (guild_id, user_id, role_id, action, reason, next_retry_at, fail_count, last_error)
                 VALUES (?, ?, ?, ?, ?, ?, 1, ?)
                 """,
-                (guild_id, user_id, role_id, action, reason, int(time.time()) + 60, error),
+                (
+                    guild_id,
+                    user_id,
+                    role_id,
+                    action,
+                    reason,
+                    int(time.time()) + 60,
+                    error,
+                ),
             )
             await db.commit()
 

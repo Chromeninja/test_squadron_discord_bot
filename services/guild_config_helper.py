@@ -77,7 +77,9 @@ class GuildConfigHelper:
         )
 
         if not channel_id:
-            logger.debug("No channel configured for %s in guild %s", channel_key, guild_id)
+            logger.debug(
+                "No channel configured for %s in guild %s", channel_key, guild_id
+            )
             return None
 
         if guild is None:

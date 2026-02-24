@@ -47,9 +47,7 @@ async def _get_org_sid(bot, guild_id: int) -> str:
         try:
             return await bot.services.guild_config.get_org_sid(guild_id)
         except Exception as e:  # pragma: no cover - defensive
-            logger.warning(
-                "Failed to fetch org SID for guild %s: %s", guild_id, e
-            )
+            logger.warning("Failed to fetch org SID for guild %s: %s", guild_id, e)
     return "TEST"
 
 

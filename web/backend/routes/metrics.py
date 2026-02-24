@@ -5,6 +5,7 @@ Provides aggregated user activity metrics: voice time, game tracking,
 message counts, leaderboards, and time-series data for charting.
 """
 
+import contextlib
 import logging
 
 from core.dependencies import (
@@ -26,6 +27,8 @@ from core.schemas import (
     UserProfile,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+from helpers.audit import log_admin_action
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -84,7 +87,10 @@ async def _resolve_activity_filter(
 
     try:
         bulk = await internal_api.get_activity_group_members_bulk(
-            guild_id, resolved_dims, resolved_tiers, days=days,
+            guild_id,
+            resolved_dims,
+            resolved_tiers,
+            days=days,
         )
         merged_user_ids: set[int] = set()
         for _dim_key, tier_map in bulk.items():
@@ -98,17 +104,28 @@ async def _resolve_activity_filter(
                         merged_user_ids.add(int(uid))
                     except (TypeError, ValueError):
                         continue
-        return sorted(merged_user_ids) if merged_user_ids else None
-    except Exception:
-        logger.warning("Failed to resolve activity filter dimension=%s tier=%s", dimension, tier)
-        return None
+        return sorted(merged_user_ids)
+    except Exception as exc:
+        logger.warning(
+            "Failed to resolve activity filter dimension=%s tier=%s",
+            dimension,
+            tier,
+            exc_info=exc,
+        )
+        return []
 
 
 @router.get("/overview", response_model=MetricsOverviewResponse)
 async def get_metrics_overview(
     days: int = Query(default=7, ge=1, le=365),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -122,8 +139,12 @@ async def get_metrics_overview(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
-        result = await internal_api.get_metrics_overview(guild_id, days=days, user_ids=user_ids)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
+        result = await internal_api.get_metrics_overview(
+            guild_id, days=days, user_ids=user_ids
+        )
         return MetricsOverviewResponse(data=MetricsOverview(**result))
     except Exception:
         raise HTTPException(status_code=502, detail="Metrics unavailable")
@@ -133,8 +154,14 @@ async def get_metrics_overview(
 async def get_voice_leaderboard(
     days: int = Query(default=7, ge=1, le=365),
     limit: int = Query(default=10, ge=1, le=50),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -146,7 +173,9 @@ async def get_voice_leaderboard(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
         result = await internal_api.get_metrics_voice_leaderboard(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
@@ -161,17 +190,21 @@ async def get_voice_leaderboard(
             normalized_entries.append(normalized)
         return LeaderboardResponse(entries=normalized_entries)
     except Exception:
-        raise HTTPException(
-            status_code=502, detail="Voice leaderboard unavailable"
-        )
+        raise HTTPException(status_code=502, detail="Voice leaderboard unavailable")
 
 
 @router.get("/messages/leaderboard", response_model=LeaderboardResponse)
 async def get_message_leaderboard(
     days: int = Query(default=7, ge=1, le=365),
     limit: int = Query(default=10, ge=1, le=50),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -183,7 +216,9 @@ async def get_message_leaderboard(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
         result = await internal_api.get_metrics_message_leaderboard(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
@@ -198,17 +233,21 @@ async def get_message_leaderboard(
             normalized_entries.append(normalized)
         return LeaderboardResponse(entries=normalized_entries)
     except Exception:
-        raise HTTPException(
-            status_code=502, detail="Message leaderboard unavailable"
-        )
+        raise HTTPException(status_code=502, detail="Message leaderboard unavailable")
 
 
 @router.get("/games/top", response_model=TopGamesResponse)
 async def get_top_games(
     days: int = Query(default=7, ge=1, le=365),
     limit: int = Query(default=10, ge=1, le=50),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -220,23 +259,29 @@ async def get_top_games(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
         result = await internal_api.get_metrics_top_games(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
         return TopGamesResponse(games=result.get("games", []))
     except Exception:
-        raise HTTPException(
-            status_code=502, detail="Game stats unavailable"
-        )
+        raise HTTPException(status_code=502, detail="Game stats unavailable")
 
 
 @router.get("/timeseries", response_model=TimeSeriesResponse)
 async def get_timeseries(
     metric: str = Query(default="messages", pattern="^(messages|voice|games)$"),
     days: int = Query(default=7, ge=1, le=365),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -250,7 +295,9 @@ async def get_timeseries(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
         result = await internal_api.get_metrics_timeseries(
             guild_id, metric=metric, days=days, user_ids=user_ids
         )
@@ -260,16 +307,20 @@ async def get_timeseries(
             data=result.get("data", []),
         )
     except Exception:
-        raise HTTPException(
-            status_code=502, detail="Timeseries unavailable"
-        )
+        raise HTTPException(status_code=502, detail="Timeseries unavailable")
 
 
 @router.get("/activity-groups", response_model=ActivityGroupCountsResponse)
 async def get_activity_groups(
     days: int = Query(default=7, ge=1, le=365),
-    dimension: str | None = Query(default=None, pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$"),
-    tier: str | None = Query(default=None, pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$"),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ):
@@ -284,13 +335,15 @@ async def get_activity_groups(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
-        result = await internal_api.get_activity_groups(guild_id, days=days, user_ids=user_ids)
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
+        result = await internal_api.get_activity_groups(
+            guild_id, days=days, user_ids=user_ids
+        )
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
     except Exception:
-        raise HTTPException(
-            status_code=502, detail="Activity groups unavailable"
-        )
+        raise HTTPException(status_code=502, detail="Activity groups unavailable")
 
 
 @router.get("/user/{user_id}", response_model=UserMetricsResponse)
@@ -321,7 +374,9 @@ async def get_user_metrics(
 
         return UserMetricsResponse(data=UserMetrics(**result))
     except Exception as exc:
-        logger.exception("User metrics fetch failed for user_id=%s guild_id=%s", user_id, guild_id)
+        logger.exception(
+            "User metrics fetch failed for user_id=%s guild_id=%s", user_id, guild_id
+        )
         raise HTTPException(status_code=502, detail="User metrics unavailable") from exc
 
 
@@ -339,11 +394,32 @@ async def delete_user_metrics(
     Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
+    admin_user_id = int(current_user.user_id)
 
     try:
         result = await internal_api.delete_metrics_user(guild_id, user_id)
-        return result
-    except Exception:
-        raise HTTPException(
-            status_code=502, detail="Failed to delete user metrics"
+        await log_admin_action(
+            admin_user_id=admin_user_id,
+            guild_id=guild_id,
+            action="DELETE_USER_METRICS",
+            target_user_id=user_id,
+            details={"result": result},
+            status="success",
         )
+        return result
+    except Exception as exc:
+        logger.exception(
+            "Delete user metrics failed for guild_id=%s user_id=%s",
+            guild_id,
+            user_id,
+        )
+        with contextlib.suppress(Exception):
+            await log_admin_action(
+                admin_user_id=admin_user_id,
+                guild_id=guild_id,
+                action="DELETE_USER_METRICS",
+                target_user_id=user_id,
+                details={"error_type": type(exc).__name__},
+                status="error",
+            )
+        raise HTTPException(status_code=502, detail="Failed to delete user metrics")

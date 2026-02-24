@@ -55,7 +55,9 @@ async def fetch_guild_member_ids(
 
     while True:
         data = await internal_api.get_guild_members(
-            guild_id, page=page_num, page_size=page_size,
+            guild_id,
+            page=page_num,
+            page_size=page_size,
         )
         members = data.get("members", [])
         for member in members:
@@ -164,4 +166,6 @@ def derive_status_from_orgs(
     if not organization_sid:
         return "unknown"
 
-    return derive_membership_status(main_orgs or [], affiliate_orgs or [], organization_sid)
+    return derive_membership_status(
+        main_orgs or [], affiliate_orgs or [], organization_sid
+    )

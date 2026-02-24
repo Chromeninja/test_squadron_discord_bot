@@ -112,4 +112,3 @@ class GuildConfig:
     def __post_init__(self):
         # Initialization is now handled by field(default_factory=...)
         pass
-

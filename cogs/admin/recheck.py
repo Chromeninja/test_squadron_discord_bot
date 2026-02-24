@@ -100,7 +100,9 @@ class AutoRecheck(commands.Cog):
 
         # New rate protection settings
         self.startup_delay_minutes = int(batch_cfg.get("startup_delay_minutes", 5))
-        self.per_user_delay_seconds = float(batch_cfg.get("per_user_delay_seconds", 1.5))
+        self.per_user_delay_seconds = float(
+            batch_cfg.get("per_user_delay_seconds", 1.5)
+        )
         self.ramp_up_runs = int(batch_cfg.get("ramp_up_runs", 3))
 
         # Track runs since start for gradual ramp-up
@@ -196,7 +198,10 @@ class AutoRecheck(commands.Cog):
             except Exception as e:
                 fail_count = await Database.get_auto_recheck_fail_count(int(user_id))
                 await handle_recheck_failure(
-                    int(user_id), str(e), fail_count=fail_count + 1, config=getattr(self.bot, "config", {})
+                    int(user_id),
+                    str(e),
+                    fail_count=fail_count + 1,
+                    config=getattr(self.bot, "config", {}),
                 )
                 users_processed += 1
                 continue
@@ -209,14 +214,19 @@ class AutoRecheck(commands.Cog):
                 )
                 circuit_breaker_paused = True
                 # Record metric if health service available
-                if hasattr(self.bot, "services") and hasattr(self.bot.services, "health"):  # type: ignore[attr-defined]
-                    await self.bot.services.health.record_metric("auto_check_circuit_pauses")  # type: ignore[attr-defined]
+                services = getattr(self.bot, "services", None)
+                health_service = getattr(services, "health", None)
+                if health_service is not None:
+                    await health_service.record_metric("auto_check_circuit_pauses")
                 break  # Exit batch early, will retry next loop
 
             if global_state.error:
                 fail_count = await Database.get_auto_recheck_fail_count(int(user_id))
                 await handle_recheck_failure(
-                    int(user_id), global_state.error, fail_count=fail_count + 1, config=getattr(self.bot, "config", {})
+                    int(user_id),
+                    global_state.error,
+                    fail_count=fail_count + 1,
+                    config=getattr(self.bot, "config", {}),
                 )
                 users_processed += 1
                 continue
@@ -258,9 +268,13 @@ class AutoRecheck(commands.Cog):
                 logger.warning("Failed to schedule next retry for %s: %s", user_id, e)
 
         # Record auto-check metrics
-        if hasattr(self.bot, "services") and hasattr(self.bot.services, "health"):  # type: ignore[attr-defined]
-            await self.bot.services.health.record_metric("auto_check_runs")  # type: ignore[attr-defined]
-            await self.bot.services.health.record_metric("auto_check_users_processed", users_processed)  # type: ignore[attr-defined]
+        services = getattr(self.bot, "services", None)
+        health_service = getattr(services, "health", None)
+        if health_service is not None:
+            await health_service.record_metric("auto_check_runs")
+            await health_service.record_metric(
+                "auto_check_users_processed", users_processed
+            )
 
         if circuit_breaker_paused:
             logger.info(
@@ -279,7 +293,9 @@ class AutoRecheck(commands.Cog):
             return
         await Database.cleanup_all_user_data(int(user_id))
 
-    async def _fetch_member_or_prune(self, guild: discord.Guild, user_id: int) -> discord.Member | None:
+    async def _fetch_member_or_prune(
+        self, guild: discord.Guild, user_id: int
+    ) -> discord.Member | None:
         """
         Try to fetch a member from a guild, with retry on transient cache miss.
         If member not found after retry, prune (delete) their verification data.
@@ -350,8 +366,7 @@ class AutoRecheck(commands.Cog):
                 continue
 
             content = (
-                f"[Auto Check Summary] Checked {checked} member(s); "
-                f"changes: {changed}."
+                f"[Auto Check Summary] Checked {checked} member(s); changes: {changed}."
             )
 
             file = None

@@ -271,6 +271,7 @@ class FakeInternalAPIClient:
         self._metrics_top_games_override = None
         self._metrics_timeseries_override = None
         self._metrics_user_override = None
+        self._metrics_delete_user_override = None
 
     async def get_guilds(self) -> list[dict]:
         return self.guilds
@@ -305,63 +306,57 @@ class FakeInternalAPIClient:
             "total": len(members),
         }
 
+    @staticmethod
+    def _required_validation_role_id(user_id: int) -> str:
+        if user_id == 1428084144860303511:
+            return "999111223"
+        if user_id == 333222111:
+            return "999111225"
+        return "999111222"
+
+    @staticmethod
+    def _role_name_for_id(role_id: str) -> str:
+        role_names = {
+            "999111222": "Bot Admin",
+            "999111223": "Moderator",
+            "999111225": "Discord Manager",
+        }
+        return role_names.get(role_id, "Bot Admin")
+
+    def _ensure_validation_role(self, member: dict, user_id: int) -> None:
+        role_ids = member.setdefault("role_ids", [])
+        if not role_ids and "roles" in member:
+            role_ids.extend([r.get("id") for r in member["roles"] if r.get("id")])
+
+        required_role_id = self._required_validation_role_id(user_id)
+        if required_role_id not in role_ids:
+            role_ids.append(required_role_id)
+
     async def get_guild_member(self, guild_id: int, user_id: int) -> dict:
         """Return single guild member data."""
         key = (guild_id, user_id)
-        if key in self.member_data:
-            member = self.member_data[key].copy()  # Don't modify the original
-            # Ensure role_ids is present for validation to work
-            if "role_ids" not in member and "roles" in member:
-                member["role_ids"] = [r.get("id") for r in member["roles"]]
-            # Add source if missing
-            if "source" not in member:
-                member["source"] = "discord"
+        member_data = self.member_data.get(key)
+        if member_data is None:
+            try:
+                normalized_key = (int(guild_id), int(user_id))
+            except (TypeError, ValueError):
+                normalized_key = None
+            if normalized_key is not None:
+                member_data = self.member_data.get(normalized_key)
 
-            # For role validation to pass, we need to ensure the user has one of the
-            # configured role IDs (999111222 for bot_admin, 999111225 for discord_manager,
-            # 999111223 for moderator, 999111224 for staff)
-            # Add the appropriate validation role ID based on user_id
-            if user_id == 1428084144860303511:
-                # Moderator user - ensure moderator role ID is present
-                if "role_ids" not in member or "999111223" not in member.get(
-                    "role_ids", []
-                ):
-                    if "role_ids" not in member:
-                        member["role_ids"] = []
-                    member["role_ids"].append("999111223")
-            elif user_id == 333222111:
-                # Discord manager user - ensure discord manager role ID is present
-                if "role_ids" not in member or "999111225" not in member.get(
-                    "role_ids", []
-                ):
-                    if "role_ids" not in member:
-                        member["role_ids"] = []
-                    member["role_ids"].append("999111225")
-            # All other users - ensure bot_admin role ID is present
-            elif "role_ids" not in member or "999111222" not in str(
-                member.get("role_ids", [])
-            ):
-                if "role_ids" not in member:
-                    member["role_ids"] = []
-                member["role_ids"].append("999111222")
-
+        if member_data is not None:
+            member = member_data.copy()
+            member.setdefault("source", "discord")
+            self._ensure_validation_role(member, user_id)
             return member
 
-        # Default member data - include test admin/discord-manager/moderator roles
-        # Admin user: 246604397155581954 - gets bot_admin role ID 999111222
-        # Discord manager user: 333222111 - gets discord_manager role ID 999111225
-        # Moderator user: 1428084144860303511 - gets moderator role ID 999111223
-        # Any other user: gets bot_admin role by default (for tests that use custom user IDs)
-        roles = []
-        if user_id == 1428084144860303511:
-            # Moderator user gets moderator role
-            roles = [{"id": "999111223", "name": "Moderator"}]
-        elif user_id == 333222111:
-            # Discord manager user gets discord manager role
-            roles = [{"id": "999111225", "name": "Discord Manager"}]
-        else:
-            # All other users get bot_admin role (including 246604397155581954 and test-specific IDs)
-            roles = [{"id": "999111222", "name": "Bot Admin"}]
+        required_role_id = self._required_validation_role_id(user_id)
+        roles = [
+            {
+                "id": required_role_id,
+                "name": self._role_name_for_id(required_role_id),
+            }
+        ]
 
         return {
             "user_id": user_id,
@@ -453,7 +448,9 @@ class FakeInternalAPIClient:
     # ------------------------------------------------------------------
     # Metrics endpoints
     # ------------------------------------------------------------------
-    async def get_metrics_overview(self, guild_id: int, days: int = 7, user_ids: list[int] | None = None) -> dict:
+    async def get_metrics_overview(
+        self, guild_id: int, days: int = 7, user_ids: list[int] | None = None
+    ) -> dict:
         """Return metrics overview data."""
         if self._metrics_overview_override is not None:
             if isinstance(self._metrics_overview_override, Exception):
@@ -479,7 +476,11 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_voice_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> dict:
         """Return voice leaderboard data."""
         if self._metrics_voice_lb_override is not None:
@@ -494,7 +495,11 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_message_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> dict:
         """Return message leaderboard data."""
         if self._metrics_msg_lb_override is not None:
@@ -509,7 +514,11 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_top_games(
-        self, guild_id: int, days: int = 7, limit: int = 10, user_ids: list[int] | None = None
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
     ) -> dict:
         """Return top games data."""
         if self._metrics_top_games_override is not None:
@@ -536,7 +545,11 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_timeseries(
-        self, guild_id: int, metric: str = "messages", days: int = 7, user_ids: list[int] | None = None
+        self,
+        guild_id: int,
+        metric: str = "messages",
+        days: int = 7,
+        user_ids: list[int] | None = None,
     ) -> dict:
         """Return time-series data."""
         if self._metrics_timeseries_override is not None:
@@ -553,7 +566,11 @@ class FakeInternalAPIClient:
         }
 
     async def get_metrics_user(
-        self, guild_id: int, user_id: int, days: int = 7, user_ids: list[int] | None = None
+        self,
+        guild_id: int,
+        user_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
     ) -> dict:
         """Return per-user metrics data."""
         if self._metrics_user_override is not None:
@@ -579,6 +596,20 @@ class FakeInternalAPIClient:
                     "voice_seconds": 1800,
                 }
             ],
+        }
+
+    async def delete_metrics_user(self, guild_id: int, user_id: int) -> dict:
+        """Delete per-user metrics data."""
+        if self._metrics_delete_user_override is not None:
+            if isinstance(self._metrics_delete_user_override, Exception):
+                raise self._metrics_delete_user_override
+            return self._metrics_delete_user_override
+        return {
+            "deleted": {
+                "messages": 10,
+                "voice_sessions": 3,
+                "game_sessions": 2,
+            }
         }
 
     async def get_activity_groups(
@@ -634,6 +665,11 @@ def fake_internal_api(monkeypatch):
     """Patch get_internal_api_client to return a fake client."""
     fake = FakeInternalAPIClient()
 
+    # Ensure user detail cache does not leak across tests.
+    from routes.users import _member_cache
+
+    _member_cache.clear()
+
     # Populate guild members for privacy filtering tests
     # These are the test users added to the verification table in temp_db
     # plus additional users used in specific tests
@@ -658,4 +694,5 @@ def fake_internal_api(monkeypatch):
     yield fake
 
     # Cleanup
+    _member_cache.clear()
     app.dependency_overrides.clear()

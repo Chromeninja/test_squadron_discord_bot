@@ -14,6 +14,7 @@ from httpx import AsyncClient
 
 pytestmark = pytest.mark.contract
 
+
 @pytest.mark.asyncio
 async def test_auth_me_no_session(client: AsyncClient):
     """Test /api/auth/me without session returns null user."""
@@ -542,7 +543,9 @@ async def test_expired_session_returns_null_user(client: AsyncClient):
 async def test_tampered_session_token_rejected():
     """Tampered signed tokens should fail signature validation."""
 
-    valid_token = await create_session_token_async({"user_id": "123", "username": "test"})
+    valid_token = await create_session_token_async(
+        {"user_id": "123", "username": "test"}
+    )
     tampered_token = valid_token + "broken"
 
     result = await decode_session_token(tampered_token)

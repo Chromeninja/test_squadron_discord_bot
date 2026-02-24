@@ -82,7 +82,9 @@ def mock_member(mock_guild):
     # Mock roles and top_role
     member_role = MagicMock(spec=discord.Role)
     member_role.position = 5  # Lower than bot's role
-    member_role.__gt__ = lambda self, other: self.position > getattr(other, "position", 0)
+    member_role.__gt__ = lambda self, other: self.position > getattr(
+        other, "position", 0
+    )
     member.top_role = member_role
     member.roles = []
 
@@ -107,7 +109,9 @@ async def test_rsi_handle_uniqueness_enforcement(temp_db, mock_bot, mock_member)
     assert conflict_id == 111111, "Should detect existing user with same handle"
 
     # Verify different handle is allowed
-    no_conflict = await Database.check_rsi_handle_conflict("DifferentHandle", mock_member.id)
+    no_conflict = await Database.check_rsi_handle_conflict(
+        "DifferentHandle", mock_member.id
+    )
     assert no_conflict is None, "Should allow different handle"
 
     # Verify same user can keep their own handle
@@ -259,7 +263,9 @@ async def test_member_leave_single_guild(temp_db, mock_bot, mock_member, mock_gu
             "SELECT * FROM verification WHERE user_id = ?",
             (mock_member.id,),
         )
-        assert await cursor.fetchone() is None, "Should remove verification when leaving only guild"
+        assert await cursor.fetchone() is None, (
+            "Should remove verification when leaving only guild"
+        )
 
 
 @pytest.mark.asyncio
@@ -309,7 +315,9 @@ async def test_member_leave_multiple_guilds(temp_db, mock_bot, mock_member):
             "SELECT * FROM verification WHERE user_id = ?",
             (mock_member.id,),
         )
-        assert await cursor.fetchone() is not None, "Should keep verification when still in other guild"
+        assert await cursor.fetchone() is not None, (
+            "Should keep verification when still in other guild"
+        )
 
         # Verify membership removed for guild1 only
         cursor = await db.execute(
@@ -357,7 +365,9 @@ async def test_member_rejoin_restores_roles(temp_db, mock_bot, mock_member, mock
     lifecycle = MemberLifecycle(mock_bot)
 
     with patch("helpers.leadership_log.post_if_changed", new=AsyncMock()):
-        with patch("helpers.announcement.enqueue_announcement_for_guild", new=AsyncMock()):
+        with patch(
+            "helpers.announcement.enqueue_announcement_for_guild", new=AsyncMock()
+        ):
             await lifecycle.on_member_join(mock_member)
 
     # Verify guild membership was tracked
@@ -383,10 +393,14 @@ async def test_duplicate_handle_conflict_detection(temp_db, mock_member):
         await db.commit()
 
     # Check for conflict before assigning roles (unified pipeline pattern)
-    conflict_id = await Database.check_rsi_handle_conflict("DuplicateHandle", mock_member.id)
+    conflict_id = await Database.check_rsi_handle_conflict(
+        "DuplicateHandle", mock_member.id
+    )
 
     # Should detect conflict
-    assert conflict_id == existing_user_id, "Should detect existing user with same handle"
+    assert conflict_id == existing_user_id, (
+        "Should detect existing user with same handle"
+    )
 
     # In unified pipeline, caller would raise/abort here rather than proceed
     # Verify the new user was NOT added to verification (we didn't proceed)
@@ -395,4 +409,6 @@ async def test_duplicate_handle_conflict_detection(temp_db, mock_member):
             "SELECT * FROM verification WHERE user_id = ?",
             (mock_member.id,),
         )
-        assert await cursor.fetchone() is None, "Should not create verification for duplicate handle"
+        assert await cursor.fetchone() is None, (
+            "Should not create verification for duplicate handle"
+        )

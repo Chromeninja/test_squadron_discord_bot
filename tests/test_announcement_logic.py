@@ -104,13 +104,15 @@ class TestFlushPendingUpdatesAnnouncedAt:
         source = inspect.getsource(BulkAnnouncer.flush_pending)
 
         # Verify UPDATE is used for marking announced events
-        assert "UPDATE announcement_events SET announced_at" in source, \
+        assert "UPDATE announcement_events SET announced_at" in source, (
             "flush_pending should use UPDATE to set announced_at timestamp"
+        )
 
         # Verify DELETE is NOT used (we preserve event history)
         # Check that DELETE in context of announced events is removed
-        assert "DELETE FROM announcement_events WHERE id IN" not in source, \
+        assert "DELETE FROM announcement_events WHERE id IN" not in source, (
             "flush_pending should NOT DELETE announced events - should preserve history"
+        )
 
     @pytest.mark.asyncio
     async def test_pending_query_filters_already_announced(self, monkeypatch):
@@ -123,5 +125,6 @@ class TestFlushPendingUpdatesAnnouncedAt:
         source = inspect.getsource(BulkAnnouncer.flush_pending)
 
         # Verify the SELECT query filters by announced_at IS NULL
-        assert "WHERE announced_at IS NULL" in source, \
+        assert "WHERE announced_at IS NULL" in source, (
             "flush_pending query should filter to only un-announced events"
+        )

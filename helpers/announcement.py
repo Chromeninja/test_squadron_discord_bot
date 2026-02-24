@@ -523,15 +523,21 @@ class BulkAnnouncer(commands.Cog):
 
             # Get bulk announcement settings (global) with defensive coercion
             self.hour_utc = _to_int(
-                await config_service.get_global_setting("bulk_announcement.hour_utc", 18),
+                await config_service.get_global_setting(
+                    "bulk_announcement.hour_utc", 18
+                ),
                 18,
             )
             self.minute_utc = _to_int(
-                await config_service.get_global_setting("bulk_announcement.minute_utc", 0),
+                await config_service.get_global_setting(
+                    "bulk_announcement.minute_utc", 0
+                ),
                 0,
             )
             self.threshold = _to_int(
-                await config_service.get_global_setting("bulk_announcement.threshold", 50),
+                await config_service.get_global_setting(
+                    "bulk_announcement.threshold", 50
+                ),
                 50,
             )
             self.max_mentions_per_message = _to_int(
@@ -759,7 +765,9 @@ class BulkAnnouncer(commands.Cog):
                             f"UPDATE announcement_events SET announced_at = ? WHERE id IN ({qmarks})",
                             (now, *chunk),
                         )
-                logger.info(f"BulkAnnouncer: marked {len(announced_ids)} events as announced")
+                logger.info(
+                    f"BulkAnnouncer: marked {len(announced_ids)} events as announced"
+                )
             except Exception as e:
                 logger.warning(f"BulkAnnouncer: failed to mark announced events: {e}")
 

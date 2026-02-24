@@ -154,14 +154,18 @@ class AdminCog(commands.Cog):
                 extra=get_interaction_extra(interaction, pending_count=pending_count),
             )
 
-            if not hasattr(announcer, "flush_pending") or not callable(announcer.flush_pending):
+            if not hasattr(announcer, "flush_pending") or not callable(
+                announcer.flush_pending
+            ):
                 await interaction.followup.send(
                     "❌ BulkAnnouncer is loaded but missing the flush handler. Please reload the bot/cog and try again.",
                     ephemeral=True,
                 )
                 self.logger.error(
                     "flush-announcements: BulkAnnouncer missing flush_pending",
-                    extra=get_interaction_extra(interaction, pending_count=pending_count),
+                    extra=get_interaction_extra(
+                        interaction, pending_count=pending_count
+                    ),
                 )
                 return
 
@@ -176,7 +180,9 @@ class AdminCog(commands.Cog):
                 self.logger.info(
                     "flush-announcements: successfully flushed events",
                     extra=get_interaction_extra(
-                        interaction, pending_count=pending_count, missing_guilds=missing_guilds
+                        interaction,
+                        pending_count=pending_count,
+                        missing_guilds=missing_guilds,
                     ),
                 )
             else:
@@ -192,13 +198,16 @@ class AdminCog(commands.Cog):
                 self.logger.warning(
                     "flush-announcements: flush returned False (no announcements sent) despite pending events",
                     extra=get_interaction_extra(
-                        interaction, pending_count=pending_count, missing_guilds=missing_guilds
+                        interaction,
+                        pending_count=pending_count,
+                        missing_guilds=missing_guilds,
                     ),
                 )
 
         except Exception:
             await interaction.followup.send(
-                "❌ Failed to flush announcements. Check logs for details.", ephemeral=True
+                "❌ Failed to flush announcements. Check logs for details.",
+                ephemeral=True,
             )
             self.logger.exception(
                 "flush-announcements command failed",
@@ -338,7 +347,8 @@ class AdminCog(commands.Cog):
         except Exception as e:
             logger.exception("Error in status command", exc_info=e)
             await interaction.followup.send(
-                "❌ Error retrieving status. Check bot logs for details.", ephemeral=True
+                "❌ Error retrieving status. Check bot logs for details.",
+                ephemeral=True,
             )
 
     # Removed: guild-config command. Configuration viewing is now Web Admin only.

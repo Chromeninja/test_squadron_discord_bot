@@ -1,6 +1,6 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.envFile": "${workspaceFolder}/.env",
+  "python.defaultInterpreterPath": ".venv/bin/python",
+  "python.envFile": ".env",
 
   // Test configuration - pytest discovers tests from pyproject.toml testpaths
   //
@@ -13,9 +13,9 @@
   // Includes: tests/ and web/backend/tests/
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
+  "python.testing.pytestPath": ".venv/bin/pytest",
   "python.testing.autoTestDiscoverOnSaveEnabled": true,
-  "python.testing.cwd": "${workspaceFolder}",
+  "python.testing.cwd": ".",
 
   // Pylance type checking configuration
   "python.analysis.typeCheckingMode": "basic",
@@ -40,8 +40,8 @@
 
   // Make terminals (and external agents) see the venv first on PATH for non-interactive runs
   "terminal.integrated.env.linux": {
-    "VIRTUAL_ENV": "${workspaceFolder}/.venv",
-    "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+    "VIRTUAL_ENV": ".venv",
+    "PATH": ".venv/bin:${env:PATH}"
   },
   "python.testing.unittestArgs": [
     "-v",

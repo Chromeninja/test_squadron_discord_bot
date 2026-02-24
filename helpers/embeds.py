@@ -35,6 +35,7 @@ logger = get_logger(__name__)
 # Standard Colors
 # -----------------------------------------------------------------------------
 
+
 class EmbedColors:
     """Standard color constants for Discord embeds."""
 
@@ -52,7 +53,9 @@ class EmbedColors:
 
 
 # Standard thumbnail URL
-DEFAULT_THUMBNAIL = "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
+DEFAULT_THUMBNAIL = (
+    "https://testsquadron.com/styles/custom/logos/TEST-Simplified-Yellow.png"
+)
 
 
 def create_embed(

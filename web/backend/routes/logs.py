@@ -100,7 +100,8 @@ async def export_backend_logs(
     except Exception as e:
         logger.exception("Failed to export backend logs")
         raise HTTPException(
-            status_code=500, detail="Failed to export backend logs. Check server logs for details."
+            status_code=500,
+            detail="Failed to export backend logs. Check server logs for details.",
         ) from e
 
 
@@ -121,7 +122,9 @@ async def export_audit_logs(
         raise HTTPException(status_code=400, detail="No active guild selected")
 
     try:
-        audit_logs = await Database.fetch_audit_logs_by_guild(str(guild_id), limit=limit)
+        audit_logs = await Database.fetch_audit_logs_by_guild(
+            str(guild_id), limit=limit
+        )
 
         # Create CSV in memory
         output = io.StringIO()
@@ -162,5 +165,6 @@ async def export_audit_logs(
     except Exception as e:
         logger.exception("Failed to export audit logs")
         raise HTTPException(
-            status_code=500, detail="Failed to export audit logs. Check server logs for details."
+            status_code=500,
+            detail="Failed to export audit logs. Check server logs for details.",
         ) from e

@@ -49,6 +49,7 @@ _bulk_recheck_progress: dict[str, dict] = {}
 
 class BulkRecheckProgress(BaseModel):
     """Progress info for a bulk recheck job."""
+
     job_id: str
     total: int
     processed: int
@@ -153,7 +154,9 @@ async def recheck_user(
             details={"error": str(e)},
             status="error",
         )
-        raise HTTPException(status_code=500, detail="Recheck failed. Check server logs for details.")
+        raise HTTPException(
+            status_code=500, detail="Recheck failed. Check server logs for details."
+        )
 
     # Get new verification status after recheck
     cursor = await db.execute(
@@ -323,6 +326,7 @@ async def _execute_bulk_recheck(
     # Pre-flight: Check if circuit breaker is already open before starting
     try:
         from helpers.circuit_breaker import get_rsi_circuit_breaker
+
         circuit_breaker = get_rsi_circuit_breaker({})
         if circuit_breaker.is_open():
             retry_after = int(circuit_breaker.time_until_retry())
@@ -338,11 +342,13 @@ async def _execute_bulk_recheck(
         # Check for circuit breaker open condition from previous failures
         if circuit_breaker_hit:
             # Skip remaining users and mark as circuit-breaker-skipped
-            errors.append({
-                "user_id": user_id,
-                "error": "Skipped: RSI service temporarily unavailable",
-                "circuit_breaker": True,
-            })
+            errors.append(
+                {
+                    "user_id": user_id,
+                    "error": "Skipped: RSI service temporarily unavailable",
+                    "circuit_breaker": True,
+                }
+            )
             failed += 1
             continue
 
@@ -422,11 +428,13 @@ async def _execute_bulk_recheck(
                     f"skipping remaining {total_users - idx - 1} users"
                 )
 
-            errors.append({
-                "user_id": user_id,
-                "error": error_detail,
-                "circuit_breaker": is_circuit_open,
-            })
+            errors.append(
+                {
+                    "user_id": user_id,
+                    "error": error_detail,
+                    "circuit_breaker": is_circuit_open,
+                }
+            )
 
             # Update progress
             _bulk_recheck_progress[job_id]["processed"] = idx + 1
@@ -477,7 +485,9 @@ async def _execute_bulk_recheck(
             "circuit_breaker_hit": circuit_breaker_hit,
             "skipped_due_to_circuit_breaker": skipped_count,
         },
-        status="success" if failed == 0 else ("circuit_breaker" if circuit_breaker_hit else "partial"),
+        status="success"
+        if failed == 0
+        else ("circuit_breaker" if circuit_breaker_hit else "partial"),
     )
 
     # Build summary following Discord verify check embed style
@@ -494,23 +504,27 @@ async def _execute_bulk_recheck(
     ]
 
     if circuit_breaker_hit:
-        summary_lines.extend([
-            "",
-            "⚠️ RSI Service Temporarily Unavailable",
-            f"  • Completed before pause: {successful}",
-            f"  • Skipped (will retry later): {skipped_count}",
-        ])
+        summary_lines.extend(
+            [
+                "",
+                "⚠️ RSI Service Temporarily Unavailable",
+                f"  • Completed before pause: {successful}",
+                f"  • Skipped (will retry later): {skipped_count}",
+            ]
+        )
 
-    summary_lines.extend([
-        "",
-        "Results:",
-        f"  • Verified/Main: {main_members}",
-        f"  • Affiliate: {affiliates}",
-        f"  • Non-Member: {non_members}",
-        f"  • Unverified: {unverified}",
-        f"  • Successful: {successful}",
-        f"  • Failed: {failed}",
-    ])
+    summary_lines.extend(
+        [
+            "",
+            "Results:",
+            f"  • Verified/Main: {main_members}",
+            f"  • Affiliate: {affiliates}",
+            f"  • Non-Member: {non_members}",
+            f"  • Unverified: {unverified}",
+            f"  • Successful: {successful}",
+            f"  • Failed: {failed}",
+        ]
+    )
 
     summary_text = "\n".join(summary_lines)
 
@@ -549,7 +563,9 @@ async def _execute_bulk_recheck(
                 csv_bytes=csv_content,  # Already base64 encoded
                 csv_filename=csv_filename,
             )
-            channel_ref = response.get("channel_mention") or response.get("channel_name")
+            channel_ref = response.get("channel_mention") or response.get(
+                "channel_name"
+            )
             logger.info(
                 f"Posted bulk recheck summary to leadership channel: {channel_ref}"
             )

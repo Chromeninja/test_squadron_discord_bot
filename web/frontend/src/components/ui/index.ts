@@ -1,9 +1,9 @@
 /**
  * UI Component Library
- * 
+ *
  * Centralized exports for all reusable UI components.
  * Import from this file rather than individual component files.
- * 
+ *
  * @example
  * import { Button, Badge, Card, Modal, Alert, Table } from '@/components/ui';
  */
@@ -12,6 +12,8 @@
 export { Button, type ButtonProps } from './Button';
 export { Badge, StatusBadge, MembershipBadge, type BadgeProps, type StatusBadgeProps, type MembershipBadgeProps } from './Badge';
 export { Input, Textarea, type InputProps, type TextareaProps } from './Input';
+export { Spinner } from './Spinner';
+export { Pagination, type PaginationProps } from './Pagination';
 
 // Container Components
 export { Card, CardHeader, CardBody, CardFooter, CollapsibleCard, type CardProps, type CardHeaderProps, type CardBodyProps, type CardFooterProps, type CollapsibleCardProps } from './Card';

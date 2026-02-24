@@ -14,7 +14,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from services.base import BaseService
 from services.db.metrics_db import MetricsDatabase
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Data classes for in-memory session tracking
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class VoiceSessionInfo:
@@ -62,6 +63,7 @@ class MetricsSnapshot:
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
+
 
 class MetricsService(BaseService):
     """
@@ -126,9 +128,7 @@ class MetricsService(BaseService):
 
         # Guild-level activity threshold cache
         # {guild_id: (monotonic_ts, min_voice_secs, min_game_secs, min_messages)}
-        self._activity_thresholds_cache: dict[
-            int, tuple[float, int, int, int]
-        ] = {}
+        self._activity_thresholds_cache: dict[int, tuple[float, int, int, int]] = {}
         self._activity_thresholds_ttl_seconds: int = 30
         self._activity_thresholds_lock = asyncio.Lock()
 
@@ -160,9 +160,15 @@ class MetricsService(BaseService):
 
         # Start background tasks (skip in test mode)
         if not self._test_mode:
-            self._flush_task = asyncio.create_task(self._flush_loop(), name="metrics_flush")
-            self._rollup_task = asyncio.create_task(self._rollup_loop(), name="metrics_rollup")
-            self._purge_task = asyncio.create_task(self._purge_loop(), name="metrics_purge")
+            self._flush_task = asyncio.create_task(
+                self._flush_loop(), name="metrics_flush"
+            )
+            self._rollup_task = asyncio.create_task(
+                self._rollup_loop(), name="metrics_rollup"
+            )
+            self._purge_task = asyncio.create_task(
+                self._purge_loop(), name="metrics_purge"
+            )
 
         self.logger.info(
             "MetricsService initialized (db=%s, retention=%dd, flush=%ds)",
@@ -293,13 +299,19 @@ class MetricsService(BaseService):
 
         # Fetch and parse outside the lock to reduce contention.
         raw_voice = await self._config_service.get_guild_setting(
-            guild_id, "metrics.min_voice_minutes", 15,
+            guild_id,
+            "metrics.min_voice_minutes",
+            15,
         )
         raw_game = await self._config_service.get_guild_setting(
-            guild_id, "metrics.min_game_minutes", 15,
+            guild_id,
+            "metrics.min_game_minutes",
+            15,
         )
         raw_msgs = await self._config_service.get_guild_setting(
-            guild_id, "metrics.min_messages", 5,
+            guild_id,
+            "metrics.min_messages",
+            5,
         )
         try:
             min_voice_secs = max(0, int(raw_voice)) * 60
@@ -317,7 +329,10 @@ class MetricsService(BaseService):
         # Write computed values to cache under the lock.
         async with self._activity_thresholds_lock:
             self._activity_thresholds_cache[guild_id] = (
-                time.monotonic(), min_voice_secs, min_game_secs, min_msgs,
+                time.monotonic(),
+                min_voice_secs,
+                min_game_secs,
+                min_msgs,
             )
         return min_voice_secs, min_game_secs, min_msgs
 
@@ -328,11 +343,11 @@ class MetricsService(BaseService):
     # Tier cadence: (tier_name, window_size_in_days)
     # Checked strictest-first; user gets the first tier where every
     # non-overlapping window of that size contains at least one active day.
-    _TIER_CADENCE_DAYS: list[tuple[str, int]] = [
-        ("hardcore", 1),     # active every day
-        ("regular", 3),      # active once every 3 days
-        ("casual", 7),       # active once every 7 days (weekly)
-        ("reserve", 30),     # active once every 30 days (monthly)
+    _TIER_CADENCE_DAYS: ClassVar[list[tuple[str, int]]] = [
+        ("hardcore", 1),  # active every day
+        ("regular", 3),  # active once every 3 days
+        ("casual", 7),  # active once every 7 days (weekly)
+        ("reserve", 30),  # active once every 30 days (monthly)
     ]
 
     @staticmethod
@@ -383,7 +398,8 @@ class MetricsService(BaseService):
             for i in range(num_windows):
                 w_start = range_start_day + i * window_days
                 w_end = range_start_day + min(
-                    (i + 1) * window_days, range_days,
+                    (i + 1) * window_days,
+                    range_days,
                 )
                 if not any(w_start <= d < w_end for d in active_days):
                     all_covered = False
@@ -420,8 +436,8 @@ class MetricsService(BaseService):
 
         excluded = await self.get_excluded_channel_ids(guild_id)
         game_mode, tracked_games = await self.get_tracked_game_config(guild_id)
-        min_voice_secs, min_game_secs, min_msgs = (
-            await self.get_activity_thresholds(guild_id)
+        min_voice_secs, min_game_secs, min_msgs = await self.get_activity_thresholds(
+            guild_id
         )
         min_msg_windows = min_msgs
 
@@ -466,7 +482,8 @@ class MetricsService(BaseService):
                 "AND joined_at <= ? AND COALESCE(left_at, ?) > ? "
             )
             cursor = await db.execute(
-                sql_voice, [now, *params_prefix, now, now, cutoff_ts],
+                sql_voice,
+                [now, *params_prefix, now, now, cutoff_ts],
             )
 
             # Accumulate voice seconds per (uid, day) and track last_voice_at.
@@ -483,8 +500,8 @@ class MetricsService(BaseService):
                 for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
                     day_start = max(clamped_start, d * 86400)
                     day_end = min(clamped_end, (d + 1) * 86400)
-                    voice_day_secs[(uid, d)] = (
-                        voice_day_secs.get((uid, d), 0) + max(0, day_end - day_start)
+                    voice_day_secs[(uid, d)] = voice_day_secs.get((uid, d), 0) + max(
+                        0, day_end - day_start
                     )
 
             for (uid, d), secs in voice_day_secs.items():
@@ -556,9 +573,8 @@ class MetricsService(BaseService):
                 for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
                     day_start = max(clamped_start, d * 86400)
                     day_end = min(clamped_end, (d + 1) * 86400)
-                    game_day_secs[(uid, d)] = (
-                        game_day_secs.get((uid, d), 0)
-                        + max(0, day_end - day_start)
+                    game_day_secs[(uid, d)] = game_day_secs.get((uid, d), 0) + max(
+                        0, day_end - day_start
                     )
 
             for (uid, d), secs in game_day_secs.items():
@@ -580,16 +596,24 @@ class MetricsService(BaseService):
                 "last_voice_at": data.get("last_voice_at"),
                 "last_game_at": data.get("last_game_at"),
                 "voice_tier": self._tier_from_cadence(
-                    voice_days, range_start_day, normalized_lookback,
+                    voice_days,
+                    range_start_day,
+                    normalized_lookback,
                 ),
                 "chat_tier": self._tier_from_cadence(
-                    chat_days, range_start_day, normalized_lookback,
+                    chat_days,
+                    range_start_day,
+                    normalized_lookback,
                 ),
                 "game_tier": self._tier_from_cadence(
-                    game_days, range_start_day, normalized_lookback,
+                    game_days,
+                    range_start_day,
+                    normalized_lookback,
                 ),
                 "combined_tier": self._tier_from_cadence(
-                    combined_days, range_start_day, normalized_lookback,
+                    combined_days,
+                    range_start_day,
+                    normalized_lookback,
                 ),
             }
 
@@ -616,7 +640,7 @@ class MetricsService(BaseService):
         dimensions = ("voice", "chat", "game", "combined")
         tier_names = ("hardcore", "regular", "casual", "reserve", "inactive")
         counts: dict[str, dict[str, int]] = {
-            dim: {t: 0 for t in tier_names} for dim in dimensions
+            dim: dict.fromkeys(tier_names, 0) for dim in dimensions
         }
         for _uid, data in buckets.items():
             for dim in dimensions:
@@ -633,7 +657,8 @@ class MetricsService(BaseService):
     ) -> list[int]:
         """Return user IDs matching a specific dimension+tier combo."""
         buckets = await self.get_member_activity_buckets(
-            guild_id, lookback_days=lookback_days,
+            guild_id,
+            lookback_days=lookback_days,
         )
         key = f"{dimension}_tier"
         return [uid for uid, data in buckets.items() if data.get(key) == tier]
@@ -656,7 +681,8 @@ class MetricsService(BaseService):
             ``get_member_activity_buckets`` is shared across all combos.
         """
         buckets = await self.get_member_activity_buckets(
-            guild_id, lookback_days=lookback_days,
+            guild_id,
+            lookback_days=lookback_days,
         )
         result: dict[str, dict[str, list[int]]] = {}
         for dim in dimensions:
@@ -669,7 +695,9 @@ class MetricsService(BaseService):
             result[dim] = tier_map
         return result
 
-    def record_message(self, guild_id: int, user_id: int, channel_id: int | None = None) -> None:
+    def record_message(
+        self, guild_id: int, user_id: int, channel_id: int | None = None
+    ) -> None:
         """
         Record a message event (non-async for minimal overhead).
 
@@ -754,9 +782,7 @@ class MetricsService(BaseService):
         )
 
         # Active voice users
-        active_voice = sum(
-            1 for (gid, _) in self._voice_sessions if gid == guild_id
-        )
+        active_voice = sum(1 for (gid, _) in self._voice_sessions if gid == guild_id)
 
         # Active game sessions + top game
         game_counts: defaultdict[str, int] = defaultdict(int)
@@ -766,7 +792,11 @@ class MetricsService(BaseService):
                 active_game_sessions += 1
                 game_counts[session.game_name] += 1
 
-        top_game = max(game_counts, key=game_counts.get, default=None) if game_counts else None  # type: ignore[arg-type]
+        top_game = (
+            max(game_counts, key=lambda game_name: game_counts[game_name])
+            if game_counts
+            else None
+        )
 
         return MetricsSnapshot(
             messages_today=messages_today,
@@ -795,10 +825,14 @@ class MetricsService(BaseService):
         if user_ids is not None:
             if not user_ids:
                 return {
-                    "total_messages": 0, "unique_messagers": 0,
-                    "avg_messages_per_user": 0.0, "total_voice_seconds": 0,
-                    "unique_voice_users": 0, "avg_voice_per_user": 0,
-                    "unique_users": 0, "top_games": [],
+                    "total_messages": 0,
+                    "unique_messagers": 0,
+                    "avg_messages_per_user": 0.0,
+                    "total_voice_seconds": 0,
+                    "unique_voice_users": 0,
+                    "avg_voice_per_user": 0,
+                    "unique_users": 0,
+                    "top_games": [],
                 }
             placeholders = ",".join("?" for _ in user_ids)
             uid_filter = f" AND user_id IN ({placeholders})"
@@ -902,7 +936,10 @@ class MetricsService(BaseService):
         }
 
     async def get_voice_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10,
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
         user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top users by voice time."""
@@ -932,7 +969,10 @@ class MetricsService(BaseService):
             ]
 
     async def get_message_leaderboard(
-        self, guild_id: int, days: int = 7, limit: int = 10,
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
         user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top users by message count."""
@@ -962,7 +1002,10 @@ class MetricsService(BaseService):
             ]
 
     async def get_timeseries(
-        self, guild_id: int, metric: str = "messages", days: int = 7,
+        self,
+        guild_id: int,
+        metric: str = "messages",
+        days: int = 7,
         user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """
@@ -1075,7 +1118,11 @@ class MetricsService(BaseService):
                 data: list[dict[str, Any]] = []
                 for hour_bucket in sorted(by_hour_seconds):
                     game_totals = by_hour_games[hour_bucket]
-                    top_game = max(game_totals.items(), key=lambda item: item[1])[0] if game_totals else None
+                    top_game = (
+                        max(game_totals.items(), key=lambda item: item[1])[0]
+                        if game_totals
+                        else None
+                    )
                     data.append(
                         {
                             "timestamp": hour_bucket,
@@ -1090,7 +1137,10 @@ class MetricsService(BaseService):
                 return []
 
     async def get_top_games(
-        self, guild_id: int, days: int = 7, limit: int = 10,
+        self,
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
         user_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Get top games by total play time."""
@@ -1176,7 +1226,9 @@ class MetricsService(BaseService):
                 "ORDER BY hour_bucket",
                 (guild_id, user_id, cutoff),
             )
-            voice_by_hour: dict[int, int] = {r[0]: r[1] for r in await cursor.fetchall()}
+            voice_by_hour: dict[int, int] = {
+                r[0]: r[1] for r in await cursor.fetchall()
+            }
 
             all_hours = sorted(set(msg_by_hour) | set(voice_by_hour))
             timeseries = [
@@ -1253,7 +1305,9 @@ class MetricsService(BaseService):
                         count += 1
 
         if count:
-            self.logger.info("Backfilled %d active voice sessions from current state", count)
+            self.logger.info(
+                "Backfilled %d active voice sessions from current state", count
+            )
 
     async def backfill_game_state(self, bot: Bot) -> None:
         """
@@ -1289,7 +1343,9 @@ class MetricsService(BaseService):
                         break  # Only track first game per user
 
         if count:
-            self.logger.info("Backfilled %d active game sessions from current state", count)
+            self.logger.info(
+                "Backfilled %d active game sessions from current state", count
+            )
 
     # ------------------------------------------------------------------
     # Background tasks
@@ -1495,7 +1551,15 @@ class MetricsService(BaseService):
                         "total_voice_seconds = excluded.total_voice_seconds, "
                         "unique_voice_users = excluded.unique_voice_users, "
                         "top_game = excluded.top_game",
-                        (gid, hour_start, total_msgs, unique_msgs, v_secs, v_users, top_game),
+                        (
+                            gid,
+                            hour_start,
+                            total_msgs,
+                            unique_msgs,
+                            v_secs,
+                            v_users,
+                            top_game,
+                        ),
                     )
 
                 # ---------- Per-user hourly rollup ----------
@@ -1543,7 +1607,9 @@ class MetricsService(BaseService):
                 user_keys.update(user_games.keys())
 
                 for gid, uid in user_keys:
-                    msgs = next((r[2] for r in user_msg_rows if r[0] == gid and r[1] == uid), 0)
+                    msgs = next(
+                        (r[2] for r in user_msg_rows if r[0] == gid and r[1] == uid), 0
+                    )
                     voice_secs = user_voice.get((gid, uid), 0)
                     games_dict = user_games.get((gid, uid))
                     games_json = json.dumps(games_dict) if games_dict else None
@@ -1587,7 +1653,9 @@ class MetricsService(BaseService):
                     if deleted:
                         self.logger.info(
                             "Purged %d rows from %s (older than %d days)",
-                            deleted, table, self._retention_days,
+                            deleted,
+                            table,
+                            self._retention_days,
                         )
                 await db.commit()
         except Exception:
@@ -1655,21 +1723,24 @@ class MetricsService(BaseService):
     async def health_check(self) -> dict[str, Any]:
         """Return health status including buffer sizes and task state."""
         base = await super().health_check()
-        base.update({
-            "enabled": self._enabled,
-            "active_voice_sessions": len(self._voice_sessions),
-            "active_game_sessions": len(self._game_sessions),
-            "message_buffer_size": sum(self._message_buffer.values()),
-            "last_flush_at": self._last_flush_at,
-            "last_rollup_at": self._last_rollup_at,
-            "total_messages_buffered": self._total_messages_buffered,
-        })
+        base.update(
+            {
+                "enabled": self._enabled,
+                "active_voice_sessions": len(self._voice_sessions),
+                "active_game_sessions": len(self._game_sessions),
+                "message_buffer_size": sum(self._message_buffer.values()),
+                "last_flush_at": self._last_flush_at,
+                "last_rollup_at": self._last_rollup_at,
+                "total_messages_buffered": self._total_messages_buffered,
+            }
+        )
         return base
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _hour_bucket(epoch: int) -> int:
     """Truncate a Unix timestamp to the start of its hour."""

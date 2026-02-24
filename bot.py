@@ -131,7 +131,6 @@ class MyBot(commands.Bot):
         # Assign the entire config to the bot instance (passed from factory or lazy-loaded)
         self.config = config if config is not None else _load_config()
 
-
         # Initialize uptime tracking
         self.start_time = time.monotonic()
 
@@ -371,7 +370,9 @@ class MyBot(commands.Bot):
                 logger.info(f"Sent prefix warning alert to guild {guild.name}")
 
             except Exception as e:
-                logger.warning(f"Failed to send prefix warning to guild {guild.name}: {e}")
+                logger.warning(
+                    f"Failed to send prefix warning to guild {guild.name}: {e}"
+                )
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""

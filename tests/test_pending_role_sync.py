@@ -74,7 +74,10 @@ class TestPendingRoleSyncQueue:
         """Only `limit` rows are returned."""
         for i in range(5):
             await RoleDelegationService._enqueue_pending_sync(
-                guild_id=1, user_id=i, role_id=10, action="grant",
+                guild_id=1,
+                user_id=i,
+                role_id=10,
+                action="grant",
             )
         # Expire them all
         async with Database.get_connection() as db:
@@ -100,7 +103,10 @@ class TestMarkSyncOutcome:
     @pytest.mark.asyncio
     async def test_mark_success_deletes_row(self, temp_db):
         await RoleDelegationService._enqueue_pending_sync(
-            guild_id=1, user_id=2, role_id=3, action="grant",
+            guild_id=1,
+            user_id=2,
+            role_id=3,
+            action="grant",
         )
         # Get the row id
         async with Database.get_connection() as db:
@@ -120,7 +126,10 @@ class TestMarkSyncOutcome:
     @pytest.mark.asyncio
     async def test_mark_failure_bumps_count_and_backoff(self, temp_db):
         await RoleDelegationService._enqueue_pending_sync(
-            guild_id=1, user_id=2, role_id=3, action="revoke",
+            guild_id=1,
+            user_id=2,
+            role_id=3,
+            action="revoke",
         )
         async with Database.get_connection() as db:
             await db.execute("UPDATE pending_role_sync SET next_retry_at = 0")

@@ -7,6 +7,7 @@ from httpx import AsyncClient
 
 pytestmark = pytest.mark.contract
 
+
 @pytest.mark.asyncio
 async def test_users_search_unauthorized(
     client: AsyncClient, mock_unauthorized_session: str

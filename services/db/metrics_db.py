@@ -59,7 +59,9 @@ class MetricsDatabase:
                 await db.execute("SELECT * FROM voice_sessions")
         """
         if not cls._db_path:
-            raise RuntimeError("MetricsDatabase not initialized — call initialize() first")
+            raise RuntimeError(
+                "MetricsDatabase not initialized — call initialize() first"
+            )
 
         async with aiosqlite.connect(cls._db_path) as db:
             await db.execute("PRAGMA busy_timeout=5000")

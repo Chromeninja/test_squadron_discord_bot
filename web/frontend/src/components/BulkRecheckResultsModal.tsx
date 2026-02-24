@@ -1,44 +1,25 @@
 import { showError } from '../utils/toast';
+import { getStatusLabel } from '../utils/statusHelpers';
+import type { BulkRecheckResponse } from '../api/endpoints';
+import { Button, Modal } from './ui';
 
 /**
  * Bulk Recheck Results Modal
- * 
+ *
  * Displays results from bulk user recheck operation following the same
  * pattern as Discord's /verify check command with summary and CSV export.
+ *
+ * Uses the shared Modal / Button UI components and imports types from
+ * the canonical api/endpoints definitions.
  */
-
-interface BulkRecheckResult {
-  user_id: string;
-  status: string;
-  message: string;
-  roles_updated: number;
-  diff: Record<string, any>;
-}
-
-interface BulkRecheckError {
-  user_id: string;
-  error: string;
-}
 
 interface BulkRecheckResultsProps {
   open: boolean;
   onClose: () => void;
-  results: {
-    success: boolean;
-    message: string;
-    total: number;
-    successful: number;
-    failed: number;
-    errors: BulkRecheckError[];
-    results: BulkRecheckResult[];
-    summary_text: string | null;
-    csv_filename?: string | null;
-    csv_content?: string | null; // Base64-encoded CSV
-  };
+  results: BulkRecheckResponse;
 }
 
 export function BulkRecheckResultsModal({ open, onClose, results }: BulkRecheckResultsProps) {
-  if (!open) return null;
 
   const downloadCSV = () => {
     if (!results.csv_content || !results.csv_filename) {
@@ -93,52 +74,47 @@ export function BulkRecheckResultsModal({ open, onClose, results }: BulkRecheckR
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      main: 'Main Member',
-      affiliate: 'Affiliate',
-      non_member: 'Non-Member',
-      unknown: 'Unknown',
-      unverified: 'Unverified',
-    };
-    return labels[status] || status;
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      
-      {/* Modal */}
-      <div className="relative bg-slate-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[80vh] overflow-y-auto mx-4 border border-slate-700">
-        {/* Header */}
-        <div className="sticky top-0 bg-slate-800 border-b border-slate-700 px-6 py-4 z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className={`text-2xl ${results.success ? 'text-green-400' : 'text-yellow-400'}`}>
-                {results.success ? '✓' : '⚠'}
-              </span>
-              <div>
-                <h2 className="text-xl font-semibold text-white">Bulk Recheck Results</h2>
-                <p className="text-sm text-gray-400 mt-1">{results.message}</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={
+        <div className="flex items-center gap-3">
+          <span className={`text-2xl ${results.success ? 'text-green-400' : 'text-yellow-400'}`}>
+            {results.success ? '✓' : '⚠'}
+          </span>
+          <div>
+            <span className="text-xl font-semibold text-white">Bulk Recheck Results</span>
+            <p className="text-sm text-gray-400 mt-1">{results.message}</p>
           </div>
         </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
+      }
+      size="lg"
+      footer={
+        <div className="flex items-center justify-between w-full">
+          <div>
+            {results.csv_content && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={downloadCSV}
+                leftIcon={
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                }
+              >
+                Download CSV
+              </Button>
+            )}
+          </div>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-6">
           {/* Summary Section */}
           {results.summary_text && (
             <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
@@ -212,36 +188,7 @@ export function BulkRecheckResultsModal({ open, onClose, results }: BulkRecheckR
               </div>
             </div>
           )}
-
-          {/* CSV Export Button */}
-          {results.csv_content && (
-            <div className="flex justify-between items-center pt-4 border-t border-slate-700">
-              <p className="text-sm text-gray-400">
-                Download complete results with all fields
-              </p>
-              <button
-                onClick={downloadCSV}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Download CSV
-              </button>
-            </div>
-          )}
-
-          {/* Close Button */}
-          <div className="flex justify-end pt-2">
-            <button
-              onClick={onClose}
-              className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -83,7 +83,12 @@ class FakeMember(FakeUser):
         joined_at: Any = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(user_id=user_id, name=name, display_name=display_name or nick or name, **kwargs)
+        super().__init__(
+            user_id=user_id,
+            name=name,
+            display_name=display_name or nick or name,
+            **kwargs,
+        )
         self.nick = nick
         self.roles = roles or []
         self.guild = guild
@@ -404,7 +409,9 @@ def make_member(
     **kwargs: Any,
 ) -> FakeMember:
     """Create a FakeMember with defaults."""
-    return FakeMember(user_id=user_id, name=name, roles=roles or [], guild=guild, **kwargs)
+    return FakeMember(
+        user_id=user_id, name=name, roles=roles or [], guild=guild, **kwargs
+    )
 
 
 def make_channel(
@@ -425,7 +432,9 @@ def make_voice_channel(
     **kwargs: Any,
 ) -> FakeVoiceChannel:
     """Create a FakeVoiceChannel with defaults."""
-    return FakeVoiceChannel(channel_id=channel_id, name=name, guild=guild, members=members, **kwargs)
+    return FakeVoiceChannel(
+        channel_id=channel_id, name=name, guild=guild, members=members, **kwargs
+    )
 
 
 def make_voice_state(

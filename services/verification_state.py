@@ -67,7 +67,9 @@ async def _maybe_init_semaphore(max_concurrency: int) -> asyncio.Semaphore:
     return _rsi_semaphore
 
 
-async def _throttled_fetch(fetch_coro, *, min_interval: float, semaphore: asyncio.Semaphore):
+async def _throttled_fetch(
+    fetch_coro, *, min_interval: float, semaphore: asyncio.Semaphore
+):
     """Throttle RSI requests with concurrency and pacing controls."""
     global _last_rsi_request_at
     async with semaphore:
@@ -284,6 +286,7 @@ async def store_global_state(state: GlobalVerificationState) -> None:
 
     # Log what we're about to persist for observability
     from utils.logging import get_logger
+
     _logger = get_logger(__name__)
     _logger.info(
         "Persisting verification state",
@@ -319,7 +322,9 @@ async def get_global_state(user_id: int) -> GlobalVerificationState | None:
 
     # Filter out REDACTED entries for status computation
     non_redacted_main = [s for s in (row["main_orgs"] or []) if s != "REDACTED"]
-    non_redacted_affiliate = [s for s in (row["affiliate_orgs"] or []) if s != "REDACTED"]
+    non_redacted_affiliate = [
+        s for s in (row["affiliate_orgs"] or []) if s != "REDACTED"
+    ]
 
     status: VerificationStatus
     if non_redacted_main:

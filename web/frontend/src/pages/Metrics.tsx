@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useClickOutside } from '../hooks/useClickOutside';
 import {
   metricsApi,
   MetricsOverview,
@@ -23,6 +24,8 @@ import {
 } from '../api/endpoints';
 import { handleApiError } from '../utils/toast';
 import { getTierHelpText } from '../utils/tierHelpers';
+import { formatDuration, formatHours } from '../utils/format';
+import { TIER_COLORS, TIER_COLORS_OUTLINE, TIER_LABELS } from '../utils/tierColors';
 import {
   MetricCard,
   TimeSeriesChart,
@@ -33,30 +36,6 @@ import {
 import { COLORS as PIE_COLORS } from '../components/charts/GamePieChart';
 
 type TimeRange = 7 | 30 | 90;
-
-const TIER_LABELS: Record<ActivityTier, string> = {
-  hardcore: 'Hardcore',
-  regular: 'Regular',
-  casual: 'Casual',
-  reserve: 'Reserve',
-  inactive: 'Inactive',
-};
-
-const TIER_COLORS: Record<ActivityTier, string> = {
-  hardcore: 'bg-red-600 text-white',
-  regular: 'bg-amber-500 text-white',
-  casual: 'bg-sky-500 text-white',
-  reserve: 'bg-slate-500 text-white',
-  inactive: 'bg-gray-700 text-gray-300',
-};
-
-const TIER_COLORS_OUTLINE: Record<ActivityTier, string> = {
-  hardcore: 'border-red-600 text-red-400',
-  regular: 'border-amber-500 text-amber-400',
-  casual: 'border-sky-500 text-sky-400',
-  reserve: 'border-slate-500 text-slate-300',
-  inactive: 'border-gray-600 text-gray-400',
-};
 
 const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
   { value: 'all', label: '🌐 All Activity' },
@@ -69,17 +48,6 @@ const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', '
 const ACTIVE_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve'];
 
 // Tier cadence helpers imported from utils/tierHelpers
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  const hours = seconds / 3600;
-  return hours < 100 ? `${hours.toFixed(1)}h` : `${Math.round(hours)}h`;
-}
-
-function formatHours(seconds: number): string {
-  return `${(seconds / 3600).toFixed(1)}h`;
-}
 
 export default function Metrics() {
   const [days, setDays] = useState<TimeRange>(7);
@@ -157,17 +125,7 @@ export default function Metrics() {
     };
   }, [days, selectedDimensions, selectedTiers, fetchData]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!dimensionDropdownRef.current) return;
-      if (!dimensionDropdownRef.current.contains(event.target as Node)) {
-        setDimensionDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  useClickOutside([dimensionDropdownRef], () => setDimensionDropdownOpen(false));
 
   const handleTimeRangeChange = (range: TimeRange) => {
     setDays(range);

@@ -63,8 +63,11 @@ async def metrics_service(metrics_db):
         "buffer_flush_seconds": 30,
         "database_path": metrics_db,
     }
+
     async def _mock_guild_setting(
-        guild_id: int, key: str, default: object = None,
+        guild_id: int,
+        key: str,
+        default: object = None,
     ) -> object:
         """Return sane test defaults for guild settings.
 
@@ -140,7 +143,9 @@ class TestRecordMessage:
         # Each (guild, user, hour) key should be separate
         assert len(metrics_service._message_buffer) == 2
 
-    def test_accepts_channel_id_parameter(self, metrics_service: MetricsService) -> None:
+    def test_accepts_channel_id_parameter(
+        self, metrics_service: MetricsService
+    ) -> None:
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=123)
 
         total = sum(metrics_service._message_buffer.values())
@@ -153,7 +158,7 @@ class TestExcludedChannelSettings:
         self, metrics_service: MetricsService
     ) -> None:
         get_setting_mock = cast(
-            AsyncMock,
+            "AsyncMock",
             metrics_service._config_service.get_guild_setting,
         )
         get_setting_mock.side_effect = None
@@ -173,7 +178,7 @@ class TestExcludedChannelSettings:
         self, metrics_service: MetricsService
     ) -> None:
         get_setting_mock = cast(
-            AsyncMock,
+            "AsyncMock",
             metrics_service._config_service.get_guild_setting,
         )
         get_setting_mock.side_effect = None
@@ -195,7 +200,7 @@ class TestExcludedChannelSettings:
         self, metrics_service: MetricsService
     ) -> None:
         get_setting_mock = cast(
-            AsyncMock,
+            "AsyncMock",
             metrics_service._config_service.get_guild_setting,
         )
 
@@ -345,9 +350,7 @@ class TestVoiceSessions:
         assert metrics_service._voice_sessions[(100, 1)].channel_id == 20
 
     @pytest.mark.asyncio
-    async def test_disabled_ignores_join(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_disabled_ignores_join(self, metrics_service: MetricsService) -> None:
         metrics_service._enabled = False
         await metrics_service.record_voice_join(guild_id=100, user_id=1, channel_id=10)
         assert len(metrics_service._voice_sessions) == 0
@@ -360,9 +363,7 @@ class TestVoiceSessions:
 
 class TestGameSessions:
     @pytest.mark.asyncio
-    async def test_start_creates_session(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_start_creates_session(self, metrics_service: MetricsService) -> None:
         await metrics_service.record_game_start(
             guild_id=100, user_id=1, game_name="Star Citizen"
         )
@@ -422,9 +423,7 @@ class TestLiveSnapshot:
         assert snap.messages_today == 2
 
     @pytest.mark.asyncio
-    async def test_counts_voice_users(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_counts_voice_users(self, metrics_service: MetricsService) -> None:
         await metrics_service.record_voice_join(guild_id=100, user_id=1, channel_id=10)
         await metrics_service.record_voice_join(guild_id=100, user_id=2, channel_id=10)
         await metrics_service.record_voice_join(guild_id=200, user_id=3, channel_id=20)
@@ -433,9 +432,7 @@ class TestLiveSnapshot:
         assert snap.active_voice_users == 2
 
     @pytest.mark.asyncio
-    async def test_counts_game_sessions(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_counts_game_sessions(self, metrics_service: MetricsService) -> None:
         await metrics_service.record_game_start(
             guild_id=100, user_id=1, game_name="Star Citizen"
         )
@@ -481,17 +478,19 @@ class TestQueryMethods:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_timeseries_empty(
-        self, metrics_service: MetricsService
-    ) -> None:
-        result = await metrics_service.get_timeseries(guild_id=100, metric="messages", days=7)
+    async def test_get_timeseries_empty(self, metrics_service: MetricsService) -> None:
+        result = await metrics_service.get_timeseries(
+            guild_id=100, metric="messages", days=7
+        )
         assert result == []
 
     @pytest.mark.asyncio
     async def test_get_timeseries_invalid_metric(
         self, metrics_service: MetricsService
     ) -> None:
-        result = await metrics_service.get_timeseries(guild_id=100, metric="invalid", days=7)
+        result = await metrics_service.get_timeseries(
+            guild_id=100, metric="invalid", days=7
+        )
         assert result == []
 
     @pytest.mark.asyncio
@@ -568,16 +567,25 @@ class TestQueryMethods:
         assert msg_lb[0]["user_id"] == 1
         assert msg_lb[0]["total_messages"] == 13
 
-        msg_series = await metrics_service.get_timeseries(guild_id=100, metric="messages", days=7)
+        msg_series = await metrics_service.get_timeseries(
+            guild_id=100, metric="messages", days=7
+        )
         assert [point["value"] for point in msg_series] == [15, 5]
 
-        voice_series = await metrics_service.get_timeseries(guild_id=100, metric="voice", days=7)
+        voice_series = await metrics_service.get_timeseries(
+            guild_id=100, metric="voice", days=7
+        )
         assert [point["value"] for point in voice_series] == [300, 120]
 
-        games_series = await metrics_service.get_timeseries(guild_id=100, metric="games", days=7)
+        games_series = await metrics_service.get_timeseries(
+            guild_id=100, metric="games", days=7
+        )
         assert [point["value"] for point in games_series] == [300, 60]
         assert [point["unique_users"] for point in games_series] == [2, 1]
-        assert [point["top_game"] for point in games_series] == ["Star Citizen", "EVE Online"]
+        assert [point["top_game"] for point in games_series] == [
+            "Star Citizen",
+            "EVE Online",
+        ]
 
         filtered_games_series = await metrics_service.get_timeseries(
             guild_id=100,
@@ -591,9 +599,7 @@ class TestQueryMethods:
         assert filtered_games_series[0]["top_game"] == "Star Citizen"
 
     @pytest.mark.asyncio
-    async def test_get_top_games_empty(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_get_top_games_empty(self, metrics_service: MetricsService) -> None:
         result = await metrics_service.get_top_games(guild_id=100, days=7)
         assert result == []
 
@@ -871,7 +877,9 @@ class TestActivityBuckets:
     """
 
     @pytest.mark.asyncio
-    async def test_empty_db_returns_empty(self, metrics_service: MetricsService) -> None:
+    async def test_empty_db_returns_empty(
+        self, metrics_service: MetricsService
+    ) -> None:
         result = await metrics_service.get_member_activity_buckets(guild_id=999)
         assert result == {}
 
@@ -885,7 +893,9 @@ class TestActivityBuckets:
 
         # lookback_days=1 → single-day window, today's activity = hardcore
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 1 in result
         assert result[1]["chat_tier"] == "hardcore"
@@ -901,7 +911,9 @@ class TestActivityBuckets:
         await metrics_service.record_voice_leave(guild_id=100, user_id=2)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 2 in result
         assert result[2]["voice_tier"] == "hardcore"
@@ -917,7 +929,9 @@ class TestActivityBuckets:
         await metrics_service.record_voice_leave(guild_id=100, user_id=3)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 3 in result
         assert result[3]["combined_tier"] == "hardcore"
@@ -932,7 +946,9 @@ class TestActivityBuckets:
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=30, now_utc=now,
+            guild_id=100,
+            lookback_days=30,
+            now_utc=now,
         )
         assert 4 in result
         assert result[4]["chat_tier"] == "reserve"
@@ -954,22 +970,21 @@ class TestActivityBuckets:
                 assert tier in dim_counts
 
     @pytest.mark.asyncio
-    async def test_get_user_ids_for_tier(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_get_user_ids_for_tier(self, metrics_service: MetricsService) -> None:
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
 
         # lookback_days=1 → single activity today = hardcore
         ids = await metrics_service.get_activity_group_user_ids(
-            guild_id=100, dimension="chat", tier="hardcore", lookback_days=1,
+            guild_id=100,
+            dimension="chat",
+            tier="hardcore",
+            lookback_days=1,
         )
         assert 1 in ids
 
     @pytest.mark.asyncio
-    async def test_get_user_ids_bulk(
-        self, metrics_service: MetricsService
-    ) -> None:
+    async def test_get_user_ids_bulk(self, metrics_service: MetricsService) -> None:
         """Bulk endpoint returns matching IDs for multiple dimension+tier combos."""
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
@@ -1017,7 +1032,9 @@ class TestActivityThresholds:
 
         # Set threshold to 5 messages
         async def _high_chat_threshold(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             if key == "metrics.min_messages":
                 return 5
@@ -1037,7 +1054,9 @@ class TestActivityThresholds:
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         # User should be absent (no qualifying days)
         assert 1 not in result
@@ -1050,7 +1069,9 @@ class TestActivityThresholds:
         base_now = int(time.time())
 
         async def _threshold_5(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             if key == "metrics.min_messages":
                 return 5
@@ -1071,7 +1092,9 @@ class TestActivityThresholds:
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=base_now + (4 * 181),
+            guild_id=100,
+            lookback_days=1,
+            now_utc=base_now + (4 * 181),
         )
         assert 2 in result
         assert result[2]["chat_tier"] == "hardcore"
@@ -1084,7 +1107,9 @@ class TestActivityThresholds:
         now = int(time.time())
 
         async def _threshold_5(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             if key == "metrics.min_messages":
                 return 5
@@ -1103,7 +1128,9 @@ class TestActivityThresholds:
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 6 in result
         assert result[6]["chat_tier"] == "hardcore"
@@ -1116,7 +1143,9 @@ class TestActivityThresholds:
         now = int(time.time())
 
         async def _high_voice_threshold(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             if key == "metrics.min_voice_minutes":
                 return 60  # 60 minutes minimum
@@ -1131,7 +1160,9 @@ class TestActivityThresholds:
 
         # Record a quick 5-minute voice session (< 60 min threshold)
         await metrics_service.record_voice_join(
-            guild_id=100, user_id=3, channel_id=10,
+            guild_id=100,
+            user_id=3,
+            channel_id=10,
         )
         # Manually set the join time to 5 minutes ago
         session = metrics_service._voice_sessions[(100, 3)]
@@ -1139,7 +1170,9 @@ class TestActivityThresholds:
         await metrics_service.record_voice_leave(guild_id=100, user_id=3)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 3 not in result
 
@@ -1151,7 +1184,9 @@ class TestActivityThresholds:
         now = int(time.time())
 
         async def _threshold_15(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             if key == "metrics.min_voice_minutes":
                 return 15  # 15 minutes minimum
@@ -1166,14 +1201,18 @@ class TestActivityThresholds:
 
         # Record a 20-minute voice session (> 15 min threshold)
         await metrics_service.record_voice_join(
-            guild_id=100, user_id=4, channel_id=10,
+            guild_id=100,
+            user_id=4,
+            channel_id=10,
         )
         session = metrics_service._voice_sessions[(100, 4)]
         session.joined_at = now - 1200  # 20 minutes ago
         await metrics_service.record_voice_leave(guild_id=100, user_id=4)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 4 in result
         assert result[4]["voice_tier"] == "hardcore"
@@ -1192,7 +1231,9 @@ class TestActivityThresholds:
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
         assert 5 in result
         assert result[5]["chat_tier"] == "hardcore"
@@ -1203,13 +1244,15 @@ class TestActivityThresholds:
     ) -> None:
         """Threshold values are cached and only refreshed after TTL."""
         original_get_setting = cast(
-            AsyncMock,
+            "AsyncMock",
             metrics_service._config_service.get_guild_setting,
         )
         call_counter = {"count": 0}
 
         async def _counting_get_setting(
-            guild_id: int, key: str, default: object = None,
+            guild_id: int,
+            key: str,
+            default: object = None,
         ) -> object:
             call_counter["count"] += 1
             return await original_get_setting(guild_id, key, default)
@@ -1228,13 +1271,15 @@ class TestActivityThresholds:
 
         # Force refresh bypasses cache
         await metrics_service.get_activity_thresholds(
-            guild_id=100, force_refresh=True,
+            guild_id=100,
+            force_refresh=True,
         )
         assert call_counter["count"] > call_count
 
     @pytest.mark.asyncio
     async def test_activity_chat_ignores_legacy_hourly_message_rows(
-        self, metrics_service: MetricsService,
+        self,
+        metrics_service: MetricsService,
     ) -> None:
         """Cadence chat tiers should only count 3-minute message windows."""
         now = int(time.time())
@@ -1250,14 +1295,17 @@ class TestActivityThresholds:
             await db.commit()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
 
         assert 4242 not in result
 
     @pytest.mark.asyncio
     async def test_activity_chat_counts_three_minute_message_rows(
-        self, metrics_service: MetricsService,
+        self,
+        metrics_service: MetricsService,
     ) -> None:
         """3-minute message rows should count as qualifying chat windows."""
         now = int(time.time())
@@ -1273,7 +1321,9 @@ class TestActivityThresholds:
             await db.commit()
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, lookback_days=1, now_utc=now,
+            guild_id=100,
+            lookback_days=1,
+            now_utc=now,
         )
 
         assert 5151 in result
@@ -1365,9 +1415,7 @@ class TestBackfillVoiceStateEligibility:
         self, metrics_service: MetricsService
     ) -> None:
         """An unmuted, undeafened member should get a backfilled session."""
-        bot = self._make_bot(
-            {(100, 10): [(3, False, False)]}
-        )
+        bot = self._make_bot({(100, 10): [(3, False, False)]})
         await metrics_service.backfill_voice_state(bot)
         assert (100, 3) in metrics_service._voice_sessions
         assert metrics_service._voice_sessions[(100, 3)].channel_id == 10
@@ -1381,8 +1429,8 @@ class TestBackfillVoiceStateEligibility:
             {
                 (100, 10): [
                     (1, False, False),  # eligible
-                    (2, True, False),   # muted — skip
-                    (3, False, True),   # deafened — skip
+                    (2, True, False),  # muted — skip
+                    (3, False, True),  # deafened — skip
                 ],
             }
         )

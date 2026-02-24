@@ -103,12 +103,14 @@ class MetricsEvents(commands.Cog):
             elif not was_eligible and now_eligible:
                 # Gained eligibility (joined channel, unmuted, undeafened)
                 await self.metrics_service.record_voice_join(
-                    guild_id, user_id, after.channel.id  # type: ignore[union-attr]
+                    guild_id,
+                    user_id,
+                    after.channel.id,  # type: ignore[union-attr]
                 )
             elif was_eligible and now_eligible:
                 # Still eligible — check for channel move
-                assert before.channel is not None  # guarded by was_eligible  # noqa: S101
-                assert after.channel is not None  # guarded by now_eligible  # noqa: S101
+                assert before.channel is not None  # guarded by was_eligible
+                assert after.channel is not None  # guarded by now_eligible
                 if before.channel.id != after.channel.id:
                     await self.metrics_service.record_voice_leave(guild_id, user_id)
                     await self.metrics_service.record_voice_join(
@@ -116,9 +118,7 @@ class MetricsEvents(commands.Cog):
                     )
             # else: was ineligible → still ineligible → no-op
         except Exception:
-            logger.debug(
-                "Failed to record voice metric for %s", member, exc_info=True
-            )
+            logger.debug("Failed to record voice metric for %s", member, exc_info=True)
 
     # ------------------------------------------------------------------
     # Game / presence tracking

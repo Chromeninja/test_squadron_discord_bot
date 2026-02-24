@@ -24,6 +24,7 @@ async def _fresh_store():
 # Basic CRUD
 # ---------------------------------------------------------------------------
 
+
 class TestSaveAndLoad:
     @pytest.mark.asyncio
     async def test_save_and_load_roundtrip(self):
@@ -73,6 +74,7 @@ class TestSaveAndLoad:
 # Expiry
 # ---------------------------------------------------------------------------
 
+
 class TestExpiry:
     @pytest.mark.asyncio
     async def test_load_expired_returns_none(self):
@@ -95,6 +97,7 @@ class TestExpiry:
 # Delete
 # ---------------------------------------------------------------------------
 
+
 class TestDelete:
     @pytest.mark.asyncio
     async def test_delete_existing(self):
@@ -113,6 +116,7 @@ class TestDelete:
 # ---------------------------------------------------------------------------
 # Cleanup expired
 # ---------------------------------------------------------------------------
+
 
 class TestCleanupExpired:
     @pytest.mark.asyncio
@@ -141,6 +145,7 @@ class TestCleanupExpired:
 # ---------------------------------------------------------------------------
 # Lifecycle (init / close / re-init)
 # ---------------------------------------------------------------------------
+
 
 class TestLifecycle:
     @pytest.mark.asyncio

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { voiceApi, authApi, ActiveVoiceChannel, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, ALL_GUILDS_SENTINEL } from '../api/endpoints';
+import { voiceApi, authApi, usersApi, metricsApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, UserMetrics, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { hasPermission } from '../utils/permissions';
 import { handleApiError } from '../utils/toast';
+import { UserDetailsModal } from '../components/users/UserDetailsModal';
 import {
   Button,
   Badge,
@@ -20,6 +21,7 @@ import {
   TableRow,
   TableHeader,
   TableCell,
+  Pagination,
 } from '../components/ui';
 
 function Voice() {
@@ -56,6 +58,15 @@ function Voice() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState<VoiceSettingsResetResponse | null>(null);
+
+  // User details modal state (same modal used on Users page)
+  const [selectedUser, setSelectedUser] = useState<EnrichedUser | null>(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [userDetailLoading, setUserDetailLoading] = useState(false);
+  const [userDetailError, setUserDetailError] = useState<string | null>(null);
+  const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
+  const [userMetricsLoading, setUserMetricsLoading] = useState(false);
+  const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
 
   // Check if in cross-guild (All Guilds) mode
   const isCrossGuildMode = userProfile?.active_guild_id === ALL_GUILDS_SENTINEL;
@@ -187,6 +198,88 @@ function Voice() {
     setResetSuccess(null);
   };
 
+  const closeUserModal = () => {
+    setShowUserModal(false);
+    setSelectedUser(null);
+    setUserDetailLoading(false);
+    setUserDetailError(null);
+    setUserMetrics(null);
+    setUserMetricsError(null);
+  };
+
+  const buildFallbackUserFromVoiceMember = (
+    member: VoiceChannelMember
+  ): EnrichedUser => ({
+    discord_id: member.user_id,
+    username: member.username || member.display_name || `User ${member.user_id}`,
+    discriminator: '0000',
+    global_name: member.display_name || null,
+    avatar_url: null,
+    membership_status: member.membership_status,
+    rsi_handle: member.rsi_handle,
+    community_moniker: null,
+    joined_at: null,
+    created_at: null,
+    last_updated: null,
+    needs_reverify: false,
+    roles: [],
+    main_orgs: null,
+    affiliate_orgs: null,
+  });
+
+  const openUserDetailsModal = async (member: VoiceChannelMember) => {
+    const userId = member.user_id;
+    setShowUserModal(true);
+    setSelectedUser(null);
+    setUserDetailError(null);
+    setUserMetrics(null);
+    setUserMetricsError(null);
+    setUserDetailLoading(true);
+
+    try {
+      const response = await usersApi.getUserDetails(userId);
+      setSelectedUser(response.data || buildFallbackUserFromVoiceMember(member));
+    } catch (err) {
+      setSelectedUser(buildFallbackUserFromVoiceMember(member));
+    } finally {
+      setUserDetailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showUserModal || !selectedUser || isCrossGuildMode) {
+      return;
+    }
+
+    let cancelled = false;
+    setUserMetrics(null);
+    setUserMetricsError(null);
+    setUserMetricsLoading(true);
+
+    metricsApi
+      .getUserMetrics(selectedUser.discord_id, 30)
+      .then((resp) => {
+        if (!cancelled) {
+          setUserMetrics(resp.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUserMetrics(null);
+          setUserMetricsError('Metrics are currently unavailable for this member.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUserMetricsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showUserModal, selectedUser?.discord_id, isCrossGuildMode]);
+
   const handleResetVoiceSettings = async () => {
     if (!resetTargetUser) return;
 
@@ -204,9 +297,9 @@ function Voice() {
         resetTargetUser.user_id,
         resetTargetJtc || undefined
       );
-      
+
       setResetSuccess(response);
-      
+
       // Refresh search results after successful reset
       setTimeout(() => {
         closeResetModal();
@@ -227,8 +320,8 @@ function Voice() {
     }
     if (entry.unknown_role) {
       return (
-        <Badge 
-          variant="warning" 
+        <Badge
+          variant="warning"
           title="Stored ID does not match any role in this guild. Check DB integrity."
         >
           Unknown Role (ID: {entry.target_id})
@@ -476,7 +569,7 @@ function Voice() {
                         }
                       >
                         <h4 className="font-medium mb-3">Members:</h4>
-                        
+
                         {channel.members.length === 0 ? (
                           <p className="text-sm text-gray-400 italic">
                             Member list not available in All Guilds view. Switch to this server for real-time data.
@@ -488,9 +581,14 @@ function Voice() {
                                 key={member.user_id}
                                 className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
                               >
-                                <span className="flex-1 font-medium">
+                                <button
+                                  type="button"
+                                  className="flex-1 text-left font-medium text-indigo-300 hover:text-indigo-200 hover:underline"
+                                  onClick={() => openUserDetailsModal(member)}
+                                  title="Open member details"
+                                >
                                   {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
-                                </span>
+                                </button>
                                 <span className="text-gray-500">→</span>
                                 <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
                                 <span className="text-gray-500">-</span>
@@ -540,7 +638,7 @@ function Voice() {
                     }
                   >
                     <h4 className="font-medium mb-3">Members:</h4>
-                    
+
                     {channel.members.length === 0 ? (
                       <p className="text-sm text-gray-400 italic">
                         No members tracked (requires bot Gateway integration for real-time data)
@@ -552,9 +650,14 @@ function Voice() {
                             key={member.user_id}
                             className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
                           >
-                            <span className="flex-1 font-medium">
+                            <button
+                              type="button"
+                              className="flex-1 text-left font-medium text-indigo-300 hover:text-indigo-200 hover:underline"
+                              onClick={() => openUserDetailsModal(member)}
+                              title="Open member details"
+                            >
                               {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
-                            </span>
+                            </button>
                             <span className="text-gray-500">→</span>
                             <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
                             <span className="text-gray-500">-</span>
@@ -681,24 +784,14 @@ function Voice() {
 
               {/* Pagination */}
               {totalResults > pageSize && (
-                <div className="flex justify-center gap-2 mt-6">
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleSearch(currentPage - 1)}
-                    disabled={currentPage === 1 || searchLoading}
-                  >
-                    Previous
-                  </Button>
-                  <span className="px-4 py-2 bg-slate-800 rounded">
-                    Page {currentPage} of {Math.ceil(totalResults / pageSize)}
-                  </span>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleSearch(currentPage + 1)}
-                    disabled={currentPage >= Math.ceil(totalResults / pageSize) || searchLoading}
-                  >
-                    Next
-                  </Button>
+                <div className="mt-6">
+                  <Pagination
+                    page={currentPage}
+                    totalPages={Math.ceil(totalResults / pageSize)}
+                    onPrevious={() => handleSearch(currentPage - 1)}
+                    onNext={() => handleSearch(currentPage + 1)}
+                    disabled={searchLoading}
+                  />
                 </div>
               )}
             </div>
@@ -762,7 +855,7 @@ function Voice() {
                   {resetTargetJtc ? '⚠️ Warning - JTC Settings Reset' : '🚨 DESTRUCTIVE OPERATION WARNING'}
                 </p>
                 <p className="text-sm">
-                  {resetTargetJtc 
+                  {resetTargetJtc
                     ? `This will permanently delete voice settings for JTC ${resetTargetJtc} only.`
                     : 'This will permanently delete ALL voice settings for this user in this guild.'}
                 </p>
@@ -787,7 +880,7 @@ function Voice() {
                   )}
                   <div>
                     <span className="text-gray-500">Scope:</span>
-                    <Badge 
+                    <Badge
                       variant={resetTargetJtc ? 'warning-outline' : 'error-outline'}
                       className="ml-2"
                     >
@@ -908,6 +1001,18 @@ function Voice() {
           )}
         </ModalFooter>
       </Modal>
+
+      <UserDetailsModal
+        open={showUserModal}
+        user={selectedUser}
+        isCrossGuild={isCrossGuildMode}
+        onClose={closeUserModal}
+        userLoading={userDetailLoading}
+        userLoadError={userDetailError}
+        userMetrics={userMetrics}
+        userMetricsLoading={userMetricsLoading}
+        userMetricsError={userMetricsError}
+      />
     </div>
   );
 }

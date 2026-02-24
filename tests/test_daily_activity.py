@@ -11,7 +11,6 @@ from helpers.daily_activity_tracker import DailyActivityTracker
 from helpers.leadership_log import EventType, InitiatorKind, InitiatorSource
 from helpers.verification_logging import _has_meaningful_change, _track_daily_activity
 
-
 # ---------------------------------------------------------------------------
 # DailyActivityTracker unit tests
 # ---------------------------------------------------------------------------
@@ -341,11 +340,17 @@ class TestAutoCheckSummarySilence:
                     "rows": [
                         {
                             "member": types.SimpleNamespace(id=1, display_name="u1"),
-                            "diff": {"status_before": "non_member", "status_after": "main"},
+                            "diff": {
+                                "status_before": "non_member",
+                                "status_after": "main",
+                            },
                         },
                         {
                             "member": types.SimpleNamespace(id=2, display_name="u2"),
-                            "diff": {"status_before": "affiliate", "status_after": "main"},
+                            "diff": {
+                                "status_before": "affiliate",
+                                "status_after": "main",
+                            },
                         },
                     ],
                 },

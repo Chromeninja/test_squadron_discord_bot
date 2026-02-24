@@ -34,8 +34,14 @@ class DashboardCog(commands.Cog):
         try:
             # Prefer config override if present, otherwise fall back to PUBLIC_URL env (or dev default)
             config = ConfigLoader.load_config()
-            config_url = (config.get("web_dashboard") or {}).get("url") if isinstance(config, dict) else None
-            dashboard_url = config_url or os.getenv("PUBLIC_URL", "http://localhost:5173")
+            config_url = (
+                (config.get("web_dashboard") or {}).get("url")
+                if isinstance(config, dict)
+                else None
+            )
+            dashboard_url = config_url or os.getenv(
+                "PUBLIC_URL", "http://localhost:5173"
+            )
 
             embed = discord.Embed(
                 title="🌐 Web Admin Dashboard",
@@ -49,14 +55,18 @@ class DashboardCog(commands.Cog):
             )
             if DEFAULT_THUMBNAIL:
                 embed.set_thumbnail(url=DEFAULT_THUMBNAIL)
-            embed.set_footer(text="Staff+ access required • Permissions enforced by dashboard")
+            embed.set_footer(
+                text="Staff+ access required • Permissions enforced by dashboard"
+            )
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
         except Exception as exc:
             logger.exception("Failed to send /dashboard embed", exc_info=exc)
 
-            message = "❌ Unable to retrieve dashboard link. Please contact an administrator."
+            message = (
+                "❌ Unable to retrieve dashboard link. Please contact an administrator."
+            )
             if interaction.response.is_done():
                 with contextlib.suppress(Exception):
                     await interaction.followup.send(message, ephemeral=True)

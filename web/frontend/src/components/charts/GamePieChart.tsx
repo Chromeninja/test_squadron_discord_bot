@@ -12,6 +12,8 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { formatDuration } from '../../utils/format';
+import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 
 interface GameEntry {
   game_name: string;
@@ -40,17 +42,6 @@ export const COLORS = [
   '#06b6d4', // cyan
 ];
 
-function formatDuration(seconds: number): string {
-  if (seconds < 3600) {
-    return `${Math.round(seconds / 60)}m`;
-  }
-  const hours = seconds / 3600;
-  if (hours < 100) {
-    return `${hours.toFixed(1)}h`;
-  }
-  return `${Math.round(hours)}h`;
-}
-
 /** Custom tooltip content for the pie chart — fixes game name display. */
 function CustomPieTooltip({ active, payload }: any) {
   if (!active || !payload || payload.length === 0) return null;
@@ -61,13 +52,7 @@ function CustomPieTooltip({ active, payload }: any) {
   return (
     <div
       className="space-y-1 text-slate-200"
-      style={{
-        backgroundColor: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: '6px',
-        padding: '8px 12px',
-        fontSize: '12px',
-      }}
+      style={CHART_TOOLTIP_STYLE}
     >
       <div className="font-medium text-white">{name}</div>
       <div>Total: {formatDuration(value)} ({pct}%)</div>

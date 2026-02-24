@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 import discord
 from discord import app_commands
@@ -26,7 +26,7 @@ class CheckUserCommands(app_commands.Group):
         self.bot = bot
 
     # Tier display configuration
-    _TIER_EMOJI: dict[str, str] = {
+    _TIER_EMOJI: ClassVar[dict[str, str]] = {
         "hardcore": "🔴",
         "regular": "🟠",
         "casual": "🔵",
@@ -59,7 +59,8 @@ class CheckUserCommands(app_commands.Group):
             verification_row = await self._fetch_verification_row(member.id)
             target_sid = await self._get_guild_org_sid(interaction.guild.id)
             activity_tiers = await self._fetch_activity_tiers(
-                interaction.guild.id, member.id,
+                interaction.guild.id,
+                member.id,
             )
             embed = self._build_user_embed(
                 requester=interaction.user,
@@ -88,7 +89,9 @@ class CheckUserCommands(app_commands.Group):
         return tuple(row) if row else None
 
     async def _fetch_activity_tiers(
-        self, guild_id: int, user_id: int,
+        self,
+        guild_id: int,
+        user_id: int,
     ) -> dict[str, str] | None:
         """Fetch per-dimension activity tiers from the metrics service.
 
@@ -102,17 +105,19 @@ class CheckUserCommands(app_commands.Group):
         """
         try:
             metrics_svc = getattr(
-                getattr(self.bot, "services", None), "metrics", None,
+                getattr(self.bot, "services", None),
+                "metrics",
+                None,
             )
             if metrics_svc is None:
                 return None
 
-            buckets: dict[int, dict[str, Any]] = (
-                await metrics_svc.get_member_activity_buckets(
-                    guild_id=guild_id,
-                    user_ids=[user_id],
-                    lookback_days=30,
-                )
+            buckets: dict[
+                int, dict[str, Any]
+            ] = await metrics_svc.get_member_activity_buckets(
+                guild_id=guild_id,
+                user_ids=[user_id],
+                lookback_days=30,
             )
             user_data = buckets.get(user_id)
             if not user_data:
@@ -132,7 +137,9 @@ class CheckUserCommands(app_commands.Group):
         except Exception as exc:
             logger.warning(
                 "Could not fetch activity tiers for user %s in guild %s: %s",
-                user_id, guild_id, exc,
+                user_id,
+                guild_id,
+                exc,
             )
             return None
 

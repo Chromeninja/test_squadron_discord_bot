@@ -27,7 +27,9 @@ class TestDeterministicVoiceSettingsCore:
         expected_jtc_id = 55555
 
         with patch("services.db.repository.BaseRepository.fetch_one") as mock_fetch:
-            mock_fetch.return_value = (expected_jtc_id,)  # fetch_one returns a tuple/row
+            mock_fetch.return_value = (
+                expected_jtc_id,
+            )  # fetch_one returns a tuple/row
 
             result = await _get_last_used_jtc_channel(guild_id, user_id)
 
@@ -124,7 +126,9 @@ class TestDeterministicVoiceSettingsCore:
             ]
 
             for guild_id, user_id, expected_jtc in test_cases:
-                mock_fetch.return_value = (expected_jtc,)  # fetch_one returns a tuple/row
+                mock_fetch.return_value = (
+                    expected_jtc,
+                )  # fetch_one returns a tuple/row
 
                 result = await _get_last_used_jtc_channel(guild_id, user_id)
                 assert result == expected_jtc

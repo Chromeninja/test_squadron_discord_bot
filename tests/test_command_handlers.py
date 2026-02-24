@@ -171,6 +171,7 @@ class TestVerificationCommandHandlers:
 
         # Check that user is a member (has guild context)
         from tests.factories import FakeMember
+
         assert isinstance(interaction.user, FakeMember)
 
 

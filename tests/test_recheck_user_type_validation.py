@@ -31,10 +31,7 @@ class TestApplyRolesTypeValidation:
         """Test that apply_roles_for_status raises TypeError when passed a string instead of bot."""
         with pytest.raises(TypeError) as exc_info:
             await apply_roles_for_status(
-                mock_member,
-                "main",
-                "TestHandle",
-                "bot_as_string"
+                mock_member, "main", "TestHandle", "bot_as_string"
             )
 
         assert "expects a bot instance, not string" in str(exc_info.value)

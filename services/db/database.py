@@ -178,7 +178,9 @@ class Database:
                             )
                             needs_init = True
                 except Exception as e:
-                    logger.warning(f"Error checking database state: {e} - reinitializing")
+                    logger.warning(
+                        f"Error checking database state: {e} - reinitializing"
+                    )
                     needs_init = True
 
             if not needs_init:
@@ -536,9 +538,7 @@ class Database:
             }
 
     @classmethod
-    async def update_global_verification_state(
-        cls, user_id: int, state: dict
-    ) -> None:
+    async def update_global_verification_state(cls, user_id: int, state: dict) -> None:
         """Upsert the global verification state in the verification table."""
         logger.info(
             "DB: update_global_verification_state",
@@ -817,9 +817,7 @@ class Database:
             ]
 
     @classmethod
-    async def track_user_guild_membership(
-        cls, user_id: int, guild_id: int
-    ) -> None:
+    async def track_user_guild_membership(cls, user_id: int, guild_id: int) -> None:
         """
         Record that a user is active in a guild, updating last_seen timestamp.
 
@@ -840,9 +838,7 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def remove_user_guild_membership(
-        cls, user_id: int, guild_id: int
-    ) -> None:
+    async def remove_user_guild_membership(cls, user_id: int, guild_id: int) -> None:
         """
         Remove a user's membership record for a specific guild.
 
@@ -1098,12 +1094,9 @@ class Database:
                 deleted_counts["user_guild_membership"] = cursor.rowcount
 
                 await db.commit()
-                logger.info(
-                    f"Cleaned up all data for user {user_id}: {deleted_counts}"
-                )
+                logger.info(f"Cleaned up all data for user {user_id}: {deleted_counts}")
             except Exception:
                 await db.rollback()
                 raise
 
         return deleted_counts
-

@@ -11,7 +11,9 @@ class TestRateLimiting:
     """Verify rate-limit decorators trigger 429 on excessive requests."""
 
     @pytest.mark.asyncio
-    async def test_search_rate_limit(self, client: AsyncClient, mock_admin_session: str):
+    async def test_search_rate_limit(
+        self, client: AsyncClient, mock_admin_session: str
+    ):
         """After 30 requests within a minute, the 31st should be rate-limited."""
         # Reset rate-limiter state so prior tests don't affect this one
         limiter.reset()

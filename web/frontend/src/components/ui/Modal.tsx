@@ -7,8 +7,8 @@ export interface ModalProps {
   open: boolean;
   /** Callback when modal should close */
   onClose: () => void;
-  /** Modal title */
-  title?: string;
+  /** Modal title (string or JSX) */
+  title?: React.ReactNode;
   /** Modal size */
   size?: ModalSize;
   /** Header color variant */
@@ -27,7 +27,7 @@ export interface ModalProps {
 
 /**
  * Modal dialog component with overlay.
- * 
+ *
  * @example
  * <Modal
  *   open={showModal}
@@ -207,7 +207,7 @@ export interface ConfirmationModalProps {
 
 /**
  * Pre-configured confirmation modal for destructive actions.
- * 
+ *
  * @example
  * <ConfirmationModal
  *   open={showDelete}
@@ -218,7 +218,7 @@ export interface ConfirmationModalProps {
  *   variant="danger"
  *   confirmText="Delete"
  * />
- * 
+ *
  * // With typed confirmation
  * <ConfirmationModal
  *   open={showReset}
@@ -245,18 +245,18 @@ export function ConfirmationModal({
   confirmationValue,
   onConfirmationChange,
 }: ConfirmationModalProps) {
-  const headerVariant: ModalHeaderVariant = 
-    variant === 'danger' ? 'error' : 
-    variant === 'warning' ? 'warning' : 
+  const headerVariant: ModalHeaderVariant =
+    variant === 'danger' ? 'error' :
+    variant === 'warning' ? 'warning' :
     'default';
 
-  const buttonVariant = 
-    variant === 'danger' ? 'danger' : 
-    variant === 'warning' ? 'warning' : 
+  const buttonVariant =
+    variant === 'danger' ? 'danger' :
+    variant === 'warning' ? 'warning' :
     'primary';
 
-  const canConfirm = confirmationText 
-    ? confirmationValue === confirmationText 
+  const canConfirm = confirmationText
+    ? confirmationValue === confirmationText
     : true;
 
   return (
@@ -269,7 +269,7 @@ export function ConfirmationModal({
     >
       <div className="space-y-4">
         <div className="text-gray-300">{message}</div>
-        
+
         {confirmationText && (
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-2">

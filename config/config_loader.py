@@ -167,6 +167,7 @@ ALLOWED_PREFIX_CHARS = set(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:',.<>?/~"
 )
 
+
 @dataclass
 class _PrefixContext:
     normalized: list[str]
@@ -181,7 +182,9 @@ def _record_warning(msg: str, ctx: _PrefixContext) -> None:
     ctx.logger.warning(msg)
 
 
-def _validate_and_add_prefix(prefix: str, source_desc: str, ctx: _PrefixContext) -> None:
+def _validate_and_add_prefix(
+    prefix: str, source_desc: str, ctx: _PrefixContext
+) -> None:
     """Validate a prefix and add it if it passes all checks."""
     trimmed = prefix.strip()
     if not trimmed:

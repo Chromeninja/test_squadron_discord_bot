@@ -95,16 +95,40 @@ class InternalAPIServer:
         self.app.router.add_get("/bot-owner-ids", self.get_bot_owner_ids)
 
         # Metrics endpoints
-        self.app.router.add_get("/guilds/{guild_id}/metrics/overview", self.get_metrics_overview)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/voice/leaderboard", self.get_metrics_voice_leaderboard)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/messages/leaderboard", self.get_metrics_message_leaderboard)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/games/top", self.get_metrics_top_games)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/timeseries", self.get_metrics_timeseries)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/user/{user_id}", self.get_metrics_user)
-        self.app.router.add_delete("/guilds/{guild_id}/metrics/user/{user_id}", self.delete_metrics_user)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/activity-groups", self.get_activity_groups)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/activity-group-members", self.get_activity_group_members)
-        self.app.router.add_get("/guilds/{guild_id}/metrics/activity-group-members-bulk", self.get_activity_group_members_bulk)
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/overview", self.get_metrics_overview
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/voice/leaderboard",
+            self.get_metrics_voice_leaderboard,
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/messages/leaderboard",
+            self.get_metrics_message_leaderboard,
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/games/top", self.get_metrics_top_games
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/timeseries", self.get_metrics_timeseries
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/user/{user_id}", self.get_metrics_user
+        )
+        self.app.router.add_delete(
+            "/guilds/{guild_id}/metrics/user/{user_id}", self.delete_metrics_user
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/activity-groups", self.get_activity_groups
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/activity-group-members",
+            self.get_activity_group_members,
+        )
+        self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/activity-group-members-bulk",
+            self.get_activity_group_members_bulk,
+        )
 
         logger.info(f"Internal API configured on {self.host}:{self.port}")
 
@@ -332,14 +356,18 @@ class InternalAPIServer:
         try:
             cog = self.bot.get_cog("VerificationCog")
             if not cog or not hasattr(cog, "send_verification_message"):
-                return web.json_response({"error": "Verification cog unavailable"}, status=503)
+                return web.json_response(
+                    {"error": "Verification cog unavailable"}, status=503
+                )
 
             # Reuse existing send_verification_message with a single-guild list
             await cog.send_verification_message([guild])  # type: ignore[misc]
             return web.json_response({"success": True})
         except Exception as exc:  # pragma: no cover - runtime safeguard
             logger.exception(
-                "Failed to resend verification message for guild %s", guild_id, exc_info=exc
+                "Failed to resend verification message for guild %s",
+                guild_id,
+                exc_info=exc,
             )
             return web.json_response({"error": "Internal server error"}, status=500)
 
@@ -494,11 +522,13 @@ class InternalAPIServer:
         try:
             await guild.leave()
             logger.info(f"Bot left guild {guild_id} ({guild_name})")
-            return web.json_response({
-                "success": True,
-                "guild_id": guild_id,
-                "guild_name": guild_name,
-            })
+            return web.json_response(
+                {
+                    "success": True,
+                    "guild_id": guild_id,
+                    "guild_name": guild_name,
+                }
+            )
         except Exception as e:
             logger.exception(f"Failed to leave guild {guild_id}", exc_info=e)
             return web.json_response({"error": "Failed to leave guild"}, status=500)
@@ -570,10 +600,12 @@ class InternalAPIServer:
         except Exception as e:
             logger.warning(f"Could not fetch team info: {e}")
 
-        return web.json_response({
-            "owner_ids": list(owner_ids),
-            "sources": sources,
-        })
+        return web.json_response(
+            {
+                "owner_ids": list(owner_ids),
+                "sources": sources,
+            }
+        )
 
     async def get_guild_roles(self, request: web.Request) -> web.Response:
         """Return Discord roles for a guild."""
@@ -963,7 +995,9 @@ class InternalAPIServer:
 
         except Exception as e:
             logger.exception(f"Error fetching RSI handle for user {user_id}: {e}")
-            return web.json_response({"error": "Database error. Check server logs for details."}, status=500)
+            return web.json_response(
+                {"error": "Database error. Check server logs for details."}, status=500
+            )
 
         # Use unified recheck service
         if not self.bot:
@@ -1029,7 +1063,9 @@ class InternalAPIServer:
             logger.exception(
                 f"Error rechecking user {user_id} in guild {guild_id}: {e}"
             )
-            return web.json_response({"error": "Recheck failed. Check server logs for details."}, status=500)
+            return web.json_response(
+                {"error": "Recheck failed. Check server logs for details."}, status=500
+            )
 
     async def post_bulk_recheck_summary(self, request: web.Request) -> web.Response:
         """
@@ -1195,7 +1231,9 @@ class InternalAPIServer:
         return ids
 
     async def _enrich_leaderboard_entries(
-        self, guild_id: int, entries: list[dict],
+        self,
+        guild_id: int,
+        entries: list[dict],
     ) -> None:
         """Best-effort enrichment of leaderboard entries with Discord profiles.
 
@@ -1260,7 +1298,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1276,22 +1316,24 @@ class InternalAPIServer:
         try:
             live = metrics.get_live_snapshot(guild_id)
             user_ids = self._parse_user_ids(request)
-            period = await metrics.get_guild_metrics(guild_id, days=days, user_ids=user_ids)
-
-            return web.json_response({
-                "live": {
-                    "messages_today": live.messages_today,
-                    "active_voice_users": live.active_voice_users,
-                    "active_game_sessions": live.active_game_sessions,
-                    "top_game": live.top_game,
-                },
-                "period": period,
-            })
-        except Exception as e:
-            logger.exception("Error fetching metrics overview")
-            return web.json_response(
-                {"error": f"Failed to fetch metrics: {e!s}"}, status=500
+            period = await metrics.get_guild_metrics(
+                guild_id, days=days, user_ids=user_ids
             )
+
+            return web.json_response(
+                {
+                    "live": {
+                        "messages_today": live.messages_today,
+                        "active_voice_users": live.active_voice_users,
+                        "active_game_sessions": live.active_game_sessions,
+                        "top_game": live.top_game,
+                    },
+                    "period": period,
+                }
+            )
+        except Exception:
+            logger.exception("Error fetching metrics overview")
+            return web.json_response({"error": "Failed to fetch metrics"}, status=500)
 
     async def get_metrics_voice_leaderboard(self, request: web.Request) -> web.Response:
         """
@@ -1305,7 +1347,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1325,20 +1369,24 @@ class InternalAPIServer:
 
         try:
             leaderboard = await metrics.get_voice_leaderboard(
-                guild_id, days=days, limit=limit,
+                guild_id,
+                days=days,
+                limit=limit,
                 user_ids=self._parse_user_ids(request),
             )
 
             await self._enrich_leaderboard_entries(guild_id, leaderboard)
 
             return web.json_response({"entries": leaderboard})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching voice leaderboard")
             return web.json_response(
-                {"error": f"Failed to fetch voice leaderboard: {e!s}"}, status=500
+                {"error": "Failed to fetch voice leaderboard"}, status=500
             )
 
-    async def get_metrics_message_leaderboard(self, request: web.Request) -> web.Response:
+    async def get_metrics_message_leaderboard(
+        self, request: web.Request
+    ) -> web.Response:
         """
         Get top users by message count.
 
@@ -1350,7 +1398,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1370,17 +1420,19 @@ class InternalAPIServer:
 
         try:
             leaderboard = await metrics.get_message_leaderboard(
-                guild_id, days=days, limit=limit,
+                guild_id,
+                days=days,
+                limit=limit,
                 user_ids=self._parse_user_ids(request),
             )
 
             await self._enrich_leaderboard_entries(guild_id, leaderboard)
 
             return web.json_response({"entries": leaderboard})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching message leaderboard")
             return web.json_response(
-                {"error": f"Failed to fetch message leaderboard: {e!s}"}, status=500
+                {"error": "Failed to fetch message leaderboard"}, status=500
             )
 
     async def get_metrics_top_games(self, request: web.Request) -> web.Response:
@@ -1395,7 +1447,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1415,15 +1469,15 @@ class InternalAPIServer:
 
         try:
             games = await metrics.get_top_games(
-                guild_id, days=days, limit=limit,
+                guild_id,
+                days=days,
+                limit=limit,
                 user_ids=self._parse_user_ids(request),
             )
             return web.json_response({"games": games})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching top games")
-            return web.json_response(
-                {"error": f"Failed to fetch top games: {e!s}"}, status=500
-            )
+            return web.json_response({"error": "Failed to fetch top games"}, status=500)
 
     async def get_metrics_timeseries(self, request: web.Request) -> web.Response:
         """
@@ -1437,7 +1491,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1458,14 +1514,16 @@ class InternalAPIServer:
 
         try:
             data = await metrics.get_timeseries(
-                guild_id, metric=metric, days=days,
+                guild_id,
+                metric=metric,
+                days=days,
                 user_ids=self._parse_user_ids(request),
             )
             return web.json_response({"metric": metric, "days": days, "data": data})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching timeseries")
             return web.json_response(
-                {"error": f"Failed to fetch timeseries: {e!s}"}, status=500
+                {"error": "Failed to fetch timeseries"}, status=500
             )
 
     async def get_metrics_user(self, request: web.Request) -> web.Response:
@@ -1480,7 +1538,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1534,10 +1594,10 @@ class InternalAPIServer:
                 logger.warning("Failed to compute activity tiers for user %d", user_id)
 
             return web.json_response(data)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching user metrics")
             return web.json_response(
-                {"error": f"Failed to fetch user metrics: {e!s}"}, status=500
+                {"error": "Failed to fetch user metrics"}, status=500
             )
 
     async def get_activity_groups(self, request: web.Request) -> web.Response:
@@ -1552,7 +1612,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1577,10 +1639,10 @@ class InternalAPIServer:
                 days=days,
             )
             return web.json_response(counts)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching activity groups")
             return web.json_response(
-                {"error": f"Failed to fetch activity groups: {e!s}"}, status=500
+                {"error": "Failed to fetch activity groups"}, status=500
             )
 
     async def get_activity_group_members(self, request: web.Request) -> web.Response:
@@ -1596,7 +1658,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1606,26 +1670,34 @@ class InternalAPIServer:
         dimension = request.query.get("dimension", "combined")
         if dimension not in ("voice", "chat", "game", "combined"):
             return web.json_response(
-                {"error": f"Invalid dimension: {dimension}. Use voice, chat, game, or combined"},
+                {
+                    "error": f"Invalid dimension: {dimension}. Use voice, chat, game, or combined"
+                },
                 status=400,
             )
         tier = request.query.get("tier", "")
         if tier not in ("hardcore", "regular", "casual", "reserve", "inactive"):
             return web.json_response(
-                {"error": f"Invalid tier: {tier}. Use hardcore, regular, casual, reserve, or inactive"},
+                {
+                    "error": f"Invalid tier: {tier}. Use hardcore, regular, casual, reserve, or inactive"
+                },
                 status=400,
             )
 
         try:
-            user_ids = await metrics.get_activity_group_user_ids(guild_id, dimension, tier)
+            user_ids = await metrics.get_activity_group_user_ids(
+                guild_id, dimension, tier
+            )
             return web.json_response({"user_ids": user_ids})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching activity group members")
             return web.json_response(
-                {"error": f"Failed to fetch activity group members: {e!s}"}, status=500
+                {"error": "Failed to fetch activity group members"}, status=500
             )
 
-    async def get_activity_group_members_bulk(self, request: web.Request) -> web.Response:
+    async def get_activity_group_members_bulk(
+        self, request: web.Request
+    ) -> web.Response:
         """
         Get user IDs for multiple dimension+tier combos in a single call.
 
@@ -1641,7 +1713,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1661,7 +1735,9 @@ class InternalAPIServer:
         dimensions = [d.strip() for d in raw_dims.split(",") if d.strip()]
         if not dimensions or not all(d in valid_dims for d in dimensions):
             return web.json_response(
-                {"error": "Invalid or missing dimensions param. Use comma-separated: voice, chat, game, combined"},
+                {
+                    "error": "Invalid or missing dimensions param. Use comma-separated: voice, chat, game, combined"
+                },
                 status=400,
             )
 
@@ -1669,19 +1745,24 @@ class InternalAPIServer:
         tiers = [t.strip() for t in raw_tiers.split(",") if t.strip()]
         if not tiers or not all(t in valid_tiers for t in tiers):
             return web.json_response(
-                {"error": "Invalid or missing tiers param. Use comma-separated: hardcore, regular, casual, reserve, inactive"},
+                {
+                    "error": "Invalid or missing tiers param. Use comma-separated: hardcore, regular, casual, reserve, inactive"
+                },
                 status=400,
             )
 
         try:
             result = await metrics.get_activity_group_user_ids_bulk(
-                guild_id, dimensions, tiers, lookback_days=days,
+                guild_id,
+                dimensions,
+                tiers,
+                lookback_days=days,
             )
             return web.json_response(result)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching bulk activity group members")
             return web.json_response(
-                {"error": f"Failed to fetch bulk activity group members: {e!s}"},
+                {"error": "Failed to fetch bulk activity group members"},
                 status=500,
             )
 
@@ -1699,7 +1780,9 @@ class InternalAPIServer:
 
         metrics = self._get_metrics_service()
         if metrics is None:
-            return web.json_response({"error": "Metrics service unavailable"}, status=503)
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
 
         try:
             guild_id = int(request.match_info["guild_id"])

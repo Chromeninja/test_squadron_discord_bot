@@ -139,9 +139,7 @@ class TestInternalAPIAuthentication:
 
         # Request with correct auto-gen key should succeed
         mock_request_valid = MagicMock()
-        mock_request_valid.headers = {
-            "Authorization": f"Bearer {server.api_key}"
-        }
+        mock_request_valid.headers = {"Authorization": f"Bearer {server.api_key}"}
         assert server._check_auth(mock_request_valid) is True
 
     def test_host_and_port_configuration(self, mock_services, monkeypatch):

@@ -8,7 +8,8 @@ assignment record is marked canceled (not re-applied).
 
 from __future__ import annotations
 
-import discord
+from typing import TYPE_CHECKING
+
 from discord.ext import commands, tasks
 
 from services.new_member_role_service import (
@@ -19,6 +20,9 @@ from services.new_member_role_service import (
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    import discord
 
 # How often (in minutes) to sweep for expired assignments
 EXPIRY_CHECK_INTERVAL_MINUTES = 5
@@ -67,10 +71,10 @@ class NewMemberRoleWorker(commands.Cog):
     ) -> None:
         """Detect when the new-member role is removed by staff/admin."""
         # Quick exit: role sets identical
-        if set(r.id for r in before.roles) == set(r.id for r in after.roles):
+        if {r.id for r in before.roles} == {r.id for r in after.roles}:
             return
 
-        removed_roles = set(r.id for r in before.roles) - set(r.id for r in after.roles)
+        removed_roles = {r.id for r in before.roles} - {r.id for r in after.roles}
         if not removed_roles:
             return
 

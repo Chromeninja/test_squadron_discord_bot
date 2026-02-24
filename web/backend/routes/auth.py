@@ -146,7 +146,9 @@ async def callback(request: Request, code: str, state: str | None = None):
         # Validate CSRF state token (one-time use, expires after 5 minutes)
         if not state or not validate_oauth_state(state):
             logger.warning("OAuth callback with invalid or expired state token")
-            raise HTTPException(status_code=400, detail="Invalid or expired state token")
+            raise HTTPException(
+                status_code=400, detail="Invalid or expired state token"
+            )
 
         # Exchange code for access token
         async with httpx.AsyncClient() as client:
@@ -201,9 +203,7 @@ async def callback(request: Request, code: str, state: str | None = None):
             user_guilds = guilds_response.json()
             user_guild_ids = [g["id"] for g in user_guilds]
 
-            logger.debug(
-                "OAuth user is member of %d guild(s)", len(user_guild_ids)
-            )
+            logger.debug("OAuth user is member of %d guild(s)", len(user_guild_ids))
 
             # Get list of guilds where the bot is installed (from database)
             from services.db.repository import BaseRepository
@@ -333,8 +333,7 @@ async def callback(request: Request, code: str, state: str | None = None):
                         int(rid) for rid in role_settings.get("bot_admins", [])
                     ]
                     discord_manager_role_ids = [
-                        int(rid)
-                        for rid in role_settings.get("discord_managers", [])
+                        int(rid) for rid in role_settings.get("discord_managers", [])
                     ]
                     moderator_role_ids = [
                         int(rid) for rid in role_settings.get("moderators", [])
@@ -452,7 +451,9 @@ async def callback(request: Request, code: str, state: str | None = None):
         raise
     except Exception:
         logger.exception("Unhandled error in OAuth callback")
-        raise HTTPException(status_code=500, detail="Internal server error during authentication.")
+        raise HTTPException(
+            status_code=500, detail="Internal server error during authentication."
+        )
 
 
 @api_router.get("/me", response_model=AuthMeResponse)

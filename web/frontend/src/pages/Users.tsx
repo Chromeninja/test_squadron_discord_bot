@@ -13,89 +13,12 @@ import {
   ALL_GUILDS_SENTINEL,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
+import { UserDetailsModal } from '../components/users/UserDetailsModal';
+import { OrgBadgeList } from '../components/users/OrgBadgeList';
 import { handleApiError } from '../utils/toast';
 import { hasPermission } from '../utils/permissions';
-import { Alert, Button, Card, Badge, Input, Modal } from '../components/ui';
-
-// ---------------------------------------------------------------------------
-// Reusable sub-components (extracted for DRY & readability)
-// ---------------------------------------------------------------------------
-
-/** Renders a list of org badges with RSI links, overflow count, and redacted count. */
-function OrgBadgeList({
-  orgs,
-  maxVisible = Infinity,
-  colorScheme = 'blue',
-}: {
-  orgs: string[] | null | undefined;
-  maxVisible?: number;
-  colorScheme?: 'blue' | 'green';
-}) {
-  if (!orgs || orgs.length === 0) {
-    return <span className="text-gray-500">-</span>;
-  }
-
-  const visible = orgs.filter(o => o !== 'REDACTED');
-  const redactedCount = orgs.length - visible.length;
-  const shown = visible.slice(0, maxVisible);
-  const overflowCount = visible.length - shown.length;
-
-  const colors = colorScheme === 'green'
-    ? 'bg-green-900/30 text-green-300 border-green-700/50 hover:bg-green-900/50 hover:border-green-600/70'
-    : 'bg-blue-900/30 text-blue-300 border-blue-700/50 hover:bg-blue-900/50 hover:border-blue-600/70';
-
-  return (
-    <div className="flex flex-wrap gap-1 max-w-xs">
-      {shown.map((org, idx) => (
-        <a
-          key={idx}
-          href={`https://robertsspaceindustries.com/orgs/${org}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`px-2 py-0.5 text-xs rounded border transition-colors cursor-pointer ${colors}`}
-        >
-          {org}
-        </a>
-      ))}
-      {overflowCount > 0 && (
-        <span
-          className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400"
-          title={visible.slice(maxVisible).join(', ')}
-        >
-          +{overflowCount}
-        </span>
-      )}
-      {redactedCount > 0 && (
-        <span className="px-2 py-0.5 text-xs rounded bg-slate-700 text-gray-400" title="Redacted organizations">
-          +{redactedCount} redacted
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** Renders all role badges with a scrollable container for large role sets. */
-function RoleBadgeList({ roles }: { roles: Array<{ id: number; name: string }> }) {
-  if (roles.length === 0) {
-    return <span className="text-gray-500">No roles</span>;
-  }
-
-  return (
-    <div className="max-h-44 overflow-y-auto pr-1">
-      <div className="flex flex-wrap gap-1.5">
-        {roles.map((role) => (
-          <span
-            key={role.id}
-            className="px-2 py-1 text-xs rounded bg-slate-700 text-gray-300 border border-slate-600"
-            title={role.name}
-          >
-            {role.name}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
+import { getStatusVariant } from '../utils/statusHelpers';
+import { Alert, Button, Card, Badge, Input, Pagination } from '../components/ui';
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -495,6 +418,57 @@ function Users() {
     }
   }, [users, showUserModal, selectedUser]);
 
+  // Refresh modal user details on open to backfill occasionally-missing enriched fields
+  useEffect(() => {
+    if (!showUserModal || !selectedUser?.discord_id) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshModalUserDetails = async () => {
+      try {
+        const response = await usersApi.getUserDetails(selectedUser.discord_id);
+        const refreshedUser = response.data;
+
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedUser((current) => {
+          if (!current || current.discord_id !== refreshedUser.discord_id) {
+            return current;
+          }
+
+          return {
+            ...current,
+            ...refreshedUser,
+            roles: refreshedUser.roles.length > 0 ? refreshedUser.roles : current.roles,
+            main_orgs:
+              refreshedUser.main_orgs && refreshedUser.main_orgs.length > 0
+                ? refreshedUser.main_orgs
+                : current.main_orgs,
+            affiliate_orgs:
+              refreshedUser.affiliate_orgs && refreshedUser.affiliate_orgs.length > 0
+                ? refreshedUser.affiliate_orgs
+                : current.affiliate_orgs,
+            joined_at: refreshedUser.joined_at ?? current.joined_at,
+            created_at: refreshedUser.created_at ?? current.created_at,
+            last_updated: refreshedUser.last_updated ?? current.last_updated,
+          };
+        });
+      } catch {
+        // Best-effort refresh only; keep existing modal snapshot on failure.
+      }
+    };
+
+    refreshModalUserDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showUserModal, selectedUser?.discord_id]);
+
   // Fetch per-user metrics when the modal opens (only for guild-scoped mode)
   useEffect(() => {
     if (!showUserModal || !selectedUser || isCrossGuild) {
@@ -718,36 +692,6 @@ function Users() {
     if (page < totalPages) setPage(page + 1);
   };
 
-  // Get status badge variant
-  const getStatusVariant = (status: string | null): 'success' | 'info' | 'warning' | 'neutral' => {
-    switch (status) {
-      case 'main':
-        return 'success';
-      case 'affiliate':
-        return 'info';
-      case 'non_member':
-        return 'warning';
-      default:
-        return 'neutral';
-    }
-  };
-
-  const formatDateValue = (value: string | number | null | undefined) => {
-    if (!value) {
-      return '-';
-    }
-
-    try {
-      const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return '-';
-      }
-      return date.toLocaleDateString();
-    } catch (err) {
-      return '-';
-    }
-  };
-
   const buildExportFilters = (): ExportUsersRequest => {
     const payload: ExportUsersRequest = {};
 
@@ -769,7 +713,6 @@ function Users() {
 
   const startRecord = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endRecord = total === 0 ? 0 : Math.min(page * pageSize, total);
-  const totalPagesDisplay = totalPages > 0 ? totalPages : 1;
 
   return (
     <div>
@@ -1177,35 +1120,18 @@ function Users() {
           </div>
 
           {/* Pagination */}
-          <div className="px-6 py-4 bg-slate-900 flex items-center justify-between border-t border-slate-700">
-            <div className="text-sm text-gray-400">
-              {total === 0 ? (
-                'No results to display'
-              ) : (
-                <>
-                  Showing {startRecord} to {endRecord} of {total} results
-                </>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={handlePrevPage}
-                disabled={page === 1}
-              >
-                Previous
-              </Button>
-              <div className="px-4 py-2 bg-slate-700 rounded">
-                Page {page} of {totalPagesDisplay}
-              </div>
-              <Button
-                variant="secondary"
-                onClick={handleNextPage}
-                disabled={page >= totalPages || total === 0}
-              >
-                Next
-              </Button>
-            </div>
+          <div className="px-6 py-4 bg-slate-900 border-t border-slate-700">
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPrevious={handlePrevPage}
+              onNext={handleNextPage}
+              summary={
+                total === 0
+                  ? 'No results to display'
+                  : `Showing ${startRecord} to ${endRecord} of ${total} results`
+              }
+            />
           </div>
         </div>
       )}
@@ -1226,261 +1152,23 @@ function Users() {
       )}
 
       {/* User Detail Modal */}
-      {selectedUser && (
-        <Modal
-          open={showUserModal}
-          onClose={() => {
-            setShowUserModal(false);
-            setSelectedUser(null);
-            setUserMetrics(null);
-            setUserMetricsError(null);
-          }}
-          title="Member Details"
-          size="lg"
-          headerVariant="default"
-          footer={
-            <div className="flex items-center justify-between w-full">
-              <div>
-                {!isCrossGuild && canRecheck && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      handleRecheckUser(selectedUser.discord_id);
-                    }}
-                    loading={recheckingUserId === selectedUser.discord_id}
-                    title="Re-verify this user's RSI membership and update roles"
-                  >
-                    {recheckingUserId === selectedUser.discord_id ? 'Rechecking...' : 'Recheck Membership'}
-                  </Button>
-                )}
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setShowUserModal(false);
-                  setSelectedUser(null);
-                  setUserMetrics(null);
-                  setUserMetricsError(null);
-                }}
-              >
-                Close
-              </Button>
-            </div>
-          }
-        >
-          {/* User header */}
-          <div className="flex items-center gap-4 mb-6">
-            {selectedUser.avatar_url ? (
-              <img
-                src={selectedUser.avatar_url}
-                alt={selectedUser.username}
-                className="w-16 h-16 rounded-full"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-2xl font-bold">
-                {selectedUser.username.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div>
-              <h4 className="text-lg font-semibold text-white">
-                {selectedUser.global_name || selectedUser.username}
-              </h4>
-              <p className="text-sm text-gray-400">
-                {selectedUser.username}#{selectedUser.discriminator}
-              </p>
-              <p className="text-xs text-gray-500 font-mono mt-0.5">
-                {selectedUser.discord_id}
-              </p>
-            </div>
-            <div className="ml-auto">
-              <Badge variant={getStatusVariant(selectedUser.membership_status)}>
-                {selectedUser.membership_status || 'unknown'}
-              </Badge>
-            </div>
-          </div>
-
-          {/* Detail grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            {/* RSI Handle */}
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">RSI Handle</div>
-              <div className="text-gray-200">
-                {selectedUser.rsi_handle ? (
-                  <a
-                    href={`https://robertsspaceindustries.com/citizens/${selectedUser.rsi_handle}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 hover:underline"
-                  >
-                    {selectedUser.rsi_handle}
-                  </a>
-                ) : (
-                  <span className="text-gray-500">—</span>
-                )}
-              </div>
-            </div>
-
-            {/* Guild (cross-guild mode) */}
-            {isCrossGuild && (
-              <div className="bg-slate-900/50 rounded-lg p-3">
-                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Guild</div>
-                <div className="text-gray-200">
-                  <Badge variant="purple" className="text-xs">
-                    {selectedUser.guild_name || selectedUser.guild_id || 'Unknown'}
-                  </Badge>
-                </div>
-              </div>
-            )}
-
-            {/* Main Orgs */}
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Main Organizations</div>
-              <div className="mt-1">
-                <OrgBadgeList orgs={selectedUser.main_orgs} colorScheme="blue" />
-              </div>
-            </div>
-
-            {/* Affiliate Orgs */}
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Affiliate Organizations</div>
-              <div className="mt-1">
-                <OrgBadgeList orgs={selectedUser.affiliate_orgs} colorScheme="green" />
-              </div>
-            </div>
-
-            {/* Roles */}
-            <div className="bg-slate-900/50 rounded-lg p-3 sm:col-span-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Roles</div>
-              <div className="mt-1">
-                <RoleBadgeList roles={selectedUser.roles} />
-              </div>
-            </div>
-
-            {/* Timestamps */}
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Joined Server</div>
-              <div className="text-gray-200">{formatDateValue(selectedUser.joined_at)}</div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Account Created</div>
-              <div className="text-gray-200">{formatDateValue(selectedUser.created_at)}</div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Last Verified</div>
-              <div className="text-gray-200">{formatDateValue(selectedUser.last_updated)}</div>
-            </div>
-          </div>
-
-          {/* Metrics breakdown — hidden when unavailable (cross-guild, no perms, no data) */}
-          {userMetricsLoading && (
-            <div className="mt-6 flex items-center justify-center py-6 text-gray-500 text-sm">
-              <svg className="animate-spin h-4 w-4 mr-2 text-gray-400" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Loading metrics…
-            </div>
-          )}
-
-          {!userMetricsLoading && userMetricsError && (
-            <div className="mt-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3 text-sm text-amber-300">
-              {userMetricsError}
-            </div>
-          )}
-
-          {!userMetricsLoading && userMetrics && (
-            <div className="mt-6 space-y-4">
-              {/* Activity Levels */}
-              <div className="bg-slate-900/50 rounded-lg p-4">
-                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Activity Levels <span className="normal-case text-gray-600">(last 30 days)</span></div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { key: 'combined', label: 'Combined', icon: '⚡', tier: userMetrics.combined_tier },
-                    { key: 'voice', label: 'Voice', icon: '🎤', tier: userMetrics.voice_tier },
-                    { key: 'chat', label: 'Text', icon: '💬', tier: userMetrics.chat_tier },
-                    { key: 'game', label: 'Gaming', icon: '🎮', tier: userMetrics.game_tier },
-                  ].map(({ key, label, icon, tier }) => {
-                    const t = tier ?? 'inactive';
-                    const badgeColors: Record<string, string> = {
-                      hardcore: 'border-red-600/40 bg-red-600/10',
-                      regular: 'border-amber-500/40 bg-amber-500/10',
-                      casual: 'border-sky-500/40 bg-sky-500/10',
-                      reserve: 'border-slate-500/40 bg-slate-500/10',
-                      inactive: 'border-gray-700/40 bg-gray-700/10',
-                    };
-                    const textColors: Record<string, string> = {
-                      hardcore: 'text-red-400',
-                      regular: 'text-amber-400',
-                      casual: 'text-sky-400',
-                      reserve: 'text-slate-300',
-                      inactive: 'text-gray-500',
-                    };
-                    return (
-                      <div key={key} className={`rounded-lg border p-2.5 text-center ${badgeColors[t] || badgeColors.inactive}`}>
-                        <div className="text-base mb-0.5">{icon}</div>
-                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
-                        <div className={`text-sm font-semibold capitalize ${textColors[t] || textColors.inactive}`}>{t}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Metrics Summary */}
-              <div className="bg-slate-900/50 rounded-lg p-4">
-                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Metrics Summary</div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div>
-                    <div className="text-[10px] text-gray-500 uppercase">Messages</div>
-                    <div className="text-lg font-bold text-white">{userMetrics.total_messages.toLocaleString()}</div>
-                    <div className="text-[10px] text-gray-500">{userMetrics.avg_messages_per_day.toFixed(1)}/day</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-gray-500 uppercase">Voice Time</div>
-                    <div className="text-lg font-bold text-white">
-                      {userMetrics.total_voice_seconds < 3600
-                        ? `${Math.round(userMetrics.total_voice_seconds / 60)}m`
-                        : `${(userMetrics.total_voice_seconds / 3600).toFixed(1)}h`}
-                    </div>
-                    <div className="text-[10px] text-gray-500">
-                      {userMetrics.avg_voice_per_day < 3600
-                        ? `${Math.round(userMetrics.avg_voice_per_day / 60)}m`
-                        : `${(userMetrics.avg_voice_per_day / 3600).toFixed(1)}h`}
-                      /day
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <div className="text-[10px] text-gray-500 uppercase">Top Games</div>
-                    {userMetrics.top_games.length > 0 ? (
-                      <div className="mt-1 space-y-1">
-                        {userMetrics.top_games.slice(0, 3).map((game, i) => (
-                          <div key={game.game_name} className="flex items-center justify-between">
-                            <span className="text-gray-300 truncate mr-2">
-                              <span className="text-gray-500 text-[10px] mr-1">#{i + 1}</span>
-                              {game.game_name}
-                            </span>
-                            <span className="text-indigo-400 text-xs font-medium whitespace-nowrap">
-                              {game.total_seconds < 3600
-                                ? `${Math.round(game.total_seconds / 60)}m`
-                                : `${(game.total_seconds / 3600).toFixed(1)}h`}
-                            </span>
-                          </div>
-                        ))}
-                        {userMetrics.top_games.length > 3 && (
-                          <div className="text-[10px] text-gray-600">+{userMetrics.top_games.length - 3} more</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-gray-600 mt-1">No game activity</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </Modal>
-      )}
+      <UserDetailsModal
+        open={showUserModal}
+        user={selectedUser}
+        isCrossGuild={isCrossGuild}
+        onClose={() => {
+          setShowUserModal(false);
+          setSelectedUser(null);
+          setUserMetrics(null);
+          setUserMetricsError(null);
+        }}
+        userMetrics={userMetrics}
+        userMetricsLoading={userMetricsLoading}
+        userMetricsError={userMetricsError}
+        canRecheck={canRecheck}
+        recheckingUserId={recheckingUserId}
+        onRecheck={handleRecheckUser}
+      />
 
       {/* Recheck Results Modal */}
       {recheckResults && (

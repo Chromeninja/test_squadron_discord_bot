@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
     if env == "production" and (not session_secret or session_secret == default_secret):
         logger.critical(
             "SECURITY: SESSION_SECRET must be set to a secure value in production. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
         raise RuntimeError(
             "SESSION_SECRET not configured for production. "
@@ -132,11 +132,13 @@ if PUBLIC_URL != FRONTEND_URL:
 
 # Add localhost variants only in development mode
 if IS_DEV:
-    cors_origins.extend([
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:8081",
-    ])
+    cors_origins.extend(
+        [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:8081",
+        ]
+    )
 
 # Deduplicate
 cors_origins = list(set(cors_origins))
