@@ -72,7 +72,17 @@ class MetricsEvents(commands.Cog):
         before: discord.VoiceState,
         after: discord.VoiceState,
     ) -> None:
-        """Track voice channel join/leave/move for duration metrics."""
+        """Track voice channel join/leave/move for duration metrics.
+
+        A user is considered *eligible* for voice tracking when they are in a
+        non-excluded channel **and** are not self-muted or self-deafened.
+        Transitions between eligible/ineligible states drive session open/close.
+
+        AI Notes:
+            Self-mute and self-deaf are the only disqualifiers; server-mute,
+            server-deaf, and stage-suppress are intentionally ignored so that
+            moderator actions do not penalise a user's activity metrics.
+        """
         if member.bot:
             return
 
@@ -83,31 +93,28 @@ class MetricsEvents(commands.Cog):
             excluded_channel_ids = await self.metrics_service.get_excluded_channel_ids(
                 guild_id
             )
-            before_channel_id = before.channel.id if before.channel else None
-            after_channel_id = after.channel.id if after.channel else None
 
-            if before.channel is None and after.channel is not None:
-                # User joined a voice channel
-                if after_channel_id not in excluded_channel_ids:
+            was_eligible = _is_voice_eligible(before, excluded_channel_ids)
+            now_eligible = _is_voice_eligible(after, excluded_channel_ids)
+
+            if was_eligible and not now_eligible:
+                # Lost eligibility (left channel, muted, deafened, moved to excluded)
+                await self.metrics_service.record_voice_leave(guild_id, user_id)
+            elif not was_eligible and now_eligible:
+                # Gained eligibility (joined channel, unmuted, undeafened)
+                await self.metrics_service.record_voice_join(
+                    guild_id, user_id, after.channel.id  # type: ignore[union-attr]
+                )
+            elif was_eligible and now_eligible:
+                # Still eligible — check for channel move
+                assert before.channel is not None  # guarded by was_eligible  # noqa: S101
+                assert after.channel is not None  # guarded by now_eligible  # noqa: S101
+                if before.channel.id != after.channel.id:
+                    await self.metrics_service.record_voice_leave(guild_id, user_id)
                     await self.metrics_service.record_voice_join(
                         guild_id, user_id, after.channel.id
                     )
-            elif before.channel is not None and after.channel is None:
-                # User left a voice channel
-                if before_channel_id not in excluded_channel_ids:
-                    await self.metrics_service.record_voice_leave(guild_id, user_id)
-            elif (
-                before.channel is not None
-                and after.channel is not None
-                and before.channel.id != after.channel.id
-            ):
-                # User moved between channels — close old, open new
-                if before_channel_id not in excluded_channel_ids:
-                    await self.metrics_service.record_voice_leave(guild_id, user_id)
-                if after_channel_id not in excluded_channel_ids:
-                    await self.metrics_service.record_voice_join(
-                        guild_id, user_id, after.channel.id
-                    )
+            # else: was ineligible → still ineligible → no-op
         except Exception:
             logger.debug(
                 "Failed to record voice metric for %s", member, exc_info=True
@@ -180,6 +187,25 @@ class MetricsEvents(commands.Cog):
             await self.metrics_service.backfill_game_state(self.bot)
         except Exception:
             logger.exception("Failed to backfill metrics on ready")
+
+
+def _is_voice_eligible(
+    state: discord.VoiceState, excluded_channel_ids: set[int]
+) -> bool:
+    """Return True when the voice state should count as active voice time.
+
+    Eligibility requires:
+    - Connected to a voice channel that is not excluded.
+    - Not self-muted.
+    - Not self-deafened.
+    """
+    if state.channel is None:
+        return False
+    if state.channel.id in excluded_channel_ids:
+        return False
+    if state.self_mute or state.self_deaf:
+        return False
+    return True
 
 
 def _get_playing_game(member: discord.Member) -> str | None:

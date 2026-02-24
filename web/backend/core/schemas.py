@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response models.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # Auth schemas
@@ -453,6 +453,27 @@ class MetricsSettings(BaseModel):
     excluded_channel_ids: list[str] = Field(default_factory=list)
     tracked_games_mode: str = Field(default="all")  # "all" or "specific"
     tracked_games: list[str] = Field(default_factory=list)
+
+
+class NewMemberRoleSettings(BaseModel):
+    """Per-guild new-member role module configuration.
+
+    When enabled, a configurable role is assigned on first verification
+    and automatically removed after ``duration_days``.  An optional
+    ``max_server_age_days`` gate skips assignment for members who joined
+    more than N days ago (null = no gate).
+    """
+
+    enabled: bool = False
+    role_id: str | None = None  # Discord role snowflake (string for precision)
+    duration_days: int = Field(default=14, ge=1)
+    max_server_age_days: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_enabled_requires_role(self) -> "NewMemberRoleSettings":
+        if self.enabled and not self.role_id:
+            raise ValueError("role_id is required when new-member role is enabled")
+        return self
 
 
 class RoleDelegationConfig(BaseModel):

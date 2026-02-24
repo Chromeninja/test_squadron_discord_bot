@@ -1028,7 +1028,9 @@ class MetricsService(BaseService):
         """
         Scan all guilds for users currently in voice channels and open sessions.
 
-        Called on bot startup / on_ready to recover state.
+        Called on bot startup / on_ready to recover state.  Only members who
+        are **not** self-muted and **not** self-deafened are considered eligible
+        for an active voice session.
         """
         if not self._enabled:
             return
@@ -1038,6 +1040,10 @@ class MetricsService(BaseService):
             for vc in guild.voice_channels:
                 for member in vc.members:
                     if member.bot:
+                        continue
+                    # Skip members who are self-muted or self-deafened
+                    voice = member.voice
+                    if voice is not None and (voice.self_mute or voice.self_deaf):
                         continue
                     key = (guild.id, member.id)
                     if key not in self._voice_sessions:

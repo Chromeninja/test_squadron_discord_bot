@@ -290,6 +290,13 @@ ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
 ORGANIZATION_LOGO_URL_KEY = "organization.logo_url"
 
+# New-member role keys
+NEW_MEMBER_ROLE_ENABLED_KEY = "new_member_role.enabled"
+NEW_MEMBER_ROLE_ID_KEY = "new_member_role.role_id"
+NEW_MEMBER_ROLE_DURATION_DAYS_KEY = "new_member_role.duration_days"
+NEW_MEMBER_ROLE_MAX_SERVER_AGE_DAYS_KEY = "new_member_role.max_server_age_days"
+SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE = "new_member_role"
+
 
 def _coerce_role_list(value: Any) -> list[str]:
     """Convert stored JSON values into a list of string IDs to preserve precision."""
@@ -997,3 +1004,108 @@ async def fetch_role_delegation_policies(guild_id: int) -> list[dict]:
     if not row:
         return []
     return _coerce_policy_list(row[0])
+
+
+# ---------------------------------------------------------------------------
+# New-member role settings
+# ---------------------------------------------------------------------------
+
+
+async def get_new_member_role_settings(
+    db: Connection, guild_id: int
+) -> dict[str, Any]:
+    """Fetch new-member role settings for a guild."""
+    cursor = await db.execute(
+        """
+        SELECT key, value
+        FROM guild_settings
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            NEW_MEMBER_ROLE_ENABLED_KEY,
+            NEW_MEMBER_ROLE_ID_KEY,
+            NEW_MEMBER_ROLE_DURATION_DAYS_KEY,
+            NEW_MEMBER_ROLE_MAX_SERVER_AGE_DAYS_KEY,
+        ),
+    )
+    rows = await cursor.fetchall()
+
+    result: dict[str, Any] = {
+        "enabled": False,
+        "role_id": None,
+        "duration_days": 14,
+        "max_server_age_days": None,
+    }
+
+    for key, value in rows:
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+        if key == NEW_MEMBER_ROLE_ENABLED_KEY:
+            result["enabled"] = bool(parsed)
+        elif key == NEW_MEMBER_ROLE_ID_KEY:
+            if parsed is not None:
+                try:
+                    result["role_id"] = str(int(parsed))
+                except (TypeError, ValueError):
+                    result["role_id"] = None
+            else:
+                result["role_id"] = None
+        elif key == NEW_MEMBER_ROLE_DURATION_DAYS_KEY:
+            try:
+                result["duration_days"] = max(1, int(parsed))
+            except (TypeError, ValueError):
+                pass
+        elif key == NEW_MEMBER_ROLE_MAX_SERVER_AGE_DAYS_KEY:
+            if parsed is not None:
+                try:
+                    result["max_server_age_days"] = max(1, int(parsed))
+                except (TypeError, ValueError):
+                    pass
+
+    return result
+
+
+async def set_new_member_role_settings(
+    db: Connection,
+    guild_id: int,
+    *,
+    enabled: bool,
+    role_id: str | None,
+    duration_days: int,
+    max_server_age_days: int | None,
+) -> None:
+    """Persist new-member role settings for a guild."""
+    # Normalize
+    normalized_role_id: str | None = None
+    if role_id is not None:
+        try:
+            normalized_role_id = str(int(role_id))
+        except (TypeError, ValueError):
+            normalized_role_id = None
+
+    payloads = [
+        (NEW_MEMBER_ROLE_ENABLED_KEY, json.dumps(enabled)),
+        (NEW_MEMBER_ROLE_ID_KEY, json.dumps(normalized_role_id)),
+        (NEW_MEMBER_ROLE_DURATION_DAYS_KEY, json.dumps(max(1, duration_days))),
+        (NEW_MEMBER_ROLE_MAX_SERVER_AGE_DAYS_KEY, json.dumps(max_server_age_days)),
+    ]
+
+    for key, value in payloads:
+        await db.execute(
+            """
+            INSERT INTO guild_settings (guild_id, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value
+            """,
+            (guild_id, key, value),
+        )
+
+    await _touch_settings_version(
+        db, guild_id, source=SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE
+    )
+    await db.commit()
+

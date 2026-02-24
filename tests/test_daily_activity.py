@@ -275,11 +275,11 @@ class TestTrackDailyActivity:
 
 
 class TestAutoCheckSummarySilence:
-    """Test that _post_auto_summaries always posts when checked > 0."""
+    """Test that _post_auto_summaries skips posting when changed == 0."""
 
     @pytest.mark.asyncio
-    async def test_posts_when_zero_changes(self):
-        """When checked > 0 but changed == 0, a summary should still be sent."""
+    async def test_no_post_when_zero_changes(self):
+        """When checked > 0 but changed == 0, no message should be sent."""
         from cogs.admin.recheck import AutoRecheck
 
         bot = types.SimpleNamespace(config={"auto_recheck": {"enabled": False}})
@@ -296,10 +296,7 @@ class TestAutoCheckSummarySilence:
             }
             await cog._post_auto_summaries(guild_summaries)
 
-        mock_channel.send.assert_called_once()
-        msg = mock_channel.send.call_args[0][0]
-        assert "Checked 10 member(s)" in msg
-        assert "changes: 0" in msg
+        mock_channel.send.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_post_when_zero_checked(self):

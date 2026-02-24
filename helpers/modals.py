@@ -292,6 +292,18 @@ class HandleModal(Modal, title="Verification"):
         result = await apply_state_to_guild(global_state, member.guild, self.bot)
         await flush_tasks()
 
+        # Assign new-member role if eligible (first verification only)
+        try:
+            from services.new_member_role_service import assign_if_eligible
+
+            await assign_if_eligible(member, self.bot)
+        except Exception as e:
+            logger.warning(
+                "Failed to assign new-member role for user %s: %s",
+                member.id,
+                e,
+            )
+
         # Persist global state after Discord updates to preserve correct before/after snapshots
         try:
             await store_global_state(global_state)
