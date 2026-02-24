@@ -438,10 +438,10 @@ class MetricsService(BaseService):
         user_data: dict[int, dict[str, Any]] = {}
 
         async with MetricsDatabase.get_connection() as db:
-            # --- Chat: per-day distinct 3-min message windows ---
+            # --- Chat: per-day message totals from 3-min buckets ---
             sql_msg = (
                 "SELECT user_id, hour_bucket / 86400 AS day_bucket, "
-                "COUNT(*) AS day_msg_windows, MAX(hour_bucket) "
+                "SUM(message_count) AS day_message_count, MAX(hour_bucket) "
                 "FROM message_counts "
                 f"WHERE guild_id = ? {user_filter_sql} "
                 "AND bucket_seconds = 180 "
@@ -449,8 +449,8 @@ class MetricsService(BaseService):
                 "GROUP BY user_id, day_bucket"
             )
             cursor = await db.execute(sql_msg, [*params_prefix, cutoff_ts])
-            for uid, day_bucket, day_msg_windows, max_ts in await cursor.fetchall():
-                if day_msg_windows < min_msg_windows:
+            for uid, day_bucket, day_message_count, max_ts in await cursor.fetchall():
+                if day_message_count < min_msg_windows:
                     continue
                 entry = user_data.setdefault(uid, {})
                 entry.setdefault("active_chat_days", set()).add(day_bucket)

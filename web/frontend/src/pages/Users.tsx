@@ -149,6 +149,7 @@ function Users() {
   // Per-user metrics in modal
   const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
   const [userMetricsLoading, setUserMetricsLoading] = useState(false);
+  const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
 
   const resetSelection = () => {
     setSelectAllFiltered(false);
@@ -501,6 +502,7 @@ function Users() {
     }
     let cancelled = false;
     setUserMetrics(null);
+    setUserMetricsError(null);
     setUserMetricsLoading(true);
     metricsApi
       .getUserMetrics(selectedUser.discord_id, 30)
@@ -508,8 +510,10 @@ function Users() {
         if (!cancelled) setUserMetrics(resp.data);
       })
       .catch(() => {
-        // Silently hide metrics section on error (permissions / no data)
-        if (!cancelled) setUserMetrics(null);
+        if (!cancelled) {
+          setUserMetrics(null);
+          setUserMetricsError('Metrics are currently unavailable for this member.');
+        }
       })
       .finally(() => {
         if (!cancelled) setUserMetricsLoading(false);
@@ -1229,6 +1233,7 @@ function Users() {
             setShowUserModal(false);
             setSelectedUser(null);
             setUserMetrics(null);
+            setUserMetricsError(null);
           }}
           title="Member Details"
           size="lg"
@@ -1256,6 +1261,7 @@ function Users() {
                   setShowUserModal(false);
                   setSelectedUser(null);
                   setUserMetrics(null);
+                  setUserMetricsError(null);
                 }}
               >
                 Close
@@ -1374,6 +1380,12 @@ function Users() {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
               Loading metrics…
+            </div>
+          )}
+
+          {!userMetricsLoading && userMetricsError && (
+            <div className="mt-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3 text-sm text-amber-300">
+              {userMetricsError}
             </div>
           )}
 

@@ -312,19 +312,17 @@ async def get_user_metrics(
 
     try:
         result = await internal_api.get_metrics_user(guild_id, user_id, days=days)
+
+        raw_user_id = result.get("user_id")
+        result["user_id"] = str(raw_user_id if raw_user_id is not None else user_id)
+
+        for tier_key in ("voice_tier", "chat_tier", "game_tier", "combined_tier"):
+            result[tier_key] = result.get(tier_key) or "inactive"
+
         return UserMetricsResponse(data=UserMetrics(**result))
     except Exception as exc:
         logger.exception("User metrics fetch failed for user_id=%s guild_id=%s", user_id, guild_id)
-        fallback = UserMetrics(
-            user_id=str(user_id),
-            total_messages=0,
-            total_voice_seconds=0,
-            avg_messages_per_day=0.0,
-            avg_voice_per_day=0,
-            top_games=[],
-            timeseries=[],
-        )
-        return UserMetricsResponse(data=fallback)
+        raise HTTPException(status_code=502, detail="User metrics unavailable") from exc
 
 
 @router.delete("/user/{user_id}")

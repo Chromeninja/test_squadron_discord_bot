@@ -267,24 +267,51 @@ async def test_user_metrics(
     assert data["total_voice_seconds"] == 36000
     assert len(data["top_games"]) == 1
     assert data["top_games"][0]["game_name"] == "Star Citizen"
+    assert data["combined_tier"] == "inactive"
+    assert data["voice_tier"] == "inactive"
+    assert data["chat_tier"] == "inactive"
+    assert data["game_tier"] == "inactive"
+
+
+@pytest.mark.asyncio
+async def test_user_metrics_coerces_integer_user_id(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """User metrics route coerces int user_id payloads to string."""
+    _use_fixture(fake_internal_api)
+    fake_internal_api._metrics_user_override = {
+        "user_id": 134465907190661120,
+        "total_messages": 42,
+        "total_voice_seconds": 3600,
+        "avg_messages_per_day": 1.4,
+        "avg_voice_per_day": 120,
+        "top_games": [],
+        "timeseries": [],
+    }
+
+    response = await client.get(
+        "/api/metrics/user/134465907190661120?days=30",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["data"]["user_id"] == "134465907190661120"
 
 
 @pytest.mark.asyncio
 async def test_user_metrics_internal_error(
     client: AsyncClient, mock_admin_session: str, fake_internal_api
 ):
-    """User metrics returns safe fallback payload on internal failure."""
+    """User metrics returns 502 on internal failure."""
     fake_internal_api._metrics_user_override = RuntimeError("user not found")
     response = await client.get(
         "/api/metrics/user/123456789",
         cookies={"session": mock_admin_session},
     )
-    assert response.status_code == HTTPStatus.OK
+    assert response.status_code == HTTPStatus.BAD_GATEWAY
     body = response.json()
-    assert body["success"] is True
-    assert body["data"]["user_id"] == "123456789"
-    assert body["data"]["total_messages"] == 0
-    assert body["data"]["total_voice_seconds"] == 0
+    assert body["detail"] == "User metrics unavailable"
 
 
 # ---------------------------------------------------------------------------

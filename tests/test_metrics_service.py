@@ -1077,10 +1077,10 @@ class TestActivityThresholds:
         assert result[2]["chat_tier"] == "hardcore"
 
     @pytest.mark.asyncio
-    async def test_chat_burst_messages_same_window_excluded(
+    async def test_chat_burst_messages_same_window_included(
         self, metrics_service: MetricsService
     ) -> None:
-        """Burst spam in one 3-minute window does not satisfy chat threshold."""
+        """Burst messages in one 3-minute window still satisfy min_messages."""
         now = int(time.time())
 
         async def _threshold_5(
@@ -1097,7 +1097,7 @@ class TestActivityThresholds:
         )
         metrics_service._activity_thresholds_cache.clear()
 
-        # 5 rapid messages in the same 3-minute window => 1 qualifying window
+        # 5 rapid messages in the same 3-minute window => 5 total messages
         for _ in range(5):
             metrics_service.record_message(guild_id=100, user_id=6, channel_id=10)
         await metrics_service._flush_message_buffer()
@@ -1105,7 +1105,8 @@ class TestActivityThresholds:
         result = await metrics_service.get_member_activity_buckets(
             guild_id=100, lookback_days=1, now_utc=now,
         )
-        assert 6 not in result
+        assert 6 in result
+        assert result[6]["chat_tier"] == "hardcore"
 
     @pytest.mark.asyncio
     async def test_voice_below_threshold_excluded(
