@@ -18,21 +18,9 @@ import {
 import { metricsApi, UserMetrics } from '../../api/endpoints';
 import { handleApiError } from '../../utils/toast';
 import { getTierHelpText } from '../../utils/tierHelpers';
-
-const TIER_BADGE_COLORS: Record<string, string> = {
-  hardcore: 'bg-red-600/20 text-red-400 border-red-600/40',
-  regular: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-  casual: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-  reserve: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
-  inactive: 'bg-gray-700/20 text-gray-500 border-gray-600/40',
-};
-
-const TIER_ICONS: Record<string, string> = {
-  combined: '🌐',
-  voice: '🎤',
-  chat: '💬',
-  game: '🎮',
-};
+import { formatDuration, formatTimestamp } from '../../utils/format';
+import { TIER_BADGE_COLORS, TIER_ICONS } from '../../utils/tierColors';
+import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 
 // Tier cadence helpers imported from utils/tierHelpers
 
@@ -56,18 +44,6 @@ interface UserDetailPanelProps {
   username?: string | null;
   days: number;
   onClose: () => void;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  const hours = seconds / 3600;
-  return hours < 100 ? `${hours.toFixed(1)}h` : `${Math.round(hours)}h`;
-}
-
-function formatTimestamp(epoch: number): string {
-  const d = new Date(epoch * 1000);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 export default function UserDetailPanel({ userId, username, days, onClose }: UserDetailPanelProps) {
@@ -249,13 +225,7 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
                         tickFormatter={(v: number) => `${v.toFixed(1)}h`}
                       />
                       <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#1e293b',
-                          border: '1px solid #334155',
-                          borderRadius: '6px',
-                          color: '#e2e8f0',
-                          fontSize: '12px',
-                        }}
+                        contentStyle={CHART_TOOLTIP_STYLE}
                         formatter={((value: number | undefined, name: string | undefined) => {
                           if (name === 'Voice (hrs)') return [`${(value ?? 0).toFixed(1)}h`, name];
                           return [(value ?? 0).toLocaleString(), name ?? ''];

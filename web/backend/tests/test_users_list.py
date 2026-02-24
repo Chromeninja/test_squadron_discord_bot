@@ -265,6 +265,73 @@ async def test_list_users_with_search(
 
 
 @pytest.mark.asyncio
+async def test_get_user_details_enriched(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Test single-user details endpoint returns Discord-enriched data."""
+    fake_internal_api.member_data[(123, 123456789)] = {
+        "user_id": 123456789,
+        "username": "VoiceUser",
+        "discriminator": "1234",
+        "global_name": "Voice User",
+        "avatar_url": "https://example.com/voice-user.png",
+        "joined_at": "2024-01-01T00:00:00",
+        "created_at": "2023-01-01T00:00:00",
+        "roles": [{"id": 1001, "name": "Member", "color": 12345}],
+        "role_ids": ["1001"],
+        "source": "discord",
+    }
+
+    response = await client.get(
+        "/api/users/detail/123456789",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["discord_id"] == "123456789"
+    assert body["data"]["username"] == "VoiceUser"
+    assert body["data"]["avatar_url"] == "https://example.com/voice-user.png"
+    assert body["data"]["membership_status"] == "main"
+    assert body["data"]["main_orgs"] == ["TEST"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_details_without_verification_row(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """User details should still return Discord profile data if verification row is missing."""
+    fake_internal_api.member_data[(123, 246604397155581954)] = {
+        "user_id": 246604397155581954,
+        "username": "DiscordOnly",
+        "discriminator": "0001",
+        "global_name": "Discord Only",
+        "avatar_url": "https://example.com/discord-only.png",
+        "joined_at": "2024-02-01T00:00:00",
+        "created_at": "2023-02-01T00:00:00",
+        "roles": [{"id": 2001, "name": "Staff", "color": 22222}],
+        "role_ids": ["2001"],
+        "source": "discord",
+    }
+
+    response = await client.get(
+        "/api/users/detail/246604397155581954",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["discord_id"] == "246604397155581954"
+    assert body["data"]["username"] == "DiscordOnly"
+    assert body["data"]["avatar_url"] == "https://example.com/discord-only.png"
+    assert body["data"]["roles"]
+    assert body["data"]["main_orgs"] is None
+    assert body["data"]["affiliate_orgs"] is None
+
+
+@pytest.mark.asyncio
 async def test_list_users_with_orgs_filter(
     client: AsyncClient, mock_admin_session: str, fake_internal_api
 ):

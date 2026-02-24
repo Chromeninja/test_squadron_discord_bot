@@ -198,60 +198,27 @@ function App() {
       <div className="bg-slate-800 border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                activeTab === 'dashboard'
-                  ? 'border-indigo-500 text-indigo-500'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Dashboard
-            </button>
-            {canViewMetrics && (
-              <button
-                onClick={() => setActiveTab('metrics')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                  activeTab === 'metrics'
-                    ? 'border-indigo-500 text-indigo-500'
-                    : 'border-transparent text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                Metrics
-              </button>
-            )}
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                activeTab === 'users'
-                  ? 'border-indigo-500 text-indigo-500'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Users
-            </button>
-            <button
-              onClick={() => setActiveTab('voice')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                activeTab === 'voice'
-                  ? 'border-indigo-500 text-indigo-500'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Voice
-            </button>
-            {userHasPermission('bot_admin') && (
-              <button
-                onClick={() => setActiveTab('bot-settings')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                  activeTab === 'bot-settings'
-                    ? 'border-indigo-500 text-indigo-500'
-                    : 'border-transparent text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                Bot Settings
-              </button>
-            )}
+            {([
+              { key: 'dashboard' as Tab, label: 'Dashboard', visible: true },
+              { key: 'metrics' as Tab, label: 'Metrics', visible: canViewMetrics },
+              { key: 'users' as Tab, label: 'Users', visible: true },
+              { key: 'voice' as Tab, label: 'Voice', visible: true },
+              { key: 'bot-settings' as Tab, label: 'Bot Settings', visible: userHasPermission('bot_admin') },
+            ])
+              .filter((t) => t.visible)
+              .map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveTab(t.key)}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
+                    activeTab === t.key
+                      ? 'border-indigo-500 text-indigo-500'
+                      : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
           </nav>
         </div>
       </div>

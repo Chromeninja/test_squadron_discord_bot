@@ -13,6 +13,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { formatTimestamp } from '../../utils/format';
+import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 
 interface DataPoint {
   timestamp: number;
@@ -28,11 +30,6 @@ interface TimeSeriesChartProps {
   valueLabel?: string;
   /** Format function for values (e.g., convert seconds to hours) */
   formatValue?: (val: number) => string;
-}
-
-function formatTimestamp(epoch: number): string {
-  const d = new Date(epoch * 1000);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 /** Props for the custom tooltip, extending Recharts' built-in content props. */
@@ -58,14 +55,7 @@ function CustomTimeSeriesTooltip({ active, payload, label, fmtVal, valueLabel }:
   const users = entry.unique_users ?? 0;
   return (
     <div
-      style={{
-        backgroundColor: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: '6px',
-        padding: '8px 12px',
-        fontSize: '12px',
-        color: '#e2e8f0',
-      }}
+      style={CHART_TOOLTIP_STYLE}
     >
       <div className="font-medium text-white mb-1">{label}</div>
       <div className="text-gray-300">

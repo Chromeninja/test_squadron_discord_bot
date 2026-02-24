@@ -29,7 +29,7 @@ from core.pagination import (
 )
 from core.rate_limit import limiter
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -205,7 +205,7 @@ def _build_search_where(
 
 def _enriched_user_from_row(
     parsed: dict,
-    status: str,
+    status: str | None,
     member_data: dict | None = None,
     guild_id: str | None = None,
     guild_name: str | None = None,
@@ -430,6 +430,13 @@ class UsersListResponse(BaseModel):
     is_cross_guild: bool = False  # True when in All Guilds mode
 
 
+class UserDetailsResponse(BaseModel):
+    """Response model for a single enriched user details request."""
+
+    success: bool = True
+    data: EnrichedUser
+
+
 class ExportUsersRequest(BaseModel):
     """Request payload for CSV export."""
 
@@ -527,6 +534,68 @@ async def list_users(
         where_clause,
         where_params,
     )
+
+
+@router.get("/detail/{discord_id}", response_model=UserDetailsResponse)
+async def get_user_details(
+    discord_id: str,
+    db=Depends(get_db),
+    current_user: UserProfile = Depends(require_staff()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Return a single Discord-enriched user record for the active guild.
+
+    Uses Discord as source of truth for member profile fields (avatar, roles, joined dates),
+    and merges verification fields (RSI/org/status) when a verification row exists.
+    """
+    if not current_user.active_guild_id:
+        raise HTTPException(status_code=400, detail="No active guild selected")
+
+    if is_all_guilds_mode(current_user.active_guild_id):
+        raise HTTPException(
+            status_code=400,
+            detail="User details are unavailable in All Guilds mode",
+        )
+
+    try:
+        user_id = int(discord_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid Discord user ID") from exc
+
+    guild_id = int(current_user.active_guild_id)
+
+    try:
+        member_data = await _get_member_with_cache(internal_api, guild_id, user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Failed to fetch Discord member") from exc
+
+    cursor = await db.execute(
+        f"SELECT {_VERIFICATION_COLUMNS} FROM verification WHERE user_id = ? LIMIT 1",
+        (user_id,),
+    )
+    row = await cursor.fetchone()
+
+    if row:
+        parsed = _parse_verification_row(row)
+        org_settings = await get_organization_settings(db, guild_id)
+        organization_sid = org_settings.get("organization_sid") if org_settings else None
+        status = derive_status_from_orgs(
+            parsed["main_orgs"], parsed["affiliate_orgs"], organization_sid
+        )
+    else:
+        parsed = {
+            "user_id": user_id,
+            "rsi_handle": None,
+            "community_moniker": None,
+            "last_updated": None,
+            "needs_reverify": False,
+            "main_orgs": None,
+            "affiliate_orgs": None,
+        }
+        status = None
+
+    enriched = _enriched_user_from_row(parsed, status, member_data=member_data)
+    return UserDetailsResponse(data=enriched)
 
 
 async def _list_users_cross_guild(

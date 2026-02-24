@@ -343,6 +343,11 @@ export interface UsersListResponse {
   is_cross_guild?: boolean;
 }
 
+export interface UserDetailsResponse {
+  success: boolean;
+  data: EnrichedUser;
+}
+
 export interface ExportUsersRequest {
   membership_status?: string | null;
   membership_statuses?: string[] | null;
@@ -679,6 +684,13 @@ export const usersApi = {
     }
 
     const response = await apiClient.get<UsersListResponse>('/api/users', { params });
+    return response.data;
+  },
+
+  getUserDetails: async (discordId: string): Promise<UserDetailsResponse> => {
+    const response = await apiClient.get<UserDetailsResponse>(
+      `/api/users/detail/${discordId}`
+    );
     return response.data;
   },
 

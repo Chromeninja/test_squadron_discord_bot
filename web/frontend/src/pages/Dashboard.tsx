@@ -93,30 +93,18 @@ function Dashboard() {
     fetchData();
   };
 
-  const handleExportLogs = async () => {
-    try {
-      await logsApi.exportLogs();
-      showSuccess('Bot logs exported successfully');
-    } catch (err) {
-      handleApiError(err, 'Failed to export bot logs');
-    }
-  };
+  const exportActions: { label: string; action: () => Promise<void>; errorMsg: string }[] = [
+    { label: 'Export Bot Logs', action: () => logsApi.exportLogs(), errorMsg: 'Failed to export bot logs' },
+    { label: 'Export Backend Logs', action: () => logsApi.exportBackendLogs(), errorMsg: 'Failed to export backend logs' },
+    { label: 'Export Audit Logs', action: () => logsApi.exportAuditLogs(), errorMsg: 'Failed to export audit logs' },
+  ];
 
-  const handleExportBackendLogs = async () => {
+  const handleExport = async (action: () => Promise<void>, successMsg: string, errorMsg: string) => {
     try {
-      await logsApi.exportBackendLogs();
-      showSuccess('Backend logs exported successfully');
+      await action();
+      showSuccess(successMsg);
     } catch (err) {
-      handleApiError(err, 'Failed to export backend logs');
-    }
-  };
-
-  const handleExportAuditLogs = async () => {
-    try {
-      await logsApi.exportAuditLogs();
-      showSuccess('Audit logs exported successfully');
-    } catch (err) {
-      handleApiError(err, 'Failed to export audit logs');
+      handleApiError(err, errorMsg);
     }
   };
 
@@ -344,45 +332,22 @@ function Dashboard() {
                 Actions
               </h3>
               <div className="space-y-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={handleExportLogs}
-                  leftIcon={
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  }
-                >
-                  Export Bot Logs
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={handleExportBackendLogs}
-                  leftIcon={
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  }
-                >
-                  Export Backend Logs
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={handleExportAuditLogs}
-                  leftIcon={
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  }
-                >
-                  Export Audit Logs
-                </Button>
+                {exportActions.map(({ label, action, errorMsg }) => (
+                  <Button
+                    key={label}
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={() => handleExport(action, `${label.replace('Export ', '')} exported successfully`, errorMsg)}
+                    leftIcon={
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    }
+                  >
+                    {label}
+                  </Button>
+                ))}
               </div>
             </Card>
           </div>

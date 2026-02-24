@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 
 interface LeaderboardEntry {
   user_id: string | number;
@@ -51,14 +52,7 @@ function CustomLeaderboardTooltip({
   if (!entry) return null;
   return (
     <div
-      style={{
-        backgroundColor: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: '6px',
-        padding: '8px 12px',
-        fontSize: '12px',
-        color: '#e2e8f0',
-      }}
+      style={CHART_TOOLTIP_STYLE}
     >
       <div className="font-medium text-white mb-1">#{entry.rank} {entry.name}</div>
       <div className="text-gray-300">

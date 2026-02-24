@@ -7,8 +7,8 @@ export interface ModalProps {
   open: boolean;
   /** Callback when modal should close */
   onClose: () => void;
-  /** Modal title */
-  title?: string;
+  /** Modal title (string or JSX) */
+  title?: React.ReactNode;
   /** Modal size */
   size?: ModalSize;
   /** Header color variant */
