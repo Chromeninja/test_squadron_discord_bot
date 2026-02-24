@@ -271,6 +271,7 @@ class FakeInternalAPIClient:
         self._metrics_top_games_override = None
         self._metrics_timeseries_override = None
         self._metrics_user_override = None
+        self._metrics_delete_user_override = None
 
     async def get_guilds(self) -> list[dict]:
         return self.guilds
@@ -595,6 +596,20 @@ class FakeInternalAPIClient:
                     "voice_seconds": 1800,
                 }
             ],
+        }
+
+    async def delete_metrics_user(self, guild_id: int, user_id: int) -> dict:
+        """Delete per-user metrics data."""
+        if self._metrics_delete_user_override is not None:
+            if isinstance(self._metrics_delete_user_override, Exception):
+                raise self._metrics_delete_user_override
+            return self._metrics_delete_user_override
+        return {
+            "deleted": {
+                "messages": 10,
+                "voice_sessions": 3,
+                "game_sessions": 2,
+            }
         }
 
     async def get_activity_groups(

@@ -1331,11 +1331,9 @@ class InternalAPIServer:
                     "period": period,
                 }
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching metrics overview")
-            return web.json_response(
-                {"error": f"Failed to fetch metrics: {e!s}"}, status=500
-            )
+            return web.json_response({"error": "Failed to fetch metrics"}, status=500)
 
     async def get_metrics_voice_leaderboard(self, request: web.Request) -> web.Response:
         """
@@ -1380,10 +1378,10 @@ class InternalAPIServer:
             await self._enrich_leaderboard_entries(guild_id, leaderboard)
 
             return web.json_response({"entries": leaderboard})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching voice leaderboard")
             return web.json_response(
-                {"error": f"Failed to fetch voice leaderboard: {e!s}"}, status=500
+                {"error": "Failed to fetch voice leaderboard"}, status=500
             )
 
     async def get_metrics_message_leaderboard(
@@ -1431,10 +1429,10 @@ class InternalAPIServer:
             await self._enrich_leaderboard_entries(guild_id, leaderboard)
 
             return web.json_response({"entries": leaderboard})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching message leaderboard")
             return web.json_response(
-                {"error": f"Failed to fetch message leaderboard: {e!s}"}, status=500
+                {"error": "Failed to fetch message leaderboard"}, status=500
             )
 
     async def get_metrics_top_games(self, request: web.Request) -> web.Response:
@@ -1477,11 +1475,9 @@ class InternalAPIServer:
                 user_ids=self._parse_user_ids(request),
             )
             return web.json_response({"games": games})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching top games")
-            return web.json_response(
-                {"error": f"Failed to fetch top games: {e!s}"}, status=500
-            )
+            return web.json_response({"error": "Failed to fetch top games"}, status=500)
 
     async def get_metrics_timeseries(self, request: web.Request) -> web.Response:
         """
@@ -1524,10 +1520,10 @@ class InternalAPIServer:
                 user_ids=self._parse_user_ids(request),
             )
             return web.json_response({"metric": metric, "days": days, "data": data})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching timeseries")
             return web.json_response(
-                {"error": f"Failed to fetch timeseries: {e!s}"}, status=500
+                {"error": "Failed to fetch timeseries"}, status=500
             )
 
     async def get_metrics_user(self, request: web.Request) -> web.Response:
@@ -1598,10 +1594,10 @@ class InternalAPIServer:
                 logger.warning("Failed to compute activity tiers for user %d", user_id)
 
             return web.json_response(data)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching user metrics")
             return web.json_response(
-                {"error": f"Failed to fetch user metrics: {e!s}"}, status=500
+                {"error": "Failed to fetch user metrics"}, status=500
             )
 
     async def get_activity_groups(self, request: web.Request) -> web.Response:
@@ -1643,10 +1639,10 @@ class InternalAPIServer:
                 days=days,
             )
             return web.json_response(counts)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching activity groups")
             return web.json_response(
-                {"error": f"Failed to fetch activity groups: {e!s}"}, status=500
+                {"error": "Failed to fetch activity groups"}, status=500
             )
 
     async def get_activity_group_members(self, request: web.Request) -> web.Response:
@@ -1693,10 +1689,10 @@ class InternalAPIServer:
                 guild_id, dimension, tier
             )
             return web.json_response({"user_ids": user_ids})
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching activity group members")
             return web.json_response(
-                {"error": f"Failed to fetch activity group members: {e!s}"}, status=500
+                {"error": "Failed to fetch activity group members"}, status=500
             )
 
     async def get_activity_group_members_bulk(
@@ -1763,10 +1759,10 @@ class InternalAPIServer:
                 lookback_days=days,
             )
             return web.json_response(result)
-        except Exception as e:
+        except Exception:
             logger.exception("Error fetching bulk activity group members")
             return web.json_response(
-                {"error": f"Failed to fetch bulk activity group members: {e!s}"},
+                {"error": "Failed to fetch bulk activity group members"},
                 status=500,
             )
 

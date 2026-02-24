@@ -5,6 +5,7 @@ Provides aggregated user activity metrics: voice time, game tracking,
 message counts, leaderboards, and time-series data for charting.
 """
 
+import contextlib
 import logging
 
 from core.dependencies import (
@@ -26,6 +27,8 @@ from core.schemas import (
     UserProfile,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+from helpers.audit import log_admin_action
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -101,12 +104,15 @@ async def _resolve_activity_filter(
                         merged_user_ids.add(int(uid))
                     except (TypeError, ValueError):
                         continue
-        return sorted(merged_user_ids) if merged_user_ids else None
-    except Exception:
+        return sorted(merged_user_ids)
+    except Exception as exc:
         logger.warning(
-            "Failed to resolve activity filter dimension=%s tier=%s", dimension, tier
+            "Failed to resolve activity filter dimension=%s tier=%s",
+            dimension,
+            tier,
+            exc_info=exc,
         )
-        return None
+        return []
 
 
 @router.get("/overview", response_model=MetricsOverviewResponse)
@@ -388,9 +394,32 @@ async def delete_user_metrics(
     Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
+    admin_user_id = int(current_user.user_id)
 
     try:
         result = await internal_api.delete_metrics_user(guild_id, user_id)
+        await log_admin_action(
+            admin_user_id=admin_user_id,
+            guild_id=guild_id,
+            action="DELETE_USER_METRICS",
+            target_user_id=user_id,
+            details={"result": result},
+            status="success",
+        )
         return result
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "Delete user metrics failed for guild_id=%s user_id=%s",
+            guild_id,
+            user_id,
+        )
+        with contextlib.suppress(Exception):
+            await log_admin_action(
+                admin_user_id=admin_user_id,
+                guild_id=guild_id,
+                action="DELETE_USER_METRICS",
+                target_user_id=user_id,
+                details={"error_type": type(exc).__name__},
+                status="error",
+            )
         raise HTTPException(status_code=502, detail="Failed to delete user metrics")

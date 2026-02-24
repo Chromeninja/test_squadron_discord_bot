@@ -314,6 +314,77 @@ async def test_user_metrics_internal_error(
     assert body["detail"] == "User metrics unavailable"
 
 
+@pytest.mark.asyncio
+async def test_delete_user_metrics_success_audited(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Delete metrics success path writes audit log and returns payload."""
+    _use_fixture(fake_internal_api)
+    calls: list[dict] = []
+
+    async def _fake_log_admin_action(**kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "routes.metrics.log_admin_action",
+        _fake_log_admin_action,
+    )
+
+    response = await client.delete(
+        "/api/metrics/user/123456789",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == {
+        "deleted": {
+            "messages": 10,
+            "voice_sessions": 3,
+            "game_sessions": 2,
+        }
+    }
+    assert len(calls) == 1
+    assert calls[0]["action"] == "DELETE_USER_METRICS"
+    assert calls[0]["status"] == "success"
+    assert calls[0]["target_user_id"] == 123456789
+
+
+@pytest.mark.asyncio
+async def test_delete_user_metrics_error_audited(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Delete metrics failure writes error audit and returns 502."""
+    _use_fixture(fake_internal_api)
+    fake_internal_api._metrics_delete_user_override = RuntimeError("boom")
+    calls: list[dict] = []
+
+    async def _fake_log_admin_action(**kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "routes.metrics.log_admin_action",
+        _fake_log_admin_action,
+    )
+
+    response = await client.delete(
+        "/api/metrics/user/123456789",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_GATEWAY
+    assert response.json()["detail"] == "Failed to delete user metrics"
+    assert len(calls) == 1
+    assert calls[0]["action"] == "DELETE_USER_METRICS"
+    assert calls[0]["status"] == "error"
+    assert calls[0]["target_user_id"] == 123456789
+
+
 # ---------------------------------------------------------------------------
 # Cross-cutting: moderator access
 # ---------------------------------------------------------------------------
@@ -501,3 +572,57 @@ async def test_filter_returns_none_when_no_match(
     )
     # Should still succeed — falls back to unfiltered
     assert response.status_code == HTTPStatus.OK
+
+
+@pytest.mark.asyncio
+async def test_filter_resolution_error_fails_closed(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Filter resolution failures pass an empty user list (fail-closed)."""
+
+    async def _raise_bulk(
+        guild_id: int,
+        dimensions: list[str],
+        tiers: list[str],
+        days: int = 30,
+    ) -> dict[str, dict[str, list[int]]]:
+        raise RuntimeError("bulk unavailable")
+
+    captured_user_ids: list[int] | None = None
+
+    async def _capture_overview(
+        guild_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        nonlocal captured_user_ids
+        captured_user_ids = user_ids
+        return {
+            "live": {
+                "messages_today": 42,
+                "active_voice_users": 3,
+                "top_game": "Star Citizen",
+                "active_game_sessions": 5,
+            },
+            "period": {
+                "total_messages": 1200,
+                "unique_messagers": 25,
+                "avg_messages_per_user": 48.0,
+                "total_voice_seconds": 360000,
+                "unique_voice_users": 18,
+                "avg_voice_per_user": 20000,
+                "unique_users": 30,
+                "top_games": [],
+            },
+        }
+
+    fake_internal_api.get_activity_group_members_bulk = _raise_bulk
+    fake_internal_api.get_metrics_overview = _capture_overview
+
+    response = await client.get(
+        "/api/metrics/overview?days=7&dimension=voice&tier=hardcore",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert captured_user_ids == []

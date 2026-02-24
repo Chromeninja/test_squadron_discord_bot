@@ -1086,7 +1086,7 @@ class InternalAPIClient:
         """Get metrics overview (live snapshot + aggregated period data)."""
         client = await self._get_client()
         params: dict = {"days": days}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/overview", params=params
@@ -1104,7 +1104,7 @@ class InternalAPIClient:
         """Get top users by voice time."""
         client = await self._get_client()
         params: dict = {"days": days, "limit": limit}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/voice/leaderboard",
@@ -1123,7 +1123,7 @@ class InternalAPIClient:
         """Get top users by message count."""
         client = await self._get_client()
         params: dict = {"days": days, "limit": limit}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/messages/leaderboard",
@@ -1142,7 +1142,7 @@ class InternalAPIClient:
         """Get top games by total play time."""
         client = await self._get_client()
         params: dict = {"days": days, "limit": limit}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/games/top",
@@ -1161,7 +1161,7 @@ class InternalAPIClient:
         """Get hourly time-series data for charts."""
         client = await self._get_client()
         params: dict = {"metric": metric, "days": days}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/timeseries",
@@ -1198,7 +1198,7 @@ class InternalAPIClient:
         """Get activity group tier counts per dimension."""
         client = await self._get_client()
         params: dict[str, int | str] = {"days": days}
-        if user_ids:
+        if user_ids is not None:
             params["user_ids"] = ",".join(str(uid) for uid in user_ids)
         response = await client.get(
             f"/guilds/{guild_id}/metrics/activity-groups",
