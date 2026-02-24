@@ -66,6 +66,7 @@ const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
 ];
 
 const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', 'inactive'];
+const ACTIVE_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve'];
 
 // Tier cadence helpers imported from utils/tierHelpers
 
@@ -104,15 +105,18 @@ export default function Metrics() {
     setError(null);
 
     const filterDims = dims ?? selectedDimensions;
-    const filterTiers = tiers ?? selectedTiers;
     const hasSpecificDim = filterDims.some((value) => value !== 'all');
+    const effectiveTiers =
+      (tiers ?? selectedTiers).length > 0
+        ? (tiers ?? selectedTiers)
+        : (hasSpecificDim ? ACTIVE_TIERS : []);
     const specificDims: ActivityDimension[] = filterDims.filter(
       (value): value is Exclude<ActivityDimension, 'all'> => value !== 'all'
     );
     const filterParam: ActivityDimension[] | undefined = hasSpecificDim
       ? specificDims
-      : (filterTiers.length > 0 ? ['all'] : undefined);
-    const tierParam: ActivityTier[] | undefined = filterTiers.length > 0 ? filterTiers : undefined;
+      : (effectiveTiers.length > 0 ? ['all'] : undefined);
+    const tierParam: ActivityTier[] | undefined = effectiveTiers.length > 0 ? effectiveTiers : undefined;
 
     try {
       // Fetch all metrics data in parallel (include activity group counts)
