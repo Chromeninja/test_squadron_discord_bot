@@ -942,6 +942,15 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
             />
           </div>
 
+          <div className="flex justify-end text-xs text-gray-400">
+            Changes are saved with the main Save button below.
+          </div>
+        </div>
+      </AccordionSection>
+
+      {/* Metrics Settings - Top Level Accordion */}
+      <AccordionSection title="📊 Metrics Settings" level={1}>
+        <div className="space-y-4">
           <div>
             <h5 className="text-sm font-semibold text-white mb-1">Metrics Excluded Channels</h5>
             <p className="text-xs text-gray-400 mb-2">
