@@ -1,7 +1,7 @@
 /**
  * GamePieChart — Pie/donut chart for top games by play time.
  *
- * Shows game distribution with hover details and a legend.
+ * Shows game distribution with hover details, percentages, and a legend.
  */
 
 import {
@@ -26,7 +26,8 @@ interface GamePieChartProps {
   title: string;
 }
 
-const COLORS = [
+/** Exported for use in game statistics table color dots. */
+export const COLORS = [
   '#6366f1', // indigo
   '#8b5cf6', // violet
   '#a855f7', // purple
@@ -50,17 +51,47 @@ function formatDuration(seconds: number): string {
   return `${Math.round(hours)}h`;
 }
 
+/** Custom tooltip content for the pie chart — fixes game name display. */
+function CustomPieTooltip({ active, payload }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0];
+  const { name, value, sessions, avgTime, players } = entry.payload;
+  const total = payload[0]?.payload?.total ?? value;
+  const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+  return (
+    <div
+      className="space-y-1 text-slate-200"
+      style={{
+        backgroundColor: '#1e293b',
+        border: '1px solid #334155',
+        borderRadius: '6px',
+        padding: '8px 12px',
+        fontSize: '12px',
+      }}
+    >
+      <div className="font-medium text-white">{name}</div>
+      <div>Total: {formatDuration(value)} ({pct}%)</div>
+      <div>Sessions: {sessions}</div>
+      <div>Avg: {formatDuration(avgTime)}</div>
+      {players > 0 && <div>Players: {players}</div>}
+    </div>
+  );
+}
+
 export default function GamePieChart({ data, title }: GamePieChartProps) {
+  const totalSeconds = data.reduce((sum, g) => sum + g.total_seconds, 0);
+
   const chartData = data.map((game) => ({
     name: game.game_name,
     value: game.total_seconds,
     sessions: game.session_count,
     avgTime: game.avg_seconds,
     players: game.unique_players ?? 0,
+    total: totalSeconds,
   }));
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5">
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5" role="img" aria-label={`${title} pie chart`}>
       <h3 className="text-sm font-semibold text-gray-300 mb-4">{title}</h3>
       {chartData.length === 0 ? (
         <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
@@ -88,35 +119,17 @@ export default function GamePieChart({ data, title }: GamePieChartProps) {
                 />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                color: '#e2e8f0',
-                fontSize: '12px',
-              }}
-              labelStyle={{ color: '#e2e8f0' }}
-              itemStyle={{ color: '#e2e8f0' }}
-              formatter={((value: number | undefined, _name: string | undefined, props: any) => {
-                const { payload } = props;
-                const v = value ?? 0;
-                return [
-                  <div key="tip" className="space-y-1 text-slate-200">
-                    <div>Total: {formatDuration(v)}</div>
-                    <div>Sessions: {payload.sessions}</div>
-                    <div>Avg: {formatDuration(payload.avgTime)}</div>
-                    {payload.players > 0 && <div>Players: {payload.players}</div>}
-                  </div>,
-                  '',
-                ];
-              }) as any}
-            />
+            <Tooltip content={<CustomPieTooltip />} />
             <Legend
               wrapperStyle={{ fontSize: '11px', color: '#9ca3af' }}
-              formatter={(value) => (
-                <span className="text-gray-400 text-xs">{value}</span>
-              )}
+              formatter={(value: string, _entry: any, index: number) => {
+                const pct = totalSeconds > 0
+                  ? ((chartData[index]?.value ?? 0) / totalSeconds * 100).toFixed(0)
+                  : '0';
+                return (
+                  <span className="text-gray-400 text-xs">{value} ({pct}%)</span>
+                );
+              }}
             />
           </PieChart>
         </ResponsiveContainer>

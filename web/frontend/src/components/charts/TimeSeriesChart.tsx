@@ -35,6 +35,45 @@ function formatTimestamp(epoch: number): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** Custom tooltip that includes unique_users count when available. */
+function CustomTimeSeriesToolip({ active, payload, label, fmtVal, valueLabel }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0]?.payload;
+  if (!entry) return null;
+  const value = entry.value ?? 0;
+  const users = entry.unique_users ?? 0;
+  return (
+    <div
+      style={{
+        backgroundColor: '#1e293b',
+        border: '1px solid #334155',
+        borderRadius: '6px',
+        padding: '8px 12px',
+        fontSize: '12px',
+        color: '#e2e8f0',
+      }}
+    >
+      <div className="font-medium text-white mb-1">{label}</div>
+      <div className="text-gray-300">
+        {valueLabel}: {fmtVal(value)}
+      </div>
+      {users > 0 && (
+        <div className="text-gray-400 text-[11px]">
+          {users} unique user{users !== 1 ? 's' : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compute a reasonable tick interval for the X-axis based on data point count. */
+function getTickInterval(dataLength: number): number | 'preserveStartEnd' {
+  if (dataLength <= 14) return 0;         // show all labels for ≤14 days
+  if (dataLength <= 35) return 1;         // every other label
+  if (dataLength <= 60) return 4;         // ~weekly
+  return Math.floor(dataLength / 10);     // ~10 labels for 90d+
+}
+
 export default function TimeSeriesChart({
   data,
   title,
@@ -66,9 +105,10 @@ export default function TimeSeriesChart({
   }));
 
   const fmtVal = formatValue ?? ((v: number) => v.toLocaleString());
+  const tickInterval = getTickInterval(chartData.length);
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5">
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5" role="img" aria-label={`${title} trend chart`}>
       <h3 className="text-sm font-semibold text-gray-300 mb-4">{title}</h3>
       {chartData.length === 0 ? (
         <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
@@ -89,6 +129,7 @@ export default function TimeSeriesChart({
               tick={{ fill: '#9ca3af', fontSize: 11 }}
               axisLine={{ stroke: '#475569' }}
               tickLine={false}
+              interval={tickInterval}
             />
             <YAxis
               tick={{ fill: '#9ca3af', fontSize: 11 }}
@@ -97,17 +138,7 @@ export default function TimeSeriesChart({
               tickFormatter={(v) => fmtVal(v)}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                color: '#e2e8f0',
-                fontSize: '12px',
-              }}
-              labelStyle={{ color: '#e2e8f0' }}
-              itemStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number | undefined) => [fmtVal(value ?? 0), valueLabel]}
-              labelFormatter={(label) => label}
+              content={<CustomTimeSeriesToolip fmtVal={fmtVal} valueLabel={valueLabel} />}
             />
             <Area
               type="monotone"

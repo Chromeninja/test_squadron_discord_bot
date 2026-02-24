@@ -9,7 +9,7 @@
  * - Per-user drill-down on click
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   metricsApi,
   MetricsOverview,
@@ -29,6 +29,7 @@ import {
   GamePieChart,
   UserDetailPanel,
 } from '../components/charts';
+import { COLORS as PIE_COLORS } from '../components/charts/GamePieChart';
 
 type TimeRange = 7 | 30 | 90;
 
@@ -109,8 +110,9 @@ export default function Metrics() {
   const [dimensionDropdownOpen, setDimensionDropdownOpen] = useState<boolean>(false);
   const [activityCounts, setActivityCounts] = useState<ActivityGroupCounts | null>(null);
   const dimensionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchData = async (range: TimeRange, dims?: ActivityDimension[], tiers?: ActivityTier[]) => {
+  const fetchData = useCallback(async (range: TimeRange, dims?: ActivityDimension[], tiers?: ActivityTier[]) => {
     setLoading(true);
     setError(null);
 
@@ -151,11 +153,18 @@ export default function Metrics() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDimensions, selectedTiers]);
 
   useEffect(() => {
-    fetchData(days);
-  }, [days, selectedDimensions, selectedTiers]);
+    // Debounce rapid filter toggles to avoid hammering 7 API calls per click
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      fetchData(days);
+    }, 300);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [days, selectedDimensions, selectedTiers, fetchData]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -234,6 +243,15 @@ export default function Metrics() {
   const period = overview?.period;
   const live = overview?.live;
 
+  // Detect zero-data state: all KPIs are zero
+  const isEmptyServer =
+    !loading &&
+    !error &&
+    (period?.total_messages ?? 0) === 0 &&
+    (period?.total_voice_seconds ?? 0) === 0 &&
+    (period?.unique_messagers ?? 0) === 0 &&
+    (period?.unique_voice_users ?? 0) === 0;
+
   return (
     <div className="space-y-6">
       {/* Header with time range selector */}
@@ -272,6 +290,10 @@ export default function Metrics() {
         <div className="flex-1 min-w-[250px] max-w-[420px] relative" ref={dimensionDropdownRef}>
           <div className="relative">
             <div
+              role="combobox"
+              aria-expanded={dimensionDropdownOpen}
+              aria-haspopup="listbox"
+              aria-label="Activity dimension filter"
               className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
               onClick={() => setDimensionDropdownOpen((prev) => !prev)}
             >
@@ -303,7 +325,7 @@ export default function Metrics() {
             </div>
 
             {dimensionDropdownOpen && (
-              <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+              <div role="listbox" className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
                 <div className="max-h-48 overflow-y-auto">
                   {DIMENSIONS.map((dimension) => (
                     <label
@@ -329,20 +351,25 @@ export default function Metrics() {
         {/* Tier chips */}
         <div className="flex items-center gap-1.5">
           {ALL_TIERS
-            .filter((tier) => !(tier === 'reserve' && days === 7))
             .map((tier) => {
+            const isDisabledReserve = tier === 'reserve' && days === 7;
             const count = currentCounts?.[tier] ?? 0;
             const isActive = selectedTiers.includes(tier);
-            const helpText = getTierHelpText(tier, days);
+            const helpText = isDisabledReserve
+              ? 'Reserve tier requires a 30-day or longer view.'
+              : getTierHelpText(tier, days);
             return (
               <div key={tier} className="relative group">
                 <button
-                  onClick={() => handleTierClick(tier)}
+                  onClick={() => !isDisabledReserve && handleTierClick(tier)}
                   title={helpText}
+                  disabled={isDisabledReserve}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border transition ${
-                    isActive
-                      ? TIER_COLORS[tier]
-                      : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-slate-800'
+                    isDisabledReserve
+                      ? 'border-slate-700 text-slate-600 bg-transparent cursor-not-allowed opacity-50'
+                      : isActive
+                        ? TIER_COLORS[tier]
+                        : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-slate-800'
                   }`}
                 >
                   {TIER_LABELS[tier]}
@@ -377,6 +404,18 @@ export default function Metrics() {
           </button>
         )}
       </div>
+
+      {/* Empty server onboarding message */}
+      {isEmptyServer && (
+        <div className="bg-indigo-900/20 border border-indigo-700/40 rounded-lg p-6 text-center">
+          <div className="text-3xl mb-3">📊</div>
+          <h3 className="text-lg font-semibold text-white mb-2">Metrics Collection Active</h3>
+          <p className="text-sm text-gray-400 max-w-md mx-auto">
+            No activity data recorded yet for this period. Data will appear automatically as members
+            send messages, join voice channels, and play games.
+          </p>
+        </div>
+      )}
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -495,7 +534,15 @@ export default function Metrics() {
                     key={game.game_name}
                     className="border-b border-slate-700/50 text-gray-300"
                   >
-                    <td className="py-2 pr-4 text-gray-500">{i + 1}</td>
+                    <td className="py-2 pr-4 text-gray-500">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                        />
+                        {i + 1}
+                      </span>
+                    </td>
                     <td className="py-2 pr-4 font-medium text-white">{game.game_name}</td>
                     <td className="py-2 pr-4 text-right text-indigo-400">
                       {formatDuration(game.total_seconds)}

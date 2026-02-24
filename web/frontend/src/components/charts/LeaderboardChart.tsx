@@ -33,10 +33,39 @@ interface LeaderboardChartProps {
   onBarClick?: (userId: string) => void;
 }
 
-/** Truncate long user IDs for Y-axis labels */
-function truncateLabel(label: string, maxLen: number = 14): string {
+/** Truncate long user names for Y-axis labels */
+function truncateLabel(label: string, maxLen: number = 18): string {
   if (label.length <= maxLen) return label;
   return label.slice(0, maxLen - 1) + '…';
+}
+
+/** Custom tooltip showing full username + formatted value. */
+function CustomLeaderboardTooltip({
+  active,
+  payload,
+  fmtVal,
+  valueLabel,
+}: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0]?.payload;
+  if (!entry) return null;
+  return (
+    <div
+      style={{
+        backgroundColor: '#1e293b',
+        border: '1px solid #334155',
+        borderRadius: '6px',
+        padding: '8px 12px',
+        fontSize: '12px',
+        color: '#e2e8f0',
+      }}
+    >
+      <div className="font-medium text-white mb-1">#{entry.rank} {entry.name}</div>
+      <div className="text-gray-300">
+        {valueLabel}: {fmtVal(entry.value)}
+      </div>
+    </div>
+  );
 }
 
 export default function LeaderboardChart({
@@ -57,7 +86,7 @@ export default function LeaderboardChart({
   const fmtVal = formatValue ?? ((v: number) => v.toLocaleString());
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5">
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5" role="img" aria-label={`${title} bar chart`}>
       <h3 className="text-sm font-semibold text-gray-300 mb-4">{title}</h3>
       {chartData.length === 0 ? (
         <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
@@ -84,20 +113,11 @@ export default function LeaderboardChart({
               tick={{ fill: '#d1d5db', fontSize: 11 }}
               axisLine={{ stroke: '#475569' }}
               tickLine={false}
-              width={120}
+              width={130}
               tickFormatter={(label) => truncateLabel(label)}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                color: '#e2e8f0',
-                fontSize: '12px',
-              }}
-              labelStyle={{ color: '#e2e8f0' }}
-              itemStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number | undefined) => [fmtVal(value ?? 0), valueLabel]}
+              content={<CustomLeaderboardTooltip fmtVal={fmtVal} valueLabel={valueLabel} />}
               cursor={{ fill: 'rgba(99, 102, 241, 0.1)' }}
             />
             <Bar
