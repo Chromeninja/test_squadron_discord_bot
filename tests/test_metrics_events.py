@@ -107,6 +107,27 @@ class TestOnMessage:
 # ---------------------------------------------------------------------------
 
 
+def _make_voice_state(
+    channel: MagicMock | None = None,
+    *,
+    self_mute: bool = False,
+    self_deaf: bool = False,
+) -> MagicMock:
+    """Build a ``discord.VoiceState``-like mock with explicit mute/deaf flags."""
+    state = MagicMock()
+    state.channel = channel
+    state.self_mute = self_mute
+    state.self_deaf = self_deaf
+    return state
+
+
+def _make_channel(channel_id: int = 10) -> MagicMock:
+    """Build a minimal voice channel mock."""
+    ch = MagicMock()
+    ch.id = channel_id
+    return ch
+
+
 class TestOnVoiceStateUpdate:
     @pytest.mark.asyncio
     async def test_join_records(self, cog_with_service):
@@ -116,11 +137,8 @@ class TestOnVoiceStateUpdate:
         member.guild.id = 100
         member.id = 1
 
-        before = MagicMock()
-        before.channel = None
-        after = MagicMock()
-        after.channel = MagicMock()
-        after.channel.id = 10
+        before = _make_voice_state(channel=None)
+        after = _make_voice_state(channel=_make_channel(10))
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -134,11 +152,8 @@ class TestOnVoiceStateUpdate:
         member.guild.id = 100
         member.id = 1
 
-        before = MagicMock()
-        before.channel = MagicMock()
-        before.channel.id = 10
-        after = MagicMock()
-        after.channel = None
+        before = _make_voice_state(channel=_make_channel(10))
+        after = _make_voice_state(channel=None)
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -152,12 +167,8 @@ class TestOnVoiceStateUpdate:
         member.guild.id = 100
         member.id = 1
 
-        before = MagicMock()
-        before.channel = MagicMock()
-        before.channel.id = 10
-        after = MagicMock()
-        after.channel = MagicMock()
-        after.channel.id = 20
+        before = _make_voice_state(channel=_make_channel(10))
+        after = _make_voice_state(channel=_make_channel(20))
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -170,26 +181,27 @@ class TestOnVoiceStateUpdate:
         member = MagicMock()
         member.bot = True
 
-        await cog.on_voice_state_update(member, MagicMock(), MagicMock())
+        await cog.on_voice_state_update(
+            member,
+            _make_voice_state(channel=None),
+            _make_voice_state(channel=None),
+        )
 
         service.record_voice_join.assert_not_called()
         service.record_voice_leave.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_same_channel_no_action(self, cog_with_service):
-        """Mute/deafen changes (same channel) should not trigger anything."""
+    async def test_same_channel_unmuted_no_action(self, cog_with_service):
+        """Staying in the same channel while already eligible is a no-op."""
         cog, service = cog_with_service
         member = MagicMock()
         member.bot = False
         member.guild.id = 100
         member.id = 1
 
-        channel = MagicMock()
-        channel.id = 10
-        before = MagicMock()
-        before.channel = channel
-        after = MagicMock()
-        after.channel = channel
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel)
+        after = _make_voice_state(channel=channel)
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -205,11 +217,8 @@ class TestOnVoiceStateUpdate:
         member.guild.id = 100
         member.id = 1
 
-        before = MagicMock()
-        before.channel = None
-        after = MagicMock()
-        after.channel = MagicMock()
-        after.channel.id = 10
+        before = _make_voice_state(channel=None)
+        after = _make_voice_state(channel=_make_channel(10))
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -224,17 +233,175 @@ class TestOnVoiceStateUpdate:
         member.guild.id = 100
         member.id = 1
 
-        before = MagicMock()
-        before.channel = MagicMock()
-        before.channel.id = 10
-        after = MagicMock()
-        after.channel = MagicMock()
-        after.channel.id = 20
+        before = _make_voice_state(channel=_make_channel(10))
+        after = _make_voice_state(channel=_make_channel(20))
 
         await cog.on_voice_state_update(member, before, after)
 
         service.record_voice_leave.assert_called_once_with(100, 1)
         service.record_voice_join.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # Self-mute / self-deaf eligibility transitions
+    # ---------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_self_mute_triggers_leave(self, cog_with_service):
+        """Toggling self-mute ON in the same channel closes the session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel, self_mute=False)
+        after = _make_voice_state(channel=channel, self_mute=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_leave.assert_called_once_with(100, 1)
+        service.record_voice_join.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_self_unmute_triggers_join(self, cog_with_service):
+        """Toggling self-mute OFF in the same channel opens a session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel, self_mute=True)
+        after = _make_voice_state(channel=channel, self_mute=False)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_called_once_with(100, 1, 10)
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_self_deaf_triggers_leave(self, cog_with_service):
+        """Toggling self-deaf ON in the same channel closes the session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel, self_deaf=False)
+        after = _make_voice_state(channel=channel, self_deaf=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_leave.assert_called_once_with(100, 1)
+        service.record_voice_join.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_self_undeaf_triggers_join(self, cog_with_service):
+        """Toggling self-deaf OFF in the same channel opens a session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel, self_deaf=True)
+        after = _make_voice_state(channel=channel, self_deaf=False)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_called_once_with(100, 1, 10)
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_join_while_self_muted_no_session(self, cog_with_service):
+        """Joining a channel while self-muted does not open a session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        before = _make_voice_state(channel=None)
+        after = _make_voice_state(channel=_make_channel(10), self_mute=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_not_called()
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_join_while_self_deafened_no_session(self, cog_with_service):
+        """Joining a channel while self-deafened does not open a session."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        before = _make_voice_state(channel=None)
+        after = _make_voice_state(channel=_make_channel(10), self_deaf=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_not_called()
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_move_while_muted_no_session(self, cog_with_service):
+        """Moving channels while self-muted does not open or close sessions."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        before = _make_voice_state(channel=_make_channel(10), self_mute=True)
+        after = _make_voice_state(channel=_make_channel(20), self_mute=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_not_called()
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_leave_while_muted_no_leave(self, cog_with_service):
+        """Leaving voice while already self-muted has no session to close."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        before = _make_voice_state(channel=_make_channel(10), self_mute=True)
+        after = _make_voice_state(channel=None)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_not_called()
+        service.record_voice_leave.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_muted_to_muted_same_channel_no_action(self, cog_with_service):
+        """Remaining muted in the same channel is a no-op."""
+        cog, service = cog_with_service
+        member = MagicMock()
+        member.bot = False
+        member.guild.id = 100
+        member.id = 1
+
+        channel = _make_channel(10)
+        before = _make_voice_state(channel=channel, self_mute=True)
+        after = _make_voice_state(channel=channel, self_mute=True)
+
+        await cog.on_voice_state_update(member, before, after)
+
+        service.record_voice_join.assert_not_called()
+        service.record_voice_leave.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

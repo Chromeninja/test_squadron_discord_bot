@@ -193,3 +193,24 @@ async def test_put_max_server_age_days_zero_rejected(
         cookies={"session": mock_admin_session},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_put_enabled_requires_role_id(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+):
+    """enabled=True should require a non-null role_id."""
+    payload = {
+        "enabled": True,
+        "role_id": None,
+        "duration_days": 7,
+        "max_server_age_days": None,
+    }
+    response = await client.put(
+        "/api/guilds/123/settings/new-member-role",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == 422

@@ -1123,9 +1123,8 @@ async def update_new_member_role_settings_endpoint(
         )
     except Exception as exc:  # pragma: no cover - network errors
         logger.warning(
-            "Failed to notify bot about guild %s new-member-role change: %s",
-            guild_id,
-            exc,
+            "Failed to notify bot about new-member-role settings change (%s)",
+            type(exc).__name__,
         )
 
     updated = await get_new_member_role_settings(db, guild_id)

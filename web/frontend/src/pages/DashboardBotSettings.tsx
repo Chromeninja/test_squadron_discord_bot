@@ -324,6 +324,12 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   };
 
   const handleSaveNewMemberRole = async () => {
+    if (newMemberEnabled && !newMemberRoleId) {
+      setNewMemberStatus(null);
+      setNewMemberError('Please select a New Member Role before enabling the module.');
+      return;
+    }
+
     setNewMemberSaving(true);
     setNewMemberStatus(null);
     setNewMemberError(null);

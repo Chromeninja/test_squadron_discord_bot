@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response models.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # Auth schemas
@@ -468,6 +468,12 @@ class NewMemberRoleSettings(BaseModel):
     role_id: str | None = None  # Discord role snowflake (string for precision)
     duration_days: int = Field(default=14, ge=1)
     max_server_age_days: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_enabled_requires_role(self) -> "NewMemberRoleSettings":
+        if self.enabled and not self.role_id:
+            raise ValueError("role_id is required when new-member role is enabled")
+        return self
 
 
 class RoleDelegationConfig(BaseModel):

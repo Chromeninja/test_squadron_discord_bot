@@ -903,3 +903,101 @@ class TestGuildMetricsAverages:
         assert result["unique_users"] == 0
         assert result["avg_messages_per_user"] == 0.0
         assert result["avg_voice_per_user"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Backfill voice state — self-mute / self-deaf filtering
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillVoiceStateEligibility:
+    """Verify that backfill_voice_state respects self-mute / self-deaf."""
+
+    @staticmethod
+    def _make_bot(members_by_channel: dict) -> MagicMock:
+        """Build a minimal Bot mock with guilds / voice_channels / members.
+
+        ``members_by_channel`` maps ``(guild_id, channel_id)`` to a list of
+        ``(member_id, self_mute, self_deaf)`` tuples.
+        """
+        from collections import defaultdict
+
+        guilds_map: dict[int, list] = defaultdict(list)
+        for (guild_id, channel_id), member_specs in members_by_channel.items():
+            vc = MagicMock()
+            vc.id = channel_id
+            members = []
+            for mid, s_mute, s_deaf in member_specs:
+                m = MagicMock()
+                m.id = mid
+                m.bot = False
+                m.voice = MagicMock()
+                m.voice.self_mute = s_mute
+                m.voice.self_deaf = s_deaf
+                members.append(m)
+            vc.members = members
+            guilds_map[guild_id].append(vc)
+
+        guilds = []
+        for gid, vcs in guilds_map.items():
+            g = MagicMock()
+            g.id = gid
+            g.voice_channels = vcs
+            guilds.append(g)
+
+        bot = MagicMock()
+        bot.guilds = guilds
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_backfill_skips_self_muted(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Self-muted members should NOT get a backfilled session."""
+        bot = self._make_bot(
+            {(100, 10): [(1, True, False)]}  # self_mute=True
+        )
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 1) not in metrics_service._voice_sessions
+
+    @pytest.mark.asyncio
+    async def test_backfill_skips_self_deafened(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Self-deafened members should NOT get a backfilled session."""
+        bot = self._make_bot(
+            {(100, 10): [(2, False, True)]}  # self_deaf=True
+        )
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 2) not in metrics_service._voice_sessions
+
+    @pytest.mark.asyncio
+    async def test_backfill_includes_eligible_member(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """An unmuted, undeafened member should get a backfilled session."""
+        bot = self._make_bot(
+            {(100, 10): [(3, False, False)]}
+        )
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 3) in metrics_service._voice_sessions
+        assert metrics_service._voice_sessions[(100, 3)].channel_id == 10
+
+    @pytest.mark.asyncio
+    async def test_backfill_mixed_members(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Only eligible members are backfilled from a channel with a mix."""
+        bot = self._make_bot(
+            {
+                (100, 10): [
+                    (1, False, False),  # eligible
+                    (2, True, False),   # muted — skip
+                    (3, False, True),   # deafened — skip
+                ],
+            }
+        )
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 1) in metrics_service._voice_sessions
+        assert (100, 2) not in metrics_service._voice_sessions
+        assert (100, 3) not in metrics_service._voice_sessions
