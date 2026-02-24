@@ -71,6 +71,10 @@ class InternalAPIServer:
         self.app.router.add_get("/errors/last", self.errors_last)
         self.app.router.add_get("/logs/export", self.logs_export)
         self.app.router.add_get("/voice/members/{channel_id}", self.get_voice_members)
+        self.app.router.add_get(
+            "/guilds/{guild_id}/voice/occupied",
+            self.get_guild_occupied_voice_channels,
+        )
         self.app.router.add_get("/guilds", self.get_guilds)
         self.app.router.add_get("/guilds/{guild_id}/roles", self.get_guild_roles)
         self.app.router.add_get("/guilds/{guild_id}/channels", self.get_guild_channels)
@@ -467,6 +471,92 @@ class InternalAPIServer:
                 f"Error getting voice members for channel {channel_id}", exc_info=e
             )
             return web.json_response({"error": "Internal server error"}, status=500)
+
+    async def get_guild_occupied_voice_channels(
+        self, request: web.Request
+    ) -> web.Response:
+        """Return all occupied voice/stage channels for a guild.
+
+        Uses Discord gateway cache — no API overhead.
+        Only returns channels that have at least one **human** member
+        (bot accounts are excluded from the occupancy check).
+
+        Path: GET /guilds/{guild_id}/voice/occupied
+        Headers: Authorization: Bearer <api_key>
+
+        Returns:
+            {"channels": [{"channel_id": int, "channel_name": str,
+              "channel_type": int, "category": str, "position": int,
+              "members": [{"user_id": int, "username": str,
+                            "display_name": str, "bot": bool}]}]}
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        channels_payload: list[dict] = []
+        try:
+            for channel in guild.channels:
+                # Voice = 2, Stage = 13
+                ch_type = channel.type.value if hasattr(channel, "type") else None
+                if ch_type not in (2, 13):
+                    continue
+
+                # gateway-cached members list
+                members = getattr(channel, "members", None) or []
+                human_members = [m for m in members if not m.bot]
+                if not human_members:
+                    continue
+
+                category_name = (
+                    channel.category.name
+                    if hasattr(channel, "category") and channel.category
+                    else "Uncategorized"
+                )
+
+                channels_payload.append(
+                    {
+                        "channel_id": channel.id,
+                        "channel_name": channel.name,
+                        "channel_type": ch_type,
+                        "category": category_name,
+                        "position": getattr(channel, "position", 0),
+                        "members": [
+                            {
+                                "user_id": m.id,
+                                "username": m.name,
+                                "display_name": m.display_name,
+                                "bot": m.bot,
+                            }
+                            for m in human_members
+                        ],
+                    }
+                )
+
+            # Sort by position for stable ordering
+            channels_payload.sort(key=lambda c: c["position"])
+        except Exception as e:
+            logger.exception(
+                "Error fetching occupied voice channels for guild %s",
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Internal server error"}, status=500
+            )
+
+        return web.json_response({"channels": channels_payload})
 
     async def get_guilds(self, request: web.Request) -> web.Response:
         """Return guilds where the bot is currently installed."""
@@ -919,6 +1009,7 @@ class InternalAPIServer:
                 else None,
                 "roles": roles_data,
                 "role_ids": role_ids,
+                "bot": member.bot,
                 "last_synced_at": datetime.now(UTC).isoformat(),
                 "source": source,
             }

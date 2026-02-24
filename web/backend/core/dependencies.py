@@ -1015,6 +1015,27 @@ class InternalAPIClient:
         payload = response.json()
         return payload.get("member_ids", [])
 
+    async def get_occupied_voice_channels(self, guild_id: int) -> list[dict]:
+        """Fetch all occupied voice/stage channels for a guild.
+
+        Only returns channels that have at least one human (non-bot) member.
+        Data comes from Discord gateway cache — no API overhead.
+
+        Args:
+            guild_id: Discord guild ID
+
+        Returns:
+            list of channel dicts with member info
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        client = await self._get_client()
+        response = await client.get(f"/guilds/{guild_id}/voice/occupied")
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("channels", [])
+
     async def post_bulk_recheck_summary(
         self,
         guild_id: int,

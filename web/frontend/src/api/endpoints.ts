@@ -212,6 +212,12 @@ export interface ActiveVoiceChannel {
   members: VoiceChannelMember[];
   // Cross-guild mode: guild name for display
   guild_name?: string | null;
+  // Whether this channel is managed (JTC) by the bot
+  is_managed?: boolean;
+  // Discord channel type (2=voice, 13=stage)
+  channel_type?: number | null;
+  // Discord category name
+  category?: string | null;
 }
 
 // Cross-guild mode: voice channels grouped by guild

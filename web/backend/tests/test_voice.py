@@ -526,3 +526,280 @@ async def test_user_settings_search_moderator_access(
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Tests for /api/voice/active endpoint (occupied channels)
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_active_channels_empty(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+) -> None:
+    """Active channels returns empty list when no channels are occupied."""
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["total"] == 0
+    assert data["items"] == []
+    assert data["is_cross_guild"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_channels_unmanaged_only(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+) -> None:
+    """Active channels includes unmanaged channels that have human members."""
+    fake_internal_api.occupied_voice_channels[123] = [
+        {
+            "channel_id": 9999,
+            "channel_name": "General Voice",
+            "channel_type": 2,
+            "category": "Voice Channels",
+            "position": 1,
+            "members": [
+                {
+                    "user_id": 123456789,
+                    "username": "Alice",
+                    "display_name": "Alice A",
+                    "bot": False,
+                },
+            ],
+        },
+    ]
+
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+
+    ch = data["items"][0]
+    assert ch["voice_channel_id"] == 9999
+    assert ch["channel_name"] == "General Voice"
+    assert ch["is_managed"] is False
+    assert ch["channel_type"] == 2
+    assert ch["category"] == "Voice Channels"
+    assert ch["owner_id"] == 0
+    assert ch["jtc_channel_id"] == 0
+    assert len(ch["members"]) == 1
+    assert ch["members"][0]["user_id"] == 123456789
+    assert ch["members"][0]["is_owner"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_channels_managed_enriched(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api, temp_db: str
+) -> None:
+    """Managed channels are enriched with owner and JTC metadata from DB."""
+    from services.db.database import Database
+
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            INSERT INTO voice_channels
+            (voice_channel_id, guild_id, jtc_channel_id, owner_id,
+             created_at, last_activity, is_active)
+            VALUES (50555, 123, 2222, 123456789, 1700000000, 1700001000, 1)
+            """
+        )
+        await db.commit()
+
+    fake_internal_api.occupied_voice_channels[123] = [
+        {
+            "channel_id": 50555,
+            "channel_name": "Alice's Channel",
+            "channel_type": 2,
+            "category": "JTC",
+            "position": 3,
+            "members": [
+                {
+                    "user_id": 123456789,
+                    "username": "Alice",
+                    "display_name": "Alice",
+                    "bot": False,
+                },
+                {
+                    "user_id": 987654321,
+                    "username": "Bob",
+                    "display_name": "Bob",
+                    "bot": False,
+                },
+            ],
+        },
+    ]
+
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+
+    ch = data["items"][0]
+    assert ch["is_managed"] is True
+    assert ch["jtc_channel_id"] == 2222
+    assert ch["owner_id"] == 123456789
+    assert ch["created_at"] == 1700000000
+    assert ch["last_activity"] == 1700001000
+    assert ch["owner_rsi_handle"] == "TestUser1"  # From verification seed data
+    assert len(ch["members"]) == 2
+
+    # Owner flag set correctly
+    owner_member = next(m for m in ch["members"] if m["user_id"] == 123456789)
+    other_member = next(m for m in ch["members"] if m["user_id"] == 987654321)
+    assert owner_member["is_owner"] is True
+    assert other_member["is_owner"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_channels_mixed_managed_and_unmanaged(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api, temp_db: str
+) -> None:
+    """Both managed and unmanaged channels appear in the response."""
+    from services.db.database import Database
+
+    async with Database.get_connection() as db:
+        await db.execute(
+            """
+            INSERT INTO voice_channels
+            (voice_channel_id, guild_id, jtc_channel_id, owner_id,
+             created_at, last_activity, is_active)
+            VALUES (50556, 123, 2222, 123456789, 1700000000, 1700001000, 1)
+            """
+        )
+        await db.commit()
+
+    fake_internal_api.occupied_voice_channels[123] = [
+        {
+            "channel_id": 50556,
+            "channel_name": "Managed Channel",
+            "channel_type": 2,
+            "category": "JTC",
+            "position": 1,
+            "members": [
+                {"user_id": 123456789, "username": "Alice", "display_name": "Alice", "bot": False},
+            ],
+        },
+        {
+            "channel_id": 7777,
+            "channel_name": "Public Lounge",
+            "channel_type": 2,
+            "category": "General",
+            "position": 2,
+            "members": [
+                {"user_id": 987654321, "username": "Bob", "display_name": "Bob", "bot": False},
+            ],
+        },
+    ]
+
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+
+    managed = next(i for i in data["items"] if i["voice_channel_id"] == 50556)
+    unmanaged = next(i for i in data["items"] if i["voice_channel_id"] == 7777)
+
+    assert managed["is_managed"] is True
+    assert managed["owner_id"] == 123456789
+
+    assert unmanaged["is_managed"] is False
+    assert unmanaged["channel_name"] == "Public Lounge"
+    assert unmanaged["owner_id"] == 0
+
+
+@pytest.mark.asyncio
+async def test_active_channels_stage_channel(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+) -> None:
+    """Stage channels (type 13) are included for occupied channels."""
+    fake_internal_api.occupied_voice_channels[123] = [
+        {
+            "channel_id": 8888,
+            "channel_name": "Town Hall",
+            "channel_type": 13,
+            "category": "Events",
+            "position": 0,
+            "members": [
+                {"user_id": 123456789, "username": "Alice", "display_name": "Alice", "bot": False},
+            ],
+        },
+    ]
+
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+
+    ch = data["items"][0]
+    assert ch["channel_type"] == 13
+    assert ch["channel_name"] == "Town Hall"
+    assert ch["is_managed"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_channels_member_verification_enrichment(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+) -> None:
+    """Members are enriched with RSI handle and membership status from verification DB."""
+    fake_internal_api.occupied_voice_channels[123] = [
+        {
+            "channel_id": 6666,
+            "channel_name": "Test VC",
+            "channel_type": 2,
+            "category": "General",
+            "position": 0,
+            "members": [
+                {
+                    "user_id": 123456789,
+                    "username": "Alice",
+                    "display_name": "Alice",
+                    "bot": False,
+                },
+                {
+                    "user_id": 999888777,
+                    "username": "Unknown",
+                    "display_name": "Unknown",
+                    "bot": False,
+                },
+            ],
+        },
+    ]
+
+    response = await client.get(
+        "/api/voice/active",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    members = data["items"][0]["members"]
+
+    # User 123456789 is in verification seed data
+    alice = next(m for m in members if m["user_id"] == 123456789)
+    assert alice["rsi_handle"] == "TestUser1"
+
+    # User 999888777 is NOT in verification — should show unknown status
+    unknown = next(m for m in members if m["user_id"] == 999888777)
+    assert unknown["rsi_handle"] is None
+    assert unknown["membership_status"] == "unknown"

@@ -199,21 +199,32 @@ class VoiceChannelMember(BaseModel):
 
 
 class ActiveVoiceChannel(BaseModel):
-    """Active voice channel with owner and member information."""
+    """Active voice channel with owner and member information.
+
+    For managed (JTC) channels ``is_managed`` is ``True`` and owner / JTC
+    metadata is populated.  For unmanaged Discord channels (not created by
+    the bot) ``is_managed`` is ``False`` and those fields use defaults.
+    """
 
     voice_channel_id: int
     guild_id: int
-    jtc_channel_id: int
-    owner_id: int
+    jtc_channel_id: int = 0
+    owner_id: int = 0
     owner_username: str | None = None
     owner_rsi_handle: str | None = None
     owner_membership_status: str | None = None
-    created_at: int
-    last_activity: int
+    created_at: int = 0
+    last_activity: int = 0
     channel_name: str | None = None
     members: list[VoiceChannelMember] = []
     # Cross-guild mode: guild name for display
     guild_name: str | None = None
+    # Whether this channel is managed (JTC) by the bot
+    is_managed: bool = True
+    # Discord channel type (2=voice, 13=stage)
+    channel_type: int | None = None
+    # Discord category name
+    category: str | None = None
 
 
 class GuildVoiceGroup(BaseModel):
