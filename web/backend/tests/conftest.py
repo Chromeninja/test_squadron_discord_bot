@@ -257,6 +257,7 @@ class FakeInternalAPIClient:
         ] = {}  # (guild_id, user_id) -> member_data
         self.refresh_calls: list[dict] = []
         self.channels_by_guild: dict[int, list[dict]] = {}
+        self.occupied_voice_channels: dict[int, list[dict]] = {}
         self.health_data: dict | None = None
         self.error_logs: list[dict] = []
         self.log_content: bytes = b"Mock log content\n"
@@ -420,6 +421,20 @@ class FakeInternalAPIClient:
         """Return member IDs in a voice channel (mock)."""
         # Return empty list by default - tests can override if needed
         return []
+
+    async def get_occupied_voice_channels(self, guild_id: int) -> list[dict]:
+        """Return occupied voice/stage channels for a guild (mock).
+
+        Tests populate ``occupied_voice_channels`` dict keyed by guild_id.
+        Accepts both int and str keys for convenience.
+        """
+        result = self.occupied_voice_channels.get(guild_id)
+        if result is None:
+            try:
+                result = self.occupied_voice_channels.get(int(guild_id))
+            except (TypeError, ValueError):
+                result = None
+        return result or []
 
     async def recheck_user(
         self, guild_id: int, user_id: int, admin_user_id: str | None = None

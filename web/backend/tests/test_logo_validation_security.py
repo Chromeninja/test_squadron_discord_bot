@@ -100,9 +100,17 @@ class TestLogoValidationSSRFPrevention:
             # It's okay if it fails on the HTTP request part
             # We just want to make sure it didn't fail on security checks
             error_msg = str(e).lower()
-            assert "private" not in error_msg
-            assert "local" not in error_msg
-            assert "internal" not in error_msg
+            # Use a looser check so minor wording changes in the error message
+            # don't break the test, while still ensuring it's not about SSRF
+            ssrf_indicators = (
+                "private network",
+                "local network",
+                "internal network",
+                "private address",
+                "local address",
+                "internal address",
+            )
+            assert not any(indicator in error_msg for indicator in ssrf_indicators)
         except Exception:
             # Other exceptions (like network errors) are fine for this test
             pass

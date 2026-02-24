@@ -32,6 +32,7 @@ from core.schemas import (
     SoundboardEntry,
     UserJTCSettings,
     UserProfile,
+    VoiceChannelMember,
     VoiceChannelRecord,
     VoiceSearchResponse,
     VoiceSettingsResetResponse,
@@ -365,14 +366,26 @@ async def list_active_voice_channels(
             guild_groups=guild_groups,
         )
 
-    # Single-guild mode (original behavior)
-    # Query active voice channels with owner verification info
-    # FILTER BY GUILD ID to only show channels for the active guild
+    # Single-guild mode — show ALL occupied voice/stage channels (managed + unmanaged)
+    guild_id = int(current_user.active_guild_id)
+
+    # ── 1. Fetch occupied channels from gateway cache (humans only) ──
+    try:
+        occupied_channels = await internal_api.get_occupied_voice_channels(guild_id)
+    except Exception:
+        logger.exception(
+            "Could not fetch occupied voice channels for guild %s", guild_id
+        )
+        occupied_channels = []
+
+    if not occupied_channels:
+        return ActiveVoiceChannelsResponse(items=[], total=0, is_cross_guild=False)
+
+    # ── 2. Load managed-channel metadata from DB for enrichment ──
     cursor = await db.execute(
         """
         SELECT
             vc.voice_channel_id,
-            vc.guild_id,
             vc.jtc_channel_id,
             vc.owner_id,
             vc.created_at,
@@ -383,177 +396,149 @@ async def list_active_voice_channels(
         FROM voice_channels vc
         LEFT JOIN verification v ON vc.owner_id = v.user_id
         WHERE vc.is_active = 1 AND vc.guild_id = ?
-        ORDER BY vc.last_activity DESC
         """,
-        (current_user.active_guild_id,),
+        (guild_id,),
     )
-    rows = await cursor.fetchall()
+    managed_rows = await cursor.fetchall()
+    managed_map: dict[int, dict] = {}
+    for row in managed_rows:
+        managed_map[row[0]] = {
+            "jtc_channel_id": row[1],
+            "owner_id": row[2],
+            "created_at": row[3],
+            "last_activity": row[4],
+            "rsi_handle": row[5],
+            "main_orgs": json.loads(row[6]) if row[6] else None,
+            "affiliate_orgs": json.loads(row[7]) if row[7] else None,
+        }
 
-    if not rows:
-        return ActiveVoiceChannelsResponse(items=[], total=0, is_cross_guild=False)
+    # Org SID for membership status derivation
+    org_settings = await get_organization_settings(db, guild_id)
+    organization_sid = (
+        org_settings.get("organization_sid") if org_settings else None
+    )
 
-    # Fetch channel details and members via internal bot API (no direct Discord calls)
-    items = []
+    # ── 3. Collect all member IDs across channels for batch verification lookup ──
+    all_member_ids: set[int] = set()
+    for ch in occupied_channels:
+        for m in ch.get("members", []):
+            all_member_ids.add(m["user_id"])
 
-    for row in rows:
-        voice_channel_id = row[0]
-        guild_id = row[1]
-        owner_id = row[3]
-        # Derive owner membership status from org lists
-        owner_main_orgs = json.loads(row[7]) if row[7] else None
-        owner_aff_orgs = json.loads(row[8]) if row[8] else None
-        # Fetch org SID for guild if available
-        org_settings = await get_organization_settings(db, guild_id)
-        organization_sid = (
-            org_settings.get("organization_sid") if org_settings else None
+    verification_data: dict[int, dict] = {}
+    if all_member_ids:
+        member_id_list = list(all_member_ids)
+        placeholders = ",".join("?" for _ in member_id_list)
+        members_cursor = await db.execute(
+            f"SELECT user_id, rsi_handle, main_orgs, affiliate_orgs "
+            f"FROM verification "
+            f"WHERE user_id IN ({placeholders})",
+            tuple(member_id_list),
         )
+        for r in await members_cursor.fetchall():
+            verification_data[r[0]] = {
+                "rsi_handle": r[1],
+                "main_orgs": json.loads(r[2]) if r[2] else None,
+                "affiliate_orgs": json.loads(r[3]) if r[3] else None,
+            }
 
-        # Derive owner status using standard logic (filters REDACTED)
-        if owner_main_orgs is None and owner_aff_orgs is None:
-            owner_status = "unknown"
-        else:
-            owner_status = derive_membership_status(
-                owner_main_orgs or [], owner_aff_orgs or [], organization_sid or "TEST"
-            )
+    # ── 4. Build response items ──
+    items: list[ActiveVoiceChannel] = []
 
+    for ch in occupied_channels:
         try:
-            # Get channel info from internal API (cached via bot's gateway)
-            channel_name = f"Channel {voice_channel_id}"
-            try:
-                all_channels = await internal_api.get_guild_channels(guild_id)
-                channel_data = next(
-                    (
-                        c
-                        for c in all_channels
-                        if str(c.get("id")) == str(voice_channel_id)
-                    ),
-                    None,
-                )
-                if channel_data:
-                    channel_name = channel_data.get("name", channel_name)
-            except Exception:
-                logger.debug(
-                    "Could not fetch channel info from internal API for %s",
-                    voice_channel_id,
-                )
+            channel_id = ch["channel_id"]
+            channel_name = ch.get("channel_name") or f"Channel {channel_id}"
+            channel_type = ch.get("channel_type")
+            category = ch.get("category")
+            managed = managed_map.get(channel_id)
+            is_managed = managed is not None
 
-            # Prefer saved channel settings name if available via snapshot logic
-            snapshot = await voice_service.get_voice_settings_snapshot(
-                guild_id=guild_id,
-                jtc_channel_id=row[2],
-                owner_id=owner_id,
-                voice_channel_id=voice_channel_id,
-            )
-            if snapshot and snapshot.channel_name:
-                channel_name = snapshot.channel_name
-
-            # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
-            member_ids = []
-            try:
-                member_ids = await internal_api.get_voice_channel_members(
-                    voice_channel_id
-                )
-            except Exception:
-                logger.debug(
-                    "Could not fetch voice members from internal API for channel %s",
-                    voice_channel_id,
-                )
-                # Fall back to just showing owner
-                member_ids = [owner_id]
-
-            # Ensure owner is always in the list
-            if owner_id not in member_ids:
-                member_ids.append(owner_id)
-
-            # Get verification info for members (status derived from org lists)
-            members_in_channel = []
-            if member_ids:
-                placeholders = ",".join("?" * len(member_ids))
-                members_cursor = await db.execute(
-                    f"""
-                    SELECT user_id, rsi_handle, main_orgs, affiliate_orgs
-                    FROM verification
-                    WHERE user_id IN ({placeholders})
-                    """,
-                    tuple(member_ids),
-                )
-                fetched = await members_cursor.fetchall()
-                verification_data = {
-                    r[0]: {
-                        "rsi_handle": r[1],
-                        "main_orgs": json.loads(r[2]) if r[2] else None,
-                        "affiliate_orgs": json.loads(r[3]) if r[3] else None,
-                    }
-                    for r in fetched
-                }
-
-                # Build members list
-                for user_id in member_ids:
-                    verification = verification_data.get(user_id, {})
-
-                    # Get Discord user info via internal API (cached via bot's gateway)
-                    username = None
-                    try:
-                        member_data = await internal_api.get_guild_member(
-                            guild_id, user_id
-                        )
-                        username = member_data.get("username")
-                    except Exception:
-                        pass
-
-                    members_in_channel.append(
-                        {
-                            "user_id": user_id,
-                            "username": username,
-                            "display_name": verification.get("rsi_handle")
-                            or username
-                            or f"User {user_id}",
-                            "rsi_handle": verification.get("rsi_handle"),
-                            "membership_status": (
-                                "unknown"
-                                if verification.get("main_orgs") is None
-                                and verification.get("affiliate_orgs") is None
-                                else derive_membership_status(
-                                    verification.get("main_orgs") or [],
-                                    verification.get("affiliate_orgs") or [],
-                                    organization_sid or "TEST",
-                                )
-                            ),
-                            "is_owner": user_id == owner_id,
-                        }
+            # Owner enrichment (managed channels only)
+            owner_id = managed["owner_id"] if managed else 0
+            owner_rsi_handle: str | None = None
+            owner_status: str | None = None
+            if managed:
+                owner_rsi_handle = managed.get("rsi_handle")
+                owner_main = managed.get("main_orgs")
+                owner_aff = managed.get("affiliate_orgs")
+                if owner_main is None and owner_aff is None:
+                    owner_status = "unknown"
+                else:
+                    owner_status = derive_membership_status(
+                        owner_main or [],
+                        owner_aff or [],
+                        organization_sid or "TEST",
                     )
+
+                # Prefer saved channel settings name for managed channels
+                try:
+                    snapshot = await voice_service.get_voice_settings_snapshot(
+                        guild_id=guild_id,
+                        jtc_channel_id=managed["jtc_channel_id"],
+                        owner_id=owner_id,
+                        voice_channel_id=channel_id,
+                    )
+                    if snapshot and snapshot.channel_name:
+                        channel_name = snapshot.channel_name
+                except Exception:
+                    logger.debug(
+                        "Failed to load voice settings snapshot for channel %s in guild %s",
+                        channel_id,
+                        guild_id,
+                        exc_info=True,
+                    )
+
+            # Build members list from gateway data + verification enrichment
+            members_in_channel: list[VoiceChannelMember] = []
+            for m in ch.get("members", []):
+                uid = m["user_id"]
+                v = verification_data.get(uid, {})
+                username = m.get("username")
+                display_name = m.get("display_name") or v.get("rsi_handle") or username
+
+                if v.get("main_orgs") is None and v.get("affiliate_orgs") is None:
+                    m_status = "unknown"
+                else:
+                    m_status = derive_membership_status(
+                        v.get("main_orgs") or [],
+                        v.get("affiliate_orgs") or [],
+                        organization_sid or "TEST",
+                    )
+
+                members_in_channel.append(
+                    VoiceChannelMember(
+                        user_id=uid,
+                        username=username,
+                        display_name=display_name or f"User {uid}",
+                        rsi_handle=v.get("rsi_handle"),
+                        membership_status=m_status,
+                        is_owner=uid == owner_id if is_managed else False,
+                    )
+                )
 
             items.append(
                 ActiveVoiceChannel(
-                    voice_channel_id=row[0],
-                    guild_id=row[1],
-                    jtc_channel_id=row[2],
-                    owner_id=row[3],
-                    created_at=row[4],
-                    last_activity=row[5],
-                    owner_rsi_handle=row[6],
+                    voice_channel_id=channel_id,
+                    guild_id=guild_id,
+                    jtc_channel_id=managed["jtc_channel_id"] if managed else 0,
+                    owner_id=owner_id,
+                    created_at=managed["created_at"] if managed else 0,
+                    last_activity=managed["last_activity"] if managed else 0,
+                    owner_rsi_handle=owner_rsi_handle,
                     owner_membership_status=owner_status,
                     channel_name=channel_name,
                     members=members_in_channel,
+                    is_managed=is_managed,
+                    channel_type=channel_type,
+                    category=category,
                 )
             )
-
         except Exception:
-            logger.exception("Error fetching data for channel %s", voice_channel_id)
-            # Add channel with minimal data
-            items.append(
-                ActiveVoiceChannel(
-                    voice_channel_id=row[0],
-                    guild_id=row[1],
-                    jtc_channel_id=row[2],
-                    owner_id=row[3],
-                    created_at=row[4],
-                    last_activity=row[5],
-                    owner_rsi_handle=row[6],
-                    owner_membership_status=owner_status,
-                    channel_name=f"Channel {row[0]}",
-                    members=[],
-                )
+            logger.warning(
+                "Failed to process voice channel %s in guild %s, skipping",
+                ch.get("channel_id", "unknown"),
+                guild_id,
+                exc_info=True,
             )
 
     return ActiveVoiceChannelsResponse(

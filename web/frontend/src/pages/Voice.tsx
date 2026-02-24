@@ -611,18 +611,25 @@ function Voice() {
             ) : (
               // Single guild mode: render flat list
               <div className="space-y-2">
-                {activeChannels.map((channel) => (
+                {activeChannels.map((channel) => {
+                  const isManaged = channel.is_managed !== false;
+                  const isStage = channel.channel_type === 13;
+                  return (
                   <CollapsibleCard
                     key={channel.voice_channel_id}
                     expanded={expandedChannels.has(channel.voice_channel_id)}
                     onToggle={() => toggleChannel(channel.voice_channel_id)}
                     header={
                       <div className="text-left">
-                        <p className="font-medium">
+                        <p className="font-medium flex items-center gap-2">
                           {channel.channel_name || `Channel ${channel.voice_channel_id}`}
+                          {isStage && <Badge variant="info">Stage</Badge>}
+                          {!isManaged && <Badge variant="default">Unmanaged</Badge>}
                         </p>
                         <p className="text-sm text-gray-400">
-                          Channel ID: {channel.voice_channel_id} • Owner: {channel.owner_rsi_handle || `User ${channel.owner_id}`}
+                          {channel.category && <>{channel.category} &bull; </>}
+                          Channel ID: {channel.voice_channel_id}
+                          {isManaged && <> &bull; Owner: {channel.owner_rsi_handle || `User ${channel.owner_id}`}</>}
                         </p>
                       </div>
                     }
@@ -631,9 +638,11 @@ function Voice() {
                         <span className="text-sm text-gray-400">
                           {channel.members.length} {channel.members.length === 1 ? 'member' : 'members'}
                         </span>
-                        <span className="text-sm text-gray-400">
-                          {new Date(channel.last_activity * 1000).toLocaleString()}
-                        </span>
+                        {isManaged && channel.last_activity > 0 && (
+                          <span className="text-sm text-gray-400">
+                            {new Date(channel.last_activity * 1000).toLocaleString()}
+                          </span>
+                        )}
                       </div>
                     }
                   >
@@ -658,7 +667,7 @@ function Voice() {
                             >
                               {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
                             </button>
-                            <span className="text-gray-500">→</span>
+                            <span className="text-gray-500">&rarr;</span>
                             <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
                             <span className="text-gray-500">-</span>
                             {member.is_owner && (
@@ -673,7 +682,8 @@ function Voice() {
                       </div>
                     )}
                   </CollapsibleCard>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
