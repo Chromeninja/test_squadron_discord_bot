@@ -53,6 +53,7 @@ async def _resolve_activity_filter(
     guild_id: int,
     dimension: str | None,
     tier: str | None,
+    days: int = 30,
 ) -> list[int] | None:
     """Resolve dimension+tier into a list of user IDs, or None if no filter.
 
@@ -83,7 +84,7 @@ async def _resolve_activity_filter(
 
     try:
         bulk = await internal_api.get_activity_group_members_bulk(
-            guild_id, resolved_dims, resolved_tiers
+            guild_id, resolved_dims, resolved_tiers, days=days,
         )
         merged_user_ids: set[int] = set()
         for _dim_key, tier_map in bulk.items():
@@ -121,7 +122,7 @@ async def get_metrics_overview(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_metrics_overview(guild_id, days=days, user_ids=user_ids)
         return MetricsOverviewResponse(data=MetricsOverview(**result))
     except Exception:
@@ -145,7 +146,7 @@ async def get_voice_leaderboard(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_metrics_voice_leaderboard(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
@@ -182,7 +183,7 @@ async def get_message_leaderboard(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_metrics_message_leaderboard(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
@@ -219,7 +220,7 @@ async def get_top_games(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_metrics_top_games(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
@@ -249,7 +250,7 @@ async def get_timeseries(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_metrics_timeseries(
             guild_id, metric=metric, days=days, user_ids=user_ids
         )
@@ -283,7 +284,7 @@ async def get_activity_groups(
     guild_id = _resolve_guild_id(current_user)
 
     try:
-        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier)
+        user_ids = await _resolve_activity_filter(internal_api, guild_id, dimension, tier, days=days)
         result = await internal_api.get_activity_groups(guild_id, days=days, user_ids=user_ids)
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
     except Exception:

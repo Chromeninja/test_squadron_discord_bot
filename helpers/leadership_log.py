@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
 import discord  # embeds no longer dispatched
 
@@ -108,7 +109,10 @@ _DEDUP_CACHE: dict[tuple[int, int, str], float] = {}
 _DEDUP_TTL_SECONDS = 20  # within 20s identical change suppressed
 
 
-async def resolve_leadership_channel(bot, guild_id: int | None):
+async def resolve_leadership_channel(
+    bot: Any,
+    guild_id: int | None,
+) -> discord.TextChannel | None:
     """Resolve the leadership log channel for a guild using config with static fallback."""
     if not guild_id:
         return None
@@ -658,7 +662,7 @@ def _render_plaintext(cs: ChangeSet) -> str:
     return "\n".join(lines)
 
 
-async def post_if_changed(bot, cs: ChangeSet):
+async def post_if_changed(bot: Any, cs: ChangeSet) -> None:
     # Normalize roles to managed set only; discard others for change signature & rendering
     # Exception: ADMIN_ACTION events (like delegated role grants) bypass filtering to show all roles
     if not cs.guild_id:

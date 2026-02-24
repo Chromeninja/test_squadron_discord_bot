@@ -453,6 +453,9 @@ class MetricsSettings(BaseModel):
     excluded_channel_ids: list[str] = Field(default_factory=list)
     tracked_games_mode: str = Field(default="all")  # "all" or "specific"
     tracked_games: list[str] = Field(default_factory=list)
+    min_voice_minutes: int = Field(default=15, ge=0, le=1440)
+    min_game_minutes: int = Field(default=15, ge=0, le=1440)
+    min_messages: int = Field(default=5, ge=0, le=10000)
 
 
 class NewMemberRoleSettings(BaseModel):

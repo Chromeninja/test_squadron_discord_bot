@@ -100,7 +100,7 @@ class MetricsService(BaseService):
         self._voice_sessions: dict[tuple[int, int], VoiceSessionInfo] = {}
         # Active game sessions keyed by (guild_id, user_id)
         self._game_sessions: dict[tuple[int, int], GameSessionInfo] = {}
-        # Buffered message counts: (guild_id, user_id, hour_bucket) -> count
+        # Buffered message counts: (guild_id, user_id, message_bucket) -> count
         self._message_buffer: defaultdict[tuple[int, int, int], int] = defaultdict(int)
         self._message_buffer_lock = asyncio.Lock()
 
@@ -123,6 +123,14 @@ class MetricsService(BaseService):
         self._tracked_games_cache: dict[int, tuple[float, str, set[str]]] = {}
         self._tracked_games_ttl_seconds: int = 30
         self._tracked_games_lock = asyncio.Lock()
+
+        # Guild-level activity threshold cache
+        # {guild_id: (monotonic_ts, min_voice_secs, min_game_secs, min_messages)}
+        self._activity_thresholds_cache: dict[
+            int, tuple[float, int, int, int]
+        ] = {}
+        self._activity_thresholds_ttl_seconds: int = 30
+        self._activity_thresholds_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -264,27 +272,125 @@ class MetricsService(BaseService):
             self._tracked_games_cache[guild_id] = (time.monotonic(), mode, games)
             return mode, set(games)
 
+    async def get_activity_thresholds(
+        self, guild_id: int, *, force_refresh: bool = False
+    ) -> tuple[int, int, int]:
+        """Return (min_voice_seconds, min_game_seconds, min_messages) for a guild.
+
+        Defaults: 15 min voice, 15 min game, 5 messages.
+        Values are cached with 30s TTL.
+        """
+        # Fast-path: read cache under lock, return if valid.
+        async with self._activity_thresholds_lock:
+            now = time.monotonic()
+            cached = self._activity_thresholds_cache.get(guild_id)
+            if (
+                not force_refresh
+                and cached is not None
+                and (now - cached[0]) < self._activity_thresholds_ttl_seconds
+            ):
+                return cached[1], cached[2], cached[3]
+
+        # Fetch and parse outside the lock to reduce contention.
+        raw_voice = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_voice_minutes", 15,
+        )
+        raw_game = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_game_minutes", 15,
+        )
+        raw_msgs = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_messages", 5,
+        )
+        try:
+            min_voice_secs = max(0, int(raw_voice)) * 60
+        except (TypeError, ValueError):
+            min_voice_secs = 15 * 60
+        try:
+            min_game_secs = max(0, int(raw_game)) * 60
+        except (TypeError, ValueError):
+            min_game_secs = 15 * 60
+        try:
+            min_msgs = max(0, int(raw_msgs))
+        except (TypeError, ValueError):
+            min_msgs = 5
+
+        # Write computed values to cache under the lock.
+        async with self._activity_thresholds_lock:
+            self._activity_thresholds_cache[guild_id] = (
+                time.monotonic(), min_voice_secs, min_game_secs, min_msgs,
+            )
+        return min_voice_secs, min_game_secs, min_msgs
+
     # ------------------------------------------------------------------
     # Activity-group bucket computation
     # ------------------------------------------------------------------
 
-    # Tier thresholds in seconds (UTC rolling windows)
-    _TIER_THRESHOLDS: list[tuple[str, int]] = [
-        ("hardcore", 24 * 3600),       # ≤ 24 hours
-        ("regular", 3 * 24 * 3600),    # ≤ 3 days
-        ("casual", 7 * 24 * 3600),     # ≤ 7 days
-        ("reserve", 30 * 24 * 3600),   # ≤ 30 days
+    # Tier cadence: (tier_name, window_size_in_days)
+    # Checked strictest-first; user gets the first tier where every
+    # non-overlapping window of that size contains at least one active day.
+    _TIER_CADENCE_DAYS: list[tuple[str, int]] = [
+        ("hardcore", 1),     # active every day
+        ("regular", 3),      # active once every 3 days
+        ("casual", 7),       # active once every 7 days (weekly)
+        ("reserve", 30),     # active once every 30 days (monthly)
     ]
 
     @staticmethod
-    def _tier_from_recency(last_active: int | None, now: int) -> str:
-        """Derive a tier label from a last-active timestamp."""
-        if last_active is None:
+    def _tier_from_cadence(
+        active_days: set[int],
+        range_start_day: int,
+        range_days: int,
+    ) -> str:
+        """Derive a tier label from cadence coverage over a time range.
+
+        The range is divided into non-overlapping windows of each tier's
+        cadence size.  The user qualifies for a tier when *every* window
+        contains at least one active day.  Reserve is skipped when the
+        range is shorter than 30 days.
+
+        Example — 7-day range starting at day-bucket 20000::
+
+            range_start_day = 20000, range_days = 7
+
+            hardcore (window=1): 7 windows → [20000, 20001, …, 20006].
+              User must have an active day in *each* 1-day window (all 7 days).
+
+            regular  (window=3): ceil(7/3) = 3 windows →
+              [20000–20003), [20003–20006), [20006–20007).
+              User must have ≥1 active day in each of the 3 windows.
+
+            casual   (window=7): ceil(7/7) = 1 window →
+              [20000–20007).  Any single active day qualifies.
+
+            reserve  (window=30): skipped (30 > 7).
+
+        The last window may be shorter than ``window_days`` when
+        ``range_days`` is not an exact multiple — it still requires at
+        least one active day.
+
+        AI Notes:
+            ``active_days`` contains integer day-buckets (Unix timestamp
+            ``// 86400``).  ``range_start_day`` is the first day-bucket
+            in the range, which spans ``range_days`` day-buckets.
+        """
+        if not active_days:
             return "inactive"
-        age = now - last_active
-        for tier_name, threshold in MetricsService._TIER_THRESHOLDS:
-            if age <= threshold:
+        for tier_name, window_days in MetricsService._TIER_CADENCE_DAYS:
+            if window_days > range_days:
+                continue  # e.g., skip reserve for 7-day range
+            num_windows = -(-range_days // window_days)  # ceil div
+            all_covered = True
+            for i in range(num_windows):
+                w_start = range_start_day + i * window_days
+                w_end = range_start_day + min(
+                    (i + 1) * window_days, range_days,
+                )
+                if not any(w_start <= d < w_end for d in active_days):
+                    all_covered = False
+                    break
+            if all_covered:
                 return tier_name
+
         return "inactive"
 
     async def get_member_activity_buckets(
@@ -296,18 +402,28 @@ class MetricsService(BaseService):
     ) -> dict[int, dict[str, Any]]:
         """Compute per-dimension activity tiers for members.
 
-        Returns {user_id: {
-            voice_tier, chat_tier, game_tier, combined_tier,
-            last_voice_at, last_chat_at, last_game_at
-        }}
+        Tiers are based on *cadence* — consistent activity coverage
+        across the lookback period measured in strict non-overlapping
+        windows rather than simple recency.
+
+        Returns ``{user_id: {voice_tier, chat_tier, game_tier,
+        combined_tier, last_voice_at, last_chat_at, last_game_at}}``
         """
         self._ensure_initialized()
         now = now_utc or int(time.time())
-        normalized_lookback_days = max(1, min(lookback_days, 365))
-        cutoff_window = now - (normalized_lookback_days * 86400)
+        normalized_lookback = max(1, min(lookback_days, 365))
+
+        # Day-aligned range: last N days ending *today* (inclusive)
+        now_day = now // 86400
+        range_start_day = now_day - normalized_lookback + 1
+        cutoff_ts = range_start_day * 86400
 
         excluded = await self.get_excluded_channel_ids(guild_id)
         game_mode, tracked_games = await self.get_tracked_game_config(guild_id)
+        min_voice_secs, min_game_secs, min_msgs = (
+            await self.get_activity_thresholds(guild_id)
+        )
+        min_msg_windows = min_msgs
 
         user_filter_sql = ""
         params_prefix: list[Any] = [guild_id]
@@ -318,35 +434,67 @@ class MetricsService(BaseService):
             user_filter_sql = f" AND user_id IN ({placeholders})"
             params_prefix = [guild_id, *user_ids]
 
-        result: dict[int, dict[str, Any]] = {}
+        # Intermediate store: {uid: {active_<dim>_days: set, last_<dim>_at: int}}
+        user_data: dict[int, dict[str, Any]] = {}
 
         async with MetricsDatabase.get_connection() as db:
-            # --- Chat: latest message per user ---
+            # --- Chat: per-day distinct 3-min message windows ---
             sql_msg = (
-                "SELECT user_id, MAX(hour_bucket) "
+                "SELECT user_id, hour_bucket / 86400 AS day_bucket, "
+                "COUNT(*) AS day_msg_windows, MAX(hour_bucket) "
                 "FROM message_counts "
-                f"WHERE guild_id = ? {user_filter_sql} AND hour_bucket >= ? "
-                "GROUP BY user_id"
+                f"WHERE guild_id = ? {user_filter_sql} "
+                "AND bucket_seconds = 180 "
+                "AND hour_bucket >= ? "
+                "GROUP BY user_id, day_bucket"
             )
-            cursor = await db.execute(sql_msg, [*params_prefix, cutoff_window])
-            for uid, last_bucket in await cursor.fetchall():
-                result.setdefault(uid, {})["last_chat_at"] = last_bucket
+            cursor = await db.execute(sql_msg, [*params_prefix, cutoff_ts])
+            for uid, day_bucket, day_msg_windows, max_ts in await cursor.fetchall():
+                if day_msg_windows < min_msg_windows:
+                    continue
+                entry = user_data.setdefault(uid, {})
+                entry.setdefault("active_chat_days", set()).add(day_bucket)
+                entry["last_chat_at"] = max(entry.get("last_chat_at", 0), max_ts)
 
-            # --- Voice: latest voice activity per user ---
-            # Use MAX of (left_at, joined_at for open sessions mapped to now)
+            # --- Voice: sum duration per user per day, apply min_voice_secs ---
+            # Use overlap predicate so sessions starting before the window
+            # but ending inside it are included.
             sql_voice = (
-                "SELECT user_id, MAX(COALESCE(left_at, ?)) "
+                "SELECT user_id, joined_at, COALESCE(left_at, ?) "
                 "FROM voice_sessions "
-                f"WHERE guild_id = ? {user_filter_sql} AND joined_at >= ? "
-                "GROUP BY user_id"
+                f"WHERE guild_id = ? {user_filter_sql} "
+                "AND joined_at <= ? AND COALESCE(left_at, ?) > ? "
             )
-            voice_params = [now, *params_prefix, cutoff_window]
-            cursor = await db.execute(sql_voice, voice_params)
-            for uid, last_ts in await cursor.fetchall():
-                result.setdefault(uid, {})["last_voice_at"] = last_ts
+            cursor = await db.execute(
+                sql_voice, [now, *params_prefix, now, now, cutoff_ts],
+            )
 
-            # --- Game-in-voice: latest qualifying game session ---
-            # Game sessions that overlap with a voice session in a non-excluded channel
+            # Accumulate voice seconds per (uid, day) and track last_voice_at.
+            # Clamp each session to [cutoff_ts, now] so only in-window time
+            # is counted.
+            voice_day_secs: dict[tuple[int, int], int] = {}
+            voice_last: dict[int, int] = {}
+            for uid, joined_at, ended_at in await cursor.fetchall():
+                clamped_start = max(joined_at, cutoff_ts)
+                clamped_end = min(ended_at, now)
+                if clamped_start > clamped_end:
+                    continue
+                voice_last[uid] = max(voice_last.get(uid, 0), ended_at)
+                for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
+                    day_start = max(clamped_start, d * 86400)
+                    day_end = min(clamped_end, (d + 1) * 86400)
+                    voice_day_secs[(uid, d)] = (
+                        voice_day_secs.get((uid, d), 0) + max(0, day_end - day_start)
+                    )
+
+            for (uid, d), secs in voice_day_secs.items():
+                if secs < min_voice_secs:
+                    continue
+                entry = user_data.setdefault(uid, {})
+                entry.setdefault("active_voice_days", set()).add(d)
+                entry["last_voice_at"] = voice_last.get(uid, 0)
+
+            # --- Game-in-voice: expand qualifying sessions ---
             excl_clause = ""
             excl_params: list[Any] = []
             if excluded:
@@ -369,41 +517,81 @@ class MetricsService(BaseService):
                 game_user_params = list(user_ids)
 
             sql_game = (
-                "SELECT g.user_id, MAX(COALESCE(g.ended_at, ?)) "
+                "SELECT DISTINCT g.user_id, g.started_at, "
+                "COALESCE(g.ended_at, ?) "
                 "FROM game_sessions g "
                 "JOIN voice_sessions v "
                 "  ON g.guild_id = v.guild_id AND g.user_id = v.user_id "
                 "  AND g.started_at < COALESCE(v.left_at, ?) "
                 "  AND COALESCE(g.ended_at, ?) > v.joined_at "
-                f"WHERE g.guild_id = ? AND g.started_at >= ?"
-                f"{game_user_filter}{excl_clause}{game_name_clause} "
-                "GROUP BY g.user_id"
+                f"WHERE g.guild_id = ? "
+                f"AND g.started_at <= ? AND COALESCE(g.ended_at, ?) > ?"
+                f"{game_user_filter}{excl_clause}{game_name_clause}"
             )
             game_params: list[Any] = [
-                now,  # COALESCE(g.ended_at, ?)
-                now,  # COALESCE(v.left_at, ?)
-                now,  # COALESCE(g.ended_at, ?) in join
+                now,  # COALESCE(g.ended_at, ?) in SELECT
+                now,  # COALESCE(v.left_at, ?) in JOIN
+                now,  # COALESCE(g.ended_at, ?) in JOIN
                 guild_id,
-                cutoff_window,
+                now,  # g.started_at < ?
+                now,  # COALESCE(g.ended_at, ?) > ?
+                cutoff_ts,  # > cutoff_ts
                 *game_user_params,
                 *excl_params,
                 *game_name_params,
             ]
             cursor = await db.execute(sql_game, game_params)
-            for uid, last_ts in await cursor.fetchall():
-                result.setdefault(uid, {})["last_game_at"] = last_ts
 
-        # Compute tiers per dimension and combined
-        for uid, data in result.items():
-            data["voice_tier"] = self._tier_from_recency(data.get("last_voice_at"), now)
-            data["chat_tier"] = self._tier_from_recency(data.get("last_chat_at"), now)
-            data["game_tier"] = self._tier_from_recency(data.get("last_game_at"), now)
-            combined_last = max(
-                data.get("last_voice_at") or 0,
-                data.get("last_chat_at") or 0,
-                data.get("last_game_at") or 0,
-            ) or None
-            data["combined_tier"] = self._tier_from_recency(combined_last, now)
+            # Accumulate game seconds per (uid, day) and track last_game_at.
+            # Clamp each session to [cutoff_ts, now] so only in-window time
+            # is counted.
+            game_day_secs: dict[tuple[int, int], int] = {}
+            game_last: dict[int, int] = {}
+            for uid, started_at, ended_at in await cursor.fetchall():
+                clamped_start = max(started_at, cutoff_ts)
+                clamped_end = min(ended_at, now)
+                if clamped_start > clamped_end:
+                    continue
+                game_last[uid] = max(game_last.get(uid, 0), ended_at)
+                for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
+                    day_start = max(clamped_start, d * 86400)
+                    day_end = min(clamped_end, (d + 1) * 86400)
+                    game_day_secs[(uid, d)] = (
+                        game_day_secs.get((uid, d), 0)
+                        + max(0, day_end - day_start)
+                    )
+
+            for (uid, d), secs in game_day_secs.items():
+                if secs < min_game_secs:
+                    continue
+                entry = user_data.setdefault(uid, {})
+                entry.setdefault("active_game_days", set()).add(d)
+                entry["last_game_at"] = game_last.get(uid, 0)
+
+        # Classify tiers per dimension + combined
+        result: dict[int, dict[str, Any]] = {}
+        for uid, data in user_data.items():
+            chat_days = data.get("active_chat_days", set())
+            voice_days = data.get("active_voice_days", set())
+            game_days = data.get("active_game_days", set())
+            combined_days = chat_days | voice_days | game_days
+            result[uid] = {
+                "last_chat_at": data.get("last_chat_at"),
+                "last_voice_at": data.get("last_voice_at"),
+                "last_game_at": data.get("last_game_at"),
+                "voice_tier": self._tier_from_cadence(
+                    voice_days, range_start_day, normalized_lookback,
+                ),
+                "chat_tier": self._tier_from_cadence(
+                    chat_days, range_start_day, normalized_lookback,
+                ),
+                "game_tier": self._tier_from_cadence(
+                    game_days, range_start_day, normalized_lookback,
+                ),
+                "combined_tier": self._tier_from_cadence(
+                    combined_days, range_start_day, normalized_lookback,
+                ),
+            }
 
         return result
 
@@ -437,10 +625,16 @@ class MetricsService(BaseService):
         return counts
 
     async def get_activity_group_user_ids(
-        self, guild_id: int, dimension: str, tier: str
+        self,
+        guild_id: int,
+        dimension: str,
+        tier: str,
+        lookback_days: int = 30,
     ) -> list[int]:
         """Return user IDs matching a specific dimension+tier combo."""
-        buckets = await self.get_member_activity_buckets(guild_id)
+        buckets = await self.get_member_activity_buckets(
+            guild_id, lookback_days=lookback_days,
+        )
         key = f"{dimension}_tier"
         return [uid for uid, data in buckets.items() if data.get(key) == tier]
 
@@ -449,6 +643,7 @@ class MetricsService(BaseService):
         guild_id: int,
         dimensions: list[str],
         tiers: list[str],
+        lookback_days: int = 30,
     ) -> dict[str, dict[str, list[int]]]:
         """Return user IDs for multiple dimension+tier combos in one call.
 
@@ -460,7 +655,9 @@ class MetricsService(BaseService):
             the web backend resolves activity filters.  A single call to
             ``get_member_activity_buckets`` is shared across all combos.
         """
-        buckets = await self.get_member_activity_buckets(guild_id)
+        buckets = await self.get_member_activity_buckets(
+            guild_id, lookback_days=lookback_days,
+        )
         result: dict[str, dict[str, list[int]]] = {}
         for dim in dimensions:
             key = f"{dim}_tier"
@@ -482,8 +679,8 @@ class MetricsService(BaseService):
         """
         if not self._enabled:
             return
-        hour_bucket = _hour_bucket(int(time.time()))
-        self._message_buffer[(guild_id, user_id, hour_bucket)] += 1
+        message_bucket = _message_window_bucket(int(time.time()))
+        self._message_buffer[(guild_id, user_id, message_bucket)] += 1
         self._total_messages_buffered += 1
 
     async def record_voice_join(
@@ -1205,11 +1402,15 @@ class MetricsService(BaseService):
             async with MetricsDatabase.get_connection() as db:
                 for (guild_id, user_id, hour_bucket), count in snapshot.items():
                     await db.execute(
-                        "INSERT INTO message_counts (guild_id, user_id, hour_bucket, message_count) "
-                        "VALUES (?, ?, ?, ?) "
+                        "INSERT INTO message_counts ("
+                        "guild_id, user_id, hour_bucket, bucket_seconds, message_count"
+                        ") "
+                        "VALUES (?, ?, ?, ?, ?) "
                         "ON CONFLICT(guild_id, user_id, hour_bucket) "
-                        "DO UPDATE SET message_count = message_count + excluded.message_count",
-                        (guild_id, user_id, hour_bucket, count),
+                        "DO UPDATE SET "
+                        "message_count = message_count + excluded.message_count, "
+                        "bucket_seconds = excluded.bucket_seconds",
+                        (guild_id, user_id, hour_bucket, 180, count),
                     )
                 await db.commit()
             self._last_flush_at = time.time()
@@ -1473,3 +1674,8 @@ class MetricsService(BaseService):
 def _hour_bucket(epoch: int) -> int:
     """Truncate a Unix timestamp to the start of its hour."""
     return epoch - (epoch % 3600)
+
+
+def _message_window_bucket(epoch: int) -> int:
+    """Truncate a Unix timestamp to the start of its 3-minute message window."""
+    return epoch - (epoch % 180)

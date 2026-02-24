@@ -176,8 +176,13 @@ async def init_metrics_schema(db: aiosqlite.Connection) -> None:
     )
 
     # -----------------------------------------------------------------------
-    # Message Counts — hourly bucketed message counters
-    # Upserted on each message event; one row per user per hour.
+    # Message Counts — message-window bucketed counters
+    # Upserted on each message event; one row per user per bucket.
+    #
+    # `hour_bucket` is retained as a legacy column name for compatibility,
+    # but now stores 3-minute window buckets for new writes.
+    # `bucket_seconds` tags bucket granularity so cadence queries can ignore
+    # legacy hourly rows (3600) and only use 3-minute rows (180).
     # -----------------------------------------------------------------------
     await db.execute(
         """
@@ -185,14 +190,27 @@ async def init_metrics_schema(db: aiosqlite.Connection) -> None:
             guild_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             hour_bucket INTEGER NOT NULL,
+            bucket_seconds INTEGER NOT NULL DEFAULT 3600,
             message_count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, hour_bucket)
         )
         """
     )
+    # Migrate existing DBs created before bucket_seconds existed.
+    cursor = await db.execute("PRAGMA table_info(message_counts)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "bucket_seconds" not in columns:
+        await db.execute(
+            "ALTER TABLE message_counts "
+            "ADD COLUMN bucket_seconds INTEGER NOT NULL DEFAULT 3600"
+        )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_message_counts_guild_hour "
         "ON message_counts(guild_id, hour_bucket)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_message_counts_guild_bucket_seconds "
+        "ON message_counts(guild_id, bucket_seconds, hour_bucket)"
     )
 
     # -----------------------------------------------------------------------

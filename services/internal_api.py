@@ -1633,6 +1633,7 @@ class InternalAPIServer:
         Query params:
             dimensions  – comma-separated (voice,chat,game,combined)
             tiers       – comma-separated (hardcore,regular,casual,reserve,inactive)
+            days        – lookback period in days (default 30, 1–365)
         Returns: { "<dimension>": { "<tier>": [int, ...], ... }, ... }
         """
         if not self._check_auth(request):
@@ -1646,6 +1647,12 @@ class InternalAPIServer:
             guild_id = int(request.match_info["guild_id"])
         except (KeyError, ValueError):
             return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "30"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
 
         valid_dims = {"voice", "chat", "game", "combined"}
         valid_tiers = {"hardcore", "regular", "casual", "reserve", "inactive"}
@@ -1667,7 +1674,9 @@ class InternalAPIServer:
             )
 
         try:
-            result = await metrics.get_activity_group_user_ids_bulk(guild_id, dimensions, tiers)
+            result = await metrics.get_activity_group_user_ids_bulk(
+                guild_id, dimensions, tiers, lookback_days=days,
+            )
             return web.json_response(result)
         except Exception as e:
             logger.exception("Error fetching bulk activity group members")
