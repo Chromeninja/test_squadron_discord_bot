@@ -1044,9 +1044,43 @@ class TestActivityThresholds:
 
     @pytest.mark.asyncio
     async def test_chat_at_threshold_included(
+        self, metrics_service: MetricsService, monkeypatch
+    ) -> None:
+        """Days with min_messages distinct 3-minute windows are counted."""
+        base_now = int(time.time())
+
+        async def _threshold_5(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            if key == "metrics.min_messages":
+                return 5
+            if key in ("metrics.min_voice_minutes", "metrics.min_game_minutes"):
+                return 0
+            return default if default is not None else []
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_threshold_5,
+        )
+        metrics_service._activity_thresholds_cache.clear()
+
+        # Record 5 messages 3+ minutes apart — exactly at threshold
+        for i in range(5):
+            ts = base_now + (i * 181)
+            monkeypatch.setattr("services.metrics_service.time.time", lambda ts=ts: ts)
+            metrics_service.record_message(guild_id=100, user_id=2, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=base_now + (4 * 181),
+        )
+        assert 2 in result
+        assert result[2]["chat_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_chat_burst_messages_same_window_excluded(
         self, metrics_service: MetricsService
     ) -> None:
-        """Days with exactly min_messages messages are counted."""
+        """Burst spam in one 3-minute window does not satisfy chat threshold."""
         now = int(time.time())
 
         async def _threshold_5(
@@ -1063,16 +1097,15 @@ class TestActivityThresholds:
         )
         metrics_service._activity_thresholds_cache.clear()
 
-        # Record 5 messages — exactly at threshold
+        # 5 rapid messages in the same 3-minute window => 1 qualifying window
         for _ in range(5):
-            metrics_service.record_message(guild_id=100, user_id=2, channel_id=10)
+            metrics_service.record_message(guild_id=100, user_id=6, channel_id=10)
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
             guild_id=100, lookback_days=1, now_utc=now,
         )
-        assert 2 in result
-        assert result[2]["chat_tier"] == "hardcore"
+        assert 6 not in result
 
     @pytest.mark.asyncio
     async def test_voice_below_threshold_excluded(

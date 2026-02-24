@@ -100,7 +100,7 @@ class MetricsService(BaseService):
         self._voice_sessions: dict[tuple[int, int], VoiceSessionInfo] = {}
         # Active game sessions keyed by (guild_id, user_id)
         self._game_sessions: dict[tuple[int, int], GameSessionInfo] = {}
-        # Buffered message counts: (guild_id, user_id, hour_bucket) -> count
+        # Buffered message counts: (guild_id, user_id, message_bucket) -> count
         self._message_buffer: defaultdict[tuple[int, int, int], int] = defaultdict(int)
         self._message_buffer_lock = asyncio.Lock()
 
@@ -399,6 +399,7 @@ class MetricsService(BaseService):
         min_voice_secs, min_game_secs, min_msgs = (
             await self.get_activity_thresholds(guild_id)
         )
+        min_msg_windows = min_msgs
 
         user_filter_sql = ""
         params_prefix: list[Any] = [guild_id]
@@ -413,17 +414,17 @@ class MetricsService(BaseService):
         user_data: dict[int, dict[str, Any]] = {}
 
         async with MetricsDatabase.get_connection() as db:
-            # --- Chat: messages per user per day, apply min_messages ---
+            # --- Chat: per-day distinct 3-min message windows ---
             sql_msg = (
                 "SELECT user_id, hour_bucket / 86400 AS day_bucket, "
-                "SUM(message_count) AS day_msgs, MAX(hour_bucket) "
+                "COUNT(*) AS day_msg_windows, MAX(hour_bucket) "
                 "FROM message_counts "
                 f"WHERE guild_id = ? {user_filter_sql} AND hour_bucket >= ? "
                 "GROUP BY user_id, day_bucket"
             )
             cursor = await db.execute(sql_msg, [*params_prefix, cutoff_ts])
-            for uid, day_bucket, day_msgs, max_ts in await cursor.fetchall():
-                if day_msgs < min_msgs:
+            for uid, day_bucket, day_msg_windows, max_ts in await cursor.fetchall():
+                if day_msg_windows < min_msg_windows:
                     continue
                 entry = user_data.setdefault(uid, {})
                 entry.setdefault("active_chat_days", set()).add(day_bucket)
@@ -632,8 +633,8 @@ class MetricsService(BaseService):
         """
         if not self._enabled:
             return
-        hour_bucket = _hour_bucket(int(time.time()))
-        self._message_buffer[(guild_id, user_id, hour_bucket)] += 1
+        message_bucket = _message_window_bucket(int(time.time()))
+        self._message_buffer[(guild_id, user_id, message_bucket)] += 1
         self._total_messages_buffered += 1
 
     async def record_voice_join(
@@ -1623,3 +1624,8 @@ class MetricsService(BaseService):
 def _hour_bucket(epoch: int) -> int:
     """Truncate a Unix timestamp to the start of its hour."""
     return epoch - (epoch % 3600)
+
+
+def _message_window_bucket(epoch: int) -> int:
+    """Truncate a Unix timestamp to the start of its 3-minute message window."""
+    return epoch - (epoch % 180)
