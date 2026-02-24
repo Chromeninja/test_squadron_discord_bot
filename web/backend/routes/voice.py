@@ -32,6 +32,7 @@ from core.schemas import (
     SoundboardEntry,
     UserJTCSettings,
     UserProfile,
+    VoiceChannelMember,
     VoiceChannelRecord,
     VoiceSearchResponse,
     VoiceSettingsResetResponse,
@@ -366,7 +367,7 @@ async def list_active_voice_channels(
         )
 
     # Single-guild mode — show ALL occupied voice/stage channels (managed + unmanaged)
-    guild_id = current_user.active_guild_id
+    guild_id = int(current_user.active_guild_id)
 
     # ── 1. Fetch occupied channels from gateway cache (humans only) ──
     try:
@@ -425,14 +426,13 @@ async def list_active_voice_channels(
 
     verification_data: dict[int, dict] = {}
     if all_member_ids:
-        placeholders = ",".join("?" * len(all_member_ids))
+        member_id_list = list(all_member_ids)
+        placeholders = ",".join("?" for _ in member_id_list)
         members_cursor = await db.execute(
-            f"""
-            SELECT user_id, rsi_handle, main_orgs, affiliate_orgs
-            FROM verification
-            WHERE user_id IN ({placeholders})
-            """,
-            tuple(all_member_ids),
+            f"SELECT user_id, rsi_handle, main_orgs, affiliate_orgs "
+            f"FROM verification "
+            f"WHERE user_id IN ({placeholders})",
+            tuple(member_id_list),
         )
         for r in await members_cursor.fetchall():
             verification_data[r[0]] = {
@@ -445,88 +445,101 @@ async def list_active_voice_channels(
     items: list[ActiveVoiceChannel] = []
 
     for ch in occupied_channels:
-        channel_id = ch["channel_id"]
-        channel_name = ch.get("channel_name") or f"Channel {channel_id}"
-        channel_type = ch.get("channel_type")
-        category = ch.get("category")
-        managed = managed_map.get(channel_id)
-        is_managed = managed is not None
+        try:
+            channel_id = ch["channel_id"]
+            channel_name = ch.get("channel_name") or f"Channel {channel_id}"
+            channel_type = ch.get("channel_type")
+            category = ch.get("category")
+            managed = managed_map.get(channel_id)
+            is_managed = managed is not None
 
-        # Owner enrichment (managed channels only)
-        owner_id = managed["owner_id"] if managed else 0
-        owner_rsi_handle: str | None = None
-        owner_status: str | None = None
-        if managed:
-            owner_rsi_handle = managed.get("rsi_handle")
-            owner_main = managed.get("main_orgs")
-            owner_aff = managed.get("affiliate_orgs")
-            if owner_main is None and owner_aff is None:
-                owner_status = "unknown"
-            else:
-                owner_status = derive_membership_status(
-                    owner_main or [],
-                    owner_aff or [],
-                    organization_sid or "TEST",
+            # Owner enrichment (managed channels only)
+            owner_id = managed["owner_id"] if managed else 0
+            owner_rsi_handle: str | None = None
+            owner_status: str | None = None
+            if managed:
+                owner_rsi_handle = managed.get("rsi_handle")
+                owner_main = managed.get("main_orgs")
+                owner_aff = managed.get("affiliate_orgs")
+                if owner_main is None and owner_aff is None:
+                    owner_status = "unknown"
+                else:
+                    owner_status = derive_membership_status(
+                        owner_main or [],
+                        owner_aff or [],
+                        organization_sid or "TEST",
+                    )
+
+                # Prefer saved channel settings name for managed channels
+                try:
+                    snapshot = await voice_service.get_voice_settings_snapshot(
+                        guild_id=guild_id,
+                        jtc_channel_id=managed["jtc_channel_id"],
+                        owner_id=owner_id,
+                        voice_channel_id=channel_id,
+                    )
+                    if snapshot and snapshot.channel_name:
+                        channel_name = snapshot.channel_name
+                except Exception:
+                    logger.debug(
+                        "Failed to load voice settings snapshot for channel %s in guild %s",
+                        channel_id,
+                        guild_id,
+                        exc_info=True,
+                    )
+
+            # Build members list from gateway data + verification enrichment
+            members_in_channel: list[VoiceChannelMember] = []
+            for m in ch.get("members", []):
+                uid = m["user_id"]
+                v = verification_data.get(uid, {})
+                username = m.get("username")
+                display_name = m.get("display_name") or v.get("rsi_handle") or username
+
+                if v.get("main_orgs") is None and v.get("affiliate_orgs") is None:
+                    m_status = "unknown"
+                else:
+                    m_status = derive_membership_status(
+                        v.get("main_orgs") or [],
+                        v.get("affiliate_orgs") or [],
+                        organization_sid or "TEST",
+                    )
+
+                members_in_channel.append(
+                    VoiceChannelMember(
+                        user_id=uid,
+                        username=username,
+                        display_name=display_name or f"User {uid}",
+                        rsi_handle=v.get("rsi_handle"),
+                        membership_status=m_status,
+                        is_owner=uid == owner_id if is_managed else False,
+                    )
                 )
 
-            # Prefer saved channel settings name for managed channels
-            try:
-                snapshot = await voice_service.get_voice_settings_snapshot(
-                    guild_id=guild_id,
-                    jtc_channel_id=managed["jtc_channel_id"],
-                    owner_id=owner_id,
+            items.append(
+                ActiveVoiceChannel(
                     voice_channel_id=channel_id,
+                    guild_id=guild_id,
+                    jtc_channel_id=managed["jtc_channel_id"] if managed else 0,
+                    owner_id=owner_id,
+                    created_at=managed["created_at"] if managed else 0,
+                    last_activity=managed["last_activity"] if managed else 0,
+                    owner_rsi_handle=owner_rsi_handle,
+                    owner_membership_status=owner_status,
+                    channel_name=channel_name,
+                    members=members_in_channel,
+                    is_managed=is_managed,
+                    channel_type=channel_type,
+                    category=category,
                 )
-                if snapshot and snapshot.channel_name:
-                    channel_name = snapshot.channel_name
-            except Exception:
-                pass
-
-        # Build members list from gateway data + verification enrichment
-        members_in_channel: list[dict] = []
-        for m in ch.get("members", []):
-            uid = m["user_id"]
-            v = verification_data.get(uid, {})
-            username = m.get("username")
-            display_name = m.get("display_name") or v.get("rsi_handle") or username
-
-            if v.get("main_orgs") is None and v.get("affiliate_orgs") is None:
-                m_status = "unknown"
-            else:
-                m_status = derive_membership_status(
-                    v.get("main_orgs") or [],
-                    v.get("affiliate_orgs") or [],
-                    organization_sid or "TEST",
-                )
-
-            members_in_channel.append(
-                {
-                    "user_id": uid,
-                    "username": username,
-                    "display_name": display_name or f"User {uid}",
-                    "rsi_handle": v.get("rsi_handle"),
-                    "membership_status": m_status,
-                    "is_owner": uid == owner_id if is_managed else False,
-                }
             )
-
-        items.append(
-            ActiveVoiceChannel(
-                voice_channel_id=channel_id,
-                guild_id=guild_id,
-                jtc_channel_id=managed["jtc_channel_id"] if managed else 0,
-                owner_id=owner_id,
-                created_at=managed["created_at"] if managed else 0,
-                last_activity=managed["last_activity"] if managed else 0,
-                owner_rsi_handle=owner_rsi_handle,
-                owner_membership_status=owner_status,
-                channel_name=channel_name,
-                members=members_in_channel,
-                is_managed=is_managed,
-                channel_type=channel_type,
-                category=category,
+        except Exception:
+            logger.warning(
+                "Failed to process voice channel %s in guild %s, skipping",
+                ch.get("channel_id", "unknown"),
+                guild_id,
+                exc_info=True,
             )
-        )
 
     return ActiveVoiceChannelsResponse(
         items=items, total=len(items), is_cross_guild=False

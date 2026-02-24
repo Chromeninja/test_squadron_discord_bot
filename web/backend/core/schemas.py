@@ -216,7 +216,7 @@ class ActiveVoiceChannel(BaseModel):
     created_at: int = 0
     last_activity: int = 0
     channel_name: str | None = None
-    members: list[VoiceChannelMember] = []
+    members: list[VoiceChannelMember] = Field(default_factory=list)
     # Cross-guild mode: guild name for display
     guild_name: str | None = None
     # Whether this channel is managed (JTC) by the bot
