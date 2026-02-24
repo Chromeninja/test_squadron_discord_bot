@@ -534,9 +534,7 @@ async def is_valid_rsi_bio(
     # Check circuit breaker before making RSI request
     circuit_breaker = get_rsi_circuit_breaker()
     if circuit_breaker.is_open():
-        logger.info(
-            "Circuit breaker OPEN, skipping bio check for %s", user_handle
-        )
+        logger.info("Circuit breaker OPEN, skipping bio check for %s", user_handle)
         return None
 
     if not RSI_HANDLE_REGEX.match(user_handle):
@@ -565,7 +563,7 @@ async def is_valid_rsi_bio(
     # Record success - RSI responded
     circuit_breaker.record_success()
 
-        # Extract bio text
+    # Extract bio text
     try:
         bio_text = extract_bio(bio_html)
         if bio_text:

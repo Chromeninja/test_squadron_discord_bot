@@ -10,6 +10,6 @@
     }
   ],
   "settings": {
-    "python.defaultInterpreterPath": "${workspaceFolder:🤖 Bot (Root)}/.venv/bin/python"
+    "python.defaultInterpreterPath": ".venv/bin/python"
   }
 }

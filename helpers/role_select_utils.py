@@ -44,9 +44,7 @@ def _normalize_role_ids(raw_roles: Any, guild_id: int | None, key: str) -> list[
     return normalized
 
 
-async def load_selectable_roles(
-    bot, guild, key: str | None = None
-) -> list[int]:
+async def load_selectable_roles(bot, guild, key: str | None = None) -> list[int]:
     """Fetch selectable roles for a guild via ConfigService, normalized to ints.
 
     Prefers the current DB key ("selectable_roles") and falls back to the

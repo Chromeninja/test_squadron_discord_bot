@@ -78,7 +78,9 @@ class TestConfigLoaderBasics:
             ConfigLoader.load_config(path)
 
             assert ConfigLoader.get("nonexistent_key") is None
-            assert ConfigLoader.get("nonexistent_key", "default_value") == "default_value"
+            assert (
+                ConfigLoader.get("nonexistent_key", "default_value") == "default_value"
+            )
 
 
 class TestConfigLoaderMissingFile:

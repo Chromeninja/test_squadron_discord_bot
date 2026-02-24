@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { 
-  statsApi, 
-  StatsOverview, 
-  healthApi, 
-  HealthOverview, 
-  errorsApi, 
+import {
+  statsApi,
+  StatsOverview,
+  healthApi,
+  HealthOverview,
+  errorsApi,
   StructuredError,
   logsApi,
   authApi
@@ -25,11 +25,11 @@ function Dashboard() {
   const fetchData = async () => {
     try {
       setRefreshing(true);
-      
+
       // Fetch user profile to check admin status
       const userResponse = await authApi.getMe();
       const user = userResponse.user;
-      
+
       // Check if user has bot_admin level or higher (includes bot_owner)
       let userIsBotAdmin = false;
       if (user) {
@@ -53,11 +53,11 @@ function Dashboard() {
         }
       }
       setIsBotAdmin(userIsBotAdmin);
-      
+
       // Fetch stats (available to all authenticated users)
       const statsResponse = await statsApi.getOverview();
       setStats(statsResponse.data);
-      
+
       // Fetch admin-only data
       if (userIsBotAdmin) {
         try {
@@ -66,7 +66,7 @@ function Dashboard() {
         } catch (err) {
           // Health data is optional, log but don't show toast
         }
-        
+
         try {
           const errorsResponse = await errorsApi.getLast(1);
           setLastError(errorsResponse.errors[0] || null);
@@ -74,7 +74,7 @@ function Dashboard() {
           // Error data is optional, log but don't show toast
         }
       }
-      
+
       setLoading(false);
       setError(null);
     } catch (err) {
@@ -112,7 +112,7 @@ function Dashboard() {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m ${secs}s`;
     } else if (minutes > 0) {

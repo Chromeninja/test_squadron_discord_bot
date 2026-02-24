@@ -44,9 +44,7 @@ async def assert_base_permissions(
         bot_overwrite = discord.PermissionOverwrite(manage_channels=True, connect=True)
 
         # Set up overwrites for owner (connect only - management via bot commands)
-        owner_overwrite = discord.PermissionOverwrite(
-            connect=True
-        )
+        owner_overwrite = discord.PermissionOverwrite(connect=True)
 
         # Get existing overwrites
         overwrites = dict(channel.overwrites)

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Service availability guards
 # ---------------------------------------------------------------------------
 
+
 def bot_has_services(bot: Any) -> bool:
     """Return True if *bot* has an initialised services container."""
     return getattr(bot, "services", None) is not None
@@ -33,6 +34,7 @@ def bot_has_guild_config(bot: Any) -> bool:
 # ---------------------------------------------------------------------------
 # Organization SID retrieval
 # ---------------------------------------------------------------------------
+
 
 async def get_guild_org_sid(
     bot: Any,
@@ -69,6 +71,8 @@ async def get_guild_org_sid(
     except Exception as e:
         logger.debug(
             "Failed to get org SID for guild %s, using default %r: %s",
-            guild_id, default, e,
+            guild_id,
+            default,
+            e,
         )
         return default

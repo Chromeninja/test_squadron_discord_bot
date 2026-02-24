@@ -75,7 +75,9 @@ async def _dm_send(
         return True
     except discord.Forbidden:
         logger.debug(
-            "Cannot send %s to %s (DMs disabled or bot blocked)", label, member.display_name
+            "Cannot send %s to %s (DMs disabled or bot blocked)",
+            label,
+            member.display_name,
         )
         return False
     except discord.HTTPException as e:

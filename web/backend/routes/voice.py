@@ -301,7 +301,9 @@ async def list_active_voice_channels(
         try:
             guilds_list = await internal_api.get_guilds()
             guild_map = {
-                str(g.get("guild_id")): g.get("guild_name", f"Guild {g.get('guild_id')}")
+                str(g.get("guild_id")): g.get(
+                    "guild_name", f"Guild {g.get('guild_id')}"
+                )
                 for g in guilds_list
             }
         except Exception:
@@ -411,9 +413,7 @@ async def list_active_voice_channels(
             owner_status = "unknown"
         else:
             owner_status = derive_membership_status(
-                owner_main_orgs or [],
-                owner_aff_orgs or [],
-                organization_sid or "TEST"
+                owner_main_orgs or [], owner_aff_orgs or [], organization_sid or "TEST"
             )
 
         try:
@@ -422,7 +422,11 @@ async def list_active_voice_channels(
             try:
                 all_channels = await internal_api.get_guild_channels(guild_id)
                 channel_data = next(
-                    (c for c in all_channels if str(c.get("id")) == str(voice_channel_id)),
+                    (
+                        c
+                        for c in all_channels
+                        if str(c.get("id")) == str(voice_channel_id)
+                    ),
                     None,
                 )
                 if channel_data:
@@ -446,7 +450,9 @@ async def list_active_voice_channels(
             # Get member IDs from bot's internal API (Gateway cache - no Discord API calls!)
             member_ids = []
             try:
-                member_ids = await internal_api.get_voice_channel_members(voice_channel_id)
+                member_ids = await internal_api.get_voice_channel_members(
+                    voice_channel_id
+                )
             except Exception:
                 logger.debug(
                     "Could not fetch voice members from internal API for channel %s",
@@ -488,7 +494,9 @@ async def list_active_voice_channels(
                     # Get Discord user info via internal API (cached via bot's gateway)
                     username = None
                     try:
-                        member_data = await internal_api.get_guild_member(guild_id, user_id)
+                        member_data = await internal_api.get_guild_member(
+                            guild_id, user_id
+                        )
                         username = member_data.get("username")
                     except Exception:
                         pass
@@ -502,11 +510,13 @@ async def list_active_voice_channels(
                             or f"User {user_id}",
                             "rsi_handle": verification.get("rsi_handle"),
                             "membership_status": (
-                                "unknown" if verification.get("main_orgs") is None and verification.get("affiliate_orgs") is None
+                                "unknown"
+                                if verification.get("main_orgs") is None
+                                and verification.get("affiliate_orgs") is None
                                 else derive_membership_status(
                                     verification.get("main_orgs") or [],
                                     verification.get("affiliate_orgs") or [],
-                                    organization_sid or "TEST"
+                                    organization_sid or "TEST",
                                 )
                             ),
                             "is_owner": user_id == owner_id,
@@ -529,9 +539,7 @@ async def list_active_voice_channels(
             )
 
         except Exception:
-            logger.exception(
-                "Error fetching data for channel %s", voice_channel_id
-            )
+            logger.exception("Error fetching data for channel %s", voice_channel_id)
             # Add channel with minimal data
             items.append(
                 ActiveVoiceChannel(
@@ -548,7 +556,9 @@ async def list_active_voice_channels(
                 )
             )
 
-    return ActiveVoiceChannelsResponse(items=items, total=len(items), is_cross_guild=False)
+    return ActiveVoiceChannelsResponse(
+        items=items, total=len(items), is_cross_guild=False
+    )
 
 
 @router.get("/search", response_model=VoiceSearchResponse)
@@ -672,10 +682,14 @@ async def search_user_voice_settings(
         try:
             guilds_list = await internal_api.get_guilds()
             guild_map = {
-                str(g.get("guild_id")): g.get("guild_name", f"Guild {g.get('guild_id')}")
+                str(g.get("guild_id")): g.get(
+                    "guild_name", f"Guild {g.get('guild_id')}"
+                )
                 for g in guilds_list
             }
-            guild_ids = [int(gid) for g in guilds_list if (gid := g.get("guild_id")) is not None]
+            guild_ids = [
+                int(gid) for g in guilds_list if (gid := g.get("guild_id")) is not None
+            ]
         except Exception:
             guild_map = {}
             guild_ids = []
@@ -728,7 +742,9 @@ async def search_user_voice_settings(
             # Check each guild for voice settings
             for gid in guild_ids:
                 gid_str = str(gid)
-                snapshots = await voice_service.get_user_settings_snapshots(gid, user_id)
+                snapshots = await voice_service.get_user_settings_snapshots(
+                    gid, user_id
+                )
 
                 if not snapshots:
                     continue
@@ -737,7 +753,9 @@ async def search_user_voice_settings(
 
                 # Minimal resolution (no Discord API calls in cross-guild)
                 resolved_jtcs = [
-                    snapshot_to_jtc_settings(s, jtc_channel_name=f"JTC {s.jtc_channel_id}")
+                    snapshot_to_jtc_settings(
+                        s, jtc_channel_name=f"JTC {s.jtc_channel_id}"
+                    )
                     for s in snapshots
                 ]
 
@@ -800,7 +818,9 @@ async def search_user_voice_settings(
                 break
             page_num += 1
     except Exception:
-        logger.warning("Failed to fetch guild members for privacy filtering, returning empty results (fail closed)")
+        logger.warning(
+            "Failed to fetch guild members for privacy filtering, returning empty results (fail closed)"
+        )
         # Fail closed: return empty results rather than exposing settings for non-members
         return VoiceUserSettingsSearchResponse(
             success=True,
@@ -1015,7 +1035,9 @@ async def reset_user_voice_settings(
     # Require admin role for destructive operations (following bot pattern)
     def _is_admin_for_guild(user: UserProfile, gid: int) -> bool:
         perm = user.authorized_guilds.get(str(guild_id)) if user else None
-        return bool(perm and perm.role_level in {"bot_owner", "bot_admin", "discord_manager"})
+        return bool(
+            perm and perm.role_level in {"bot_owner", "bot_admin", "discord_manager"}
+        )
 
     if not _is_admin_for_guild(current_user, guild_id):
         raise HTTPException(
@@ -1152,5 +1174,6 @@ async def reset_user_voice_settings(
             status="error",
         )
         raise HTTPException(
-            status_code=500, detail="Failed to reset voice settings. Check server logs for details."
+            status_code=500,
+            detail="Failed to reset voice settings. Check server logs for details.",
         )

@@ -177,7 +177,9 @@ class HandleModal(Modal, title="Verification"):
             )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.warning(
-                "Verification failed: RSI fetch error: %s", e, extra={"user_id": member.id}
+                "Verification failed: RSI fetch error: %s",
+                e,
+                extra={"user_id": member.id},
             )
             return
 
@@ -264,7 +266,9 @@ class HandleModal(Modal, title="Verification"):
                 global_state.rsi_handle, global_state.user_id
             )
             if conflict:
-                raise ValueError("RSI handle is already verified by another Discord account.")
+                raise ValueError(
+                    "RSI handle is already verified by another Discord account."
+                )
         except ValueError as e:
             error_msg = str(e)
             if "already verified by another Discord account" in error_msg:
@@ -274,9 +278,7 @@ class HandleModal(Modal, title="Verification"):
                     "If you believe this is an error, please contact a moderator."
                 )
             embed = create_error_embed(error_msg)
-            await followup_send_message(
-                interaction, "", embed=embed, ephemeral=True
-            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.warning(
                 f"Verification failed: {e!s}",
                 extra={"user_id": member.id, "rsi_handle": cased_handle_used},
@@ -284,7 +286,9 @@ class HandleModal(Modal, title="Verification"):
             return
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Failed to validate verification state: %s", e)
-            embed = create_error_embed("Failed to validate verification. Please try again.")
+            embed = create_error_embed(
+                "Failed to validate verification. Please try again."
+            )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
@@ -316,9 +320,7 @@ class HandleModal(Modal, title="Verification"):
                     "If you believe this is an error, please contact a moderator."
                 )
             embed = create_error_embed(error_msg)
-            await followup_send_message(
-                interaction, "", embed=embed, ephemeral=True
-            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             logger.warning(
                 f"Verification failed during persistence: {e!s}",
                 extra={"user_id": member.id, "rsi_handle": cased_handle_used},
@@ -353,7 +355,9 @@ class HandleModal(Modal, title="Verification"):
             await sync_user_to_all_guilds(global_state, self.bot)
         except Exception as e:
             logger.warning(
-                "Failed to sync user to other guilds: %s", e, extra={"user_id": member.id}
+                "Failed to sync user to other guilds: %s",
+                e,
+                extra={"user_id": member.id},
             )
 
         # Clean up token and reset rate limit
@@ -430,7 +434,9 @@ class ResetSettingsConfirmationModal(Modal):
                 "Confirmation text does not match. Channel settings were not reset.",
                 ephemeral=True,
             )
-            logger.debug("User failed to confirm channel reset", extra={"user_id": member.id})
+            logger.debug(
+                "User failed to confirm channel reset", extra={"user_id": member.id}
+            )
             return
 
         # Try resetting channel settings using the modern voice service
@@ -557,7 +563,9 @@ class NameModal(Modal):
                 ephemeral=True,
             )
         except Exception:
-            logger.exception("Failed to change channel name", extra={"user_id": member.id})
+            logger.exception(
+                "Failed to change channel name", extra={"user_id": member.id}
+            )
             await followup_send_message(
                 interaction,
                 "An unexpected error occurred. Please try again later.",

@@ -722,7 +722,8 @@ async def get_guild_config(
     ro = _read_only_yaml_snapshot(config_loader)
 
     hydrated_policies = [
-        RoleDelegationPolicy(**policy) for policy in roles.get("delegation_policies", [])
+        RoleDelegationPolicy(**policy)
+        for policy in roles.get("delegation_policies", [])
     ]
 
     data = GuildConfigData(
@@ -993,9 +994,8 @@ async def patch_guild_config(
             min_messages=payload.metrics.min_messages,
         )
         updated_metrics = await get_metrics_settings(db, guild_id)
-        if (
-            current_metrics.get("excluded_channel_ids")
-            != updated_metrics.get("excluded_channel_ids")
+        if current_metrics.get("excluded_channel_ids") != updated_metrics.get(
+            "excluded_channel_ids"
         ):
             await _audit_change(
                 db,
@@ -1161,6 +1161,10 @@ async def leave_guild(
             guild_id,
             result.get("guild_name", "unknown"),
         )
-        return {"success": True, "guild_id": guild_id, "guild_name": result.get("guild_name")}
+        return {
+            "success": True,
+            "guild_id": guild_id,
+            "guild_name": result.get("guild_name"),
+        }
     except Exception as exc:
         raise translate_internal_api_error(exc, "Failed to leave guild") from exc

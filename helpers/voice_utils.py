@@ -11,7 +11,10 @@ logger = get_logger(__name__)
 
 
 async def get_user_channel(
-    bot, user: discord.abc.User, guild_id: int | None = None, jtc_channel_id: int | None = None
+    bot,
+    user: discord.abc.User,
+    guild_id: int | None = None,
+    jtc_channel_id: int | None = None,
 ) -> discord.VoiceChannel | None:
     """
     Return the voice channel owned by this user, or None if none exists.

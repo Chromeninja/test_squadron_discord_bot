@@ -140,6 +140,7 @@ def _parse_verification_row(row: tuple) -> dict:
     Malformed JSON in org columns is treated as ``None`` rather than
     propagating an exception.
     """
+
     def _safe_json(value: str | None) -> list[str] | None:
         if not value:
             return None
@@ -254,9 +255,7 @@ def _derive_and_filter(
     return result
 
 
-def _paginate(
-    items: list, page: int, page_size: int
-) -> tuple[list, int, int]:
+def _paginate(items: list, page: int, page_size: int) -> tuple[list, int, int]:
     """Slice items for pagination.
 
     Returns:
@@ -502,7 +501,11 @@ async def list_users(
     is_cross_guild = is_all_guilds_mode(current_user.active_guild_id)
 
     empty_response = UsersListResponse(
-        items=[], total=0, page=page, page_size=page_size, total_pages=0,
+        items=[],
+        total=0,
+        page=page,
+        page_size=page_size,
+        total_pages=0,
     )
 
     if not current_user.active_guild_id:
@@ -567,7 +570,9 @@ async def get_user_details(
     try:
         member_data = await _get_member_with_cache(internal_api, guild_id, user_id)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Failed to fetch Discord member") from exc
+        raise HTTPException(
+            status_code=502, detail="Failed to fetch Discord member"
+        ) from exc
 
     cursor = await db.execute(
         f"SELECT {_VERIFICATION_COLUMNS} FROM verification WHERE user_id = ? LIMIT 1",
@@ -578,7 +583,9 @@ async def get_user_details(
     if row:
         parsed = _parse_verification_row(row)
         org_settings = await get_organization_settings(db, guild_id)
-        organization_sid = org_settings.get("organization_sid") if org_settings else None
+        organization_sid = (
+            org_settings.get("organization_sid") if org_settings else None
+        )
         status = derive_status_from_orgs(
             parsed["main_orgs"], parsed["affiliate_orgs"], organization_sid
         )
@@ -646,7 +653,11 @@ async def _list_users_single_guild(
 ) -> UsersListResponse:
     """List users for a single guild with Discord enrichment."""
     empty = UsersListResponse(
-        items=[], total=0, page=page, page_size=page_size, total_pages=0,
+        items=[],
+        total=0,
+        page=page,
+        page_size=page_size,
+        total_pages=0,
     )
 
     # Fetch guild member IDs from Discord (cached for 30s)
@@ -693,7 +704,9 @@ async def _list_users_single_guild(
 
     items = [
         _enriched_user_from_row(parsed, status, member_data)
-        for (parsed, status), member_data in zip(page_items, member_results, strict=False)
+        for (parsed, status), member_data in zip(
+            page_items, member_results, strict=False
+        )
     ]
 
     return UsersListResponse(
@@ -880,15 +893,15 @@ async def export_users(
     try:
         guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
     except Exception:
-        logger.warning("Failed to fetch guild member IDs for export, exporting unfiltered")
+        logger.warning(
+            "Failed to fetch guild member IDs for export, exporting unfiltered"
+        )
 
     if request.selected_ids:
         placeholders = ",".join("?" * len(request.selected_ids))
         user_ids = [int(uid) for uid in request.selected_ids]
         id_where = f"user_id IN ({placeholders})"
-        combined_where = (
-            f"{id_where} AND {where_clause}" if where_clause else id_where
-        )
+        combined_where = f"{id_where} AND {where_clause}" if where_clause else id_where
         query = (
             f"SELECT {_VERIFICATION_COLUMNS} FROM verification "
             f"WHERE {combined_where} ORDER BY last_updated DESC"
@@ -937,7 +950,11 @@ async def export_users(
         user_id = row[0]
 
         # Skip users not in guild (only when not using selected_ids)
-        if not request.selected_ids and guild_member_ids is not None and user_id not in guild_member_ids:
+        if (
+            not request.selected_ids
+            and guild_member_ids is not None
+            and user_id not in guild_member_ids
+        ):
             continue
 
         # Skip excluded IDs (only when not using selected_ids)

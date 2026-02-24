@@ -89,6 +89,7 @@ INTERNAL_API_PORT = int(os.getenv("INTERNAL_API_PORT", "8082"))
 INTERNAL_API_URL = f"http://{INTERNAL_API_HOST}:{INTERNAL_API_PORT}"
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
+
 def _parse_owner_ids(raw: str) -> set[int]:
     owner_ids: set[int] = set()
     for _id_str in raw.split(","):
@@ -121,7 +122,9 @@ SESSION_MAX_AGE = 86400 * 7  # 7 days
 
 # Auto-detect secure cookies based on PUBLIC_URL scheme
 _auto_cookie_secure = _public_scheme == "https"
-_cookie_secure_env = os.getenv("COOKIE_SECURE", "true" if _auto_cookie_secure else "false")
+_cookie_secure_env = os.getenv(
+    "COOKIE_SECURE", "true" if _auto_cookie_secure else "false"
+)
 COOKIE_SECURE = _cookie_secure_env.lower() == "true"
 
 _cookie_samesite_raw = os.getenv("COOKIE_SAMESITE", "lax").lower()
@@ -151,7 +154,7 @@ if IS_PRODUCTION:
     if SESSION_SECRET == "dev_only_change_me_in_production":
         _logger.critical(
             "SESSION_SECRET must be set to a secure value in production. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     if not INTERNAL_API_KEY:
@@ -172,7 +175,11 @@ if IS_DEV and SESSION_SECRET == "dev_only_change_me_in_production":
 
 # Detect likely misconfiguration: FRONTEND_URL pointing at Vite dev port
 _parsed_frontend = urlparse(FRONTEND_URL)
-_frontend_port_str = (_parsed_frontend.netloc or "").split(":")[-1] if ":" in (_parsed_frontend.netloc or "") else ""
+_frontend_port_str = (
+    (_parsed_frontend.netloc or "").split(":")[-1]
+    if ":" in (_parsed_frontend.netloc or "")
+    else ""
+)
 if _frontend_port_str == str(FRONTEND_PORT) and not IS_DEV:
     _logger.warning(
         "FRONTEND_URL (%s) uses the Vite dev port %s but ENV=%s. "

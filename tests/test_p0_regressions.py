@@ -42,7 +42,9 @@ class TestDeriveMembershipStatus:
         assert derive_membership_status([], ["ally"], "ALLY") == "affiliate"
 
     def test_non_member(self):
-        assert derive_membership_status(["OTHER"], ["ALSO_OTHER"], "TEST") == "non_member"
+        assert (
+            derive_membership_status(["OTHER"], ["ALSO_OTHER"], "TEST") == "non_member"
+        )
 
     def test_none_orgs(self):
         assert derive_membership_status(None, None, "TEST") == "non_member"
@@ -52,7 +54,10 @@ class TestDeriveMembershipStatus:
 
     def test_redacted_filtered_out(self):
         """REDACTED entries should never match any target."""
-        assert derive_membership_status(["REDACTED"], ["REDACTED"], "REDACTED") == "non_member"
+        assert (
+            derive_membership_status(["REDACTED"], ["REDACTED"], "REDACTED")
+            == "non_member"
+        )
 
     def test_main_takes_priority_over_affiliate(self):
         """If SID appears in both main and affiliate, 'main' wins."""
@@ -110,9 +115,7 @@ async def test_build_embed_verbose_shows_unchanged_fields():
 
     # With verbose, a "No Change" field should appear for the unchanged handle
     field_names = [f.name for f in embed.fields]
-    assert "Handle" in field_names, (
-        "Verbose mode should show unchanged handle field"
-    )
+    assert "Handle" in field_names, "Verbose mode should show unchanged handle field"
     handle_field = next(f for f in embed.fields if f.name == "Handle")
     assert "No Change" in (handle_field.value or "")
 
@@ -144,9 +147,7 @@ async def test_build_embed_compact_hides_unchanged_fields():
 
     # With compact verbosity, unchanged fields should NOT appear
     field_names = [f.name for f in embed.fields]
-    assert "Handle" not in field_names, (
-        "Compact mode should hide unchanged fields"
-    )
+    assert "Handle" not in field_names, "Compact mode should hide unchanged fields"
 
 
 # =============================================================================
@@ -163,6 +164,7 @@ async def test_fetch_html_dispatches_on_method():
 
     # Setup minimal internal state needed by fetch_html
     import asyncio
+
     client._sem = asyncio.Semaphore(1)
     client._request_count = 0
     client._error_count = 0
@@ -182,6 +184,7 @@ async def test_fetch_html_dispatches_on_method():
     client._get_session = AsyncMock(return_value=mock_session)
 
     from helpers.http_helper import NO_RETRY_POLICY
+
     client._retry_policy = NO_RETRY_POLICY
 
     # Test GET (default)

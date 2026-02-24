@@ -25,9 +25,7 @@ class TestVoiceServiceInitialization:
     """Test VoiceService initialization scenarios."""
 
     @pytest.mark.asyncio
-    async def test_initialize_in_test_mode_has_no_side_effects(
-        self, temp_db, mock_bot
-    ):
+    async def test_initialize_in_test_mode_has_no_side_effects(self, temp_db, mock_bot):
         """Real init should mark initialized without spawning background work."""
         from services.config_service import ConfigService
         from services.voice_service import VoiceService
@@ -90,15 +88,17 @@ class TestVoiceChannelOwnershipOperations:
         owner_id = 123456789
         voice_channel_id = 3333
 
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": voice_channel_id,
-                "is_active": 1,
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -129,29 +129,31 @@ class TestVoiceChannelOwnershipOperations:
         owner_id = 123456789
         guild_id = 1111
 
-        await seed_voice_channels([
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": 3333,
-                "is_active": 1,
-            },
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": 4444,
-                "is_active": 1,
-            },
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": 999999,  # Different owner
-                "voice_channel_id": 5555,
-                "is_active": 1,
-            },
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3333,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 4444,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 999999,  # Different owner
+                    "voice_channel_id": 5555,
+                    "is_active": 1,
+                },
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -175,15 +177,17 @@ class TestVoiceChannelCleanup:
         """Test marking a channel as inactive."""
         voice_channel_id = 3333
 
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": 123456789,
-                "voice_channel_id": voice_channel_id,
-                "is_active": 1,
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 123456789,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -203,10 +207,22 @@ class TestVoiceChannelCleanup:
     @pytest.mark.asyncio
     async def test_clear_all_channels_removes_all(self, temp_db):
         """Test that clear_all_voice_channels removes all records."""
-        await seed_voice_channels([
-            {"guild_id": 1111, "jtc_channel_id": 2222, "owner_id": 123, "voice_channel_id": 3333},
-            {"guild_id": 1111, "jtc_channel_id": 2222, "owner_id": 456, "voice_channel_id": 4444},
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 123,
+                    "voice_channel_id": 3333,
+                },
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 456,
+                    "voice_channel_id": 4444,
+                },
+            ]
+        )
 
         count_before = await get_voice_channel_count()
         assert count_before == 2
@@ -252,15 +268,17 @@ class TestVoiceServiceEdgeCases:
         new_owner = 987654321
         voice_channel_id = 3333
 
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": original_owner,
-                "voice_channel_id": voice_channel_id,
-                "is_active": 1,
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": original_owner,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 

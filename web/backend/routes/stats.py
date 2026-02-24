@@ -71,7 +71,9 @@ async def get_stats_overview(
                 try:
                     guild_id_value = guild_info.get("guild_id")
                     if guild_id_value is not None:
-                        guild_stats = await internal_api.get_guild_stats(int(guild_id_value))
+                        guild_stats = await internal_api.get_guild_stats(
+                            int(guild_id_value)
+                        )
                         total_guild_members += guild_stats.get("member_count", 0)
                 except Exception:
                     pass  # Skip individual guild failures
@@ -112,7 +114,9 @@ async def get_stats_overview(
         # Query org columns for guild members only (chunked)
         rows = (
             await query_verification_chunked(
-                db, guild_member_ids, "main_orgs, affiliate_orgs",
+                db,
+                guild_member_ids,
+                "main_orgs, affiliate_orgs",
             )
             if guild_member_ids
             else []
@@ -128,7 +132,9 @@ async def get_stats_overview(
                 json.loads(affiliate_orgs_json) if affiliate_orgs_json else None
             )
 
-            status = derive_status_from_orgs(main_orgs, affiliate_orgs, organization_sid)
+            status = derive_status_from_orgs(
+                main_orgs, affiliate_orgs, organization_sid
+            )
 
             if status == "main":
                 status_counts.main += 1

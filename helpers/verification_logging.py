@@ -40,7 +40,9 @@ def _should_suppress(diff: dict, *, notes: str | None = None) -> bool:
     return False
 
 
-def _build_changeset(diff: dict, event: EventType, guild_id: int, initiator: dict[str, Any]) -> ChangeSet:
+def _build_changeset(
+    diff: dict, event: EventType, guild_id: int, initiator: dict[str, Any]
+) -> ChangeSet:
     cs = ChangeSet(
         user_id=int(initiator.get("user_id", 0)) if initiator.get("user_id") else 0,
         event=event,
@@ -132,7 +134,9 @@ def _track_daily_activity(
             tracker.record_recheck(guild_id)
 
 
-async def log_guild_sync(sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None) -> None:
+async def log_guild_sync(
+    sync_result, event: EventType, bot, *, initiator: dict[str, Any] | None = None
+) -> None:
     """Post leadership log entry based on diff and event type."""
     diff = sync_result.diff
     initiator_info = initiator or {}

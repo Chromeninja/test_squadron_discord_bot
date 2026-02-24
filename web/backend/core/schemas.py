@@ -325,7 +325,9 @@ class VoiceUserSettingsSearchResponse(BaseModel):
     page_size: int = 20
     message: str | None = None
     is_cross_guild: bool = False
-    guild_groups: list[GuildUserSettingsGroup] | None = None  # Populated in cross-guild mode
+    guild_groups: list[GuildUserSettingsGroup] | None = (
+        None  # Populated in cross-guild mode
+    )
 
 
 class VoiceSettingsResetResponse(BaseModel):
@@ -524,7 +526,9 @@ class BotChannelSettingsResponse(BaseModel):
     bot_spam_channel_id: str | None = None
     public_announcement_channel_id: str | None = None
     leadership_announcement_channel_id: str | None = None
-    verification_message_updated: bool | None = None  # None if not applicable, True/False if attempted
+    verification_message_updated: bool | None = (
+        None  # None if not applicable, True/False if attempted
+    )
 
 
 class OrganizationSettings(BaseModel):
@@ -541,7 +545,9 @@ class OrganizationSettingsResponse(BaseModel):
     organization_sid: str | None = None
     organization_name: str | None = None
     organization_logo_url: str | None = None
-    verification_message_updated: bool | None = None  # None if not applicable, True/False if attempted
+    verification_message_updated: bool | None = (
+        None  # None if not applicable, True/False if attempted
+    )
 
 
 class OrganizationValidationRequest(BaseModel):
@@ -787,7 +793,9 @@ class ActivityGroupCounts(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    all: ActivityTierCounts = Field(default_factory=ActivityTierCounts, validation_alias="combined")
+    all: ActivityTierCounts = Field(
+        default_factory=ActivityTierCounts, validation_alias="combined"
+    )
     voice: ActivityTierCounts = Field(default_factory=ActivityTierCounts)
     chat: ActivityTierCounts = Field(default_factory=ActivityTierCounts)
     game: ActivityTierCounts = Field(default_factory=ActivityTierCounts)

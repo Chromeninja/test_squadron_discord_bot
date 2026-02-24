@@ -203,9 +203,7 @@ async def test_voice_owner_command_no_channels():
     with patch.object(voice_service, "get_admin_role_ids", return_value=[999999]):
         # Ensure no channels exist for this guild
         async with Database.get_connection() as db:
-            await db.execute(
-                "DELETE FROM voice_channels WHERE guild_id = ?", (54321,)
-            )
+            await db.execute("DELETE FROM voice_channels WHERE guild_id = ?", (54321,))
             await db.commit()
 
         # Call the command

@@ -373,9 +373,11 @@ async def test_admin_recheck_404_flow(temp_db, monkeypatch) -> None:
 
     # Mock the 404 handler
     handle_404_called = False
+
     async def mock_handle_404(b, m, h):
         nonlocal handle_404_called
         handle_404_called = True
+
     monkeypatch.setattr("helpers.recheck_service.handle_username_404", mock_handle_404)
     monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
 
@@ -562,7 +564,9 @@ async def test_successful_recheck_clears_needs_reverify(temp_db, monkeypatch) ->
     )
 
     # Mock apply_state_to_guild to return None (no changes)
-    monkeypatch.setattr("helpers.recheck_service.apply_state_to_guild", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "helpers.recheck_service.apply_state_to_guild", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr("helpers.recheck_service.flush_tasks", AsyncMock())
     monkeypatch.setattr("helpers.recheck_service.schedule_user_recheck", AsyncMock())
 

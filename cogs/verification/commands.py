@@ -35,10 +35,14 @@ async def _load_verification_message_ids_from_db() -> dict[int, int]:
                 message_id = json.loads(row[1])
                 message_ids[guild_id] = int(message_id)
             except (ValueError, json.JSONDecodeError, TypeError) as e:
-                logger.warning(f"Invalid verification message ID for guild {row[0]}: {e}")
+                logger.warning(
+                    f"Invalid verification message ID for guild {row[0]}: {e}"
+                )
         logger.info(f"Loaded {len(message_ids)} verification message IDs from database")
     except Exception as e:
-        logger.exception("Failed to load verification message IDs from database", exc_info=e)
+        logger.exception(
+            "Failed to load verification message IDs from database", exc_info=e
+        )
     return message_ids
 
 
@@ -51,7 +55,9 @@ async def _save_verification_message_to_db(guild_id: int, message_id: int) -> No
         )
         logger.debug(f"Saved verification message ID {message_id} for guild {guild_id}")
     except Exception as e:
-        logger.exception(f"Failed to save verification message ID for guild {guild_id}", exc_info=e)
+        logger.exception(
+            f"Failed to save verification message ID for guild {guild_id}", exc_info=e
+        )
 
 
 class VerificationCog(commands.Cog):
@@ -265,9 +271,7 @@ class VerificationCog(commands.Cog):
         logger.info(f"Total message IDs to save: {len(updated_message_ids)}")
 
         if updated_message_ids != message_ids:
-            logger.info(
-                f"Saving {len(updated_message_ids)} message IDs to database..."
-            )
+            logger.info(f"Saving {len(updated_message_ids)} message IDs to database...")
             for guild_id, msg_id in updated_message_ids.items():
                 await _save_verification_message_to_db(guild_id, msg_id)
             logger.info("✓ Successfully saved verification message IDs")
@@ -288,7 +292,9 @@ class VerificationCog(commands.Cog):
             "SELECT rsi_handle FROM verification WHERE user_id = ?", (member.id,)
         )
         if not rsi_handle:
-            embed = create_error_embed("You are not verified yet. Please click Verify first.")
+            embed = create_error_embed(
+                "You are not verified yet. Please click Verify first."
+            )
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
@@ -340,7 +346,9 @@ class VerificationCog(commands.Cog):
         org_name = await get_org_name(self.bot, guild_id)
         org_sid = (await get_org_sid(self.bot, guild_id)) or ""
         new_status = result["status"]
-        description = build_welcome_description(new_status, org_name=org_name, org_sid=org_sid)
+        description = build_welcome_description(
+            new_status, org_name=org_name, org_sid=org_sid
+        )
         embed = create_success_embed(description)
         await followup_send_message(interaction, "", embed=embed, ephemeral=True)
 

@@ -179,7 +179,11 @@ def create_session_token(user_data: dict, expires_in_seconds: int | None = None)
     """
 
     now = datetime.now(UTC)
-    ttl = SESSION_MAX_AGE if expires_in_seconds is None else min(expires_in_seconds, SESSION_MAX_AGE)
+    ttl = (
+        SESSION_MAX_AGE
+        if expires_in_seconds is None
+        else min(expires_in_seconds, SESSION_MAX_AGE)
+    )
     ttl = max(ttl, 0)
     expires_at = now + timedelta(seconds=ttl)
 
@@ -215,7 +219,11 @@ async def create_session_token_async(
     """
 
     now = datetime.now(UTC)
-    ttl = SESSION_MAX_AGE if expires_in_seconds is None else min(expires_in_seconds, SESSION_MAX_AGE)
+    ttl = (
+        SESSION_MAX_AGE
+        if expires_in_seconds is None
+        else min(expires_in_seconds, SESSION_MAX_AGE)
+    )
     ttl = max(ttl, 0)
     expires_at = now + timedelta(seconds=ttl)
 

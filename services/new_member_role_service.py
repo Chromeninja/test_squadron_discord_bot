@@ -23,7 +23,7 @@ AI Notes:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from services.config_service import (
@@ -88,7 +88,9 @@ async def get_new_member_config(
     return {
         "enabled": enabled,
         "role_id": role_id,
-        "duration_days": duration_days if isinstance(duration_days, int) and duration_days > 0 else 14,
+        "duration_days": duration_days
+        if isinstance(duration_days, int) and duration_days > 0
+        else 14,
         "max_server_age_days": max_server_age_days,
     }
 
@@ -103,7 +105,7 @@ def _member_server_age_days(member: discord.Member) -> int | None:
     joined_at = getattr(member, "joined_at", None)
     if joined_at is None:
         return None
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     delta = now - joined_at
     return delta.days
 
@@ -277,9 +279,7 @@ async def assign_if_eligible(
     # Persist
     now = int(time.time())
     expires_at = now + cfg["duration_days"] * 86400
-    await _insert_assignment(
-        member.guild.id, member.id, role_id_int, now, expires_at
-    )
+    await _insert_assignment(member.guild.id, member.id, role_id_int, now, expires_at)
     logger.info(
         "Assigned new-member role %s to user %s in guild %s (expires in %d days)",
         cfg["role_id"],
@@ -299,19 +299,27 @@ async def remove_expired_role(
     """Remove an expired new-member role from a user. Returns True on success."""
     guild = bot.get_guild(guild_id)
     if guild is None:
-        logger.warning("Guild %s not found when removing expired new-member role", guild_id)
+        logger.warning(
+            "Guild %s not found when removing expired new-member role", guild_id
+        )
         await mark_removed(guild_id, user_id, reason="expired")
         return False
 
     member = guild.get_member(user_id)
     if member is None:
-        logger.debug("Member %s not found in guild %s for expired role removal", user_id, guild_id)
+        logger.debug(
+            "Member %s not found in guild %s for expired role removal",
+            user_id,
+            guild_id,
+        )
         await mark_removed(guild_id, user_id, reason="expired")
         return False
 
     role = guild.get_role(role_id)
     if role is None:
-        logger.warning("New-member role %s no longer exists in guild %s", role_id, guild_id)
+        logger.warning(
+            "New-member role %s no longer exists in guild %s", role_id, guild_id
+        )
         await mark_removed(guild_id, user_id, reason="expired")
         return False
 

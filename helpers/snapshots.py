@@ -79,16 +79,10 @@ async def snapshot_member_state(
         # (run regardless of whether row exists - overrides may have been provided)
         try:
             guild_org_sid = await get_guild_org_sid(bot, member.guild.id)
-            status = derive_membership_status(
-                main_orgs, affiliate_orgs, guild_org_sid
-            )
+            status = derive_membership_status(main_orgs, affiliate_orgs, guild_org_sid)
         except Exception as e:
-            logger.debug(
-                "Failed to derive status for %s: %s", member.id, e
-            )
-            status = derive_membership_status(
-                main_orgs, affiliate_orgs, "TEST"
-            )
+            logger.debug("Failed to derive status for %s: %s", member.id, e)
+            status = derive_membership_status(main_orgs, affiliate_orgs, "TEST")
     except Exception as e:
         logger.debug(f"Snapshot DB fetch failed for {member.id}: {e}")
 

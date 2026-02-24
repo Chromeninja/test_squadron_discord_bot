@@ -53,10 +53,16 @@ async def test_perform_rsi_recheck_concurrent_execution():
         call_order.append(handle)
         return _make_global_state(user_id, handle, "main")
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # All handles should be checked
@@ -88,10 +94,16 @@ async def test_perform_rsi_recheck_all_main():
     async def mock_compute(user_id, handle, http_client, **kwargs):
         return _make_global_state(user_id, handle, "main")
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results
@@ -131,10 +143,16 @@ async def test_perform_rsi_recheck_mixed_statuses():
     async def mock_compute(user_id, handle, http_client, **kwargs):
         return _make_global_state(user_id, handle, statuses[handle])
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify results map correctly
@@ -166,10 +184,16 @@ async def test_perform_rsi_recheck_not_found():
     async def mock_compute(user_id, handle, http_client, **kwargs):
         raise NotFoundError("Handle not found")
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Should handle gracefully and mark as unknown
@@ -203,10 +227,16 @@ async def test_perform_rsi_recheck_generic_error():
             return _make_global_state(user_id, handle, "main")
         raise Exception("Network error")
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # First should succeed, second should be marked unknown with error
@@ -238,10 +268,16 @@ async def test_perform_rsi_recheck_no_handle():
         compute_called[0] = True
         return _make_global_state(user_id, handle, "main")
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # compute_global_state should not be called since no handle
@@ -270,12 +306,20 @@ async def test_perform_rsi_recheck_with_error_in_state():
     ]
 
     async def mock_compute(user_id, handle, http_client, **kwargs):
-        return _make_global_state(user_id, handle, "non_member", error="RSI fetch failed")
+        return _make_global_state(
+            user_id, handle, "non_member", error="RSI fetch failed"
+        )
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Should return the state but include the error
@@ -315,10 +359,16 @@ async def test_perform_rsi_recheck_partial_failures():
             raise error
         return _make_global_state(user_id, handle, cast("VerificationStatus", status))
 
-    with patch(
-        "services.verification_state.compute_global_state", side_effect=mock_compute
-    ), patch("services.verification_state.store_global_state", new_callable=AsyncMock), \
-       patch("services.verification_scheduler.schedule_user_recheck", new_callable=AsyncMock):
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+    ):
         result_rows = await service._perform_rsi_recheck(input_rows, guild_id=123456789)
 
     # Verify mixed results

@@ -11,32 +11,28 @@ Covers:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
-from discord.ext import commands
 import pytest
 
 from cogs.admin.check_user import CheckUserCommands
 from tests.factories import (
-    FakeBot,
-    FakeGuild,
-    FakeInteraction,
-    FakeMember,
     make_bot,
-    make_guild,
-    make_interaction,
     make_member,
 )
 
+if TYPE_CHECKING:
+    from discord.ext import commands
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_group(bot: Any | None = None) -> CheckUserCommands:
     """Instantiate the command group with a fake bot."""
-    return CheckUserCommands(cast(commands.Bot, bot or make_bot()))
+    return CheckUserCommands(cast("commands.Bot", bot or make_bot()))
 
 
 def _sample_tiers(
@@ -73,7 +69,9 @@ class TestFormatActivityTiers:
 
     def test_tier_labels_capitalised(self) -> None:
         group = _make_group()
-        tiers = _sample_tiers(combined="hardcore", voice="regular", chat="casual", game="reserve")
+        tiers = _sample_tiers(
+            combined="hardcore", voice="regular", chat="casual", game="reserve"
+        )
         result = group._format_activity_tiers(tiers)
 
         assert "Hardcore" in result
@@ -83,20 +81,24 @@ class TestFormatActivityTiers:
 
     def test_inactive_uses_black_square(self) -> None:
         group = _make_group()
-        tiers = _sample_tiers(combined="inactive", voice="inactive", chat="inactive", game="inactive")
+        tiers = _sample_tiers(
+            combined="inactive", voice="inactive", chat="inactive", game="inactive"
+        )
         result = group._format_activity_tiers(tiers)
 
         assert result.count("⬛") == 4
 
     def test_emoji_mapping(self) -> None:
         group = _make_group()
-        tiers = _sample_tiers(combined="hardcore", voice="regular", chat="casual", game="reserve")
+        tiers = _sample_tiers(
+            combined="hardcore", voice="regular", chat="casual", game="reserve"
+        )
         result = group._format_activity_tiers(tiers)
 
-        assert "🔴" in result   # hardcore
-        assert "🟠" in result   # regular
-        assert "🔵" in result   # casual
-        assert "⚪" in result   # reserve
+        assert "🔴" in result  # hardcore
+        assert "🟠" in result  # regular
+        assert "🔵" in result  # casual
+        assert "⚪" in result  # reserve
 
     def test_missing_key_defaults_inactive(self) -> None:
         group = _make_group()
@@ -121,8 +123,8 @@ class TestBuildUserEmbedActivity:
         member = make_member(user_id=42, name="Tester", display_name="Tester")
         requester = make_member(user_id=1, name="Admin", display_name="Admin")
         return group._build_user_embed(
-            requester=cast(Any, requester),
-            member=cast(Any, member),
+            requester=cast("Any", requester),
+            member=cast("Any", member),
             verification_row=None,
             target_sid="TEST",
             activity_tiers=activity_tiers,
@@ -187,7 +189,9 @@ class TestFetchActivityTiers:
         assert result["game_tier"] == "inactive"
 
         mock_metrics.get_member_activity_buckets.assert_awaited_once_with(
-            guild_id=100, user_ids=[42], lookback_days=30,
+            guild_id=100,
+            user_ids=[42],
+            lookback_days=30,
         )
 
     @pytest.mark.asyncio

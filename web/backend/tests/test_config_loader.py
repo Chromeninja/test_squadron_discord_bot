@@ -15,7 +15,9 @@ def reset_config_loader():
 
 def test_config_loader_respects_config_path_override(monkeypatch, tmp_path):
     custom_path = tmp_path / "custom-config.yaml"
-    custom_path.write_text("""logging:\n  level: DEBUG\ncustom: true\n""", encoding="utf-8")
+    custom_path.write_text(
+        """logging:\n  level: DEBUG\ncustom: true\n""", encoding="utf-8"
+    )
 
     monkeypatch.setenv("CONFIG_PATH", str(custom_path))
 

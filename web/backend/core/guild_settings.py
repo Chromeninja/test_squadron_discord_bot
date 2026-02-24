@@ -160,7 +160,9 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
 
     # Check file extension (case-insensitive)
     path_lower = parsed.path.lower()
-    has_valid_extension = any(path_lower.endswith(ext) for ext in ALLOWED_IMAGE_EXTENSIONS)
+    has_valid_extension = any(
+        path_lower.endswith(ext) for ext in ALLOWED_IMAGE_EXTENSIONS
+    )
 
     # SECURITY: Reconstruct URL from validated components to break taint chain for CodeQL
     # At this point we've validated: scheme is http/https, hostname is public
@@ -204,7 +206,12 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
                     content_type = response.headers.get("content-type", "").lower()
                     # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
                     media_type = content_type.split(";")[0].strip()
-                    valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
+                    valid_content_types = (
+                        "image/png",
+                        "image/jpeg",
+                        "image/gif",
+                        "image/webp",
+                    )
 
                     if media_type not in valid_content_types:
                         if not has_valid_extension:
@@ -235,7 +242,12 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
                 content_type = response.headers.get("content-type", "").lower()
                 # Split on semicolon to handle charset parameters (e.g., "image/png; charset=utf-8")
                 media_type = content_type.split(";")[0].strip()
-                valid_content_types = ("image/png", "image/jpeg", "image/gif", "image/webp")
+                valid_content_types = (
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp",
+                )
 
                 if media_type not in valid_content_types:
                     if not has_valid_extension:
@@ -261,6 +273,7 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
         ) from exc
 
     return url
+
 
 BOT_ADMINS_KEY = "roles.bot_admins"
 MODERATORS_KEY = "roles.moderators"
@@ -906,7 +919,12 @@ async def get_organization_settings(
     """
     cursor = await db.execute(
         query,
-        (guild_id, ORGANIZATION_SID_KEY, ORGANIZATION_NAME_KEY, ORGANIZATION_LOGO_URL_KEY),
+        (
+            guild_id,
+            ORGANIZATION_SID_KEY,
+            ORGANIZATION_NAME_KEY,
+            ORGANIZATION_LOGO_URL_KEY,
+        ),
     )
     rows = await cursor.fetchall()
 
@@ -1055,9 +1073,7 @@ async def fetch_role_delegation_policies(guild_id: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def get_new_member_role_settings(
-    db: Connection, guild_id: int
-) -> dict[str, Any]:
+async def get_new_member_role_settings(db: Connection, guild_id: int) -> dict[str, Any]:
     """Fetch new-member role settings for a guild."""
     cursor = await db.execute(
         """
@@ -1152,4 +1168,3 @@ async def set_new_member_role_settings(
         db, guild_id, source=SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE
     )
     await db.commit()
-

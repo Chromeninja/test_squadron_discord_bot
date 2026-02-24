@@ -90,10 +90,18 @@ async def test_put_bot_channel_settings_persists_values(admin_user_token, temp_d
         assert get_response.status_code == 200
         get_data = get_response.json()
         # Compare only the channel fields, not the verification_message_updated field from PUT
-        assert get_data["verification_channel_id"] == put_data["verification_channel_id"]
+        assert (
+            get_data["verification_channel_id"] == put_data["verification_channel_id"]
+        )
         assert get_data["bot_spam_channel_id"] == put_data["bot_spam_channel_id"]
-        assert get_data["public_announcement_channel_id"] == put_data["public_announcement_channel_id"]
-        assert get_data["leadership_announcement_channel_id"] == put_data["leadership_announcement_channel_id"]
+        assert (
+            get_data["public_announcement_channel_id"]
+            == put_data["public_announcement_channel_id"]
+        )
+        assert (
+            get_data["leadership_announcement_channel_id"]
+            == put_data["leadership_announcement_channel_id"]
+        )
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,7 @@ from tests.test_voice_multiple_channels import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest_asyncio.fixture
 async def voice_service_with_bot(temp_db):
     config_service = ConfigService()
@@ -47,6 +48,7 @@ async def voice_service_with_bot(temp_db):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _seed_owned_channel(
     guild_id: int,
@@ -76,7 +78,9 @@ async def _seed_owned_channel(
         await db.commit()
 
 
-def _set_mock_guild_voice_channels(guild: MockGuild, channels: list[MockVoiceChannel]) -> None:
+def _set_mock_guild_voice_channels(
+    guild: MockGuild, channels: list[MockVoiceChannel]
+) -> None:
     cast("Any", guild).voice_channels = channels
 
 
@@ -87,6 +91,7 @@ def _set_mock_member_guild(member: MockMember, guild: MockGuild) -> None:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestTransferOwnershipEndToEnd:
     """End-to-end tests for VoiceService.transfer_voice_channel_ownership."""

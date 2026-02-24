@@ -67,24 +67,24 @@ def make_org_html(
 
     if main_org:
         visibility = "V" if main_visible else "H"
-        parts.append(f'''
+        parts.append(f"""
     <div class="box-content org main visibility-{visibility}">
         <a class="value">{main_org}</a>
-    </div>''')
+    </div>""")
 
     if affiliates:
         for org_name, is_visible in affiliates:
             visibility = "V" if is_visible else "H"
-            parts.append(f'''
+            parts.append(f"""
     <div class="box-content org affiliation visibility-{visibility}">
         <a class="value">{org_name}</a>
-    </div>''')
+    </div>""")
 
     if not main_org and not affiliates:
-        parts.append('''
+        parts.append("""
     <div class="container">
         <p>No organizations found</p>
-    </div>''')
+    </div>""")
 
     parts.append("</body></html>")
     return "".join(parts)
@@ -139,7 +139,9 @@ def make_bio_html(
     elif token:
         content = f"Welcome to my profile! My verification token is {token} and I love Star Citizen."
     else:
-        content = "This is my bio without any verification tokens. Just some regular text."
+        content = (
+            "This is my bio without any verification tokens. Just some regular text."
+        )
 
     if selector_type == "standard":
         return f"""<html><body>
@@ -209,7 +211,9 @@ def make_profile_html(
 
     location_html = ""
     if location:
-        location_html = f'<div class="entry location"><div class="value">{location}</div></div>'
+        location_html = (
+            f'<div class="entry location"><div class="value">{location}</div></div>'
+        )
 
     bio_html = ""
     if bio:

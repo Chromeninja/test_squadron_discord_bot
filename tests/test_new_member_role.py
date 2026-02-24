@@ -13,10 +13,10 @@ Covers:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -34,7 +34,6 @@ from services.new_member_role_service import (
     process_expired_roles,
     remove_expired_role,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -103,13 +102,17 @@ def _make_bot(
         "new_member_role.max_server_age_days": max_server_age_days,
     }
 
-    async def fake_get(guild_id: int, key: str, default: Any = None, parser: Any = None) -> Any:
+    async def fake_get(
+        guild_id: int, key: str, default: Any = None, parser: Any = None
+    ) -> Any:
         val = settings.get(key, default)
         if parser and val is not None and val != default:
             return parser(val)
         return val
 
-    async def fake_get_guild_setting(guild_id: int, key: str, default: Any = None) -> Any:
+    async def fake_get_guild_setting(
+        guild_id: int, key: str, default: Any = None
+    ) -> Any:
         return settings.get(key, default)
 
     cfg.get = fake_get
@@ -132,15 +135,15 @@ class TestIsEligible:
     """Tests for the server-age eligibility gate."""
 
     def test_no_gate_always_eligible(self) -> None:
-        member = _make_member(joined_at=datetime.now(timezone.utc) - timedelta(days=365))
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=365))
         assert is_eligible(member, max_server_age_days=None) is True
 
     def test_member_within_gate(self) -> None:
-        member = _make_member(joined_at=datetime.now(timezone.utc) - timedelta(days=5))
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=5))
         assert is_eligible(member, max_server_age_days=14) is True
 
     def test_member_outside_gate(self) -> None:
-        member = _make_member(joined_at=datetime.now(timezone.utc) - timedelta(days=30))
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=30))
         assert is_eligible(member, max_server_age_days=14) is False
 
     def test_missing_joined_at_passes(self) -> None:
@@ -150,7 +153,7 @@ class TestIsEligible:
 
     def test_exactly_on_boundary(self) -> None:
         """Member exactly at the boundary is NOT eligible (age < threshold)."""
-        member = _make_member(joined_at=datetime.now(timezone.utc) - timedelta(days=14))
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=14))
         assert is_eligible(member, max_server_age_days=14) is False
 
 
@@ -173,7 +176,9 @@ class TestGetNewMemberConfig:
 
     @pytest.mark.asyncio
     async def test_custom_values(self) -> None:
-        bot = _make_bot(enabled=True, role_id="777", duration_days=30, max_server_age_days=7)
+        bot = _make_bot(
+            enabled=True, role_id="777", duration_days=30, max_server_age_days=7
+        )
         cfg = await get_new_member_config(bot.services.config, 1)
         assert cfg["enabled"] is True
         assert cfg["role_id"] == "777"
@@ -204,7 +209,7 @@ class TestDatabaseHelpers:
         result = await get_active_assignment(1, 100)
         assert result is not None
         assert result[0] == 555  # role_id
-        assert result[3] == 1   # active
+        assert result[3] == 1  # active
 
     @pytest.mark.asyncio
     async def test_mark_removed(self, temp_db) -> None:
@@ -246,7 +251,7 @@ class TestAssignIfEligible:
 
     @pytest.mark.asyncio
     async def test_assign_success(self, temp_db) -> None:
-        member = _make_member(joined_at=datetime.now(timezone.utc) - timedelta(days=1))
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=1))
         bot = _make_bot(enabled=True)
         result = await assign_if_eligible(member, bot)
         assert result is True
@@ -271,7 +276,7 @@ class TestAssignIfEligible:
     @pytest.mark.asyncio
     async def test_first_verification_only(self, temp_db) -> None:
         """Second call for same user+guild should not assign again."""
-        member = _make_member(joined_at=datetime.now(timezone.utc))
+        member = _make_member(joined_at=datetime.now(UTC))
         bot = _make_bot(enabled=True)
         assert await assign_if_eligible(member, bot) is True
         assert await assign_if_eligible(member, bot) is False
@@ -279,9 +284,7 @@ class TestAssignIfEligible:
 
     @pytest.mark.asyncio
     async def test_server_age_gate_blocks(self, temp_db) -> None:
-        member = _make_member(
-            joined_at=datetime.now(timezone.utc) - timedelta(days=60)
-        )
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=60))
         bot = _make_bot(enabled=True, max_server_age_days=30)
         result = await assign_if_eligible(member, bot)
         assert result is False
@@ -289,9 +292,7 @@ class TestAssignIfEligible:
 
     @pytest.mark.asyncio
     async def test_server_age_gate_allows(self, temp_db) -> None:
-        member = _make_member(
-            joined_at=datetime.now(timezone.utc) - timedelta(days=5)
-        )
+        member = _make_member(joined_at=datetime.now(UTC) - timedelta(days=5))
         bot = _make_bot(enabled=True, max_server_age_days=30)
         result = await assign_if_eligible(member, bot)
         assert result is True
@@ -321,7 +322,7 @@ class TestAssignIfEligible:
 
     @pytest.mark.asyncio
     async def test_discord_api_error_returns_false(self, temp_db) -> None:
-        member = _make_member(joined_at=datetime.now(timezone.utc))
+        member = _make_member(joined_at=datetime.now(UTC))
         member.add_roles = AsyncMock(side_effect=Exception("Forbidden"))
         bot = _make_bot(enabled=True)
         result = await assign_if_eligible(member, bot)

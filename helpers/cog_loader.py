@@ -120,7 +120,9 @@ def validate_cog(
         logger.warning(result.error)
         return result
     except Exception as e:
-        result.error = f"Unexpected error importing {module_path}: {type(e).__name__}: {e}"
+        result.error = (
+            f"Unexpected error importing {module_path}: {type(e).__name__}: {e}"
+        )
         logger.warning(result.error)
         return result
 
@@ -154,7 +156,9 @@ def validate_cog(
 
         if missing_services:
             result.dependencies_ok = False
-            result.error = f"Cog {module_path} missing required services: {missing_services}"
+            result.error = (
+                f"Cog {module_path} missing required services: {missing_services}"
+            )
             logger.warning(result.error)
             return result
 

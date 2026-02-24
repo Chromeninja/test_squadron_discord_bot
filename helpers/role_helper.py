@@ -58,10 +58,22 @@ async def apply_roles_for_status(
                 member.guild.id, "roles.nonmember_role", []
             )
 
-            bot_verified_role = bot.role_cache.get(bot_verified_role_ids[0]) if bot_verified_role_ids else None
+            bot_verified_role = (
+                bot.role_cache.get(bot_verified_role_ids[0])
+                if bot_verified_role_ids
+                else None
+            )
             main_role = bot.role_cache.get(main_role_ids[0]) if main_role_ids else None
-            affiliate_role = bot.role_cache.get(affiliate_role_ids[0]) if affiliate_role_ids else None
-            non_member_role = bot.role_cache.get(nonmember_role_ids[0]) if nonmember_role_ids else None
+            affiliate_role = (
+                bot.role_cache.get(affiliate_role_ids[0])
+                if affiliate_role_ids
+                else None
+            )
+            non_member_role = (
+                bot.role_cache.get(nonmember_role_ids[0])
+                if nonmember_role_ids
+                else None
+            )
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Failed to load role configuration: %s", e)
 
@@ -85,10 +97,16 @@ async def apply_roles_for_status(
     managed_roles = [r for r in [main_role, affiliate_role, non_member_role] if r]
     current_roles = set(member.roles)
     target_roles = {r for r in roles_to_add if r}
-    roles_to_remove = [r for r in managed_roles if r in current_roles and r not in target_roles]
+    roles_to_remove = [
+        r for r in managed_roles if r in current_roles and r not in target_roles
+    ]
 
     # Skip no-op
-    if not roles_to_add and not roles_to_remove and getattr(member, "nick", None) == rsi_handle:
+    if (
+        not roles_to_add
+        and not roles_to_remove
+        and getattr(member, "nick", None) == rsi_handle
+    ):
         return status, status
 
     if roles_to_remove:
@@ -112,7 +130,9 @@ async def apply_roles_for_status(
 
         async def add_task() -> None:
             try:
-                await add_roles(member, *roles_to_add, reason="Roles assigned after verification")
+                await add_roles(
+                    member, *roles_to_add, reason="Roles assigned after verification"
+                )
             except discord.Forbidden:
                 logger.warning(
                     "Cannot assign roles due to permission hierarchy.",

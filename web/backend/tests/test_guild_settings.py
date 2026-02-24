@@ -239,7 +239,6 @@ async def test_list_guild_members_proxies_internal_api(
     assert data["members"][0]["user_id"] == 111
     assert data["members"][0]["roles"][0]["name"] == "Pilot"
 
-
     @pytest.mark.asyncio
     async def test_guild_config_read_only_uses_shared_loader(
         monkeypatch, tmp_path, client: AsyncClient, mock_admin_session: str
@@ -413,6 +412,7 @@ async def test_patch_guild_config_metrics_persists(
     assert follow_up.json()["data"]["metrics"]["excluded_channel_ids"] == ["100", "200"]
 
     assert fake_internal_api.refresh_calls
+
 
 @pytest.mark.asyncio
 async def test_get_guild_config_metrics_threshold_defaults(

@@ -29,15 +29,17 @@ class TestVoiceChannelOwnership:
         guild_id = 1111
         voice_channel_id = 3333
 
-        await seed_voice_channels([
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": voice_channel_id,
-                "is_active": 1,
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -53,22 +55,24 @@ class TestVoiceChannelOwnership:
         owner_id = 123456789
         guild_id = 1111
 
-        await seed_voice_channels([
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": 3333,
-                "is_active": 1,
-            },
-            {
-                "guild_id": guild_id,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": 4444,
-                "is_active": 0,  # Inactive/old channel
-            },
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3333,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 4444,
+                    "is_active": 0,  # Inactive/old channel
+                },
+            ]
+        )
 
         count = await get_voice_channel_count(guild_id)
         assert count == 2
@@ -78,22 +82,24 @@ class TestVoiceChannelOwnership:
         """Test that ownership is scoped per guild."""
         owner_id = 123456789
 
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": 3333,
-                "is_active": 1,
-            },
-            {
-                "guild_id": 9999,  # Different guild
-                "jtc_channel_id": 8888,
-                "owner_id": owner_id,
-                "voice_channel_id": 7777,
-                "is_active": 1,
-            },
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3333,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": 9999,  # Different guild
+                    "jtc_channel_id": 8888,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 7777,
+                    "is_active": 1,
+                },
+            ]
+        )
 
         # Should have one per guild
         count_guild1 = await get_voice_channel_count(1111)
@@ -136,9 +142,11 @@ class TestJtcPreferences:
     @pytest.mark.asyncio
     async def test_user_preference_stored_correctly(self, temp_db):
         """Test that JTC preference is stored and retrievable."""
-        await seed_jtc_preferences([
-            {"guild_id": 123, "user_id": 456, "last_used_jtc_channel_id": 789},
-        ])
+        await seed_jtc_preferences(
+            [
+                {"guild_id": 123, "user_id": 456, "last_used_jtc_channel_id": 789},
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -151,11 +159,21 @@ class TestJtcPreferences:
     @pytest.mark.asyncio
     async def test_preference_scoped_per_guild_user(self, temp_db):
         """Test preferences are scoped to guild+user combination."""
-        await seed_jtc_preferences([
-            {"guild_id": 123, "user_id": 456, "last_used_jtc_channel_id": 789},
-            {"guild_id": 123, "user_id": 999, "last_used_jtc_channel_id": 111},  # Same guild, different user
-            {"guild_id": 888, "user_id": 456, "last_used_jtc_channel_id": 222},  # Same user, different guild
-        ])
+        await seed_jtc_preferences(
+            [
+                {"guild_id": 123, "user_id": 456, "last_used_jtc_channel_id": 789},
+                {
+                    "guild_id": 123,
+                    "user_id": 999,
+                    "last_used_jtc_channel_id": 111,
+                },  # Same guild, different user
+                {
+                    "guild_id": 888,
+                    "user_id": 456,
+                    "last_used_jtc_channel_id": 222,
+                },  # Same user, different guild
+            ]
+        )
 
         from services.db.repository import BaseRepository
 

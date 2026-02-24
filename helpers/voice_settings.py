@@ -464,9 +464,7 @@ async def _get_all_user_jtc_settings(
         )
 
         for (jtc_channel_id,) in jtc_rows:
-            settings = await _get_all_user_settings(
-                guild_id, jtc_channel_id, user_id
-            )
+            settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
             if settings:
                 all_settings[jtc_channel_id] = settings
 

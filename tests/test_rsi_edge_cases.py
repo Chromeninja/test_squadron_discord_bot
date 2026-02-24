@@ -224,7 +224,9 @@ class TestBioExtractionEdgeCases:
 
     def test_bio_with_multiple_paragraphs(self):
         """Test bio with paragraph breaks."""
-        html = make_bio_html(bio_text="First paragraph.\n\nSecond paragraph with token 1234.\n\nThird paragraph.")
+        html = make_bio_html(
+            bio_text="First paragraph.\n\nSecond paragraph with token 1234.\n\nThird paragraph."
+        )
         bio = extract_bio(html)
         assert bio is not None
         assert "1234" in bio

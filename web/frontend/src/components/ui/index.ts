@@ -1,9 +1,9 @@
 /**
  * UI Component Library
- * 
+ *
  * Centralized exports for all reusable UI components.
  * Import from this file rather than individual component files.
- * 
+ *
  * @example
  * import { Button, Badge, Card, Modal, Alert, Table } from '@/components/ui';
  */

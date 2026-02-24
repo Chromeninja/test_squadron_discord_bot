@@ -15,7 +15,11 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     monkeypatch.setenv("TESTBOT_DRY_RUN", "1")
 
     # Import (or reload) the bot module so patches apply cleanly
-    bot_mod = importlib.reload(sys.modules["bot"]) if "bot" in sys.modules else importlib.import_module("bot")
+    bot_mod = (
+        importlib.reload(sys.modules["bot"])
+        if "bot" in sys.modules
+        else importlib.import_module("bot")
+    )
 
     calls: list[tuple[str, object]] = []
 
@@ -82,7 +86,9 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     monkeypatch.setattr(sc, "ServiceContainer", FakeServiceContainer)
     monkeypatch.setattr(ia, "InternalAPIServer", FakeInternalAPI)
     monkeypatch.setattr(ha, "BulkAnnouncer", FakeBulkAnnouncer)
-    monkeypatch.setattr(db_mod, "Database", types.SimpleNamespace(initialize=async_noop))
+    monkeypatch.setattr(
+        db_mod, "Database", types.SimpleNamespace(initialize=async_noop)
+    )
     monkeypatch.setattr(bot_mod, "spawn", lambda coro: asyncio.create_task(coro))
 
     # Patch bot methods that would hit external systems
@@ -98,12 +104,16 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     # Provide resolved application info once awaited
     app_info_future = asyncio.Future()
     app_info_future.set_result(
-        types.SimpleNamespace(owner=types.SimpleNamespace(id=123, name="owner"), team=None)
+        types.SimpleNamespace(
+            owner=types.SimpleNamespace(id=123, name="owner"), team=None
+        )
     )
     monkeypatch.setattr(bot_mod.MyBot, "application_info", lambda self: app_info_future)
 
     # Use get_prefix() for lazy-loaded prefix access
-    bot_instance = bot_mod.MyBot(command_prefix=bot_mod.get_prefix(), intents=bot_mod.intents)
+    bot_instance = bot_mod.MyBot(
+        command_prefix=bot_mod.get_prefix(), intents=bot_mod.intents
+    )
 
     # Stub tree methods on the existing command tree instance
     monkeypatch.setattr(bot_instance.tree, "sync", async_noop)

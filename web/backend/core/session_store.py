@@ -183,7 +183,9 @@ async def _ensure_schema() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def save(session_id: str, data: dict, created_at: float, expires_at: float) -> None:
+async def save(
+    session_id: str, data: dict, created_at: float, expires_at: float
+) -> None:
     """Persist *or* update a session record."""
     await _ensure_schema()
     async with _connect() as db:
@@ -204,6 +206,7 @@ async def save(session_id: str, data: dict, created_at: float, expires_at: float
 @dataclass
 class SessionRow:
     """Lightweight mirror of a stored session."""
+
     data: dict
     created_at: float
     expires_at: float

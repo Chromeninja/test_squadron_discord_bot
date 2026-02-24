@@ -448,9 +448,7 @@ def print_report(results: list[dict[str, Any]]) -> None:
                     flags.append("captcha")
 
                 flag_str = ",".join(flags) if flags else "other"
-                logger.warning(
-                    f"     - {handle}: {warnings} warning(s) [{flag_str}]"
-                )
+                logger.warning(f"     - {handle}: {warnings} warning(s) [{flag_str}]")
     else:
         logger.info("   ✅ All handles appear healthy")
 

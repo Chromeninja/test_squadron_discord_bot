@@ -102,7 +102,9 @@ class MemberLifecycle(commands.Cog):
             try:
                 await post_if_changed(self.bot, changeset)
             except Exception as e:
-                logger.warning(f"Failed to post guild-specific cleanup leadership log: {e}")
+                logger.warning(
+                    f"Failed to post guild-specific cleanup leadership log: {e}"
+                )
 
         else:
             # User is not in any other bot-managed guild - full cleanup
@@ -154,7 +156,9 @@ class MemberLifecycle(commands.Cog):
         await Database.track_user_guild_membership(user_id, guild.id)
         state = await get_global_state(user_id)
         if not state:
-            logger.debug("Member %s joined %s with no stored verification", user_id, guild.name)
+            logger.debug(
+                "Member %s joined %s with no stored verification", user_id, guild.name
+            )
             return
 
         logger.info(
@@ -180,11 +184,16 @@ class MemberLifecycle(commands.Cog):
                         "notes": f"Member rejoined guild {guild.name}",
                     },
                 )
-                next_retry = compute_next_retry(state, config=getattr(self.bot, "config", {}))
+                next_retry = compute_next_retry(
+                    state, config=getattr(self.bot, "config", {})
+                )
                 if next_retry:
                     await schedule_user_recheck(user_id, next_retry)
                 logger.info(
-                    "Applied stored verification (%s) to member %s in guild %s", state.status, user_id, guild.name
+                    "Applied stored verification (%s) to member %s in guild %s",
+                    state.status,
+                    user_id,
+                    guild.name,
                 )
 
             # Assign new-member role if eligible (first verification per guild)

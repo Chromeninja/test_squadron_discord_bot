@@ -106,7 +106,7 @@ class CircuitBreakerState:
 
     def _calculate_backoff(self) -> float:
         """Calculate exponential backoff with cap."""
-        backoff = self.config.backoff_base * (2 ** self._consecutive_opens)
+        backoff = self.config.backoff_base * (2**self._consecutive_opens)
         return min(backoff, self.config.backoff_max)
 
     def _get_reset_timeout(self) -> float:
@@ -244,7 +244,9 @@ _rsi_circuit_breaker: CircuitBreakerState | None = None
 _breaker_lock = RLock()
 
 
-def get_rsi_circuit_breaker(config: dict[str, Any] | None = None) -> CircuitBreakerState:
+def get_rsi_circuit_breaker(
+    config: dict[str, Any] | None = None,
+) -> CircuitBreakerState:
     """
     Get or create the global RSI circuit breaker instance.
 

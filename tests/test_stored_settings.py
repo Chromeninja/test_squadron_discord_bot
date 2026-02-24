@@ -35,13 +35,15 @@ class TestDeterministicChannelSelection:
         user_id = 67890
         preferred_jtc = 55555
 
-        await seed_jtc_preferences([
-            {
-                "guild_id": guild_id,
-                "user_id": user_id,
-                "last_used_jtc_channel_id": preferred_jtc,
-            },
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": guild_id,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": preferred_jtc,
+                },
+            ]
+        )
 
         result = await _get_last_used_jtc_channel(guild_id, user_id)
         assert result == preferred_jtc
@@ -58,13 +60,15 @@ class TestDeterministicChannelSelection:
         guild_id = 12345
         user_id = 67890
 
-        await seed_jtc_preferences([
-            {
-                "guild_id": guild_id,
-                "user_id": user_id,
-                "last_used_jtc_channel_id": 11111,
-            },
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": guild_id,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": 11111,
+                },
+            ]
+        )
 
         # Update to new channel
         await update_last_used_jtc_channel(guild_id, user_id, 22222)
@@ -83,13 +87,15 @@ class TestVoiceSettingsEdgeCases:
         user_id = 67890
         jtc_id = 55555
 
-        await seed_jtc_preferences([
-            {
-                "guild_id": guild_id,
-                "user_id": user_id,
-                "last_used_jtc_channel_id": jtc_id,
-            },
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": guild_id,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": jtc_id,
+                },
+            ]
+        )
 
         results = []
         for _ in range(5):
@@ -105,23 +111,25 @@ class TestVoiceSettingsEdgeCases:
         """Test that user preferences don't affect each other."""
         guild_id = 12345
 
-        await seed_jtc_preferences([
-            {
-                "guild_id": guild_id,
-                "user_id": 111,
-                "last_used_jtc_channel_id": 1001,
-            },
-            {
-                "guild_id": guild_id,
-                "user_id": 222,
-                "last_used_jtc_channel_id": 1002,
-            },
-            {
-                "guild_id": guild_id,
-                "user_id": 333,
-                "last_used_jtc_channel_id": 1003,
-            },
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": guild_id,
+                    "user_id": 111,
+                    "last_used_jtc_channel_id": 1001,
+                },
+                {
+                    "guild_id": guild_id,
+                    "user_id": 222,
+                    "last_used_jtc_channel_id": 1002,
+                },
+                {
+                    "guild_id": guild_id,
+                    "user_id": 333,
+                    "last_used_jtc_channel_id": 1003,
+                },
+            ]
+        )
 
         from helpers.voice_settings import _get_last_used_jtc_channel
 
@@ -134,18 +142,20 @@ class TestVoiceSettingsEdgeCases:
         """Test that guild preferences don't affect each other."""
         user_id = 67890
 
-        await seed_jtc_preferences([
-            {
-                "guild_id": 111,
-                "user_id": user_id,
-                "last_used_jtc_channel_id": 1001,
-            },
-            {
-                "guild_id": 222,
-                "user_id": user_id,
-                "last_used_jtc_channel_id": 1002,
-            },
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": 111,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": 1001,
+                },
+                {
+                    "guild_id": 222,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": 1002,
+                },
+            ]
+        )
 
         from helpers.voice_settings import _get_last_used_jtc_channel
 
@@ -162,15 +172,17 @@ class TestStoredPermissionSettings:
         owner_id = 123456789
         voice_channel_id = 3333
 
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": owner_id,
-                "voice_channel_id": voice_channel_id,
-                "is_active": 1,
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 
@@ -183,15 +195,17 @@ class TestStoredPermissionSettings:
     @pytest.mark.asyncio
     async def test_inactive_channel_not_counted_as_active(self, temp_db):
         """Test that inactive channels are excluded from active queries."""
-        await seed_voice_channels([
-            {
-                "guild_id": 1111,
-                "jtc_channel_id": 2222,
-                "owner_id": 123,
-                "voice_channel_id": 3333,
-                "is_active": 0,  # Inactive
-            }
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 123,
+                    "voice_channel_id": 3333,
+                    "is_active": 0,  # Inactive
+                }
+            ]
+        )
 
         from services.db.repository import BaseRepository
 

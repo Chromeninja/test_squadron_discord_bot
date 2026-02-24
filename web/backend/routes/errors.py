@@ -48,8 +48,15 @@ async def get_last_errors(
             component = error.get("component") or error.get("module")
 
             # Required fields must be present and strings
-            if not isinstance(time_val, str) or not isinstance(error_type, str) or not isinstance(component, str):
-                logger.debug("Skipping malformed error entry with missing required fields: %s", error)
+            if (
+                not isinstance(time_val, str)
+                or not isinstance(error_type, str)
+                or not isinstance(component, str)
+            ):
+                logger.debug(
+                    "Skipping malformed error entry with missing required fields: %s",
+                    error,
+                )
                 continue
 
             payload = {
@@ -63,9 +70,7 @@ async def get_last_errors(
                 transformed.append(StructuredError(**payload))
             except Exception as parse_exc:
                 # Skip entries that don't conform (e.g., unexpected field types)
-                logger.debug(
-                    "Skipping malformed error entry", exc_info=parse_exc
-                )
+                logger.debug("Skipping malformed error entry", exc_info=parse_exc)
                 continue
 
         errors = transformed

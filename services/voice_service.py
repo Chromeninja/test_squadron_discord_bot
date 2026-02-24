@@ -168,7 +168,9 @@ class VoiceService(BaseService):
         if self.test_mode:
             return
         # Prevent duplicate scheduling
-        existing_names = {t.get_name() for t in self._background_tasks if isinstance(t, asyncio.Task)}
+        existing_names = {
+            t.get_name() for t in self._background_tasks if isinstance(t, asyncio.Task)
+        }
         if "voice.cleanup_task" not in existing_names:
             self._spawn_background_task(self._cleanup_task(), name="voice.cleanup_task")
         if "voice.reconcile_after_ready" not in existing_names:
@@ -193,9 +195,13 @@ class VoiceService(BaseService):
 
         if tasks_to_cancel:
             # Await all tasks that were marked for cancellation
-            gathered_results = await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            gathered_results = await asyncio.gather(
+                *tasks_to_cancel, return_exceptions=True
+            )
             for i, result in enumerate(gathered_results):
-                if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                if isinstance(result, Exception) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
                     task = tasks_to_cancel[i]
                     self.logger.warning(
                         "Background task %s raised during shutdown: %s",
@@ -343,7 +349,6 @@ class VoiceService(BaseService):
 
         except Exception as e:
             self.logger.exception("Error during orphaned JTC cleanup", exc_info=e)
-
 
     def _mark_user_creating(self, guild_id: int, user_id: int) -> None:
         """Mark a user as currently creating a channel (guild-scoped)."""
@@ -597,7 +602,9 @@ class VoiceService(BaseService):
 
         cleanup_target: discord.VoiceChannel | int | None
         cleanup_target = (
-            old_channel if isinstance(old_channel, discord.VoiceChannel) else old_channel_id
+            old_channel
+            if isinstance(old_channel, discord.VoiceChannel)
+            else old_channel_id
         )
 
         if cleanup_target is not None:
@@ -1466,9 +1473,7 @@ class VoiceService(BaseService):
                 guild_id, after_channel.id
             )
 
-        is_true_join = (
-            after_channel is not None and is_jtc_after and not same_channel
-        )
+        is_true_join = after_channel is not None and is_jtc_after and not same_channel
 
         # If the user came from a managed channel, allow bypassing cooldown so they can hop back to JTC immediately.
         bypass_cooldown = left_managed
@@ -1517,7 +1522,9 @@ class VoiceService(BaseService):
         try:
             guild_id_int = int(guild_id)
             channel_id_int = int(channel_id)
-            jtc_channels = await self.config_service.get_guild_jtc_channels(guild_id_int)
+            jtc_channels = await self.config_service.get_guild_jtc_channels(
+                guild_id_int
+            )
             return channel_id_int in jtc_channels
         except Exception as e:
             self.logger.exception("Error checking if channel is JTC", exc_info=e)
@@ -2038,9 +2045,7 @@ class VoiceService(BaseService):
                     f"Failed to move {member.display_name} to channel {channel.id}: {e}"
                 )
                 # Cleanup the created channel
-                await self._delete_channel_safe(
-                    channel, reason="Failed to move user"
-                )
+                await self._delete_channel_safe(channel, reason="Failed to move user")
 
                 # Send DM to user
                 try:
@@ -2475,13 +2480,15 @@ class VoiceService(BaseService):
 
                                 try:
                                     # Check if user has an existing active channel for this JTC
-                                    existing_channel_id = await BaseRepository.fetch_value(
-                                        """
+                                    existing_channel_id = (
+                                        await BaseRepository.fetch_value(
+                                            """
                                         SELECT voice_channel_id FROM voice_channels
                                         WHERE guild_id = ? AND jtc_channel_id = ? AND owner_id = ? AND is_active = 1
                                         LIMIT 1
                                         """,
-                                        (guild.id, jtc_id, member.id),
+                                            (guild.id, jtc_id, member.id),
+                                        )
                                     )
 
                                     if existing_channel_id:
@@ -3364,7 +3371,9 @@ class VoiceService(BaseService):
         """Create a voice channel via the task queue to respect rate limits."""
 
         async def _task() -> discord.VoiceChannel:
-            return await category.create_voice_channel(name=name, reason=reason, **kwargs)
+            return await category.create_voice_channel(
+                name=name, reason=reason, **kwargs
+            )
 
         try:
             # enqueue_task is annotated to return None but actually returns a Future
@@ -3543,7 +3552,9 @@ class VoiceService(BaseService):
             # Validate permissions once before creating channels
             can_create, error = await self._validate_jtc_permissions(category)
             if not can_create:
-                return VoiceChannelResult(False, error=error or "JTC permission check failed")
+                return VoiceChannelResult(
+                    False, error=error or "JTC permission check failed"
+                )
 
             # Step 1: Get old JTC channels before making changes
             old_jtc_channels = await self.config_service.get_guild_jtc_channels(
@@ -3568,7 +3579,9 @@ class VoiceService(BaseService):
                 )
 
                 if jtc_channel is None:
-                    return VoiceChannelResult(False, error="JTC channel creation failed")
+                    return VoiceChannelResult(
+                        False, error="JTC channel creation failed"
+                    )
 
                 created_channels.append(jtc_channel.id)
                 self.logger.info(
@@ -3768,7 +3781,6 @@ class VoiceService(BaseService):
         """
         if not stale_jtc_ids:
             return {"deleted_channels": [], "failed_channels": [], "errors": []}
-
 
         deleted_channels = []
         failed_channels = []

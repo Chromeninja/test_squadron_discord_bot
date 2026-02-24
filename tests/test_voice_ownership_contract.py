@@ -25,12 +25,38 @@ class TestVoiceOwnershipListingContract:
         guild_id = 1111
 
         # Seed multiple owners
-        await seed_voice_channels([
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": 111, "voice_channel_id": 3001, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": 222, "voice_channel_id": 3002, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": 333, "voice_channel_id": 3003, "is_active": 1},
-            {"guild_id": 9999, "jtc_channel_id": 8888, "owner_id": 444, "voice_channel_id": 3004, "is_active": 1},  # Different guild
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 111,
+                    "voice_channel_id": 3001,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 222,
+                    "voice_channel_id": 3002,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 333,
+                    "voice_channel_id": 3003,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": 9999,
+                    "jtc_channel_id": 8888,
+                    "owner_id": 444,
+                    "voice_channel_id": 3004,
+                    "is_active": 1,
+                },  # Different guild
+            ]
+        )
 
         # Query: List all active owners for guild
         results = await BaseRepository.fetch_all(
@@ -59,12 +85,38 @@ class TestVoiceOwnershipListingContract:
         owner_id = 123456789
         guild_id = 1111
 
-        await seed_voice_channels([
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": owner_id, "voice_channel_id": 3001, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": owner_id, "voice_channel_id": 3002, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": owner_id, "voice_channel_id": 3003, "is_active": 0},  # Inactive
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": 999999, "voice_channel_id": 3004, "is_active": 1},  # Different owner
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3001,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3002,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3003,
+                    "is_active": 0,
+                },  # Inactive
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 999999,
+                    "voice_channel_id": 3004,
+                    "is_active": 1,
+                },  # Different owner
+            ]
+        )
 
         # Query: List all channels for owner
         results = await BaseRepository.fetch_all(
@@ -107,9 +159,17 @@ class TestVoiceOwnershipResetContract:
         new_owner = 222
         voice_channel_id = 3001
 
-        await seed_voice_channels([
-            {"guild_id": 1111, "jtc_channel_id": 2222, "owner_id": original_owner, "voice_channel_id": voice_channel_id, "is_active": 1},
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": 1111,
+                    "jtc_channel_id": 2222,
+                    "owner_id": original_owner,
+                    "voice_channel_id": voice_channel_id,
+                    "is_active": 1,
+                },
+            ]
+        )
 
         # Reset: Transfer ownership
         await BaseRepository.execute(
@@ -131,11 +191,31 @@ class TestVoiceOwnershipResetContract:
         owner_id = 123456789
         guild_id = 1111
 
-        await seed_voice_channels([
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": owner_id, "voice_channel_id": 3001, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": owner_id, "voice_channel_id": 3002, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 2222, "owner_id": 999999, "voice_channel_id": 3003, "is_active": 1},  # Different owner
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3001,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3002,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 2222,
+                    "owner_id": 999999,
+                    "voice_channel_id": 3003,
+                    "is_active": 1,
+                },  # Different owner
+            ]
+        )
 
         # Reset: Deactivate all channels for user
         await BaseRepository.execute(
@@ -185,7 +265,13 @@ class TestVoiceOwnershipEdgeCases:
 
         # Simulate rapid creation of multiple channels
         channels = [
-            {"guild_id": guild_id, "jtc_channel_id": jtc_id, "owner_id": owner_id, "voice_channel_id": 3000 + i, "is_active": 1}
+            {
+                "guild_id": guild_id,
+                "jtc_channel_id": jtc_id,
+                "owner_id": owner_id,
+                "voice_channel_id": 3000 + i,
+                "is_active": 1,
+            }
             for i in range(5)
         ]
         await seed_voice_channels(channels)
@@ -203,11 +289,31 @@ class TestVoiceOwnershipEdgeCases:
         owner_id = 123456789
         guild_id = 1111
 
-        await seed_voice_channels([
-            {"guild_id": guild_id, "jtc_channel_id": 1001, "owner_id": owner_id, "voice_channel_id": 3001, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 1002, "owner_id": owner_id, "voice_channel_id": 3002, "is_active": 1},
-            {"guild_id": guild_id, "jtc_channel_id": 1003, "owner_id": owner_id, "voice_channel_id": 3003, "is_active": 1},
-        ])
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 1001,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3001,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 1002,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3002,
+                    "is_active": 1,
+                },
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": 1003,
+                    "owner_id": owner_id,
+                    "voice_channel_id": 3003,
+                    "is_active": 1,
+                },
+            ]
+        )
 
         # Count distinct JTC sources for owner
         results = await BaseRepository.fetch_all(
@@ -225,12 +331,26 @@ class TestVoiceOwnershipEdgeCases:
         jtc_id = 2222
 
         # Create preference and channel
-        await seed_jtc_preferences([
-            {"guild_id": guild_id, "user_id": user_id, "last_used_jtc_channel_id": jtc_id},
-        ])
-        await seed_voice_channels([
-            {"guild_id": guild_id, "jtc_channel_id": jtc_id, "owner_id": user_id, "voice_channel_id": 3001, "is_active": 1},
-        ])
+        await seed_jtc_preferences(
+            [
+                {
+                    "guild_id": guild_id,
+                    "user_id": user_id,
+                    "last_used_jtc_channel_id": jtc_id,
+                },
+            ]
+        )
+        await seed_voice_channels(
+            [
+                {
+                    "guild_id": guild_id,
+                    "jtc_channel_id": jtc_id,
+                    "owner_id": user_id,
+                    "voice_channel_id": 3001,
+                    "is_active": 1,
+                },
+            ]
+        )
 
         # Deactivate channel
         await BaseRepository.execute(

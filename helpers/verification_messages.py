@@ -45,9 +45,7 @@ EVENT_PROMOTED_TO_MAIN = "promoted_to_main"
 # Message Fragment Constants (DRY for repeated copy)
 # -----------------------------------------------------------------------------
 
-_MSG_ENGAGE = (
-    "Join our voice chats, explore events, and engage in our text channels"
-)
+_MSG_ENGAGE = "Join our voice chats, explore events, and engage in our text channels"
 _MSG_NICKNAME = "Your Discord nickname has been set to your RSI handle"
 _EMOJI_SALUTE = "\U0001fae1"  # 🫡
 _MSG_FLY_SAFE = f"{_EMOJI_SALUTE} Fly safe!"
@@ -90,7 +88,9 @@ async def get_org_branding(bot: "MyBot", guild_id: int) -> OrgBranding | None:
         guild_config = bot.services.guild_config
 
         # Fetch org settings using centralized config keys
-        org_name = await guild_config.get_setting(guild_id, CONFIG_ORG_NAME, default=None)
+        org_name = await guild_config.get_setting(
+            guild_id, CONFIG_ORG_NAME, default=None
+        )
         org_sid = await guild_config.get_setting(guild_id, CONFIG_ORG_SID, default=None)
 
         if not org_name or not org_sid:
@@ -158,7 +158,9 @@ async def validate_verification_config(bot: "MyBot", guild_id: int) -> Validatio
         guild_config = bot.services.guild_config
 
         # Check org name
-        org_name = await guild_config.get_setting(guild_id, CONFIG_ORG_NAME, default=None)
+        org_name = await guild_config.get_setting(
+            guild_id, CONFIG_ORG_NAME, default=None
+        )
         if not org_name or not str(org_name).strip():
             return ValidationResult(
                 ok=False,
@@ -186,7 +188,9 @@ async def validate_verification_config(bot: "MyBot", guild_id: int) -> Validatio
         return ValidationResult(ok=True)
 
     except Exception as e:
-        logger.warning(f"Failed to validate verification config for guild {guild_id}: {e}")
+        logger.warning(
+            f"Failed to validate verification config for guild {guild_id}: {e}"
+        )
         return ValidationResult(ok=False, reason="Failed to validate configuration")
 
 

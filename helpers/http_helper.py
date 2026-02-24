@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 # Error Taxonomy
 # ---------------------------------------------------------------------------
 
+
 class NotFoundError(Exception):
     """Raised when a 404 is encountered and the caller should treat the resource as gone."""
 
@@ -49,6 +50,7 @@ class PermanentError(Exception):
 # Retry Policy
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class HTTPRetryPolicy:
     """Configuration for HTTP retry behavior."""
@@ -61,11 +63,13 @@ class HTTPRetryPolicy:
     # Status codes that trigger retry
     retryable_statuses: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
     # Methods that are safe to retry
-    retryable_methods: frozenset[str] = frozenset({"GET", "HEAD", "PUT", "DELETE", "OPTIONS"})
+    retryable_methods: frozenset[str] = frozenset(
+        {"GET", "HEAD", "PUT", "DELETE", "OPTIONS"}
+    )
 
     def calculate_delay(self, attempt: int) -> float:
         """Calculate delay for given attempt number (0-indexed)."""
-        delay = self.base_delay * (self.exponential_base ** attempt)
+        delay = self.base_delay * (self.exponential_base**attempt)
         delay = min(delay, self.max_delay)
 
         if self.jitter:
@@ -77,7 +81,10 @@ class HTTPRetryPolicy:
 
     def should_retry(self, status: int, method: str) -> bool:
         """Determine if a request should be retried based on status and method."""
-        return status in self.retryable_statuses and method.upper() in self.retryable_methods
+        return (
+            status in self.retryable_statuses
+            and method.upper() in self.retryable_methods
+        )
 
 
 # Default policies
@@ -120,7 +127,9 @@ class HTTPClient:
 
         # Retry configuration (can be overridden via env)
         if retry_policy is None:
-            retry_enabled = os.environ.get("HTTP_RETRY_ENABLED", "true").lower() == "true"
+            retry_enabled = (
+                os.environ.get("HTTP_RETRY_ENABLED", "true").lower() == "true"
+            )
             if retry_enabled:
                 self._retry_policy = DEFAULT_RETRY_POLICY
             else:
@@ -149,7 +158,9 @@ class HTTPClient:
     def get_health_status(self) -> dict:
         """Return health metrics for observability endpoints."""
         return {
-            "http_client_status": "ok" if self._session and not self._session.closed else "closed",
+            "http_client_status": "ok"
+            if self._session and not self._session.closed
+            else "closed",
             "total_requests": self._request_count,
             "total_errors": self._error_count,
             "total_retries": self._retry_count,
@@ -195,7 +206,9 @@ class HTTPClient:
 
                 session = await self._get_session()
                 try:
-                    logger.debug(f"HTTP {method} {url} (attempt {attempt + 1}/{policy.max_attempts})")
+                    logger.debug(
+                        f"HTTP {method} {url} (attempt {attempt + 1}/{policy.max_attempts})"
+                    )
 
                     request_method = getattr(session, method.lower(), session.get)
                     async with request_method(
@@ -205,7 +218,9 @@ class HTTPClient:
 
                         if status == 200:
                             text = await resp.text()
-                            logger.debug(f"HTTP {method} {url} completed ({len(text)} bytes)")
+                            logger.debug(
+                                f"HTTP {method} {url} completed ({len(text)} bytes)"
+                            )
                             return text
 
                         if status == 404:
@@ -218,7 +233,10 @@ class HTTPClient:
                             raise ForbiddenError(f"Access forbidden: {url}")
 
                         # Check if retryable
-                        if policy.should_retry(status, method) and attempt < policy.max_attempts - 1:
+                        if (
+                            policy.should_retry(status, method)
+                            and attempt < policy.max_attempts - 1
+                        ):
                             delay = policy.calculate_delay(attempt)
 
                             # Handle Retry-After header for 429
@@ -226,10 +244,14 @@ class HTTPClient:
                                 retry_after = resp.headers.get("Retry-After")
                                 if retry_after:
                                     try:
-                                        delay = min(float(retry_after), 60.0)  # Cap at 60s
+                                        delay = min(
+                                            float(retry_after), 60.0
+                                        )  # Cap at 60s
                                     except ValueError:
                                         pass
-                                logger.info(f"HTTP {method} {url} rate limited; waiting {delay:.1f}s")
+                                logger.info(
+                                    f"HTTP {method} {url} rate limited; waiting {delay:.1f}s"
+                                )
                             else:
                                 logger.info(
                                     f"HTTP {method} {url} failed ({status}); "
@@ -265,7 +287,9 @@ class HTTPClient:
                     self._error_count += 1
                     if attempt < policy.max_attempts - 1:
                         delay = policy.calculate_delay(attempt)
-                        logger.info(f"Client error for {url}: {e}; retrying in {delay:.1f}s")
+                        logger.info(
+                            f"Client error for {url}: {e}; retrying in {delay:.1f}s"
+                        )
                         self._retry_count += 1
                         await asyncio.sleep(delay)
                         continue

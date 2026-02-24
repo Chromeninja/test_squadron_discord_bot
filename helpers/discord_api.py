@@ -78,7 +78,10 @@ async def move_member(member: discord.Member, channel: discord.VoiceChannel) -> 
 
     try:
         await enqueue_task(_task)
-        logger.debug("Enqueued move to voice channel", extra={"user_id": member.id, "channel_id": channel.id})
+        logger.debug(
+            "Enqueued move to voice channel",
+            extra={"user_id": member.id, "channel_id": channel.id},
+        )
     except Exception:
         logger.exception("Failed to enqueue move", extra={"user_id": member.id})
         raise
@@ -91,7 +94,9 @@ async def add_roles(member: discord.Member, *roles, reason: str | None = None) -
     try:
         await enqueue_task(_task)
         role_ids = [r.id for r in roles]
-        logger.debug("Enqueued add_roles", extra={"user_id": member.id, "role_ids": role_ids})
+        logger.debug(
+            "Enqueued add_roles", extra={"user_id": member.id, "role_ids": role_ids}
+        )
     except Exception:
         logger.exception("Failed to enqueue add_roles", extra={"user_id": member.id})
         raise
@@ -106,7 +111,9 @@ async def remove_roles(
     try:
         await enqueue_task(_task)
         role_ids = [r.id for r in roles]
-        logger.debug("Enqueued remove_roles", extra={"user_id": member.id, "role_ids": role_ids})
+        logger.debug(
+            "Enqueued remove_roles", extra={"user_id": member.id, "role_ids": role_ids}
+        )
     except Exception:
         logger.exception("Failed to enqueue remove_roles", extra={"user_id": member.id})
         raise
@@ -133,9 +140,14 @@ async def edit_member(member: discord.Member, **kwargs) -> None:
 
     try:
         await enqueue_task(_task)
-        logger.debug("Enqueued edit for user", extra={"user_id": member.id, "edit_keys": list(kwargs.keys())})
+        logger.debug(
+            "Enqueued edit for user",
+            extra={"user_id": member.id, "edit_keys": list(kwargs.keys())},
+        )
     except Exception:
-        logger.exception("Failed to enqueue edit for user", extra={"user_id": member.id})
+        logger.exception(
+            "Failed to enqueue edit for user", extra={"user_id": member.id}
+        )
         raise
 
 
@@ -179,7 +191,9 @@ async def send_message_task(
         # primary send and fall back to a follow-up when we detect that case.
         try:
             await interaction.response.send_message(**kwargs)
-            logger.debug("Sent interaction response", extra={"user_id": interaction.user.id})
+            logger.debug(
+                "Sent interaction response", extra={"user_id": interaction.user.id}
+            )
         except discord.HTTPException as e:
             code = getattr(e, "code", None)
             msg = str(e)
@@ -243,7 +257,9 @@ async def followup_send_message_task(
             extra={"user_id": interaction.user.id},
         )
     except Exception:
-        logger.exception("Failed to send follow-up message", extra={"user_id": interaction.user.id})
+        logger.exception(
+            "Failed to send follow-up message", extra={"user_id": interaction.user.id}
+        )
 
 
 async def channel_send_message(
