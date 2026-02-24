@@ -44,10 +44,12 @@ CREATE TABLE IF NOT EXISTS message_counts (
     guild_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     hour_bucket INTEGER NOT NULL,
+    bucket_seconds INTEGER NOT NULL DEFAULT 3600,
     message_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id, hour_bucket)
 );
 CREATE INDEX IF NOT EXISTS idx_message_counts_guild_hour ON message_counts(guild_id, hour_bucket);
+CREATE INDEX IF NOT EXISTS idx_message_counts_guild_bucket_seconds ON message_counts(guild_id, bucket_seconds, hour_bucket);
 
 -- Metrics Hourly: pre-aggregated server-wide rollups
 CREATE TABLE IF NOT EXISTS metrics_hourly (

@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { metricsApi, UserMetrics } from '../../api/endpoints';
 import { handleApiError } from '../../utils/toast';
+import { getTierHelpText } from '../../utils/tierHelpers';
 
 const TIER_BADGE_COLORS: Record<string, string> = {
   hardcore: 'bg-red-600/20 text-red-400 border-red-600/40',
@@ -33,31 +34,14 @@ const TIER_ICONS: Record<string, string> = {
   game: '🎮',
 };
 
-/** Cadence-based help text matching the main Metrics page algorithm. */
-const TIER_HELP_TEXT_CADENCE: Record<string, { windowDays: number; label: string }> = {
-  hardcore: { windowDays: 1, label: 'every day' },
-  regular: { windowDays: 3, label: 'every 3 days' },
-  casual: { windowDays: 7, label: 'every week' },
-  reserve: { windowDays: 30, label: 'every month' },
-};
+// Tier cadence helpers imported from utils/tierHelpers
 
-function getTierHelpText(tier: string, days: number = 30): string {
-  if (tier === 'inactive') return `No qualifying activity pattern in the past ${days} days.`;
-  const cadence = TIER_HELP_TEXT_CADENCE[tier];
-  if (!cadence) return '';
-  const { windowDays, label } = cadence;
-  if (windowDays > days) return '';
-  const numWindows = Math.ceil(days / windowDays);
-  if (numWindows === 1) return `Active at least once in the past ${days} days.`;
-  return `Active ${label} across the full ${days}-day period.`;
-}
-
-function TierBadge({ label, tier }: { label: string; tier: string | null | undefined }) {
+function TierBadge({ label, tier, days = 30 }: { label: string; tier: string | null | undefined; days?: number }) {
   const t = tier ?? 'inactive';
   const colorClass = TIER_BADGE_COLORS[t] || TIER_BADGE_COLORS.inactive;
   return (
     <div
-      title={getTierHelpText(t)}
+      title={getTierHelpText(t, days)}
       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium ${colorClass}`}
     >
       <span>{TIER_ICONS[label] ?? ''}</span>
@@ -158,10 +142,10 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
             </h3>
             {hasTiers && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <TierBadge label="combined" tier={data.combined_tier} />
-                <TierBadge label="voice" tier={data.voice_tier} />
-                <TierBadge label="chat" tier={data.chat_tier} />
-                <TierBadge label="game" tier={data.game_tier} />
+                <TierBadge label="combined" tier={data.combined_tier} days={days} />
+                <TierBadge label="voice" tier={data.voice_tier} days={days} />
+                <TierBadge label="chat" tier={data.chat_tier} days={days} />
+                <TierBadge label="game" tier={data.game_tier} days={days} />
               </div>
             )}
           </div>

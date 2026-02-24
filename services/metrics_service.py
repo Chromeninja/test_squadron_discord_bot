@@ -280,6 +280,7 @@ class MetricsService(BaseService):
         Defaults: 15 min voice, 15 min game, 5 messages.
         Values are cached with 30s TTL.
         """
+        # Fast-path: read cache under lock, return if valid.
         async with self._activity_thresholds_lock:
             now = time.monotonic()
             cached = self._activity_thresholds_cache.get(guild_id)
@@ -290,32 +291,35 @@ class MetricsService(BaseService):
             ):
                 return cached[1], cached[2], cached[3]
 
-            raw_voice = await self._config_service.get_guild_setting(
-                guild_id, "metrics.min_voice_minutes", 15,
-            )
-            raw_game = await self._config_service.get_guild_setting(
-                guild_id, "metrics.min_game_minutes", 15,
-            )
-            raw_msgs = await self._config_service.get_guild_setting(
-                guild_id, "metrics.min_messages", 5,
-            )
-            try:
-                min_voice_secs = max(0, int(raw_voice)) * 60
-            except (TypeError, ValueError):
-                min_voice_secs = 15 * 60
-            try:
-                min_game_secs = max(0, int(raw_game)) * 60
-            except (TypeError, ValueError):
-                min_game_secs = 15 * 60
-            try:
-                min_msgs = max(0, int(raw_msgs))
-            except (TypeError, ValueError):
-                min_msgs = 5
+        # Fetch and parse outside the lock to reduce contention.
+        raw_voice = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_voice_minutes", 15,
+        )
+        raw_game = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_game_minutes", 15,
+        )
+        raw_msgs = await self._config_service.get_guild_setting(
+            guild_id, "metrics.min_messages", 5,
+        )
+        try:
+            min_voice_secs = max(0, int(raw_voice)) * 60
+        except (TypeError, ValueError):
+            min_voice_secs = 15 * 60
+        try:
+            min_game_secs = max(0, int(raw_game)) * 60
+        except (TypeError, ValueError):
+            min_game_secs = 15 * 60
+        try:
+            min_msgs = max(0, int(raw_msgs))
+        except (TypeError, ValueError):
+            min_msgs = 5
 
+        # Write computed values to cache under the lock.
+        async with self._activity_thresholds_lock:
             self._activity_thresholds_cache[guild_id] = (
                 time.monotonic(), min_voice_secs, min_game_secs, min_msgs,
             )
-            return min_voice_secs, min_game_secs, min_msgs
+        return min_voice_secs, min_game_secs, min_msgs
 
     # ------------------------------------------------------------------
     # Activity-group bucket computation
@@ -343,6 +347,26 @@ class MetricsService(BaseService):
         cadence size.  The user qualifies for a tier when *every* window
         contains at least one active day.  Reserve is skipped when the
         range is shorter than 30 days.
+
+        Example — 7-day range starting at day-bucket 20000::
+
+            range_start_day = 20000, range_days = 7
+
+            hardcore (window=1): 7 windows → [20000, 20001, …, 20006].
+              User must have an active day in *each* 1-day window (all 7 days).
+
+            regular  (window=3): ceil(7/3) = 3 windows →
+              [20000–20003), [20003–20006), [20006–20007).
+              User must have ≥1 active day in each of the 3 windows.
+
+            casual   (window=7): ceil(7/7) = 1 window →
+              [20000–20007).  Any single active day qualifies.
+
+            reserve  (window=30): skipped (30 > 7).
+
+        The last window may be shorter than ``window_days`` when
+        ``range_days`` is not an exact multiple — it still requires at
+        least one active day.
 
         AI Notes:
             ``active_days`` contains integer day-buckets (Unix timestamp
@@ -419,7 +443,9 @@ class MetricsService(BaseService):
                 "SELECT user_id, hour_bucket / 86400 AS day_bucket, "
                 "COUNT(*) AS day_msg_windows, MAX(hour_bucket) "
                 "FROM message_counts "
-                f"WHERE guild_id = ? {user_filter_sql} AND hour_bucket >= ? "
+                f"WHERE guild_id = ? {user_filter_sql} "
+                "AND bucket_seconds = 180 "
+                "AND hour_bucket >= ? "
                 "GROUP BY user_id, day_bucket"
             )
             cursor = await db.execute(sql_msg, [*params_prefix, cutoff_ts])
@@ -431,21 +457,32 @@ class MetricsService(BaseService):
                 entry["last_chat_at"] = max(entry.get("last_chat_at", 0), max_ts)
 
             # --- Voice: sum duration per user per day, apply min_voice_secs ---
+            # Use overlap predicate so sessions starting before the window
+            # but ending inside it are included.
             sql_voice = (
                 "SELECT user_id, joined_at, COALESCE(left_at, ?) "
                 "FROM voice_sessions "
-                f"WHERE guild_id = ? {user_filter_sql} AND joined_at >= ? "
+                f"WHERE guild_id = ? {user_filter_sql} "
+                "AND joined_at <= ? AND COALESCE(left_at, ?) > ? "
             )
-            cursor = await db.execute(sql_voice, [now, *params_prefix, cutoff_ts])
+            cursor = await db.execute(
+                sql_voice, [now, *params_prefix, now, now, cutoff_ts],
+            )
 
-            # Accumulate voice seconds per (uid, day) and track last_voice_at
+            # Accumulate voice seconds per (uid, day) and track last_voice_at.
+            # Clamp each session to [cutoff_ts, now] so only in-window time
+            # is counted.
             voice_day_secs: dict[tuple[int, int], int] = {}
             voice_last: dict[int, int] = {}
             for uid, joined_at, ended_at in await cursor.fetchall():
+                clamped_start = max(joined_at, cutoff_ts)
+                clamped_end = min(ended_at, now)
+                if clamped_start > clamped_end:
+                    continue
                 voice_last[uid] = max(voice_last.get(uid, 0), ended_at)
-                for d in range(joined_at // 86400, ended_at // 86400 + 1):
-                    day_start = max(joined_at, d * 86400)
-                    day_end = min(ended_at, (d + 1) * 86400)
+                for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
+                    day_start = max(clamped_start, d * 86400)
+                    day_end = min(clamped_end, (d + 1) * 86400)
                     voice_day_secs[(uid, d)] = (
                         voice_day_secs.get((uid, d), 0) + max(0, day_end - day_start)
                     )
@@ -487,29 +524,38 @@ class MetricsService(BaseService):
                 "  ON g.guild_id = v.guild_id AND g.user_id = v.user_id "
                 "  AND g.started_at < COALESCE(v.left_at, ?) "
                 "  AND COALESCE(g.ended_at, ?) > v.joined_at "
-                f"WHERE g.guild_id = ? AND g.started_at >= ?"
+                f"WHERE g.guild_id = ? "
+                f"AND g.started_at <= ? AND COALESCE(g.ended_at, ?) > ?"
                 f"{game_user_filter}{excl_clause}{game_name_clause}"
             )
             game_params: list[Any] = [
-                now,  # COALESCE(g.ended_at, ?)
-                now,  # COALESCE(v.left_at, ?)
-                now,  # COALESCE(g.ended_at, ?) in join
+                now,  # COALESCE(g.ended_at, ?) in SELECT
+                now,  # COALESCE(v.left_at, ?) in JOIN
+                now,  # COALESCE(g.ended_at, ?) in JOIN
                 guild_id,
-                cutoff_ts,
+                now,  # g.started_at < ?
+                now,  # COALESCE(g.ended_at, ?) > ?
+                cutoff_ts,  # > cutoff_ts
                 *game_user_params,
                 *excl_params,
                 *game_name_params,
             ]
             cursor = await db.execute(sql_game, game_params)
 
-            # Accumulate game seconds per (uid, day) and track last_game_at
+            # Accumulate game seconds per (uid, day) and track last_game_at.
+            # Clamp each session to [cutoff_ts, now] so only in-window time
+            # is counted.
             game_day_secs: dict[tuple[int, int], int] = {}
             game_last: dict[int, int] = {}
             for uid, started_at, ended_at in await cursor.fetchall():
+                clamped_start = max(started_at, cutoff_ts)
+                clamped_end = min(ended_at, now)
+                if clamped_start > clamped_end:
+                    continue
                 game_last[uid] = max(game_last.get(uid, 0), ended_at)
-                for d in range(started_at // 86400, ended_at // 86400 + 1):
-                    day_start = max(started_at, d * 86400)
-                    day_end = min(ended_at, (d + 1) * 86400)
+                for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
+                    day_start = max(clamped_start, d * 86400)
+                    day_end = min(clamped_end, (d + 1) * 86400)
                     game_day_secs[(uid, d)] = (
                         game_day_secs.get((uid, d), 0)
                         + max(0, day_end - day_start)
@@ -1356,11 +1402,15 @@ class MetricsService(BaseService):
             async with MetricsDatabase.get_connection() as db:
                 for (guild_id, user_id, hour_bucket), count in snapshot.items():
                     await db.execute(
-                        "INSERT INTO message_counts (guild_id, user_id, hour_bucket, message_count) "
-                        "VALUES (?, ?, ?, ?) "
+                        "INSERT INTO message_counts ("
+                        "guild_id, user_id, hour_bucket, bucket_seconds, message_count"
+                        ") "
+                        "VALUES (?, ?, ?, ?, ?) "
                         "ON CONFLICT(guild_id, user_id, hour_bucket) "
-                        "DO UPDATE SET message_count = message_count + excluded.message_count",
-                        (guild_id, user_id, hour_bucket, count),
+                        "DO UPDATE SET "
+                        "message_count = message_count + excluded.message_count, "
+                        "bucket_seconds = excluded.bucket_seconds",
+                        (guild_id, user_id, hour_bucket, 180, count),
                     )
                 await db.commit()
             self._last_flush_at = time.time()

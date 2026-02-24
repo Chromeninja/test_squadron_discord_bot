@@ -35,8 +35,22 @@ function formatTimestamp(epoch: number): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** Props for the custom tooltip, extending Recharts' built-in content props. */
+interface CustomTimeSeriesTooltipProps {
+  /** Whether the tooltip is active (hovered). */
+  active?: boolean;
+  /** Recharts payload array for the hovered data point. */
+  payload?: ReadonlyArray<{ payload?: { value?: number; unique_users?: number } }>;
+  /** The formatted X-axis label. */
+  label?: string | number;
+  /** Format function for the primary value. */
+  fmtVal: (v: number) => string;
+  /** Label for the value axis (e.g. "Messages", "Voice hours"). */
+  valueLabel: string;
+}
+
 /** Custom tooltip that includes unique_users count when available. */
-function CustomTimeSeriesToolip({ active, payload, label, fmtVal, valueLabel }: any) {
+function CustomTimeSeriesTooltip({ active, payload, label, fmtVal, valueLabel }: CustomTimeSeriesTooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const entry = payload[0]?.payload;
   if (!entry) return null;
@@ -138,7 +152,7 @@ export default function TimeSeriesChart({
               tickFormatter={(v) => fmtVal(v)}
             />
             <Tooltip
-              content={<CustomTimeSeriesToolip fmtVal={fmtVal} valueLabel={valueLabel} />}
+              content={<CustomTimeSeriesTooltip fmtVal={fmtVal} valueLabel={valueLabel} />}
             />
             <Area
               type="monotone"

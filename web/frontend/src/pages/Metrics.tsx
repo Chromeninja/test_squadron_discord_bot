@@ -22,6 +22,7 @@ import {
   ActivityGroupCounts,
 } from '../api/endpoints';
 import { handleApiError } from '../utils/toast';
+import { getTierHelpText } from '../utils/tierHelpers';
 import {
   MetricCard,
   TimeSeriesChart,
@@ -66,21 +67,7 @@ const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
 
 const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', 'inactive'];
 
-const TIER_HELP_TEXT_CADENCE: Record<Exclude<ActivityTier, 'inactive'>, { windowDays: number; label: string }> = {
-  hardcore: { windowDays: 1, label: 'every day' },
-  regular: { windowDays: 3, label: 'every 3 days' },
-  casual: { windowDays: 7, label: 'every week' },
-  reserve: { windowDays: 30, label: 'every month' },
-};
-
-function getTierHelpText(tier: ActivityTier, days: TimeRange): string {
-  if (tier === 'inactive') return `No qualifying activity pattern in the past ${days} days.`;
-  const { windowDays, label } = TIER_HELP_TEXT_CADENCE[tier];
-  if (windowDays > days) return '';
-  const numWindows = Math.ceil(days / windowDays);
-  if (numWindows === 1) return `Active at least once in the past ${days} days.`;
-  return `Active ${label} across the full ${days}-day period.`;
-}
+// Tier cadence helpers imported from utils/tierHelpers
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;

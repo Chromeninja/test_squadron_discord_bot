@@ -1231,6 +1231,53 @@ class TestActivityThresholds:
         )
         assert call_counter["count"] > call_count
 
+    @pytest.mark.asyncio
+    async def test_activity_chat_ignores_legacy_hourly_message_rows(
+        self, metrics_service: MetricsService,
+    ) -> None:
+        """Cadence chat tiers should only count 3-minute message windows."""
+        now = int(time.time())
+        legacy_hour_bucket = now - (now % 3600)
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (100, 4242, legacy_hour_bucket, 3600, 50),
+            )
+            await db.commit()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+
+        assert 4242 not in result
+
+    @pytest.mark.asyncio
+    async def test_activity_chat_counts_three_minute_message_rows(
+        self, metrics_service: MetricsService,
+    ) -> None:
+        """3-minute message rows should count as qualifying chat windows."""
+        now = int(time.time())
+        message_bucket = now - (now % 180)
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (100, 5151, message_bucket, 180, 3),
+            )
+            await db.commit()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+
+        assert 5151 in result
+        assert result[5151]["chat_tier"] == "hardcore"
+
 
 class TestGuildMetricsAverages:
     """Tests for unique_users=0 handling in get_guild_metrics."""
