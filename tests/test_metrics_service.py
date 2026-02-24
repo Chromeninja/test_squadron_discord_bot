@@ -63,7 +63,24 @@ async def metrics_service(metrics_db):
         "buffer_flush_seconds": 30,
         "database_path": metrics_db,
     }
-    config_service.get_guild_setting = AsyncMock(return_value=[])
+    async def _mock_guild_setting(
+        guild_id: int, key: str, default: object = None,
+    ) -> object:
+        """Return sane test defaults for guild settings.
+
+        Threshold keys return 0 (no minimum) so existing tests pass.
+        Everything else returns [] (no excluded channels, etc.).
+        """
+        _zero_keys = {
+            "metrics.min_voice_minutes",
+            "metrics.min_game_minutes",
+            "metrics.min_messages",
+        }
+        if key in _zero_keys:
+            return 0
+        return default if default is not None else []
+
+    config_service.get_guild_setting = AsyncMock(side_effect=_mock_guild_setting)
 
     service = MetricsService(config_service, bot=None, test_mode=True)
     # Manual init since test_mode skips background tasks
@@ -139,6 +156,7 @@ class TestExcludedChannelSettings:
             AsyncMock,
             metrics_service._config_service.get_guild_setting,
         )
+        get_setting_mock.side_effect = None
         get_setting_mock.return_value = [
             "200",
             100,
@@ -158,6 +176,7 @@ class TestExcludedChannelSettings:
             AsyncMock,
             metrics_service._config_service.get_guild_setting,
         )
+        get_setting_mock.side_effect = None
         get_setting_mock.return_value = ["100"]
 
         first = await metrics_service.get_excluded_channel_ids(123)
@@ -705,68 +724,137 @@ class TestHealthCheck:
 
 
 # ---------------------------------------------------------------------------
-# Tier derivation
+# Tier derivation (cadence-based)
 # ---------------------------------------------------------------------------
 
 
-class TestTierFromRecency:
-    """Unit tests for the static _tier_from_recency helper."""
+class TestTierFromCadence:
+    """Unit tests for the static _tier_from_cadence helper.
 
-    def test_none_last_active_is_inactive(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(None, now) == "inactive"
+    Cadence tiers divide the lookback range into non-overlapping windows
+    and require activity in *every* window to qualify.
+    """
 
-    def test_within_24h_is_hardcore(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 3600, now) == "hardcore"
+    # -- empty / no activity --------------------------------------------------
 
-    def test_exactly_24h_is_hardcore(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 24 * 3600, now) == "hardcore"
+    def test_empty_active_days_is_inactive(self) -> None:
+        assert MetricsService._tier_from_cadence(set(), 0, 7) == "inactive"
 
-    def test_just_over_24h_is_regular(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 24 * 3600 - 1, now) == "regular"
+    # -- 7-day range -----------------------------------------------------------
 
-    def test_within_3d_is_regular(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 2 * 86400, now) == "regular"
+    def test_7d_all_days_is_hardcore(self) -> None:
+        """Active every day for 7 days → hardcore."""
+        start = 20000
+        days_set = set(range(start, start + 7))
+        assert MetricsService._tier_from_cadence(days_set, start, 7) == "hardcore"
 
-    def test_exactly_3d_is_regular(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 3 * 86400, now) == "regular"
+    def test_7d_miss_one_day_not_hardcore(self) -> None:
+        """Missing one day out of 7 → not hardcore."""
+        start = 20000
+        days_set = {start, start + 1, start + 2, start + 3, start + 4, start + 6}
+        assert MetricsService._tier_from_cadence(days_set, start, 7) != "hardcore"
 
-    def test_just_over_3d_is_casual(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 3 * 86400 - 1, now) == "casual"
+    def test_7d_every_3day_window_is_regular(self) -> None:
+        """Active once per 3-day window across 7 days → regular.
 
-    def test_within_7d_is_casual(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 5 * 86400, now) == "casual"
+        Windows: [0-2], [3-5], [6-6].  Need activity in each."""
+        start = 20000
+        days_set = {start + 1, start + 4, start + 6}  # one per window
+        assert MetricsService._tier_from_cadence(days_set, start, 7) == "regular"
 
-    def test_exactly_7d_is_casual(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 7 * 86400, now) == "casual"
+    def test_7d_miss_one_3day_window_is_casual(self) -> None:
+        """Missing activity in one 3-day window falls to casual (1 window of 7d)."""
+        start = 20000
+        days_set = {start + 1, start + 6}  # miss window [3-5]
+        assert MetricsService._tier_from_cadence(days_set, start, 7) == "casual"
 
-    def test_just_over_7d_is_reserve(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 7 * 86400 - 1, now) == "reserve"
+    def test_7d_any_activity_is_at_least_casual(self) -> None:
+        """Any activity at all in a 7-day range is casual (1 window)."""
+        start = 20000
+        days_set = {start + 3}
+        assert MetricsService._tier_from_cadence(days_set, start, 7) == "casual"
 
-    def test_within_30d_is_reserve(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 20 * 86400, now) == "reserve"
+    def test_7d_reserve_skipped(self) -> None:
+        """Reserve (30d window) is skipped for 7-day range.
 
-    def test_exactly_30d_is_reserve(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 30 * 86400, now) == "reserve"
+        A user who only meets casual but not regular should be casual,
+        not fall through to reserve."""
+        start = 20000
+        days_set = {start}
+        result = MetricsService._tier_from_cadence(days_set, start, 7)
+        assert result == "casual"
 
-    def test_over_30d_is_inactive(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now - 31 * 86400, now) == "inactive"
+    # -- 30-day range ----------------------------------------------------------
 
-    def test_zero_age_is_hardcore(self) -> None:
-        now = int(time.time())
-        assert MetricsService._tier_from_recency(now, now) == "hardcore"
+    def test_30d_all_days_is_hardcore(self) -> None:
+        start = 20000
+        days_set = set(range(start, start + 30))
+        assert MetricsService._tier_from_cadence(days_set, start, 30) == "hardcore"
+
+    def test_30d_every_3_days_is_regular(self) -> None:
+        """Active once per 3-day window across 30 days → regular."""
+        start = 20000
+        days_set = {start + i * 3 for i in range(10)}
+        assert MetricsService._tier_from_cadence(days_set, start, 30) == "regular"
+
+    def test_30d_every_7_days_is_casual(self) -> None:
+        """Active once per 7-day window across 30 days → casual.
+
+        30 / 7 = 5 windows (4 full + 1 partial of 2 days)."""
+        start = 20000
+        days_set = {start + i * 7 for i in range(5)}
+        assert MetricsService._tier_from_cadence(days_set, start, 30) == "casual"
+
+    def test_30d_any_activity_at_least_reserve(self) -> None:
+        """Any activity in 30-day range qualifies as reserve (1 window of 30d)."""
+        start = 20000
+        days_set = {start + 15}
+        assert MetricsService._tier_from_cadence(days_set, start, 30) == "reserve"
+
+    def test_30d_miss_one_7d_window_is_reserve(self) -> None:
+        """Hitting 4 of 5 weekly windows → falls to reserve."""
+        start = 20000
+        days_set = {start + 0, start + 7, start + 14, start + 28}  # miss [21-27]
+        assert MetricsService._tier_from_cadence(days_set, start, 30) == "reserve"
+
+    # -- 90-day range ----------------------------------------------------------
+
+    def test_90d_all_days_is_hardcore(self) -> None:
+        start = 20000
+        days_set = set(range(start, start + 90))
+        assert MetricsService._tier_from_cadence(days_set, start, 90) == "hardcore"
+
+    def test_90d_every_3_days_is_regular(self) -> None:
+        start = 20000
+        days_set = {start + i * 3 for i in range(30)}
+        assert MetricsService._tier_from_cadence(days_set, start, 90) == "regular"
+
+    def test_90d_every_7_days_is_casual(self) -> None:
+        start = 20000
+        days_set = {start + i * 7 for i in range(13)}
+        assert MetricsService._tier_from_cadence(days_set, start, 90) == "casual"
+
+    def test_90d_every_30_days_is_reserve(self) -> None:
+        """Active once per 30-day block across 90 days → reserve."""
+        start = 20000
+        days_set = {start + 5, start + 35, start + 65}
+        assert MetricsService._tier_from_cadence(days_set, start, 90) == "reserve"
+
+    def test_90d_miss_one_30d_block_is_inactive(self) -> None:
+        """Missing activity in one 30-day block → inactive."""
+        start = 20000
+        days_set = {start + 5, start + 65}  # miss [30-59]
+        assert MetricsService._tier_from_cadence(days_set, start, 90) == "inactive"
+
+    # -- edge cases ------------------------------------------------------------
+
+    def test_single_day_range_single_activity_is_hardcore(self) -> None:
+        """Range of 1 day with activity ⇒ hardcore (1 window of 1 day)."""
+        start = 20000
+        assert MetricsService._tier_from_cadence({start}, start, 1) == "hardcore"
+
+    def test_single_day_range_no_activity_is_inactive(self) -> None:
+        assert MetricsService._tier_from_cadence(set(), 20000, 1) == "inactive"
 
 
 # ---------------------------------------------------------------------------
@@ -775,7 +863,12 @@ class TestTierFromRecency:
 
 
 class TestActivityBuckets:
-    """Integration tests for get_member_activity_buckets with real DB."""
+    """Integration tests for get_member_activity_buckets with real DB.
+
+    With cadence-based tiers, a single recording on one day only qualifies
+    as 'hardcore' when lookback_days=1 (one window of 1 day).  For longer
+    ranges the user won't meet every window.
+    """
 
     @pytest.mark.asyncio
     async def test_empty_db_returns_empty(self, metrics_service: MetricsService) -> None:
@@ -787,16 +880,16 @@ class TestActivityBuckets:
         self, metrics_service: MetricsService
     ) -> None:
         now = int(time.time())
-        # Record a message and flush so it goes to DB
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
 
+        # lookback_days=1 → single-day window, today's activity = hardcore
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, now_utc=now
+            guild_id=100, lookback_days=1, now_utc=now,
         )
         assert 1 in result
         assert result[1]["chat_tier"] == "hardcore"
-        # voice_tier should be absent or inactive since there's no voice data
+        # voice_tier should be inactive since there's no voice data
         assert result[1].get("voice_tier", "inactive") == "inactive"
 
     @pytest.mark.asyncio
@@ -808,13 +901,13 @@ class TestActivityBuckets:
         await metrics_service.record_voice_leave(guild_id=100, user_id=2)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, now_utc=now
+            guild_id=100, lookback_days=1, now_utc=now,
         )
         assert 2 in result
         assert result[2]["voice_tier"] == "hardcore"
 
     @pytest.mark.asyncio
-    async def test_combined_tier_uses_most_recent(
+    async def test_combined_tier_merges_dimensions(
         self, metrics_service: MetricsService
     ) -> None:
         now = int(time.time())
@@ -824,16 +917,30 @@ class TestActivityBuckets:
         await metrics_service.record_voice_leave(guild_id=100, user_id=3)
 
         result = await metrics_service.get_member_activity_buckets(
-            guild_id=100, now_utc=now
+            guild_id=100, lookback_days=1, now_utc=now,
         )
         assert 3 in result
         assert result[3]["combined_tier"] == "hardcore"
 
     @pytest.mark.asyncio
+    async def test_single_day_activity_in_30d_range_is_reserve(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """One day of activity in a 30-day range → reserve (1 window of 30d)."""
+        now = int(time.time())
+        metrics_service.record_message(guild_id=100, user_id=4, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=30, now_utc=now,
+        )
+        assert 4 in result
+        assert result[4]["chat_tier"] == "reserve"
+
+    @pytest.mark.asyncio
     async def test_group_counts_structure(
         self, metrics_service: MetricsService
     ) -> None:
-        # Record some activity to get non-empty results
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
 
@@ -853,8 +960,9 @@ class TestActivityBuckets:
         metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
         await metrics_service._flush_message_buffer()
 
+        # lookback_days=1 → single activity today = hardcore
         ids = await metrics_service.get_activity_group_user_ids(
-            guild_id=100, dimension="chat", tier="hardcore"
+            guild_id=100, dimension="chat", tier="hardcore", lookback_days=1,
         )
         assert 1 in ids
 
@@ -872,6 +980,7 @@ class TestActivityBuckets:
             guild_id=100,
             dimensions=["chat", "voice"],
             tiers=["hardcore", "inactive"],
+            lookback_days=1,
         )
         assert "chat" in result
         assert "voice" in result
@@ -889,6 +998,205 @@ class TestActivityBuckets:
             tiers=["hardcore"],
         )
         assert result == {"voice": {"hardcore": []}}
+
+
+# ---------------------------------------------------------------------------
+# Activity threshold filtering
+# ---------------------------------------------------------------------------
+
+
+class TestActivityThresholds:
+    """Verify that per-day minimum thresholds filter activity correctly."""
+
+    @pytest.mark.asyncio
+    async def test_chat_below_threshold_excluded(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Days with fewer messages than min_messages are not counted."""
+        now = int(time.time())
+
+        # Set threshold to 5 messages
+        async def _high_chat_threshold(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            if key == "metrics.min_messages":
+                return 5
+            if key in ("metrics.min_voice_minutes", "metrics.min_game_minutes"):
+                return 0
+            return default if default is not None else []
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_high_chat_threshold,
+        )
+        # Clear threshold cache
+        metrics_service._activity_thresholds_cache.clear()
+
+        # Record only 3 messages — below the 5-message threshold
+        for _ in range(3):
+            metrics_service.record_message(guild_id=100, user_id=1, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+        # User should be absent (no qualifying days)
+        assert 1 not in result
+
+    @pytest.mark.asyncio
+    async def test_chat_at_threshold_included(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Days with exactly min_messages messages are counted."""
+        now = int(time.time())
+
+        async def _threshold_5(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            if key == "metrics.min_messages":
+                return 5
+            if key in ("metrics.min_voice_minutes", "metrics.min_game_minutes"):
+                return 0
+            return default if default is not None else []
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_threshold_5,
+        )
+        metrics_service._activity_thresholds_cache.clear()
+
+        # Record 5 messages — exactly at threshold
+        for _ in range(5):
+            metrics_service.record_message(guild_id=100, user_id=2, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+        assert 2 in result
+        assert result[2]["chat_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_voice_below_threshold_excluded(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Voice sessions shorter than min_voice_minutes are not counted."""
+        now = int(time.time())
+
+        async def _high_voice_threshold(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            if key == "metrics.min_voice_minutes":
+                return 60  # 60 minutes minimum
+            if key in ("metrics.min_game_minutes", "metrics.min_messages"):
+                return 0
+            return default if default is not None else []
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_high_voice_threshold,
+        )
+        metrics_service._activity_thresholds_cache.clear()
+
+        # Record a quick 5-minute voice session (< 60 min threshold)
+        await metrics_service.record_voice_join(
+            guild_id=100, user_id=3, channel_id=10,
+        )
+        # Manually set the join time to 5 minutes ago
+        session = metrics_service._voice_sessions[(100, 3)]
+        session.joined_at = now - 300  # 5 minutes
+        await metrics_service.record_voice_leave(guild_id=100, user_id=3)
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+        assert 3 not in result
+
+    @pytest.mark.asyncio
+    async def test_voice_above_threshold_included(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Voice sessions meeting min_voice_minutes are counted."""
+        now = int(time.time())
+
+        async def _threshold_15(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            if key == "metrics.min_voice_minutes":
+                return 15  # 15 minutes minimum
+            if key in ("metrics.min_game_minutes", "metrics.min_messages"):
+                return 0
+            return default if default is not None else []
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_threshold_15,
+        )
+        metrics_service._activity_thresholds_cache.clear()
+
+        # Record a 20-minute voice session (> 15 min threshold)
+        await metrics_service.record_voice_join(
+            guild_id=100, user_id=4, channel_id=10,
+        )
+        session = metrics_service._voice_sessions[(100, 4)]
+        session.joined_at = now - 1200  # 20 minutes ago
+        await metrics_service.record_voice_leave(guild_id=100, user_id=4)
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+        assert 4 in result
+        assert result[4]["voice_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_zero_thresholds_count_everything(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """When thresholds are 0, any activity counts (default fixture behaviour)."""
+        now = int(time.time())
+
+        # Fixture already returns 0 for threshold keys — just confirm
+        metrics_service._activity_thresholds_cache.clear()
+
+        metrics_service.record_message(guild_id=100, user_id=5, channel_id=10)
+        await metrics_service._flush_message_buffer()
+
+        result = await metrics_service.get_member_activity_buckets(
+            guild_id=100, lookback_days=1, now_utc=now,
+        )
+        assert 5 in result
+        assert result[5]["chat_tier"] == "hardcore"
+
+    @pytest.mark.asyncio
+    async def test_threshold_cache_respects_ttl(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Threshold values are cached and only refreshed after TTL."""
+        original_get_setting = cast(
+            AsyncMock,
+            metrics_service._config_service.get_guild_setting,
+        )
+        call_counter = {"count": 0}
+
+        async def _counting_get_setting(
+            guild_id: int, key: str, default: object = None,
+        ) -> object:
+            call_counter["count"] += 1
+            return await original_get_setting(guild_id, key, default)
+
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=_counting_get_setting,
+        )
+
+        # Seed cache
+        await metrics_service.get_activity_thresholds(guild_id=100)
+        call_count = call_counter["count"]
+
+        # Second call within TTL — should use cache
+        await metrics_service.get_activity_thresholds(guild_id=100)
+        assert call_counter["count"] == call_count
+
+        # Force refresh bypasses cache
+        await metrics_service.get_activity_thresholds(
+            guild_id=100, force_refresh=True,
+        )
+        assert call_counter["count"] > call_count
 
 
 class TestGuildMetricsAverages:

@@ -3,11 +3,13 @@ import {
   usersApi,
   authApi,
   adminApi,
+  metricsApi,
   EnrichedUser,
   ExportUsersRequest,
   BulkRecheckResponse,
   BulkRecheckProgress,
   UserProfile,
+  UserMetrics,
   ALL_GUILDS_SENTINEL,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
@@ -143,6 +145,10 @@ function Users() {
   // User detail modal
   const [selectedUser, setSelectedUser] = useState<EnrichedUser | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
+
+  // Per-user metrics in modal
+  const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
+  const [userMetricsLoading, setUserMetricsLoading] = useState(false);
 
   const resetSelection = () => {
     setSelectAllFiltered(false);
@@ -487,6 +493,29 @@ function Users() {
       setSelectedUser(updatedUser);
     }
   }, [users, showUserModal, selectedUser]);
+
+  // Fetch per-user metrics when the modal opens (only for guild-scoped mode)
+  useEffect(() => {
+    if (!showUserModal || !selectedUser || isCrossGuild) {
+      return;
+    }
+    let cancelled = false;
+    setUserMetrics(null);
+    setUserMetricsLoading(true);
+    metricsApi
+      .getUserMetrics(selectedUser.discord_id, 30)
+      .then((resp) => {
+        if (!cancelled) setUserMetrics(resp.data);
+      })
+      .catch(() => {
+        // Silently hide metrics section on error (permissions / no data)
+        if (!cancelled) setUserMetrics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setUserMetricsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [showUserModal, selectedUser?.discord_id, isCrossGuild]);
 
   // Filter handlers
   const toggleStatus = (status: string) => {
@@ -1199,6 +1228,7 @@ function Users() {
           onClose={() => {
             setShowUserModal(false);
             setSelectedUser(null);
+            setUserMetrics(null);
           }}
           title="Member Details"
           size="lg"
@@ -1225,6 +1255,7 @@ function Users() {
                 onClick={() => {
                   setShowUserModal(false);
                   setSelectedUser(null);
+                  setUserMetrics(null);
                 }}
               >
                 Close
@@ -1334,6 +1365,108 @@ function Users() {
               <div className="text-gray-200">{formatDateValue(selectedUser.last_updated)}</div>
             </div>
           </div>
+
+          {/* Metrics breakdown — hidden when unavailable (cross-guild, no perms, no data) */}
+          {userMetricsLoading && (
+            <div className="mt-6 flex items-center justify-center py-6 text-gray-500 text-sm">
+              <svg className="animate-spin h-4 w-4 mr-2 text-gray-400" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Loading metrics…
+            </div>
+          )}
+
+          {!userMetricsLoading && userMetrics && (
+            <div className="mt-6 space-y-4">
+              {/* Activity Levels */}
+              <div className="bg-slate-900/50 rounded-lg p-4">
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Activity Levels <span className="normal-case text-gray-600">(last 30 days)</span></div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { key: 'combined', label: 'Combined', icon: '⚡', tier: userMetrics.combined_tier },
+                    { key: 'voice', label: 'Voice', icon: '🎤', tier: userMetrics.voice_tier },
+                    { key: 'chat', label: 'Text', icon: '💬', tier: userMetrics.chat_tier },
+                    { key: 'game', label: 'Gaming', icon: '🎮', tier: userMetrics.game_tier },
+                  ].map(({ key, label, icon, tier }) => {
+                    const t = tier ?? 'inactive';
+                    const badgeColors: Record<string, string> = {
+                      hardcore: 'border-red-600/40 bg-red-600/10',
+                      regular: 'border-amber-500/40 bg-amber-500/10',
+                      casual: 'border-sky-500/40 bg-sky-500/10',
+                      reserve: 'border-slate-500/40 bg-slate-500/10',
+                      inactive: 'border-gray-700/40 bg-gray-700/10',
+                    };
+                    const textColors: Record<string, string> = {
+                      hardcore: 'text-red-400',
+                      regular: 'text-amber-400',
+                      casual: 'text-sky-400',
+                      reserve: 'text-slate-300',
+                      inactive: 'text-gray-500',
+                    };
+                    return (
+                      <div key={key} className={`rounded-lg border p-2.5 text-center ${badgeColors[t] || badgeColors.inactive}`}>
+                        <div className="text-base mb-0.5">{icon}</div>
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+                        <div className={`text-sm font-semibold capitalize ${textColors[t] || textColors.inactive}`}>{t}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Metrics Summary */}
+              <div className="bg-slate-900/50 rounded-lg p-4">
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Metrics Summary</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <div className="text-[10px] text-gray-500 uppercase">Messages</div>
+                    <div className="text-lg font-bold text-white">{userMetrics.total_messages.toLocaleString()}</div>
+                    <div className="text-[10px] text-gray-500">{userMetrics.avg_messages_per_day.toFixed(1)}/day</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500 uppercase">Voice Time</div>
+                    <div className="text-lg font-bold text-white">
+                      {userMetrics.total_voice_seconds < 3600
+                        ? `${Math.round(userMetrics.total_voice_seconds / 60)}m`
+                        : `${(userMetrics.total_voice_seconds / 3600).toFixed(1)}h`}
+                    </div>
+                    <div className="text-[10px] text-gray-500">
+                      {userMetrics.avg_voice_per_day < 3600
+                        ? `${Math.round(userMetrics.avg_voice_per_day / 60)}m`
+                        : `${(userMetrics.avg_voice_per_day / 3600).toFixed(1)}h`}
+                      /day
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] text-gray-500 uppercase">Top Games</div>
+                    {userMetrics.top_games.length > 0 ? (
+                      <div className="mt-1 space-y-1">
+                        {userMetrics.top_games.slice(0, 3).map((game, i) => (
+                          <div key={game.game_name} className="flex items-center justify-between">
+                            <span className="text-gray-300 truncate mr-2">
+                              <span className="text-gray-500 text-[10px] mr-1">#{i + 1}</span>
+                              {game.game_name}
+                            </span>
+                            <span className="text-indigo-400 text-xs font-medium whitespace-nowrap">
+                              {game.total_seconds < 3600
+                                ? `${Math.round(game.total_seconds / 60)}m`
+                                : `${(game.total_seconds / 3600).toFixed(1)}h`}
+                            </span>
+                          </div>
+                        ))}
+                        {userMetrics.top_games.length > 3 && (
+                          <div className="text-[10px] text-gray-600">+{userMetrics.top_games.length - 3} more</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600 mt-1">No game activity</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 

@@ -1204,6 +1204,7 @@ class InternalAPIClient:
         guild_id: int,
         dimensions: list[str],
         tiers: list[str],
+        days: int = 30,
     ) -> dict[str, dict[str, list[int]]]:
         """Get user IDs for multiple dimension+tier combos in one call.
 
@@ -1215,6 +1216,7 @@ class InternalAPIClient:
             params={
                 "dimensions": ",".join(dimensions),
                 "tiers": ",".join(tiers),
+                "days": str(days),
             },
         )
         response.raise_for_status()

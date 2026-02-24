@@ -92,6 +92,9 @@ export interface MetricsSettingsPayload {
   excluded_channel_ids: string[];
   tracked_games_mode?: string;
   tracked_games?: string[];
+  min_voice_minutes?: number;
+  min_game_minutes?: number;
+  min_messages?: number;
 }
 
 export interface NewMemberRoleSettingsPayload {

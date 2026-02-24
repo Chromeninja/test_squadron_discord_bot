@@ -617,6 +617,7 @@ class FakeInternalAPIClient:
         guild_id: int,
         dimensions: list[str],
         tiers: list[str],
+        days: int = 30,
     ) -> dict[str, dict[str, list[int]]]:
         """Return user IDs for multiple dimension+tier combos."""
         result: dict[str, dict[str, list[int]]] = {}

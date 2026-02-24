@@ -25,6 +25,15 @@ class CheckUserCommands(app_commands.Group):
         super().__init__(name="check", description="Lookup commands for staff")
         self.bot = bot
 
+    # Tier display configuration
+    _TIER_EMOJI: dict[str, str] = {
+        "hardcore": "🔴",
+        "regular": "🟠",
+        "casual": "🔵",
+        "reserve": "⚪",
+        "inactive": "⬛",
+    }
+
     @app_commands.command(
         name="user",
         description="Show verification details for a user",
@@ -49,11 +58,15 @@ class CheckUserCommands(app_commands.Group):
 
             verification_row = await self._fetch_verification_row(member.id)
             target_sid = await self._get_guild_org_sid(interaction.guild.id)
+            activity_tiers = await self._fetch_activity_tiers(
+                interaction.guild.id, member.id,
+            )
             embed = self._build_user_embed(
                 requester=interaction.user,
                 member=member,
                 verification_row=verification_row,
                 target_sid=target_sid,
+                activity_tiers=activity_tiers,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -74,6 +87,55 @@ class CheckUserCommands(app_commands.Group):
         )
         return tuple(row) if row else None
 
+    async def _fetch_activity_tiers(
+        self, guild_id: int, user_id: int,
+    ) -> dict[str, str] | None:
+        """Fetch per-dimension activity tiers from the metrics service.
+
+        Returns a dict with keys ``combined_tier``, ``voice_tier``,
+        ``chat_tier``, ``game_tier`` or ``None`` when the metrics
+        service is unavailable.
+
+        AI Notes:
+            Graceful — never raises.  If the metrics service is missing
+            or the lookup fails the embed simply omits the section.
+        """
+        try:
+            metrics_svc = getattr(
+                getattr(self.bot, "services", None), "metrics", None,
+            )
+            if metrics_svc is None:
+                return None
+
+            buckets: dict[int, dict[str, Any]] = (
+                await metrics_svc.get_member_activity_buckets(
+                    guild_id=guild_id,
+                    user_ids=[user_id],
+                    lookback_days=30,
+                )
+            )
+            user_data = buckets.get(user_id)
+            if not user_data:
+                # User has zero qualifying activity — all inactive.
+                return {
+                    "combined_tier": "inactive",
+                    "voice_tier": "inactive",
+                    "chat_tier": "inactive",
+                    "game_tier": "inactive",
+                }
+            return {
+                "combined_tier": user_data.get("combined_tier", "inactive"),
+                "voice_tier": user_data.get("voice_tier", "inactive"),
+                "chat_tier": user_data.get("chat_tier", "inactive"),
+                "game_tier": user_data.get("game_tier", "inactive"),
+            }
+        except Exception as exc:
+            logger.warning(
+                "Could not fetch activity tiers for user %s in guild %s: %s",
+                user_id, guild_id, exc,
+            )
+            return None
+
     async def _get_guild_org_sid(self, guild_id: int) -> str:
         """Return the guild's configured org SID (default TEST)."""
         result = await BaseRepository.fetch_value(
@@ -93,6 +155,7 @@ class CheckUserCommands(app_commands.Group):
         member: discord.Member,
         verification_row: tuple | None,
         target_sid: str,
+        activity_tiers: dict[str, str] | None = None,
     ) -> discord.Embed:
         """Compose an embed mirroring the clean layout from channel settings."""
         embed = discord.Embed(
@@ -172,8 +235,38 @@ class CheckUserCommands(app_commands.Group):
         embed.add_field(name="Main Org", value=main_org_value, inline=True)
         embed.add_field(name="Affiliate Orgs", value=affiliate_org_value, inline=True)
 
+        # Activity levels (tiers) — omitted when metrics service unavailable
+        if activity_tiers is not None:
+            embed.add_field(
+                name="Activity Levels (30d)",
+                value=self._format_activity_tiers(activity_tiers),
+                inline=False,
+            )
+
         embed.set_footer(text=f"Requested by {requester.display_name}")
         return embed
+
+    def _format_activity_tiers(self, tiers: dict[str, str]) -> str:
+        """Format activity tiers into a compact embed-friendly string.
+
+        Example output::
+
+            ⚡ Combined: 🔴 Hardcore
+            🎤 Voice: 🟠 Regular
+            💬 Text: 🔵 Casual
+            🎮 Gaming: ⬛ Inactive
+        """
+        lines: list[str] = []
+        for dim_key, label, icon in (
+            ("combined_tier", "Combined", "⚡"),
+            ("voice_tier", "Voice", "🎤"),
+            ("chat_tier", "Text", "💬"),
+            ("game_tier", "Gaming", "🎮"),
+        ):
+            tier = tiers.get(dim_key, "inactive")
+            emoji = self._TIER_EMOJI.get(tier, "⬛")
+            lines.append(f"{icon} **{label}:** {emoji} {tier.capitalize()}")
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_org_list(raw_json: str | None) -> list[str]:

@@ -988,6 +988,9 @@ async def patch_guild_config(
             payload.metrics.excluded_channel_ids,
             tracked_games_mode=payload.metrics.tracked_games_mode,
             tracked_games=payload.metrics.tracked_games,
+            min_voice_minutes=payload.metrics.min_voice_minutes,
+            min_game_minutes=payload.metrics.min_game_minutes,
+            min_messages=payload.metrics.min_messages,
         )
         updated_metrics = await get_metrics_settings(db, guild_id)
         if (

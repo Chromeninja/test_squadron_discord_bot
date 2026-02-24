@@ -28,6 +28,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [trackedGamesMode, setTrackedGamesMode] = useState<string>('all');
   const [trackedGames, setTrackedGames] = useState<string[]>([]);
   const [trackedGameInput, setTrackedGameInput] = useState<string>('');
+  // Activity threshold settings
+  const [minVoiceMinutes, setMinVoiceMinutes] = useState<number>(15);
+  const [minGameMinutes, setMinGameMinutes] = useState<number>(15);
+  const [minMessages, setMinMessages] = useState<number>(5);
   const [verificationChannelId, setVerificationChannelId] = useState<string | null>(null);
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
@@ -178,6 +182,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setMetricsExcludedChannels(configResponse.data.metrics?.excluded_channel_ids || []);
         setTrackedGamesMode(configResponse.data.metrics?.tracked_games_mode || 'all');
         setTrackedGames(configResponse.data.metrics?.tracked_games || []);
+        setMinVoiceMinutes(configResponse.data.metrics?.min_voice_minutes ?? 15);
+        setMinGameMinutes(configResponse.data.metrics?.min_game_minutes ?? 15);
+        setMinMessages(configResponse.data.metrics?.min_messages ?? 5);
         setVerificationChannelId(channelSettingsResponse.verification_channel_id);
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
@@ -262,6 +269,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           excluded_channel_ids: metricsExcludedChannels,
           tracked_games_mode: trackedGamesMode,
           tracked_games: trackedGames,
+          min_voice_minutes: minVoiceMinutes,
+          min_game_minutes: minGameMinutes,
+          min_messages: minMessages,
         },
         organization: {
           organization_sid: orgSidInput.trim() || null,
@@ -304,6 +314,9 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setMetricsExcludedChannels(updated.metrics.excluded_channel_ids || []);
       setTrackedGamesMode(updated.metrics.tracked_games_mode || 'all');
       setTrackedGames(updated.metrics.tracked_games || []);
+      setMinVoiceMinutes(updated.metrics.min_voice_minutes ?? 15);
+      setMinGameMinutes(updated.metrics.min_game_minutes ?? 15);
+      setMinMessages(updated.metrics.min_messages ?? 5);
 
       // Organization
       setOrganizationSid(updated.organization.organization_sid || '');
@@ -1028,6 +1041,59 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
 
           <div className="flex justify-end text-xs text-gray-400">
             Changes are saved with the main Save button below.
+          </div>
+
+          {/* Activity Threshold Settings */}
+          <div className="border-t border-slate-700 pt-4 mt-2">
+            <h5 className="text-sm font-semibold text-white mb-1">Activity Thresholds</h5>
+            <p className="text-xs text-gray-400 mb-4">
+              Minimum activity per day for it to count toward tier classification. Prevents
+              short bursts from inflating activity tiers.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  🎤 Min Voice (minutes/day)
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={minVoiceMinutes}
+                  onChange={(e) => setMinVoiceMinutes(Math.max(0, Math.min(1440, Number(e.target.value) || 0)))}
+                  className="w-full"
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">Default: 15 min</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  🎮 Min Game-in-Voice (minutes/day)
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={minGameMinutes}
+                  onChange={(e) => setMinGameMinutes(Math.max(0, Math.min(1440, Number(e.target.value) || 0)))}
+                  className="w-full"
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">Default: 15 min</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  💬 Min Messages (per day)
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={minMessages}
+                  onChange={(e) => setMinMessages(Math.max(0, Math.min(10000, Number(e.target.value) || 0)))}
+                  className="w-full"
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">Default: 5 messages</p>
+              </div>
+            </div>
           </div>
         </div>
       </AccordionSection>

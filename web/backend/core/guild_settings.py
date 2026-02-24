@@ -285,6 +285,9 @@ LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY = "channels.leadership_announcement_channel_
 METRICS_EXCLUDED_CHANNEL_IDS_KEY = "metrics.excluded_channel_ids"
 METRICS_TRACKED_GAMES_MODE_KEY = "metrics.tracked_games_mode"
 METRICS_TRACKED_GAMES_KEY = "metrics.tracked_games"
+METRICS_MIN_VOICE_MINUTES_KEY = "metrics.min_voice_minutes"
+METRICS_MIN_GAME_MINUTES_KEY = "metrics.min_game_minutes"
+METRICS_MIN_MESSAGES_KEY = "metrics.min_messages"
 
 ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
@@ -754,13 +757,16 @@ async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, Any]:
         """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?)
         """,
         (
             guild_id,
             METRICS_EXCLUDED_CHANNEL_IDS_KEY,
             METRICS_TRACKED_GAMES_MODE_KEY,
             METRICS_TRACKED_GAMES_KEY,
+            METRICS_MIN_VOICE_MINUTES_KEY,
+            METRICS_MIN_GAME_MINUTES_KEY,
+            METRICS_MIN_MESSAGES_KEY,
         ),
     )
     rows = await cursor.fetchall()
@@ -769,6 +775,9 @@ async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, Any]:
         "excluded_channel_ids": [],
         "tracked_games_mode": "all",
         "tracked_games": [],
+        "min_voice_minutes": 15,
+        "min_game_minutes": 15,
+        "min_messages": 5,
     }
     for key, value in rows:
         if key == METRICS_EXCLUDED_CHANNEL_IDS_KEY:
@@ -789,6 +798,24 @@ async def get_metrics_settings(db: Connection, guild_id: int) -> dict[str, Any]:
                 )
             except (TypeError, json.JSONDecodeError):
                 pass
+        elif key == METRICS_MIN_VOICE_MINUTES_KEY:
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                result["min_voice_minutes"] = max(0, int(parsed))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        elif key == METRICS_MIN_GAME_MINUTES_KEY:
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                result["min_game_minutes"] = max(0, int(parsed))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        elif key == METRICS_MIN_MESSAGES_KEY:
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                result["min_messages"] = max(0, int(parsed))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
     return result
 
 
@@ -798,6 +825,9 @@ async def set_metrics_settings(
     excluded_channel_ids: list[str],
     tracked_games_mode: str = "all",
     tracked_games: list[str] | None = None,
+    min_voice_minutes: int = 15,
+    min_game_minutes: int = 15,
+    min_messages: int = 5,
 ) -> None:
     """Persist metrics settings for a guild."""
 
@@ -846,6 +876,20 @@ async def set_metrics_settings(
         """,
         (guild_id, METRICS_TRACKED_GAMES_KEY, json.dumps(games_list)),
     )
+
+    # Activity thresholds
+    for threshold_key, threshold_val in (
+        (METRICS_MIN_VOICE_MINUTES_KEY, max(0, int(min_voice_minutes))),
+        (METRICS_MIN_GAME_MINUTES_KEY, max(0, int(min_game_minutes))),
+        (METRICS_MIN_MESSAGES_KEY, max(0, int(min_messages))),
+    ):
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+            VALUES (?, ?, ?)
+            """,
+            (guild_id, threshold_key, json.dumps(threshold_val)),
+        )
 
     await _touch_settings_version(db, guild_id, source="metrics_settings")
     await db.commit()

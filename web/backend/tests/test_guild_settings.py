@@ -413,3 +413,57 @@ async def test_patch_guild_config_metrics_persists(
     assert follow_up.json()["data"]["metrics"]["excluded_channel_ids"] == ["100", "200"]
 
     assert fake_internal_api.refresh_calls
+
+@pytest.mark.asyncio
+async def test_get_guild_config_metrics_threshold_defaults(
+    client: AsyncClient, mock_admin_session: str
+):
+    """Guild config includes default activity threshold settings."""
+    response = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]["metrics"]
+    assert data["min_voice_minutes"] == 15
+    assert data["min_game_minutes"] == 15
+    assert data["min_messages"] == 5
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_config_metrics_thresholds_persists(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """PATCH /config persists activity threshold settings."""
+    payload = {
+        "metrics": {
+            "excluded_channel_ids": [],
+            "min_voice_minutes": 30,
+            "min_game_minutes": 20,
+            "min_messages": 10,
+        }
+    }
+
+    response = await client.patch(
+        "/api/guilds/123/config",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]["metrics"]
+    assert body["min_voice_minutes"] == 30
+    assert body["min_game_minutes"] == 20
+    assert body["min_messages"] == 10
+
+    # Confirm persisted on subsequent read
+    follow_up = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+    assert follow_up.status_code == 200
+    data = follow_up.json()["data"]["metrics"]
+    assert data["min_voice_minutes"] == 30
+    assert data["min_game_minutes"] == 20
+    assert data["min_messages"] == 10

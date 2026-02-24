@@ -65,13 +65,21 @@ const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
 
 const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', 'inactive'];
 
-const TIER_HELP_TEXT: Record<ActivityTier, string> = {
-  hardcore: 'Active within the last 24 hours (daily active).',
-  regular: 'Active within the last 3 days.',
-  casual: 'Active within the last 7 days (weekly active).',
-  reserve: 'Active within the last 30 days (monthly active).',
-  inactive: 'No qualifying activity in the last 30 days.',
+const TIER_HELP_TEXT_CADENCE: Record<Exclude<ActivityTier, 'inactive'>, { windowDays: number; label: string }> = {
+  hardcore: { windowDays: 1, label: 'every day' },
+  regular: { windowDays: 3, label: 'every 3 days' },
+  casual: { windowDays: 7, label: 'every week' },
+  reserve: { windowDays: 30, label: 'every month' },
 };
+
+function getTierHelpText(tier: ActivityTier, days: TimeRange): string {
+  if (tier === 'inactive') return `No qualifying activity pattern in the past ${days} days.`;
+  const { windowDays, label } = TIER_HELP_TEXT_CADENCE[tier];
+  if (windowDays > days) return '';
+  const numWindows = Math.ceil(days / windowDays);
+  if (numWindows === 1) return `Active at least once in the past ${days} days.`;
+  return `Active ${label} across the full ${days}-day period.`;
+}
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -163,6 +171,9 @@ export default function Metrics() {
 
   const handleTimeRangeChange = (range: TimeRange) => {
     setDays(range);
+    if (range === 7) {
+      setSelectedTiers((prev) => prev.filter((t) => t !== 'reserve'));
+    }
   };
 
   const handleTierClick = (tier: ActivityTier) => {
@@ -317,14 +328,17 @@ export default function Metrics() {
 
         {/* Tier chips */}
         <div className="flex items-center gap-1.5">
-          {ALL_TIERS.map((tier) => {
+          {ALL_TIERS
+            .filter((tier) => !(tier === 'reserve' && days === 7))
+            .map((tier) => {
             const count = currentCounts?.[tier] ?? 0;
             const isActive = selectedTiers.includes(tier);
+            const helpText = getTierHelpText(tier, days);
             return (
               <div key={tier} className="relative group">
                 <button
                   onClick={() => handleTierClick(tier)}
-                  title={TIER_HELP_TEXT[tier]}
+                  title={helpText}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border transition ${
                     isActive
                       ? TIER_COLORS[tier]
@@ -342,7 +356,7 @@ export default function Metrics() {
                 </button>
                 <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-10 hidden group-hover:block z-20">
                   <div className="whitespace-nowrap rounded bg-slate-900 border border-slate-600 px-2 py-1 text-[11px] text-gray-200 shadow-lg">
-                    {TIER_HELP_TEXT[tier]}
+                    {helpText}
                   </div>
                 </div>
               </div>
