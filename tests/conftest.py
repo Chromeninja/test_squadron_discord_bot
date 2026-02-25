@@ -92,13 +92,14 @@ class FakeFollowup:
 
 
 class FakeInteraction:
-    def __init__(self, user=None) -> None:
+    def __init__(self, user: FakeUser | None = None) -> None:
         self.user = user or FakeUser()
         self.response = FakeResponse()
         self.followup = FakeFollowup()
-        self.guild = SimpleNamespace(id=123, name="TestGuild")
+        self.guild: SimpleNamespace | None = SimpleNamespace(id=123, name="TestGuild")
+        self.channel: SimpleNamespace | None = None
 
-        async def _edit(**kwargs) -> None:
+        async def _edit(**kwargs: object) -> None:
             pass
 
         self.message = SimpleNamespace(edit=_edit)

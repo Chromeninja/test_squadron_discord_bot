@@ -460,6 +460,10 @@ class FakeInternalAPIClient:
             "message": "Verification message resent",
         }
 
+    async def deploy_ticket_panel(self, guild_id: int) -> dict:
+        """Mock ticket panel deployment."""
+        return {"success": True, "message_id": "000000000"}
+
     # ------------------------------------------------------------------
     # Metrics endpoints
     # ------------------------------------------------------------------

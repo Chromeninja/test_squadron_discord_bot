@@ -93,6 +93,10 @@ class InternalAPIServer:
             "/guilds/{guild_id}/verification/resend", self.resend_verification_message
         )
         self.app.router.add_post(
+            "/guilds/{guild_id}/tickets/deploy-panel",
+            self.deploy_ticket_panel,
+        )
+        self.app.router.add_post(
             "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
         self.app.router.add_post("/guilds/{guild_id}/leave", self.leave_guild)
@@ -370,6 +374,70 @@ class InternalAPIServer:
         except Exception as exc:  # pragma: no cover - runtime safeguard
             logger.exception(
                 "Failed to resend verification message for guild %s",
+                guild_id,
+                exc_info=exc,
+            )
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    async def deploy_ticket_panel(self, request: web.Request) -> web.Response:
+        """Deploy (or refresh) the ticket panel for a guild.
+
+        The dashboard saves settings first, then calls this endpoint so the
+        bot sends the panel embed + button into the configured channel.
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info.get("guild_id", "0"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid guild id"}, status=400)
+
+        guild = self.bot.get_guild(guild_id) if self.bot else None
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            cog = self.bot.get_cog("tickets") or self.bot.get_cog("TicketCommands")
+            if not cog or not hasattr(cog, "_send_panel"):
+                return web.json_response(
+                    {"error": "Ticket cog unavailable"}, status=503
+                )
+
+            # Read the configured channel from guild_settings
+            config_svc = self.services.config
+            channel_id_raw = await config_svc.get_guild_setting(
+                guild_id, "tickets.channel_id"
+            )
+            if not channel_id_raw:
+                return web.json_response(
+                    {"error": "No ticket channel configured"}, status=400
+                )
+
+            import discord  # type: ignore[import-not-found]
+
+            channel = guild.get_channel(int(channel_id_raw))
+            if not isinstance(channel, discord.TextChannel):
+                return web.json_response(
+                    {"error": "Configured channel not found or not a text channel"},
+                    status=404,
+                )
+
+            msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
+            if msg:
+                return web.json_response(
+                    {"success": True, "message_id": str(msg.id)}
+                )
+            return web.json_response(
+                {"error": "Failed to send panel — check bot permissions"},
+                status=500,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to deploy ticket panel for guild %s",
                 guild_id,
                 exc_info=exc,
             )

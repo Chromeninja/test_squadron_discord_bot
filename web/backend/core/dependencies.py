@@ -996,6 +996,13 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
+    async def deploy_ticket_panel(self, guild_id: int) -> dict:
+        """Ask the bot to deploy (or refresh) the ticket panel in the configured channel."""
+        client = await self._get_client()
+        response = await client.post(f"/guilds/{guild_id}/tickets/deploy-panel")
+        response.raise_for_status()
+        return response.json()
+
     async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
         """
         Get member IDs currently in a voice channel via bot's gateway cache.

@@ -1048,3 +1048,148 @@ export const guildApi = {
     return response.data;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Tickets
+// ---------------------------------------------------------------------------
+
+export interface TicketCategory {
+  id: number;
+  guild_id: string;
+  name: string;
+  description: string;
+  welcome_message: string;
+  role_ids: string[];
+  emoji: string | null;
+  sort_order: number;
+  created_at: number;
+}
+
+export interface TicketCategoryCreate {
+  guild_id: string;
+  name: string;
+  description?: string;
+  welcome_message?: string;
+  role_ids?: string[];
+  emoji?: string | null;
+}
+
+export interface TicketCategoryUpdate {
+  name?: string;
+  description?: string;
+  welcome_message?: string;
+  role_ids?: string[];
+  emoji?: string | null;
+  sort_order?: number;
+}
+
+export interface TicketInfo {
+  id: number;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  user_id: string;
+  category_id: number | null;
+  status: string;
+  closed_by: string | null;
+  created_at: number;
+  closed_at: number | null;
+}
+
+export interface TicketSettings {
+  channel_id: string | null;
+  panel_message_id: string | null;
+  panel_title: string | null;
+  panel_description: string | null;
+  log_channel_id: string | null;
+  close_message: string | null;
+  staff_roles: string[];
+  default_welcome_message: string | null;
+}
+
+export interface TicketSettingsUpdate {
+  channel_id?: string | null;
+  panel_title?: string | null;
+  panel_description?: string | null;
+  log_channel_id?: string | null;
+  close_message?: string | null;
+  staff_roles?: string[];
+  default_welcome_message?: string | null;
+}
+
+export const ticketsApi = {
+  getSettings: async () => {
+    const response = await apiClient.get<{ success: boolean; settings: TicketSettings }>(
+      '/api/tickets/settings'
+    );
+    return response.data;
+  },
+
+  updateSettings: async (payload: TicketSettingsUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      '/api/tickets/settings',
+      payload
+    );
+    return response.data;
+  },
+
+  deployPanel: async () => {
+    const response = await apiClient.post<{ success: boolean; message_id: string }>(
+      '/api/tickets/deploy-panel'
+    );
+    return response.data;
+  },
+
+  getCategories: async () => {
+    const response = await apiClient.get<{ success: boolean; categories: TicketCategory[] }>(
+      '/api/tickets/categories'
+    );
+    return response.data;
+  },
+
+  createCategory: async (payload: TicketCategoryCreate) => {
+    const response = await apiClient.post<{ success: boolean; categories: TicketCategory[] }>(
+      '/api/tickets/categories',
+      payload
+    );
+    return response.data;
+  },
+
+  updateCategory: async (categoryId: number, payload: TicketCategoryUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      `/api/tickets/categories/${categoryId}`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteCategory: async (categoryId: number) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/tickets/categories/${categoryId}`
+    );
+    return response.data;
+  },
+
+  listTickets: async (status?: string, page: number = 1, pageSize: number = 20) => {
+    const params: Record<string, string | number> = { page, page_size: pageSize };
+    if (status) params.status = status;
+    const response = await apiClient.get<{
+      success: boolean;
+      items: TicketInfo[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/api/tickets/list', { params });
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await apiClient.get<{
+      success: boolean;
+      open: number;
+      closed: number;
+      total: number;
+    }>('/api/tickets/stats');
+    return response.data;
+  },
+};

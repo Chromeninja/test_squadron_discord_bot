@@ -817,3 +817,117 @@ class ActivityGroupCountsResponse(BaseModel):
 
     success: bool = True
     data: ActivityGroupCounts
+
+
+# ---------------------------------------------------------------------------
+# Ticket schemas
+# ---------------------------------------------------------------------------
+
+
+class TicketCategory(BaseModel):
+    """A ticket category record."""
+
+    id: int
+    guild_id: str
+    name: str
+    description: str = ""
+    welcome_message: str = ""
+    role_ids: list[str] = Field(default_factory=list)
+    emoji: str | None = None
+    sort_order: int = 0
+    created_at: int = 0
+
+
+class TicketCategoryCreate(BaseModel):
+    """Request payload for creating a ticket category."""
+
+    guild_id: str
+    name: str
+    description: str = ""
+    welcome_message: str = ""
+    role_ids: list[str] = Field(default_factory=list)
+    emoji: str | None = None
+
+
+class TicketCategoryUpdate(BaseModel):
+    """Request payload for updating a ticket category."""
+
+    name: str | None = None
+    description: str | None = None
+    welcome_message: str | None = None
+    role_ids: list[str] | None = None
+    emoji: str | None = None
+    sort_order: int | None = None
+
+
+class TicketCategoryListResponse(BaseModel):
+    """Response for listing ticket categories."""
+
+    success: bool = True
+    categories: list[TicketCategory] = Field(default_factory=list)
+
+
+class TicketInfo(BaseModel):
+    """A single ticket record."""
+
+    id: int
+    guild_id: str
+    channel_id: str
+    thread_id: str
+    user_id: str
+    category_id: int | None = None
+    status: str = "open"
+    closed_by: str | None = None
+    created_at: int = 0
+    closed_at: int | None = None
+
+
+class TicketListResponse(BaseModel):
+    """Paginated list of tickets."""
+
+    success: bool = True
+    items: list[TicketInfo] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class TicketStatsResponse(BaseModel):
+    """Ticket statistics for a guild."""
+
+    success: bool = True
+    open: int = 0
+    closed: int = 0
+    total: int = 0
+
+
+class TicketSettings(BaseModel):
+    """Current ticket settings for a guild."""
+
+    channel_id: str | None = None
+    panel_message_id: str | None = None
+    panel_title: str | None = None
+    panel_description: str | None = None
+    log_channel_id: str | None = None
+    close_message: str | None = None
+    staff_roles: list[str] = Field(default_factory=list)
+    default_welcome_message: str | None = None
+
+
+class TicketSettingsUpdate(BaseModel):
+    """Request payload for updating ticket settings."""
+
+    channel_id: str | None = None
+    panel_title: str | None = None
+    panel_description: str | None = None
+    log_channel_id: str | None = None
+    close_message: str | None = None
+    staff_roles: list[str] | None = None
+    default_welcome_message: str | None = None
+
+
+class TicketSettingsResponse(BaseModel):
+    """Response for ticket settings retrieval."""
+
+    success: bool = True
+    settings: TicketSettings

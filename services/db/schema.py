@@ -422,6 +422,57 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_new_member_roles_guild ON new_member_roles(guild_id)"
     )
 
+    # -------------------------------------------------------------------------
+    # Ticketing System
+    # -------------------------------------------------------------------------
+
+    # Ticket categories (per-guild, selectable by users when creating a ticket)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_categories (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id    INTEGER NOT NULL,
+            name        TEXT    NOT NULL,
+            description TEXT    DEFAULT '',
+            welcome_message TEXT DEFAULT '',
+            role_ids    TEXT    DEFAULT '[]',
+            emoji       TEXT    DEFAULT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id)"
+    )
+
+    # Tickets (one row per opened ticket thread)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id    INTEGER NOT NULL,
+            channel_id  INTEGER NOT NULL,
+            thread_id   INTEGER NOT NULL UNIQUE,
+            user_id     INTEGER NOT NULL,
+            category_id INTEGER DEFAULT NULL REFERENCES ticket_categories(id) ON DELETE SET NULL,
+            status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+            closed_by   INTEGER DEFAULT NULL,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            closed_at   INTEGER DEFAULT NULL
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_guild_status ON tickets(guild_id, status)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_guild_user_status ON tickets(guild_id, user_id, status)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_thread ON tickets(thread_id)"
+    )
+
     # Record that the canonical schema has been applied
     await db.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"

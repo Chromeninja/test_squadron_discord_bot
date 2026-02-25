@@ -7,10 +7,11 @@ import Voice from './pages/Voice';
 import Metrics from './pages/Metrics';
 import SelectServer from './pages/SelectServer';
 import DashboardBotSettings from './pages/DashboardBotSettings';
+import Tickets from './pages/Tickets';
 import { handleApiError } from './utils/toast';
 import { hasPermission, getRoleBadgeColor, getRoleDisplayName, RoleLevel } from './utils/permissions';
 
-type Tab = 'dashboard' | 'metrics' | 'users' | 'voice' | 'bot-settings';
+type Tab = 'dashboard' | 'metrics' | 'users' | 'voice' | 'tickets' | 'bot-settings';
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -203,6 +204,7 @@ function App() {
               { key: 'metrics' as Tab, label: 'Metrics', visible: canViewMetrics },
               { key: 'users' as Tab, label: 'Users', visible: true },
               { key: 'voice' as Tab, label: 'Voice', visible: true },
+              { key: 'tickets' as Tab, label: 'Tickets', visible: userHasPermission('discord_manager') },
               { key: 'bot-settings' as Tab, label: 'Bot Settings', visible: userHasPermission('bot_admin') },
             ])
               .filter((t) => t.visible)
@@ -229,6 +231,9 @@ function App() {
         {activeTab === 'metrics' && canViewMetrics && <Metrics />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'voice' && <Voice />}
+        {activeTab === 'tickets' && userHasPermission('discord_manager') && user.active_guild_id && (
+          <Tickets guildId={user.active_guild_id} />
+        )}
         {activeTab === 'bot-settings' && userHasPermission('bot_admin') && user.active_guild_id && (
           <DashboardBotSettings guildId={user.active_guild_id} />
         )}

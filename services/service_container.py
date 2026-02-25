@@ -14,6 +14,7 @@ from .guild_service import GuildService
 from .health_service import HealthService
 from .metrics_service import MetricsService
 from .role_delegation_service import RoleDelegationService
+from .ticket_service import TicketService
 from .verification_bulk_service import VerificationBulkService
 from .voice_service import VoiceService
 
@@ -39,6 +40,7 @@ class ServiceContainer:
         self._health: HealthService | None = None
         self._metrics: MetricsService | None = None
         self._role_delegation: RoleDelegationService | None = None
+        self._ticket: TicketService | None = None
         self._verify_bulk: VerificationBulkService | None = None
         self._initialized = False
 
@@ -92,6 +94,13 @@ class ServiceContainer:
         return self._role_delegation
 
     @property
+    def ticket(self) -> TicketService:
+        """Get the ticket service."""
+        if self._ticket is None:
+            raise RuntimeError("TicketService not initialized")
+        return self._ticket
+
+    @property
     def verify_bulk(self) -> VerificationBulkService:
         """Get the verification bulk service."""
         if self._verify_bulk is None:
@@ -114,6 +123,8 @@ class ServiceContainer:
             services.append(self._metrics)
         if self._role_delegation:
             services.append(self._role_delegation)
+        if self._ticket:
+            services.append(self._ticket)
         if self._verify_bulk:
             services.append(self._verify_bulk)
         return services
@@ -163,6 +174,11 @@ class ServiceContainer:
             await self._metrics.initialize()
             self.logger.debug("MetricsService initialized")
 
+            # Initialize ticket service (no external dependencies)
+            self._ticket = TicketService()
+            await self._ticket.initialize()
+            self.logger.debug("TicketService initialized")
+
             # Initialize verification bulk service (depends on bot and config)
             if self.bot:
                 self._verify_bulk = VerificationBulkService(self.bot)  # type: ignore[arg-type]
@@ -187,6 +203,10 @@ class ServiceContainer:
         if self._verify_bulk:
             await self._verify_bulk.shutdown()
             self._verify_bulk = None
+
+        if self._ticket:
+            await self._ticket.shutdown()
+            self._ticket = None
 
         if self._metrics:
             await self._metrics.shutdown()
