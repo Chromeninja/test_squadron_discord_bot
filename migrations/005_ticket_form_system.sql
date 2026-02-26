@@ -59,4 +59,7 @@ CREATE TABLE IF NOT EXISTS ticket_route_sessions (
     expires_at        INTEGER NOT NULL,
     UNIQUE(guild_id, user_id)
 );
+
+-- Track migration
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (5);
 CREATE INDEX IF NOT EXISTS idx_route_sessions_expiry ON ticket_route_sessions(expires_at);

@@ -659,3 +659,49 @@ class TestRowConverters:
         row = (1, 100, "Support", "Help", "Welcome!", "", None, 0, 1000)
         result = TicketService._row_to_category(row)
         assert result["role_ids"] == []
+
+
+# ---------------------------------------------------------------------------
+# get_ticket_by_id
+# ---------------------------------------------------------------------------
+
+
+class TestGetTicketById:
+    """Tests for the single-row ticket lookup by primary key."""
+
+    @pytest.mark.asyncio
+    async def test_returns_ticket(self, ticket_svc: TicketService) -> None:
+        """Retrieving a ticket by its ID returns the correct record."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 50001, USER_ID)
+        assert tid is not None
+        ticket = await ticket_svc.get_ticket_by_id(tid)
+        assert ticket is not None
+        assert ticket["id"] == tid
+        assert ticket["guild_id"] == GUILD_ID
+
+    @pytest.mark.asyncio
+    async def test_returns_none_not_found(self, ticket_svc: TicketService) -> None:
+        """Non-existent ticket ID returns None."""
+        result = await ticket_svc.get_ticket_by_id(99999)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_scoped_by_guild(self, ticket_svc: TicketService) -> None:
+        """Ticket lookup scoped to a different guild returns None."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 50002, USER_ID)
+        assert tid is not None
+
+        # Same guild → found
+        assert await ticket_svc.get_ticket_by_id(tid, guild_id=GUILD_ID) is not None
+
+        # Different guild → not found
+        assert await ticket_svc.get_ticket_by_id(tid, guild_id=999) is None
+
+    @pytest.mark.asyncio
+    async def test_no_guild_filter(self, ticket_svc: TicketService) -> None:
+        """Without guild_id filter, ticket is returned regardless."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 50003, USER_ID)
+        assert tid is not None
+        ticket = await ticket_svc.get_ticket_by_id(tid)
+        assert ticket is not None
+        assert ticket["id"] == tid

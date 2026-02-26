@@ -1088,3 +1088,127 @@ class TestRouteExecutionContext:
         assert len(ctx.collected_answers) == 2
         assert ctx.collected_answers["q1"]["step"] == 1
         assert ctx.collected_answers["q2"]["step"] == 2
+
+
+# ---------------------------------------------------------------------------
+# _validate_steps_rules (shared validation core)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateStepsRules:
+    """Tests for the DRY shared validation helper."""
+
+    def test_empty_steps_valid(self) -> None:
+        """No steps → no errors."""
+        errors = TicketFormService._validate_steps_rules([])
+        assert errors == []
+
+    def test_too_many_steps(self) -> None:
+        """Exceeding MAX_FORM_STEPS produces an error."""
+        steps = [
+            {"step_number": i, "questions": [], "branch_rules": []}
+            for i in range(1, MAX_FORM_STEPS + 2)
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert any("steps" in e.lower() for e in errors)
+
+    def test_duplicate_step_numbers(self) -> None:
+        """Duplicate step numbers are caught."""
+        steps = [
+            {"step_number": 1, "questions": [], "branch_rules": []},
+            {"step_number": 1, "questions": [], "branch_rules": []},
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert any("duplicate" in e.lower() for e in errors)
+
+    def test_too_many_questions_per_step(self) -> None:
+        """More than MAX_QUESTIONS_PER_STEP triggers an error."""
+        questions = [
+            {"question_id": f"q{i}", "label": f"Q{i}", "input_type": "text"}
+            for i in range(MAX_QUESTIONS_PER_STEP + 1)
+        ]
+        steps = [{"step_number": 1, "questions": questions, "branch_rules": []}]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert any("questions" in e.lower() for e in errors)
+
+    def test_select_with_no_options(self) -> None:
+        """A select question with 0 options is invalid."""
+        steps = [
+            {
+                "step_number": 1,
+                "questions": [
+                    {
+                        "question_id": "q1",
+                        "label": "Pick one",
+                        "input_type": "select",
+                        "options": [],
+                    }
+                ],
+                "branch_rules": [],
+            }
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert len(errors) > 0
+
+    def test_branch_rule_unknown_question(self) -> None:
+        """Branch rule referencing a non-existent question ID is flagged."""
+        steps = [
+            {
+                "step_number": 1,
+                "questions": [
+                    {"question_id": "q1", "label": "Q1", "input_type": "text"}
+                ],
+                "branch_rules": [
+                    {
+                        "question_id": "q_missing",
+                        "match_pattern": ".*",
+                        "next_step_number": 99,
+                    }
+                ],
+            }
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert any("does not exist" in e.lower() for e in errors)
+
+    def test_invalid_regex_pattern(self) -> None:
+        """Invalid regex in a branch rule match_pattern is caught."""
+        steps = [
+            {
+                "step_number": 1,
+                "questions": [
+                    {"question_id": "q1", "label": "Q1", "input_type": "text"}
+                ],
+                "branch_rules": [
+                    {
+                        "question_id": "q1",
+                        "match_pattern": "[invalid",
+                        "next_step_number": None,
+                    }
+                ],
+            }
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert any("regex" in e.lower() for e in errors)
+
+    def test_valid_form_no_errors(self) -> None:
+        """A well-formed config produces no errors."""
+        steps = [
+            {
+                "step_number": 1,
+                "questions": [
+                    {"question_id": "q1", "label": "Name", "input_type": "text"}
+                ],
+                "branch_rules": [],
+                "default_next_step": 2,
+            },
+            {
+                "step_number": 2,
+                "questions": [
+                    {"question_id": "q2", "label": "Details", "input_type": "text"}
+                ],
+                "branch_rules": [],
+                "default_next_step": None,
+            },
+        ]
+        errors = TicketFormService._validate_steps_rules(steps)
+        assert errors == []

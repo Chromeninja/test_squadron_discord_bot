@@ -7,7 +7,12 @@ validation, and retrieval of per-ticket form responses.
 
 from __future__ import annotations
 
-from core.dependencies import require_discord_manager, require_staff
+from core.dependencies import (
+    get_ticket_form_service,
+    get_ticket_service,
+    require_discord_manager,
+    require_staff,
+)
 from core.schemas import (
     TicketFormBranchRule,
     TicketFormConfig,
@@ -31,57 +36,29 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_ticket_form_service: TicketFormService | None = None
-_ticket_service: TicketService | None = None
 
+async def _require_guild_category(
+    svc: TicketService, category_id: int, guild_id: int
+) -> dict:
+    """Verify a category exists and belongs to the given guild.
 
-def _get_form_service() -> TicketFormService:
-    """Lazy-singleton for TicketFormService in the backend process."""
-    global _ticket_form_service
-    if _ticket_form_service is None:
-        _ticket_form_service = TicketFormService()
-        _ticket_form_service._initialized = True  # noqa: SLF001
-    return _ticket_form_service
-
-
-def _get_ticket_service() -> TicketService:
-    """Lazy-singleton for TicketService in the backend process."""
-    global _ticket_service
-    if _ticket_service is None:
-        _ticket_service = TicketService()
-        _ticket_service._initialized = True  # noqa: SLF001
-    return _ticket_service
-
-
-# ---------------------------------------------------------------------------
-# Form Config CRUD
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/categories/{category_id}/form",
-    response_model=TicketFormConfigResponse,
-)
-async def get_form_config(
-    category_id: int,
-    current_user: UserProfile = Depends(require_staff()),
-) -> TicketFormConfigResponse:
-    """Get the full form configuration for a ticket category."""
-    guild_id = ensure_active_guild(current_user)
-
-    # Verify the category belongs to this guild
-    svc = _get_ticket_service()
+    Raises ``HTTPException(404)`` on mismatch.
+    """
     cat = await svc.get_category(category_id)
     if cat is None or cat["guild_id"] != guild_id:
         raise HTTPException(status_code=404, detail="Category not found")
+    return cat
 
-    form_svc = _get_form_service()
-    config = await form_svc.get_form_config(category_id)
 
+def _build_form_response(
+    category_id: int, config: dict | None
+) -> TicketFormConfigResponse:
+    """Build a ``TicketFormConfigResponse`` from a service config dict."""
     if config is None:
         return TicketFormConfigResponse(
             config=TicketFormConfig(category_id=category_id, steps=[])
@@ -127,6 +104,28 @@ async def get_form_config(
     )
 
 
+# ---------------------------------------------------------------------------
+# Form Config CRUD
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/categories/{category_id}/form",
+    response_model=TicketFormConfigResponse,
+)
+async def get_form_config(
+    category_id: int,
+    current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
+    form_svc: TicketFormService = Depends(get_ticket_form_service),
+) -> TicketFormConfigResponse:
+    """Get the full form configuration for a ticket category."""
+    guild_id = ensure_active_guild(current_user)
+    await _require_guild_category(svc, category_id, guild_id)
+    config = await form_svc.get_form_config(category_id)
+    return _build_form_response(category_id, config)
+
+
 @router.put(
     "/categories/{category_id}/form",
     response_model=TicketFormConfigResponse,
@@ -135,16 +134,12 @@ async def replace_form_config(
     category_id: int,
     body: TicketFormConfigUpdate,
     current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
+    form_svc: TicketFormService = Depends(get_ticket_form_service),
 ) -> TicketFormConfigResponse:
     """Replace the entire form config for a category (atomic)."""
     guild_id = ensure_active_guild(current_user)
-
-    svc = _get_ticket_service()
-    cat = await svc.get_category(category_id)
-    if cat is None or cat["guild_id"] != guild_id:
-        raise HTTPException(status_code=404, detail="Category not found")
-
-    form_svc = _get_form_service()
+    await _require_guild_category(svc, category_id, guild_id)
 
     # Convert to plain dicts for the service
     steps_data = [
@@ -170,7 +165,7 @@ async def replace_form_config(
         raise HTTPException(status_code=500, detail="Failed to save form config")
 
     # Return the updated config
-    return await get_form_config(category_id, current_user)
+    return await get_form_config(category_id, current_user, svc, form_svc)
 
 
 @router.delete(
@@ -180,21 +175,16 @@ async def replace_form_config(
 async def delete_form_config(
     category_id: int,
     current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
+    form_svc: TicketFormService = Depends(get_ticket_form_service),
 ) -> TicketFormConfigResponse:
     """Delete all form config for a category (reverts to legacy modal)."""
     guild_id = ensure_active_guild(current_user)
+    await _require_guild_category(svc, category_id, guild_id)
 
-    svc = _get_ticket_service()
-    cat = await svc.get_category(category_id)
-    if cat is None or cat["guild_id"] != guild_id:
-        raise HTTPException(status_code=404, detail="Category not found")
-
-    form_svc = _get_form_service()
     await form_svc.delete_form_config(category_id)
 
-    return TicketFormConfigResponse(
-        config=TicketFormConfig(category_id=category_id, steps=[])
-    )
+    return _build_form_response(category_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -209,16 +199,13 @@ async def delete_form_config(
 async def validate_form_config(
     category_id: int,
     current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
+    form_svc: TicketFormService = Depends(get_ticket_form_service),
 ) -> TicketFormValidation:
     """Validate the form configuration for a category."""
     guild_id = ensure_active_guild(current_user)
+    await _require_guild_category(svc, category_id, guild_id)
 
-    svc = _get_ticket_service()
-    cat = await svc.get_category(category_id)
-    if cat is None or cat["guild_id"] != guild_id:
-        raise HTTPException(status_code=404, detail="Category not found")
-
-    form_svc = _get_form_service()
     errors = await form_svc.validate_form(category_id)
 
     return TicketFormValidation(valid=len(errors) == 0, errors=errors)
@@ -236,25 +223,17 @@ async def validate_form_config(
 async def get_ticket_responses(
     ticket_id: int,
     current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
+    form_svc: TicketFormService = Depends(get_ticket_form_service),
 ) -> TicketFormResponseList:
     """Get form responses for a specific ticket."""
     guild_id = ensure_active_guild(current_user)
 
-    # Verify the ticket belongs to this guild
-    svc = _get_ticket_service()
-    tickets = await svc.get_tickets(guild_id, limit=1, offset=0)
-    # Simple ownership check — get ticket directly
-    ticket = None
-    all_tickets = await svc.get_tickets(guild_id, limit=10000)
-    for t in all_tickets:
-        if t["id"] == ticket_id:
-            ticket = t
-            break
-
+    # Verify the ticket belongs to this guild via single-row lookup
+    ticket = await svc.get_ticket_by_id(ticket_id, guild_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    form_svc = _get_form_service()
     responses = await form_svc.get_responses(ticket_id)
 
     return TicketFormResponseList(

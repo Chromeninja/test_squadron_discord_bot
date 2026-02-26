@@ -692,7 +692,7 @@ async def _create_ticket_thread(
     category: dict[str, Any] | None,
     initial_description: str | None = None,
     form_responses: dict[str, dict[str, Any]] | None = None,
-) -> None:
+) -> int | None:
     """Create a private thread for a new ticket.
 
     Called after the user fills in the description modal or completes
@@ -702,6 +702,9 @@ async def _create_ticket_thread(
         form_responses: Optional dict of collected form answers from a
             dynamic route flow.  When present, the answers are displayed
             as separate fields in the welcome embed.
+
+    Returns:
+        The new ticket's database row ID, or ``None`` on failure.
 
     AI Notes:
         Private threads require the channel to be a ``TextChannel``.
@@ -713,7 +716,7 @@ async def _create_ticket_thread(
             "Ticket creation failed — missing guild/channel context.",
             ephemeral=True,
         )
-        return
+        return None
 
     guild_id = interaction.guild.id
     user = interaction.user
@@ -730,7 +733,7 @@ async def _create_ticket_thread(
         await interaction.followup.send(
             "Tickets can only be created in text channels.", ephemeral=True
         )
-        return
+        return None
 
     cat_label = category["name"] if category else "ticket"
     thread_name = f"{cat_label}-{user.display_name}"[:100]
@@ -747,7 +750,7 @@ async def _create_ticket_thread(
             "I don't have permission to create private threads in this channel.",
             ephemeral=True,
         )
-        return
+        return None
     except discord.HTTPException as exc:
         logger.exception(
             "Failed to create ticket thread in guild %s", guild_id, exc_info=exc
@@ -756,13 +759,22 @@ async def _create_ticket_thread(
             "Something went wrong creating your ticket. Please try again later.",
             ephemeral=True,
         )
-        return
+        return None
 
     # Add the ticket creator to the thread
     try:
         await thread.add_user(user)
-    except discord.HTTPException:
-        pass  # non-critical
+    except discord.Forbidden:
+        logger.debug(
+            "No permission to add user %s to thread %s", user.id, thread.id
+        )
+    except discord.HTTPException as exc:
+        logger.warning(
+            "Could not add user %s to thread %s: %s",
+            user.id,
+            thread.id,
+            exc,
+        )
 
     # Record in DB
     category_id = category["id"] if category else None
@@ -867,6 +879,8 @@ async def _create_ticket_thread(
     await interaction.followup.send(
         f"Your ticket has been created: {thread.mention}", ephemeral=True
     )
+
+    return ticket_id
 
 
 # ---------------------------------------------------------------------------

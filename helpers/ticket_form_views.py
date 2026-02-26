@@ -332,6 +332,7 @@ class TicketSelectAnswerView(View):
             return
 
         if not self.children:
+            logger.warning("TicketSelectAnswerView has no children in _on_select")
             await interaction.response.send_message(
                 "Selection controls are unavailable.", ephemeral=True
             )
@@ -566,7 +567,7 @@ async def create_ticket_from_route(
     combined_description = "\n".join(description_parts) if description_parts else None
 
     # Create the ticket thread using existing logic
-    await _create_ticket_thread(
+    ticket_id = await _create_ticket_thread(
         bot,
         interaction,
         category=category,
@@ -574,15 +575,8 @@ async def create_ticket_from_route(
         form_responses=context.collected_answers,
     )
 
-    # After thread creation, save form responses to the DB
-    # We need to find the ticket that was just created
-    if interaction.guild is not None:
-        open_tickets = await ticket_service.get_open_tickets(
-            interaction.guild.id, interaction.user.id
+    # Save form responses using the returned ticket_id directly
+    if ticket_id is not None:
+        await ticket_form_service.save_responses(
+            ticket_id, context.collected_answers
         )
-        if open_tickets:
-            # The most recently created ticket for this user
-            latest = max(open_tickets, key=lambda t: t["created_at"])
-            await ticket_form_service.save_responses(
-                latest["id"], context.collected_answers
-            )

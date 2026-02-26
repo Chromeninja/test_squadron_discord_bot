@@ -14,6 +14,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_config_service,
     get_internal_api_client,
+    get_ticket_service,
     require_discord_manager,
     require_staff,
     translate_internal_api_error,
@@ -44,21 +45,6 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_ticket_service: TicketService | None = None
-
-
-def _get_ticket_service() -> TicketService:
-    """Lazy-singleton for TicketService in the backend process."""
-    global _ticket_service
-    if _ticket_service is None:
-        _ticket_service = TicketService()
-        _ticket_service._initialized = True  # schema already applied by bot
-    return _ticket_service
-
 
 def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
     """Build a ``TicketCategoryListResponse`` from service dicts.
@@ -82,6 +68,19 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
     return TicketCategoryListResponse(categories=items)
 
 
+async def _require_guild_category(
+    svc: TicketService, category_id: int, guild_id: int
+) -> dict:
+    """Verify a category exists and belongs to the given guild.
+
+    Raises ``HTTPException(404)`` on mismatch.
+    """
+    cat = await svc.get_category(category_id)
+    if cat is None or cat["guild_id"] != guild_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return cat
+
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
@@ -90,10 +89,10 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
 @router.get("/categories", response_model=TicketCategoryListResponse)
 async def list_categories(
     current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> TicketCategoryListResponse:
     """List all ticket categories for the active guild."""
     guild_id = ensure_active_guild(current_user)
-    svc = _get_ticket_service()
     cats = await svc.get_categories(guild_id)
     return _build_category_list(cats)
 
@@ -102,14 +101,13 @@ async def list_categories(
 async def create_category(
     body: TicketCategoryCreate,
     current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> TicketCategoryListResponse:
     """Create a new ticket category."""
     guild_id = ensure_active_guild(current_user)
     # Ensure the body guild_id matches the active guild
     if str(guild_id) != body.guild_id:
         raise HTTPException(status_code=403, detail="Guild mismatch")
-
-    svc = _get_ticket_service()
     cat_id = await svc.create_category(
         guild_id=guild_id,
         name=body.name,
@@ -131,25 +129,25 @@ async def update_category(
     category_id: int,
     body: TicketCategoryUpdate,
     current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> dict:
     """Update a ticket category."""
-    ensure_active_guild(current_user)
-    svc = _get_ticket_service()
+    guild_id = ensure_active_guild(current_user)
+    await _require_guild_category(svc, category_id, guild_id)
 
     # Build kwargs from non-None fields
-    kwargs: dict = {}
-    if body.name is not None:
-        kwargs["name"] = body.name
-    if body.description is not None:
-        kwargs["description"] = body.description
-    if body.welcome_message is not None:
-        kwargs["welcome_message"] = body.welcome_message
-    if body.role_ids is not None:
-        kwargs["role_ids"] = [int(r) for r in body.role_ids]
-    if body.emoji is not None:
-        kwargs["emoji"] = body.emoji
-    if body.sort_order is not None:
-        kwargs["sort_order"] = body.sort_order
+    kwargs: dict = {
+        k: ([int(r) for r in v] if k == "role_ids" else v)
+        for k, v in {
+            "name": body.name,
+            "description": body.description,
+            "welcome_message": body.welcome_message,
+            "role_ids": body.role_ids,
+            "emoji": body.emoji,
+            "sort_order": body.sort_order,
+        }.items()
+        if v is not None
+    }
 
     if not kwargs:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -165,10 +163,12 @@ async def update_category(
 async def delete_category(
     category_id: int,
     current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> dict:
     """Delete a ticket category."""
-    ensure_active_guild(current_user)
-    svc = _get_ticket_service()
+    guild_id = ensure_active_guild(current_user)
+    await _require_guild_category(svc, category_id, guild_id)
+
     deleted = await svc.delete_category(category_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -186,10 +186,10 @@ async def list_tickets(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> TicketListResponse:
     """List tickets for the active guild with optional status filter."""
     guild_id = ensure_active_guild(current_user)
-    svc = _get_ticket_service()
 
     offset = (page - 1) * page_size
     tickets = await svc.get_tickets(guild_id, status=status, limit=page_size, offset=offset)
@@ -224,10 +224,10 @@ async def list_tickets(
 @router.get("/stats", response_model=TicketStatsResponse)
 async def ticket_stats(
     current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
 ) -> TicketStatsResponse:
     """Get ticket statistics for the active guild."""
     guild_id = ensure_active_guild(current_user)
-    svc = _get_ticket_service()
     data = await svc.get_ticket_stats(guild_id)
     return TicketStatsResponse(
         open=data["open"],
@@ -249,13 +249,16 @@ async def get_settings(
     """Retrieve ticket settings for the active guild."""
     guild_id = ensure_active_guild(current_user)
 
-    channel_id = await config.get_guild_setting(guild_id, "tickets.channel_id")
-    panel_message_id = await config.get_guild_setting(guild_id, "tickets.panel_message_id")
-    panel_title = await config.get_guild_setting(guild_id, "tickets.panel_title")
-    panel_description = await config.get_guild_setting(guild_id, "tickets.panel_description")
-    log_channel_id = await config.get_guild_setting(guild_id, "tickets.log_channel_id")
-    close_message = await config.get_guild_setting(guild_id, "tickets.close_message")
-    default_welcome = await config.get_guild_setting(guild_id, "tickets.default_welcome_message")
+    # Fetch all settings in one batch
+    _keys = [
+        "tickets.channel_id", "tickets.panel_message_id",
+        "tickets.panel_title", "tickets.panel_description",
+        "tickets.log_channel_id", "tickets.close_message",
+        "tickets.default_welcome_message",
+    ]
+    raw: dict[str, str | None] = {}
+    for key in _keys:
+        raw[key] = await config.get_guild_setting(guild_id, key)
     max_open_per_user = await config.get_guild_setting(
         guild_id, "tickets.max_open_per_user", default="5"
     )
@@ -263,18 +266,22 @@ async def get_settings(
         guild_id, "tickets.reopen_window_hours", default="48"
     )
 
-    svc = _get_ticket_service()
+    svc = await get_ticket_service()
     staff_roles = await svc.get_staff_role_ids(config, guild_id)
 
+    def _str_or_none(key: str) -> str | None:
+        v = raw[key]
+        return str(v) if v else None
+
     settings = TicketSettings(
-        channel_id=str(channel_id) if channel_id else None,
-        panel_message_id=str(panel_message_id) if panel_message_id else None,
-        panel_title=panel_title,
-        panel_description=panel_description,
-        log_channel_id=str(log_channel_id) if log_channel_id else None,
-        close_message=close_message,
+        channel_id=_str_or_none("tickets.channel_id"),
+        panel_message_id=_str_or_none("tickets.panel_message_id"),
+        panel_title=raw["tickets.panel_title"],
+        panel_description=raw["tickets.panel_description"],
+        log_channel_id=_str_or_none("tickets.log_channel_id"),
+        close_message=raw["tickets.close_message"],
         staff_roles=[str(r) for r in staff_roles],
-        default_welcome_message=default_welcome,
+        default_welcome_message=raw["tickets.default_welcome_message"],
         max_open_per_user=int(max_open_per_user) if max_open_per_user else 5,
         reopen_window_hours=int(reopen_window_hours) if reopen_window_hours else 48,
     )
@@ -290,23 +297,23 @@ async def update_settings(
     """Update ticket settings for the active guild."""
     guild_id = ensure_active_guild(current_user)
 
-    if body.channel_id is not None:
-        await config.set_guild_setting(guild_id, "tickets.channel_id", body.channel_id)
-    if body.panel_title is not None:
-        await config.set_guild_setting(guild_id, "tickets.panel_title", body.panel_title)
-    if body.panel_description is not None:
-        await config.set_guild_setting(guild_id, "tickets.panel_description", body.panel_description)
-    if body.log_channel_id is not None:
-        await config.set_guild_setting(guild_id, "tickets.log_channel_id", body.log_channel_id)
-    if body.close_message is not None:
-        await config.set_guild_setting(guild_id, "tickets.close_message", body.close_message)
+    # Simple string settings — write directly if set
+    _simple: dict[str, str | None] = {
+        "tickets.channel_id": body.channel_id,
+        "tickets.panel_title": body.panel_title,
+        "tickets.panel_description": body.panel_description,
+        "tickets.log_channel_id": body.log_channel_id,
+        "tickets.close_message": body.close_message,
+        "tickets.default_welcome_message": body.default_welcome_message,
+    }
+    for key, value in _simple.items():
+        if value is not None:
+            await config.set_guild_setting(guild_id, key, value)
+
+    # Transformed settings
     if body.staff_roles is not None:
         await config.set_guild_setting(
             guild_id, "tickets.staff_roles", json.dumps([int(r) for r in body.staff_roles])
-        )
-    if body.default_welcome_message is not None:
-        await config.set_guild_setting(
-            guild_id, "tickets.default_welcome_message", body.default_welcome_message
         )
     if body.max_open_per_user is not None:
         await config.set_guild_setting(

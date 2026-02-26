@@ -680,79 +680,11 @@ class TicketFormService(BaseService):
         Returns a list of error strings.  An empty list means valid.
         """
         self._ensure_initialized()
-        errors: list[str] = []
         config = await self.get_form_config(category_id)
         if config is None:
-            errors.append("No form steps configured for this category.")
-            return errors
+            return ["No form steps configured for this category."]
 
-        steps = config.get("steps", [])
-        step_numbers = {s["step_number"] for s in steps}
-
-        for step in steps:
-            sn = step["step_number"]
-            questions = step.get("questions", [])
-
-            if len(questions) == 0:
-                errors.append(f"Step {sn} has no questions.")
-            if len(questions) > MAX_QUESTIONS_PER_STEP:
-                errors.append(
-                    f"Step {sn} has {len(questions)} questions "
-                    f"(max {MAX_QUESTIONS_PER_STEP})."
-                )
-
-            select_questions = [
-                q for q in questions if q.get("input_type", "text") == "select"
-            ]
-            if len(select_questions) > 1:
-                errors.append(f"Step {sn} can only have one select question.")
-            if select_questions and len(questions) > 1:
-                errors.append(
-                    f"Step {sn} with a select question cannot include other questions."
-                )
-
-            for question in questions:
-                qid = question.get("question_id", "")
-                input_type = question.get("input_type", "text")
-                if input_type not in {"text", "select"}:
-                    errors.append(
-                        f"Step {sn} question '{qid}' has invalid input_type "
-                        f"'{input_type}'."
-                    )
-                    continue
-
-                if input_type == "select":
-                    options = self._normalize_select_options(question.get("options"))
-                    if not self._is_valid_select_options(options):
-                        errors.append(
-                            f"Step {sn} question '{qid}' must have "
-                            f"1-{MAX_SELECT_OPTIONS} unique options with value+label."
-                        )
-
-            # Validate branch rules
-            for rule in step.get("branch_rules", []):
-                target = rule.get("next_step_number")
-                if target is not None and target not in step_numbers:
-                    errors.append(
-                        f"Step {sn}: branch rule targets step {target} "
-                        "which does not exist."
-                    )
-                pattern = rule.get("match_pattern", "")
-                try:
-                    re.compile(pattern)
-                except re.error as exc:
-                    errors.append(
-                        f"Step {sn}: invalid regex '{pattern}': {exc}"
-                    )
-
-            # Validate default_next_step
-            dns = step.get("default_next_step")
-            if dns is not None and dns not in step_numbers:
-                errors.append(
-                    f"Step {sn}: default_next_step {dns} does not exist."
-                )
-
-        return errors
+        return self._validate_steps_rules(config.get("steps", []))
 
     async def replace_form_config(
         self,
@@ -840,114 +772,137 @@ class TicketFormService(BaseService):
         """Validate a form payload before writing it to storage.
 
         Returns a list of validation errors; empty means valid.
+        Delegates to the shared ``_validate_steps_rules`` core,
+        then adds payload-specific checks (empty IDs, question counts).
         """
-        errors: list[str] = []
+        errors = self._validate_steps_rules(steps_data)
 
-        if len(steps_data) > MAX_FORM_STEPS:
-            errors.append(
-                f"Form has {len(steps_data)} steps (max {MAX_FORM_STEPS})."
-            )
-
-        step_numbers: set[int] = set()
-        total_questions = 0
-
-        for step in steps_data:
-            step_number = int(step.get("step_number", 0))
-            if step_number in step_numbers:
-                errors.append(f"Duplicate step_number {step_number}.")
-            step_numbers.add(step_number)
-
-            questions = step.get("questions", [])
-            if not isinstance(questions, list):
-                errors.append(f"Step {step_number} questions must be a list.")
-                continue
-
-            total_questions += len(questions)
-            if len(questions) > MAX_QUESTIONS_PER_STEP:
-                errors.append(
-                    f"Step {step_number} has {len(questions)} questions "
-                    f"(max {MAX_QUESTIONS_PER_STEP})."
-                )
-
-            question_ids: set[str] = set()
-            select_questions_in_step = 0
-            for question in questions:
-                question_id = str(question.get("question_id", "")).strip()
-                if not question_id:
-                    errors.append(
-                        f"Step {step_number} contains a question with empty question_id."
-                    )
-                    continue
-                if question_id in question_ids:
-                    errors.append(
-                        f"Step {step_number} has duplicate question_id '{question_id}'."
-                    )
-                question_ids.add(question_id)
-
-                input_type = str(question.get("input_type", "text")).strip()
-                if input_type not in {"text", "select"}:
-                    errors.append(
-                        f"Step {step_number} question '{question_id}' has invalid "
-                        f"input_type '{input_type}'."
-                    )
-                    continue
-
-                if input_type == "select":
-                    select_questions_in_step += 1
-                    options = self._normalize_select_options(question.get("options"))
-                    if not self._is_valid_select_options(options):
-                        errors.append(
-                            f"Step {step_number} question '{question_id}' must have "
-                            f"1-{MAX_SELECT_OPTIONS} unique options with value+label."
-                        )
-
-            if select_questions_in_step > 1:
-                errors.append(
-                    f"Step {step_number} can only have one select question."
-                )
-            if select_questions_in_step == 1 and len(questions) > 1:
-                errors.append(
-                    f"Step {step_number} with a select question cannot include "
-                    "other questions."
-                )
-
-            for rule in step.get("branch_rules", []) or []:
-                pattern = str(rule.get("match_pattern", ""))
-                if pattern:
-                    try:
-                        re.compile(pattern)
-                    except re.error as exc:
-                        errors.append(
-                            f"Step {step_number}: invalid regex '{pattern}': {exc}"
-                        )
-
+        # Payload-specific: check total question cap
+        total_questions = sum(len(s.get("questions", [])) for s in steps_data)
         if total_questions > MAX_TOTAL_FORM_QUESTIONS:
             errors.append(
                 f"Form has {total_questions} total questions "
                 f"(max {MAX_TOTAL_FORM_QUESTIONS})."
             )
 
+        # Payload-specific: empty question_ids & duplicate IDs per step,
+        # empty branch-rule question_ids
         for step in steps_data:
-            step_number = int(step.get("step_number", 0))
-            dns = step.get("default_next_step")
-            if dns is not None and int(dns) not in step_numbers:
-                errors.append(
-                    f"Step {step_number}: default_next_step {dns} does not exist."
-                )
+            sn = int(step.get("step_number", 0))
+            questions = step.get("questions", [])
+            if not isinstance(questions, list):
+                errors.append(f"Step {sn} questions must be a list.")
+                continue
+
+            question_ids: set[str] = set()
+            for question in questions:
+                qid = str(question.get("question_id", "")).strip()
+                if not qid:
+                    errors.append(
+                        f"Step {sn} contains a question with empty question_id."
+                    )
+                    continue
+                if qid in question_ids:
+                    errors.append(
+                        f"Step {sn} has duplicate question_id '{qid}'."
+                    )
+                question_ids.add(qid)
 
             for rule in step.get("branch_rules", []) or []:
                 qid = str(rule.get("question_id", "")).strip()
                 if not qid:
                     errors.append(
-                        f"Step {step_number}: branch rule has empty question_id."
+                        f"Step {sn}: branch rule has empty question_id."
                     )
 
+        return errors
+
+    @staticmethod
+    def _validate_steps_rules(steps: list[dict[str, Any]]) -> list[str]:
+        """Shared validation core used by both validate_form and validate_form_payload.
+
+        Checks: step count, duplicate step numbers, questions-per-step limits,
+        input_type validity, select question constraints, select options,
+        branch rule targets, regex patterns, and default_next_step references.
+        """
+        errors: list[str] = []
+
+        if len(steps) > MAX_FORM_STEPS:
+            errors.append(
+                f"Form has {len(steps)} steps (max {MAX_FORM_STEPS})."
+            )
+
+        # Single pass: collect step_numbers and validate each step
+        step_numbers: set[int] = set()
+        for step in steps:
+            sn = int(step.get("step_number", 0))
+            if sn in step_numbers:
+                errors.append(f"Duplicate step_number {sn}.")
+            step_numbers.add(sn)
+
+            questions = step.get("questions", [])
+            if not isinstance(questions, list):
+                continue
+
+            if len(questions) == 0:
+                errors.append(f"Step {sn} has no questions.")
+            if len(questions) > MAX_QUESTIONS_PER_STEP:
+                errors.append(
+                    f"Step {sn} has {len(questions)} questions "
+                    f"(max {MAX_QUESTIONS_PER_STEP})."
+                )
+
+            select_count = 0
+            for question in questions:
+                qid = str(question.get("question_id", "")).strip() or "(unknown)"
+                input_type = str(question.get("input_type", "text")).strip()
+                if input_type not in {"text", "select"}:
+                    errors.append(
+                        f"Step {sn} question '{qid}' has invalid input_type "
+                        f"'{input_type}'."
+                    )
+                    continue
+
+                if input_type == "select":
+                    select_count += 1
+                    options = TicketFormService._normalize_select_options(question.get("options"))
+                    if not TicketFormService._is_valid_select_options(options):
+                        errors.append(
+                            f"Step {sn} question '{qid}' must have "
+                            f"1-{MAX_SELECT_OPTIONS} unique options with value+label."
+                        )
+
+            if select_count > 1:
+                errors.append(f"Step {sn} can only have one select question.")
+            if select_count == 1 and len(questions) > 1:
+                errors.append(
+                    f"Step {sn} with a select question cannot include other questions."
+                )
+
+        # Second pass for cross-references (needs full step_numbers set)
+        for step in steps:
+            sn = int(step.get("step_number", 0))
+            for rule in step.get("branch_rules", []) or []:
                 target = rule.get("next_step_number")
                 if target is not None and int(target) not in step_numbers:
                     errors.append(
-                        f"Step {step_number}: branch rule targets step {target} "
+                        f"Step {sn}: branch rule targets step {target} "
                         "which does not exist."
                     )
+                pattern = str(rule.get("match_pattern", ""))
+                if pattern:
+                    try:
+                        re.compile(pattern)
+                    except re.error as exc:
+                        errors.append(
+                            f"Step {sn}: invalid regex '{pattern}': {exc}"
+                        )
+
+            dns = step.get("default_next_step")
+            if dns is not None and int(dns) not in step_numbers:
+                errors.append(
+                    f"Step {sn}: default_next_step {dns} does not exist."
+                )
 
         return errors
 

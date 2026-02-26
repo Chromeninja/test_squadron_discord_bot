@@ -38,13 +38,9 @@ def _make_context(
     answers: dict | None = None,
 ) -> RouteExecutionContext:
     """Create a RouteExecutionContext for testing."""
-    ctx = RouteExecutionContext(
-        guild_id=guild_id,
-        user_id=user_id,
-        category_id=category_id,
-        current_step=current_step,
-        expires_at=time.time() + 900,
-    )
+    ctx = RouteExecutionContext(guild_id, user_id, category_id)
+    ctx.current_step = current_step
+    ctx.expires_at = time.time() + 900
     if answers:
         ctx.collected_answers = answers
     return ctx
@@ -641,15 +637,13 @@ class TestCreateTicketFromRoute:
             "q1": {"answer": "test", "label": "Q1", "step": 1, "sort_order": 0},
         }
         bot = _mock_bot_with_form_services(category=_make_category())
-        bot.services.ticket.get_open_tickets = AsyncMock(
-            return_value=[{"id": 42, "created_at": "2025-01-01T00:00:00"}]
-        )
 
         interaction = FakeInteraction()
 
         with patch(
             "helpers.ticket_views._create_ticket_thread",
             new_callable=AsyncMock,
+            return_value=42,
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 
@@ -659,19 +653,19 @@ class TestCreateTicketFromRoute:
 
     @pytest.mark.asyncio
     async def test_no_crash_when_no_open_tickets(self) -> None:
-        """If no open tickets found after creation, no save_responses call."""
+        """If _create_ticket_thread returns None, no save_responses call."""
         ctx = _make_context()
         ctx.collected_answers = {
             "q1": {"answer": "test", "label": "Q1", "step": 1, "sort_order": 0},
         }
         bot = _mock_bot_with_form_services(category=_make_category())
-        bot.services.ticket.get_open_tickets = AsyncMock(return_value=[])
 
         interaction = FakeInteraction()
 
         with patch(
             "helpers.ticket_views._create_ticket_thread",
             new_callable=AsyncMock,
+            return_value=None,
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 

@@ -25,18 +25,20 @@ DEFAULT_MAX_OPEN_PER_USER = 5
 DEFAULT_REOPEN_WINDOW_HOURS = 48
 
 # Column names for ticket SELECT queries — keep in sync with _row_to_ticket()
-_TICKET_COLUMNS = (
-    "id, guild_id, channel_id, thread_id, user_id, "
-    "category_id, status, closed_by, created_at, closed_at, "
-    "claimed_by, claimed_at, close_reason, initial_description, "
-    "reopened_at, reopened_by"
-)
+_TICKET_COLUMN_NAMES = [
+    "id", "guild_id", "channel_id", "thread_id", "user_id",
+    "category_id", "status", "closed_by", "created_at", "closed_at",
+    "claimed_by", "claimed_at", "close_reason", "initial_description",
+    "reopened_at", "reopened_by",
+]
+_TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 
 # Column names for category SELECT queries — keep in sync with _row_to_category()
-_CATEGORY_COLUMNS = (
-    "id, guild_id, name, description, welcome_message, "
-    "role_ids, emoji, sort_order, created_at"
-)
+_CATEGORY_COLUMN_NAMES = [
+    "id", "guild_id", "name", "description", "welcome_message",
+    "role_ids", "emoji", "sort_order", "created_at",
+]
+_CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
 
 
 class TicketService(BaseService):
@@ -399,6 +401,28 @@ class TicketService(BaseService):
             return None
         return self._row_to_ticket(row)
 
+    async def get_ticket_by_id(
+        self, ticket_id: int, guild_id: int | None = None
+    ) -> dict[str, Any] | None:
+        """Look up a ticket by its row ID, optionally scoped to a guild.
+
+        Args:
+            ticket_id: Database row ID.
+            guild_id: If provided, the ticket must belong to this guild.
+
+        Returns:
+            Ticket dict or ``None``.
+        """
+        where = "WHERE id = ?"
+        params: list[Any] = [ticket_id]
+        if guild_id is not None:
+            where += " AND guild_id = ?"
+            params.append(guild_id)
+        row = await BaseRepository.fetch_one(
+            f"SELECT {_TICKET_COLUMNS} FROM tickets {where}", tuple(params)
+        )
+        return self._row_to_ticket(row) if row else None
+
     async def get_open_tickets(
         self,
         guild_id: int,
@@ -413,26 +437,15 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
+        where = "WHERE guild_id = ? AND status = 'open'"
+        params: list[Any] = [guild_id]
         if user_id is not None:
-            rows = await BaseRepository.fetch_all(
-                f"""
-                SELECT {_TICKET_COLUMNS}
-                FROM tickets
-                WHERE guild_id = ? AND user_id = ? AND status = 'open'
-                ORDER BY created_at DESC
-                """,
-                (guild_id, user_id),
-            )
-        else:
-            rows = await BaseRepository.fetch_all(
-                f"""
-                SELECT {_TICKET_COLUMNS}
-                FROM tickets
-                WHERE guild_id = ? AND status = 'open'
-                ORDER BY created_at DESC
-                """,
-                (guild_id,),
-            )
+            where += " AND user_id = ?"
+            params.append(user_id)
+        rows = await BaseRepository.fetch_all(
+            f"SELECT {_TICKET_COLUMNS} FROM tickets {where} ORDER BY created_at DESC",
+            tuple(params),
+        )
         return [self._row_to_ticket(r) for r in rows]
 
     async def get_tickets(
@@ -453,28 +466,17 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
+        where = "WHERE guild_id = ?"
+        params: list[Any] = [guild_id]
         if status:
-            rows = await BaseRepository.fetch_all(
-                f"""
-                SELECT {_TICKET_COLUMNS}
-                FROM tickets
-                WHERE guild_id = ? AND status = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (guild_id, status, limit, offset),
-            )
-        else:
-            rows = await BaseRepository.fetch_all(
-                f"""
-                SELECT {_TICKET_COLUMNS}
-                FROM tickets
-                WHERE guild_id = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (guild_id, limit, offset),
-            )
+            where += " AND status = ?"
+            params.append(status)
+        params.extend([limit, offset])
+        rows = await BaseRepository.fetch_all(
+            f"SELECT {_TICKET_COLUMNS} FROM tickets {where} "
+            "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            tuple(params),
+        )
         return [self._row_to_ticket(r) for r in rows]
 
     async def get_ticket_count(
@@ -483,38 +485,40 @@ class TicketService(BaseService):
         status: str | None = None,
     ) -> int:
         """Return total ticket count, optionally filtered by status."""
+        where = "WHERE guild_id = ?"
+        params: list[Any] = [guild_id]
         if status:
-            return await BaseRepository.fetch_value(
-                "SELECT COUNT(*) FROM tickets WHERE guild_id = ? AND status = ?",
-                (guild_id, status),
-                default=0,
-            )
+            where += " AND status = ?"
+            params.append(status)
         return await BaseRepository.fetch_value(
-            "SELECT COUNT(*) FROM tickets WHERE guild_id = ?",
-            (guild_id,),
+            f"SELECT COUNT(*) FROM tickets {where}",
+            tuple(params),
             default=0,
         )
 
     async def get_ticket_stats(self, guild_id: int) -> dict[str, int]:
         """Return ticket statistics for a guild.
 
+        Uses a single ``GROUP BY`` query for efficiency.
+
         Returns:
             Dict with keys ``open``, ``closed``, ``total``.
         """
-        open_count: int = await BaseRepository.fetch_value(
-            "SELECT COUNT(*) FROM tickets WHERE guild_id = ? AND status = 'open'",
+        rows = await BaseRepository.fetch_all(
+            "SELECT status, COUNT(*) AS cnt FROM tickets "
+            "WHERE guild_id = ? GROUP BY status",
             (guild_id,),
-            default=0,
         )
-        closed_count: int = await BaseRepository.fetch_value(
-            "SELECT COUNT(*) FROM tickets WHERE guild_id = ? AND status = 'closed'",
-            (guild_id,),
-            default=0,
-        )
+        counts: dict[str, int] = {"open": 0, "closed": 0}
+        for row in rows:
+            status = row["status"] if isinstance(row, dict) else row[0]
+            cnt = row["cnt"] if isinstance(row, dict) else row[1]
+            if status in counts:
+                counts[status] = int(cnt)
         return {
-            "open": open_count,
-            "closed": closed_count,
-            "total": open_count + closed_count,
+            "open": counts["open"],
+            "closed": counts["closed"],
+            "total": counts["open"] + counts["closed"],
         }
 
     # ------------------------------------------------------------------
@@ -558,47 +562,34 @@ class TicketService(BaseService):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _row_to_ticket(row: Any) -> dict[str, Any]:
-        """Convert a database row tuple to a ticket dict.
+    def _row_to_dict(row: Any, columns: list[str]) -> dict[str, Any]:
+        """Convert a database row to a dict.
 
-        Column order must match ``_TICKET_COLUMNS``.
+        Supports dict-like ``aiosqlite.Row`` (preferred) and plain
+        tuples (legacy fallback using *columns* for key mapping).
+        Missing keys are filled with ``None``.
         """
-        return {
-            "id": row[0],
-            "guild_id": row[1],
-            "channel_id": row[2],
-            "thread_id": row[3],
-            "user_id": row[4],
-            "category_id": row[5],
-            "status": row[6],
-            "closed_by": row[7],
-            "created_at": row[8],
-            "closed_at": row[9],
-            "claimed_by": row[10] if len(row) > 10 else None,
-            "claimed_at": row[11] if len(row) > 11 else None,
-            "close_reason": row[12] if len(row) > 12 else None,
-            "initial_description": row[13] if len(row) > 13 else None,
-            "reopened_at": row[14] if len(row) > 14 else None,
-            "reopened_by": row[15] if len(row) > 15 else None,
-        }
+        try:
+            d = dict(row)
+        except (TypeError, ValueError):
+            d = dict(zip(columns, row, strict=False))
+        # Ensure every expected column is present (handles short tuples)
+        for col in columns:
+            d.setdefault(col, None)
+        return d
+
+    @staticmethod
+    def _row_to_ticket(row: Any) -> dict[str, Any]:
+        """Convert a database row to a ticket dict."""
+        return TicketService._row_to_dict(row, _TICKET_COLUMN_NAMES)
 
     @staticmethod
     def _row_to_category(row: Any) -> dict[str, Any]:
-        """Convert a database row tuple to a category dict.
-
-        Column order must match ``_CATEGORY_COLUMNS``.
-        """
-        return {
-            "id": row[0],
-            "guild_id": row[1],
-            "name": row[2],
-            "description": row[3],
-            "welcome_message": row[4],
-            "role_ids": json.loads(row[5]) if row[5] else [],
-            "emoji": row[6],
-            "sort_order": row[7],
-            "created_at": row[8],
-        }
+        """Convert a database row to a category dict."""
+        d = TicketService._row_to_dict(row, _CATEGORY_COLUMN_NAMES)
+        role_ids_raw = d.get("role_ids")
+        d["role_ids"] = json.loads(role_ids_raw) if role_ids_raw else []
+        return d
 
     # ------------------------------------------------------------------
     # Claim / Assign

@@ -7,3 +7,6 @@ ALTER TABLE ticket_form_questions
 
 ALTER TABLE ticket_form_questions
     ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]';
+
+-- Track migration
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (6);

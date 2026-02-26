@@ -14,3 +14,6 @@ ALTER TABLE tickets ADD COLUMN initial_description TEXT;
 -- Reopen tracking
 ALTER TABLE tickets ADD COLUMN reopened_at INTEGER;
 ALTER TABLE tickets ADD COLUMN reopened_by INTEGER;
+
+-- Track migration
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (4);
