@@ -825,6 +825,13 @@ class ActivityGroupCountsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+TicketCategoryEligibilityStatus = Literal[
+    "bot_verified",
+    "org_main",
+    "org_affiliate",
+]
+
+
 class TicketCategory(BaseModel):
     """A ticket category record."""
 
@@ -834,6 +841,9 @@ class TicketCategory(BaseModel):
     description: str = ""
     welcome_message: str = ""
     role_ids: list[str] = Field(default_factory=list)
+    allowed_statuses: list[TicketCategoryEligibilityStatus] = Field(
+        default_factory=list
+    )
     emoji: str | None = None
     sort_order: int = 0
     created_at: int = 0
@@ -847,6 +857,9 @@ class TicketCategoryCreate(BaseModel):
     description: str = ""
     welcome_message: str = ""
     role_ids: list[str] = Field(default_factory=list)
+    allowed_statuses: list[TicketCategoryEligibilityStatus] = Field(
+        default_factory=list
+    )
     emoji: str | None = None
 
 
@@ -857,6 +870,7 @@ class TicketCategoryUpdate(BaseModel):
     description: str | None = None
     welcome_message: str | None = None
     role_ids: list[str] | None = None
+    allowed_statuses: list[TicketCategoryEligibilityStatus] | None = None
     emoji: str | None = None
     sort_order: int | None = None
 

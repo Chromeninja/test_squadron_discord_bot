@@ -45,6 +45,7 @@ async def test_create_category(
         "description": "General support",
         "welcome_message": "Hi!",
         "role_ids": [],
+        "allowed_statuses": ["bot_verified"],
         "emoji": "📩",
     }
     response = await client.post(
@@ -57,6 +58,7 @@ async def test_create_category(
     assert data["success"] is True
     assert len(data["categories"]) == 1
     assert data["categories"][0]["name"] == "General"
+    assert data["categories"][0]["allowed_statuses"] == ["bot_verified"]
 
 
 @pytest.mark.asyncio
@@ -97,6 +99,24 @@ async def test_update_category(
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_category_invalid_allowed_statuses(
+    client: AsyncClient, mock_admin_session: str
+) -> None:
+    """Invalid eligibility status values are rejected by schema validation."""
+    payload = {
+        "guild_id": "123",
+        "name": "General",
+        "allowed_statuses": ["invalid_status"],
+    }
+    response = await client.post(
+        "/api/tickets/categories",
+        json=payload,
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

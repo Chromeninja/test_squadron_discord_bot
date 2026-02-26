@@ -1060,10 +1060,16 @@ export interface TicketCategory {
   description: string;
   welcome_message: string;
   role_ids: string[];
+  allowed_statuses: TicketCategoryEligibilityStatus[];
   emoji: string | null;
   sort_order: number;
   created_at: number;
 }
+
+export type TicketCategoryEligibilityStatus =
+  | 'bot_verified'
+  | 'org_main'
+  | 'org_affiliate';
 
 export interface TicketCategoryCreate {
   guild_id: string;
@@ -1071,6 +1077,7 @@ export interface TicketCategoryCreate {
   description?: string;
   welcome_message?: string;
   role_ids?: string[];
+  allowed_statuses?: TicketCategoryEligibilityStatus[];
   emoji?: string | null;
 }
 
@@ -1079,6 +1086,7 @@ export interface TicketCategoryUpdate {
   description?: string;
   welcome_message?: string;
   role_ids?: string[];
+  allowed_statuses?: TicketCategoryEligibilityStatus[];
   emoji?: string | null;
   sort_order?: number;
 }

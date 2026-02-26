@@ -19,6 +19,7 @@ from services.ticket_service import (
     TICKET_RATE_LIMIT_SECONDS,
     TicketService,
 )
+from services.db.database import Database
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,81 @@ class TestCategoryCRUD:
         cat = await ticket_svc.get_category(cat_id)
         assert cat is not None
         assert cat["role_ids"] == [10, 20]
+
+    @pytest.mark.asyncio
+    async def test_create_category_with_allowed_statuses(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Creating a category persists eligibility status restrictions."""
+        cat_id = await ticket_svc.create_category(
+            GUILD_ID,
+            "Verified",
+            allowed_statuses=["bot_verified", "org_main"],
+        )
+        assert cat_id is not None
+
+        cat = await ticket_svc.get_category(cat_id)
+        assert cat is not None
+        assert cat["allowed_statuses"] == ["bot_verified", "org_main"]
+
+    @pytest.mark.asyncio
+    async def test_update_category_allowed_statuses_normalized(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Updating eligibility statuses normalizes casing and duplicates."""
+        cat_id = await ticket_svc.create_category(GUILD_ID, "Eligibility")
+        assert cat_id is not None
+
+        await ticket_svc.update_category(
+            cat_id,
+            allowed_statuses=[
+                "ORG_MAIN",
+                "org_main",
+                "org_affiliate",
+                "unknown",
+            ],
+        )
+
+        cat = await ticket_svc.get_category(cat_id)
+        assert cat is not None
+        assert cat["allowed_statuses"] == ["org_main", "org_affiliate"]
+
+    @pytest.mark.asyncio
+    async def test_get_categories_auto_adds_allowed_statuses_column(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Older DB schema is upgraded on read when allowed_statuses is missing."""
+        async with Database.get_connection() as db:
+            await db.execute("DROP TABLE ticket_categories")
+            await db.execute(
+                """
+                CREATE TABLE ticket_categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    welcome_message TEXT DEFAULT '',
+                    role_ids TEXT DEFAULT '[]',
+                    emoji TEXT DEFAULT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+                )
+                """
+            )
+            await db.execute(
+                """
+                INSERT INTO ticket_categories
+                    (guild_id, name, description, welcome_message, role_ids, emoji, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (GUILD_ID, "Legacy", "", "", "[]", None, 0),
+            )
+            await db.commit()
+
+        categories = await ticket_svc.get_categories(GUILD_ID)
+        assert len(categories) == 1
+        assert categories[0]["name"] == "Legacy"
+        assert categories[0]["allowed_statuses"] == []
 
     @pytest.mark.asyncio
     async def test_update_no_valid_fields(self, ticket_svc: TicketService) -> None:
@@ -636,6 +712,14 @@ class TestGetStaffRoleIds:
         config.get_guild_setting.return_value = "not_json"
         result = await TicketService.get_staff_role_ids(config, GUILD_ID)
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_double_encoded_json_string(self) -> None:
+        """Parses historical double-encoded JSON role arrays."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = '"[1309213397757460530]"'
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == [1309213397757460530]
 
     @pytest.mark.asyncio
     async def test_handles_none(self) -> None:

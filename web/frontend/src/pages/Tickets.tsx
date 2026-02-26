@@ -10,6 +10,7 @@ import {
   DiscordChannel,
   GuildRole,
   TicketCategory,
+  TicketCategoryEligibilityStatus,
   TicketFormStep,
   TicketInfo,
   guildApi,
@@ -82,6 +83,9 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [catEmoji, setCatEmoji] = useState('');
   const [catWelcomeMessage, setCatWelcomeMessage] = useState('');
   const [catRoleIds, setCatRoleIds] = useState<string[]>([]);
+  const [catAllowedStatuses, setCatAllowedStatuses] = useState<
+    TicketCategoryEligibilityStatus[]
+  >([]);
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
 
@@ -239,6 +243,7 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatEmoji('');
     setCatWelcomeMessage('');
     setCatRoleIds([]);
+    setCatAllowedStatuses([]);
   };
 
   const openCreateCategory = () => {
@@ -254,6 +259,7 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatEmoji(cat.emoji ?? '');
     setCatWelcomeMessage(cat.welcome_message);
     setCatRoleIds(cat.role_ids);
+    setCatAllowedStatuses(cat.allowed_statuses ?? []);
     setCategoryModalOpen(true);
   };
 
@@ -267,6 +273,7 @@ export default function Tickets({ guildId }: TicketsProps) {
           welcome_message: catWelcomeMessage,
           emoji: catEmoji || null,
           role_ids: catRoleIds,
+          allowed_statuses: catAllowedStatuses,
         });
         showSuccess('Category updated');
       } else {
@@ -277,6 +284,7 @@ export default function Tickets({ guildId }: TicketsProps) {
           welcome_message: catWelcomeMessage,
           emoji: catEmoji || null,
           role_ids: catRoleIds,
+          allowed_statuses: catAllowedStatuses,
         });
         showSuccess('Category created');
       }
@@ -498,8 +506,8 @@ export default function Tickets({ guildId }: TicketsProps) {
           <div>
             <h5 className="text-sm font-medium text-gray-300 mb-1">Staff Roles</h5>
             <p className="text-xs text-gray-500 mb-2">
-              Roles that can view and close all tickets. Members with these roles are
-              auto-mentioned in new ticket threads.
+              Global ticket admins that can claim and close any ticket. These roles are
+              mentioned only when a category does not define Notified Roles.
             </p>
             <SearchableMultiSelect
               options={roleOptions}
@@ -592,6 +600,8 @@ export default function Tickets({ guildId }: TicketsProps) {
             <p className="text-sm text-gray-400">
               Ticket categories let users choose a topic when creating a ticket.
               Each category can have its own welcome message and notified roles.
+              Category notified roles can claim/close tickets in that category and are
+              the roles mentioned for those tickets.
             </p>
             <Button size="sm" onClick={openCreateCategory} className="flex-shrink-0 ml-4">
               + Add Category
@@ -618,6 +628,11 @@ export default function Tickets({ guildId }: TicketsProps) {
                       {cat.role_ids.length > 0 && (
                         <Badge variant="primary-outline" className="ml-2">
                           {cat.role_ids.length} role{cat.role_ids.length !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                      {(cat.allowed_statuses?.length ?? 0) > 0 && (
+                        <Badge variant="primary-outline" className="ml-2">
+                          Requires: {cat.allowed_statuses.join(', ')}
                         </Badge>
                       )}
                     </div>
@@ -673,6 +688,7 @@ export default function Tickets({ guildId }: TicketsProps) {
         catEmoji={catEmoji}
         catWelcomeMessage={catWelcomeMessage}
         catRoleIds={catRoleIds}
+        catAllowedStatuses={catAllowedStatuses}
         catSaving={catSaving}
         roleOptions={roleOptions}
         onCatNameChange={setCatName}
@@ -680,6 +696,7 @@ export default function Tickets({ guildId }: TicketsProps) {
         onCatEmojiChange={setCatEmoji}
         onCatWelcomeMessageChange={setCatWelcomeMessage}
         onCatRoleIdsChange={setCatRoleIds}
+        onCatAllowedStatusesChange={setCatAllowedStatuses}
         onSave={handleSaveCategory}
       />
 

@@ -8,7 +8,7 @@ guild-level ticket settings — all scoped to the active guild.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from core.dependencies import (
     InternalAPIClient,
@@ -59,6 +59,7 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
             description=c.get("description", ""),
             welcome_message=c.get("welcome_message", ""),
             role_ids=[str(r) for r in c.get("role_ids", [])],
+            allowed_statuses=c.get("allowed_statuses", []),
             emoji=c.get("emoji"),
             sort_order=c.get("sort_order", 0),
             created_at=c.get("created_at", 0),
@@ -114,6 +115,7 @@ async def create_category(
         description=body.description,
         welcome_message=body.welcome_message,
         role_ids=[int(r) for r in body.role_ids],
+        allowed_statuses=cast(list[str], list(body.allowed_statuses)),
         emoji=body.emoji,
     )
     if cat_id is None:
@@ -143,6 +145,7 @@ async def update_category(
             "description": body.description,
             "welcome_message": body.welcome_message,
             "role_ids": body.role_ids,
+            "allowed_statuses": body.allowed_statuses,
             "emoji": body.emoji,
             "sort_order": body.sort_order,
         }.items()

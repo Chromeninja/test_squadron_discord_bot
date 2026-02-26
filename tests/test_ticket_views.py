@@ -1,5 +1,5 @@
 """
-Tests for ticket Discord UI views — TicketPanelView and TicketControlView.
+Tests for ticket Discord UI views — TicketPanelView and TicketActionView.
 
 Uses FakeInteraction / mock_bot from conftest and mocks the service layer.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 import pytest_asyncio
@@ -17,11 +17,11 @@ import discord
 
 from helpers.ticket_views import (
     TicketCategorySelect,
+    TicketActionView,
     TicketCloseReasonModal,
-    TicketControlView,
     TicketDescriptionModal,
     TicketPanelView,
-    TicketReopenView,
+    _close_ticket,
     _create_ticket_thread,
     _log_ticket_event,
 )
@@ -55,6 +55,7 @@ def _mock_bot_with_services(
     ts.get_cooldown_remaining = AsyncMock(return_value=cooldown)
     ts.create_ticket = AsyncMock(return_value=ticket_id)
     ts.get_ticket_by_thread = AsyncMock(return_value=ticket)
+    ts.get_category = AsyncMock(return_value=None)
     ts.close_ticket_by_thread = AsyncMock(return_value=True)
     ts.check_max_open_tickets = AsyncMock(return_value=max_open_allowed)
     ts.claim_ticket = AsyncMock(return_value=True)
@@ -192,30 +193,117 @@ class TestTicketCategorySelect:
         assert interaction.response.sent_modal is not None
         assert isinstance(interaction.response.sent_modal, TicketDescriptionModal)
 
+    @pytest.mark.asyncio
+    async def test_callback_blocks_when_category_requires_org_main(
+        self,
+    ) -> None:
+        """A non-eligible user is blocked when selecting a restricted category."""
+        cats = [
+            {
+                "id": 9,
+                "name": "Main Org",
+                "description": "",
+                "emoji": None,
+                "allowed_statuses": ["org_main"],
+            }
+        ]
+        bot = _mock_bot_with_services()
+        select = TicketCategorySelect(bot, cats)
+        select._values = ["9"]
+        interaction = FakeInteraction()
+
+        type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
+        with patch(
+            "helpers.ticket_views.Database.get_global_verification_state",
+            new=AsyncMock(return_value=None),
+        ):
+            await select.callback(interaction)  # type: ignore[arg-type]
+
+        assert interaction.response._is_done
+        assert interaction.response.sent_modal is None
+
+    @pytest.mark.asyncio
+    async def test_callback_allows_when_category_requires_bot_verified(
+        self,
+    ) -> None:
+        """A verified user can select a category requiring bot_verified."""
+        cats = [
+            {
+                "id": 10,
+                "name": "Verified",
+                "description": "",
+                "emoji": None,
+                "allowed_statuses": ["bot_verified"],
+            }
+        ]
+        bot = _mock_bot_with_services()
+        select = TicketCategorySelect(bot, cats)
+        select._values = ["10"]
+        interaction = FakeInteraction()
+
+        type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
+        with patch(
+            "helpers.ticket_views.Database.get_global_verification_state",
+            new=AsyncMock(
+                return_value={
+                    "rsi_handle": "pilot",
+                    "main_orgs": [],
+                    "affiliate_orgs": [],
+                    "community_moniker": None,
+                    "last_updated": 0,
+                }
+            ),
+        ):
+            await select.callback(interaction)  # type: ignore[arg-type]
+
+        assert interaction.response._is_done
+        assert interaction.response.sent_modal is not None
+        assert isinstance(interaction.response.sent_modal, TicketDescriptionModal)
+
 
 # ---------------------------------------------------------------------------
-# TicketControlView
+# TicketActionView
 # ---------------------------------------------------------------------------
 
 
-class TestTicketControlView:
+class TestTicketActionView:
     """Tests for the 'Close Ticket' button callback."""
 
     @pytest.mark.asyncio
-    async def test_view_has_close_button(self) -> None:
-        """Control view has claim and close buttons."""
+    async def test_view_has_action_buttons_and_open_state(self) -> None:
+        """Action view has all buttons and open-state disabled rules."""
         bot = _mock_bot_with_services()
-        view = TicketControlView(bot)
-        assert len(view.children) == 2
+        view = TicketActionView(bot)
+        assert len(view.children) == 4
         custom_ids = {c.custom_id for c in view.children}  # type: ignore[attr-defined]
-        assert "ticket_close_button" in custom_ids
-        assert "ticket_claim_button" in custom_ids
+        assert "ticket_action_close_button" in custom_ids
+        assert "ticket_action_claim_button" in custom_ids
+        assert "ticket_action_reopen_button" in custom_ids
+        assert "ticket_action_delete_button" in custom_ids
+
+        button_map = {c.custom_id: c for c in view.children}  # type: ignore[attr-defined]
+        assert button_map["ticket_action_claim_button"].disabled is False
+        assert button_map["ticket_action_close_button"].disabled is False
+        assert button_map["ticket_action_reopen_button"].disabled is True
+        assert button_map["ticket_action_delete_button"].disabled is False
+
+    @pytest.mark.asyncio
+    async def test_view_closed_state_disables_claim_and_close(self) -> None:
+        """Closed-state action view disables claim/close and enables reopen."""
+        bot = _mock_bot_with_services()
+        view = TicketActionView(bot, ticket_is_closed=True, reopen_enabled=True)
+        button_map = {c.custom_id: c for c in view.children}  # type: ignore[attr-defined]
+
+        assert button_map["ticket_action_claim_button"].disabled is True
+        assert button_map["ticket_action_close_button"].disabled is True
+        assert button_map["ticket_action_reopen_button"].disabled is False
+        assert button_map["ticket_action_delete_button"].disabled is False
 
     @pytest.mark.asyncio
     async def test_close_no_guild(self) -> None:
         """Close button outside a guild sends an error."""
         bot = _mock_bot_with_services()
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
         interaction = FakeInteraction()
         interaction.guild = None
         interaction.channel = MagicMock()
@@ -227,7 +315,7 @@ class TestTicketControlView:
     async def test_close_not_in_thread(self) -> None:
         """Close button outside a thread sends an error."""
         bot = _mock_bot_with_services()
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
         interaction = FakeInteraction()
         interaction.channel = MagicMock(spec=discord.TextChannel)
 
@@ -238,7 +326,7 @@ class TestTicketControlView:
     async def test_close_ticket_not_found(self) -> None:
         """If DB has no ticket for this thread, report error."""
         bot = _mock_bot_with_services(ticket=None)
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
         interaction = FakeInteraction()
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
@@ -256,7 +344,7 @@ class TestTicketControlView:
             "guild_id": 123,
         }
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 1  # not the creator
@@ -281,7 +369,7 @@ class TestTicketControlView:
             "guild_id": 123,
         }
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 42  # same as ticket creator
@@ -300,6 +388,38 @@ class TestTicketControlView:
 
         await view._on_close_ticket(interaction)  # type: ignore[arg-type]
         # Should send a close-reason modal
+        assert interaction.response._is_done
+        assert interaction.response.sent_modal is not None
+        assert isinstance(interaction.response.sent_modal, TicketCloseReasonModal)
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_category_role_allowed(self) -> None:
+        """A user with a category Notified Role can close the ticket."""
+        ticket = {
+            "id": 1,
+            "user_id": 42,
+            "guild_id": 123,
+            "category_id": 5,
+        }
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        bot.services.ticket.get_category = AsyncMock(
+            return_value={"id": 5, "role_ids": [777]}
+        )
+        view = TicketActionView(bot)
+
+        role = SimpleNamespace(id=777)
+        user = MagicMock(spec=discord.Member)
+        user.id = 100
+        user.roles = [role]
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        interaction.channel = thread
+
+        await view._on_close_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
         assert interaction.response.sent_modal is not None
         assert isinstance(interaction.response.sent_modal, TicketCloseReasonModal)
@@ -332,7 +452,39 @@ class TestCreateTicketThread:
 
         await _create_ticket_thread(bot, interaction, category=None)  # type: ignore[arg-type]
 
-        thread.edit.assert_any_await(name="ticket-123")
+        thread.edit.assert_any_await(name="T:123 - ticket - Pilot")
+
+    @pytest.mark.asyncio
+    async def test_category_mentions_override_global_staff_mentions(self) -> None:
+        """When category roles are set, only category roles are mentioned."""
+        bot = _mock_bot_with_services(ticket_id=123, staff_roles="[888]")
+
+        interaction = FakeInteraction(user=FakeUser(user_id=42, display_name="Pilot"))
+        role_category = SimpleNamespace(id=777, mention="@cat-role")
+        role_global = SimpleNamespace(id=888, mention="@global-role")
+        guild = SimpleNamespace(
+            id=123,
+            name="TestGuild",
+            get_role=lambda rid: {777: role_category, 888: role_global}.get(rid),
+        )
+        interaction.guild = guild
+
+        text_channel = MagicMock(spec=discord.TextChannel)
+        text_channel.id = 777
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 888
+        thread.add_user = AsyncMock()
+        thread.send = AsyncMock()
+        thread.edit = AsyncMock()
+        thread.mention = "#ticket-123"
+        text_channel.create_thread = AsyncMock(return_value=thread)
+        interaction.channel = text_channel
+
+        category = {"id": 5, "name": "Support", "role_ids": [777]}
+        await _create_ticket_thread(bot, interaction, category=category)  # type: ignore[arg-type]
+
+        assert call("@cat-role") in thread.send.await_args_list
+        assert call("@global-role") not in thread.send.await_args_list
 
 
 # ---------------------------------------------------------------------------
@@ -382,19 +534,19 @@ class TestTicketPanelMaxOpen:
 
 
 # ---------------------------------------------------------------------------
-# TicketControlView — claim button
+# TicketActionView — claim button
 # ---------------------------------------------------------------------------
 
 
 class TestTicketClaimButton:
-    """Tests for the claim button on TicketControlView."""
+    """Tests for the claim button on TicketActionView."""
 
     @pytest.mark.asyncio
     async def test_claim_ticket_staff_only(self) -> None:
         """Non-staff user cannot claim."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123, "claimed_by": None}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 42
@@ -416,7 +568,7 @@ class TestTicketClaimButton:
         """Admin can claim a ticket."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123, "claimed_by": None}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 999
@@ -439,7 +591,7 @@ class TestTicketClaimButton:
         """Clicking claim when already claimed by the same user unclaims."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123, "claimed_by": 999}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketControlView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 999  # same as claimed_by
@@ -457,28 +609,96 @@ class TestTicketClaimButton:
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
         bot.services.ticket.unclaim_ticket.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_claim_ticket_category_role_allowed(self) -> None:
+        """A user with a category Notified Role can claim the ticket."""
+        ticket = {
+            "id": 1,
+            "user_id": 42,
+            "guild_id": 123,
+            "claimed_by": None,
+            "category_id": 5,
+        }
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        bot.services.ticket.get_category = AsyncMock(
+            return_value={"id": 5, "role_ids": [777]}
+        )
+        view = TicketActionView(bot)
+
+        role = SimpleNamespace(id=777)
+        user = MagicMock(spec=discord.Member)
+        user.id = 999
+        user.roles = [role]
+        user.mention = "@helper"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.send = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
+        bot.services.ticket.claim_ticket.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_claim_ticket_global_staff_allowed_when_category_roles_set(
+        self,
+    ) -> None:
+        """Global staff can still claim when category has separate notified roles."""
+        ticket = {
+            "id": 1,
+            "user_id": 42,
+            "guild_id": 123,
+            "claimed_by": None,
+            "category_id": 5,
+        }
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[888]")
+        bot.services.ticket.get_category = AsyncMock(
+            return_value={"id": 5, "role_ids": [777]}
+        )
+        view = TicketActionView(bot)
+
+        role = SimpleNamespace(id=888)
+        user = MagicMock(spec=discord.Member)
+        user.id = 999
+        user.roles = [role]
+        user.mention = "@global"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.send = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
+        bot.services.ticket.claim_ticket.assert_awaited_once()
+
 
 # ---------------------------------------------------------------------------
-# TicketReopenView
+# TicketActionView — reopen button
 # ---------------------------------------------------------------------------
 
 
-class TestTicketReopenView:
+class TestTicketReopenButton:
     """Tests for the reopen button."""
 
     @pytest.mark.asyncio
     async def test_view_has_reopen_button(self) -> None:
-        """Reopen view has a single button with the correct custom_id."""
+        """Action view includes the reopen button with the correct custom_id."""
         bot = _mock_bot_with_services()
-        view = TicketReopenView(bot)
-        assert len(view.children) == 1
-        assert view.children[0].custom_id == "ticket_reopen_button"  # type: ignore[attr-defined]
+        view = TicketActionView(bot)
+        custom_ids = {c.custom_id for c in view.children}  # type: ignore[attr-defined]
+        assert "ticket_action_reopen_button" in custom_ids
 
     @pytest.mark.asyncio
     async def test_reopen_not_in_thread(self) -> None:
         """Reopen button outside a thread sends an error."""
         bot = _mock_bot_with_services()
-        view = TicketReopenView(bot)
+        view = TicketActionView(bot)
         interaction = FakeInteraction()
         interaction.channel = MagicMock(spec=discord.TextChannel)
 
@@ -490,7 +710,7 @@ class TestTicketReopenView:
         """Non-creator, non-staff user cannot reopen."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        view = TicketReopenView(bot)
+        view = TicketActionView(bot)
 
         user = MagicMock(spec=discord.Member)
         user.id = 1  # not the creator
@@ -506,3 +726,150 @@ class TestTicketReopenView:
         await view._on_reopen_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
         bot.services.ticket.reopen_ticket.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# TicketActionView — delete button
+# ---------------------------------------------------------------------------
+
+
+class TestTicketDeleteButton:
+    """Tests for the delete button."""
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_unauthorized(self) -> None:
+        """Non-creator, non-staff user cannot delete."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 1
+        user.roles = []
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+
+        assert interaction.response._is_done
+        thread.delete.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_creator_allowed(self) -> None:
+        """Ticket creator can delete the thread."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        interaction.followup = SimpleNamespace(send=AsyncMock())
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+            await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+
+        thread.delete.assert_awaited_once()
+        interaction.followup.send.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_forbidden_reports_error(self) -> None:
+        """Delete reports permissions error when bot cannot delete thread."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        interaction.followup = SimpleNamespace(send=AsyncMock())
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "forbidden"))
+        interaction.channel = thread
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+
+        interaction.followup.send.assert_awaited()
+        args, _kwargs = interaction.followup.send.await_args
+        assert "don't have permission" in args[0]
+
+
+# ---------------------------------------------------------------------------
+# _close_ticket
+# ---------------------------------------------------------------------------
+
+
+class TestCloseTicketFlow:
+    """Tests for explicit thread close behavior."""
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_archives_and_locks_thread_not_delete(self) -> None:
+        """Closing a ticket archives + locks the thread and never deletes it."""
+        bot = _mock_bot_with_services(ticket={"id": 1, "user_id": 42, "guild_id": 123})
+        interaction = FakeInteraction()
+        interaction.followup = SimpleNamespace(send=AsyncMock())
+
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.mention = "#ticket-thread"
+        thread.send = AsyncMock()
+        thread.edit = AsyncMock()
+        thread.delete = AsyncMock()
+
+        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
+            with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+                await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
+
+        thread.edit.assert_awaited_once()
+        kwargs = thread.edit.await_args.kwargs
+        assert kwargs.get("archived") is True
+        assert kwargs.get("locked") is True
+        thread.delete.assert_not_awaited()
+        interaction.followup.send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_reports_archive_failure(self) -> None:
+        """When archive/lock fails, it is logged without additional followups."""
+        bot = _mock_bot_with_services(ticket={"id": 1, "user_id": 42, "guild_id": 123})
+        interaction = FakeInteraction()
+        interaction.followup = SimpleNamespace(send=AsyncMock())
+
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.mention = "#ticket-thread"
+        thread.send = AsyncMock()
+        thread.edit = AsyncMock(
+            side_effect=discord.HTTPException(
+                response=SimpleNamespace(status=500, reason="Server Error"),
+                message="archive failed",
+            )
+        )
+
+        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
+            with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+                with patch("helpers.ticket_views.logger.exception") as log_exception:
+                    await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
+
+        log_exception.assert_called()
+        interaction.followup.send.assert_not_awaited()

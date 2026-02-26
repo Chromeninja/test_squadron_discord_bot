@@ -436,6 +436,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             description TEXT    DEFAULT '',
             welcome_message TEXT DEFAULT '',
             role_ids    TEXT    DEFAULT '[]',
+            allowed_statuses TEXT DEFAULT '[]',
             emoji       TEXT    DEFAULT NULL,
             sort_order  INTEGER NOT NULL DEFAULT 0,
             created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))

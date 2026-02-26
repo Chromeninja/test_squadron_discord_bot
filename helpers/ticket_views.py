@@ -3,8 +3,8 @@ Ticket Views Module
 
 Persistent Discord UI components for the ticketing system:
 - ``TicketPanelView``    — "Create Ticket" button (lives on the panel message).
-- ``TicketControlView``  — "Close" + "Claim" buttons (lives inside each ticket thread).
-- ``TicketReopenView``   — "Reopen" button (sent after a ticket is closed).
+- ``TicketActionView``   — "Claim" + "Close" + "Reopen" + "Delete"
+                            buttons (lives inside ticket threads).
 
 Ephemeral / modal components (NOT persistent):
 - ``TicketCategorySelect``   — dropdown for choosing a category.
@@ -15,9 +15,8 @@ Both persistent views use stable ``custom_id`` values so they survive bot
 restarts.
 
 AI Notes:
-    Only ``TicketPanelView``, ``TicketControlView``, and ``TicketReopenView``
-    need ``bot.add_view()`` at startup.  The modals and category select are
-    created on-the-fly.
+    Only ``TicketPanelView`` and ``TicketActionView`` need ``bot.add_view()``
+    at startup. The modals and category select are created on-the-fly.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.embeds import EmbedColors, create_embed
+from services.db.database import Database, derive_membership_status
 from services.ticket_service import (
     DEFAULT_MAX_OPEN_PER_USER,
     DEFAULT_REOPEN_WINDOW_HOURS,
@@ -57,18 +57,52 @@ async def _get_staff_and_check(
     bot: MyBot,
     guild_id: int,
     member: discord.Member,
+    extra_role_ids: list[int] | None = None,
 ) -> bool:
     """Return ``True`` if *member* is considered ticket-staff.
 
-    Staff = has a configured staff role **or** has the ``administrator``
-    guild permission.
+    Staff = has a configured global ticket-staff role, a ticket-specific
+    category role, or the ``administrator`` guild permission.
     """
     config_service = bot.services.config
     staff_role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
+    if extra_role_ids:
+        staff_role_ids = list(set(staff_role_ids) | set(extra_role_ids))
     member_role_ids = {r.id for r in member.roles}
     if member_role_ids & set(staff_role_ids):
         return True
     return member.guild_permissions.administrator
+
+
+async def _get_ticket_category_role_ids(
+    ticket_service: Any,
+    ticket: dict[str, Any],
+) -> list[int]:
+    """Return role IDs configured on the ticket's category, if any."""
+    category_id = ticket.get("category_id")
+    if not category_id:
+        return []
+
+    try:
+        category = await ticket_service.get_category(int(category_id))
+    except (TypeError, ValueError, AttributeError):
+        return []
+
+    if not isinstance(category, dict):
+        return []
+
+    role_ids_raw = category.get("role_ids")
+    if not isinstance(role_ids_raw, list):
+        return []
+
+    role_ids: list[int] = []
+    for role_id in role_ids_raw:
+        try:
+            role_ids.append(int(role_id))
+        except (TypeError, ValueError):
+            continue
+
+    return role_ids
 
 
 async def _log_ticket_event(
@@ -100,6 +134,78 @@ async def _log_ticket_event(
             guild_id,
             exc_info=e,
         )
+
+
+def _normalize_org_sid(raw_org_sid: Any) -> str:
+    """Normalize configured org SID to an uppercase plain string."""
+    if isinstance(raw_org_sid, str):
+        value = raw_org_sid.strip().strip('"')
+    elif raw_org_sid is None:
+        value = ""
+    else:
+        value = str(raw_org_sid)
+
+    if not value:
+        return "TEST"
+    return value.upper()
+
+
+async def _get_ticket_category_statuses(
+    bot: MyBot,
+    guild_id: int,
+    user_id: int,
+) -> set[str]:
+    """Return the computed ticket-eligibility statuses for a user."""
+    verification_state = await Database.get_global_verification_state(user_id)
+    if verification_state is None:
+        return set()
+
+    statuses: set[str] = {"bot_verified"}
+    config_service = bot.services.config
+    raw_org_sid = await config_service.get_guild_setting(
+        guild_id,
+        "organization.sid",
+        default="TEST",
+    )
+    org_sid = _normalize_org_sid(raw_org_sid)
+    membership = derive_membership_status(
+        verification_state.get("main_orgs"),
+        verification_state.get("affiliate_orgs"),
+        target_sid=org_sid,
+    )
+    if membership == "main":
+        statuses.add("org_main")
+    elif membership == "affiliate":
+        statuses.add("org_affiliate")
+
+    return statuses
+
+
+def _user_meets_category_status_requirement(
+    category: dict[str, Any],
+    user_statuses: set[str],
+) -> bool:
+    """Return whether user status set satisfies a category's restriction."""
+    allowed_statuses_raw = category.get("allowed_statuses")
+    if not isinstance(allowed_statuses_raw, list):
+        return True
+
+    allowed_statuses = [s for s in allowed_statuses_raw if isinstance(s, str)]
+    if not allowed_statuses:
+        return True
+
+    return any(status in user_statuses for status in allowed_statuses)
+
+
+def _format_ticket_thread_name(
+    ticket_id: int,
+    category_label: str,
+    user_display_name: str,
+) -> str:
+    """Format a ticket thread name using the standard naming convention."""
+    safe_category = " ".join(str(category_label).split())
+    safe_user = " ".join(str(user_display_name).split())
+    return f"T:{ticket_id:02d} - {safe_category} - {safe_user}"[:100]
 
 
 async def _generate_transcript(thread: discord.Thread) -> discord.File:
@@ -331,6 +437,45 @@ class TicketCategorySelect(Select):
             await interaction.response.send_modal(modal)
             return
 
+        # Check eligibility requirements (if configured on category)
+        allowed_statuses_raw = category.get("allowed_statuses")
+        if isinstance(allowed_statuses_raw, list) and allowed_statuses_raw:
+            if interaction.guild is None:
+                await interaction.response.send_message(
+                    "Tickets can only be created in a server.", ephemeral=True
+                )
+                return
+
+            try:
+                user_statuses = await _get_ticket_category_statuses(
+                    self.bot,
+                    interaction.guild.id,
+                    interaction.user.id,
+                )
+            except Exception as e:
+                logger.exception(
+                    (
+                        "Failed to resolve ticket category eligibility "
+                        "for user %s in guild %s"
+                    ),
+                    interaction.user.id,
+                    interaction.guild.id,
+                    exc_info=e,
+                )
+                await interaction.response.send_message(
+                    "❌ Could not validate category requirements right now. "
+                    "Please try again in a moment.",
+                    ephemeral=True,
+                )
+                return
+
+            if not _user_meets_category_status_requirement(category, user_statuses):
+                await interaction.response.send_message(
+                    "❌ You do not meet this category's verification requirements.",
+                    ephemeral=True,
+                )
+                return
+
         # Check for dynamic form configuration
         try:
             ticket_form_service = self.bot.services.ticket_form
@@ -351,22 +496,29 @@ class TicketCategorySelect(Select):
 
 
 # ---------------------------------------------------------------------------
-# Control View — sits inside each ticket thread (Close + Claim)
+# Action View — sits inside each ticket thread (Claim/Close/Reopen/Delete)
 # ---------------------------------------------------------------------------
 
 
-class TicketControlView(View):
-    """Persistent view with 'Close' and 'Claim' buttons inside a ticket thread."""
+class TicketActionView(View):
+    """Persistent view with ticket action buttons inside a ticket thread."""
 
-    def __init__(self, bot: MyBot) -> None:
+    def __init__(
+        self,
+        bot: MyBot,
+        *,
+        ticket_is_closed: bool = False,
+        reopen_enabled: bool = False,
+    ) -> None:
         super().__init__(timeout=None)
         self.bot = bot
 
         claim_btn = Button(
             label="Claim",
             style=discord.ButtonStyle.secondary,
-            custom_id="ticket_claim_button",
+            custom_id="ticket_action_claim_button",
             emoji="🙋",
+            disabled=ticket_is_closed,
         )
         claim_btn.callback = self._on_claim_ticket
         self.add_item(claim_btn)
@@ -374,11 +526,31 @@ class TicketControlView(View):
         close_btn = Button(
             label="Close Ticket",
             style=discord.ButtonStyle.danger,
-            custom_id="ticket_close_button",
+            custom_id="ticket_action_close_button",
             emoji="🔒",
+            disabled=ticket_is_closed,
         )
         close_btn.callback = self._on_close_ticket
         self.add_item(close_btn)
+
+        reopen_btn = Button(
+            label="Reopen Ticket",
+            style=discord.ButtonStyle.success,
+            custom_id="ticket_action_reopen_button",
+            emoji="🔓",
+            disabled=(not ticket_is_closed) or (not reopen_enabled),
+        )
+        reopen_btn.callback = self._on_reopen_ticket
+        self.add_item(reopen_btn)
+
+        delete_btn = Button(
+            label="Delete Ticket",
+            style=discord.ButtonStyle.danger,
+            custom_id="ticket_action_delete_button",
+            emoji="🗑️",
+        )
+        delete_btn.callback = self._on_delete_ticket
+        self.add_item(delete_btn)
 
     # -- Claim --
 
@@ -410,7 +582,13 @@ class TicketControlView(View):
             )
             return
 
-        is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
+        category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+        is_staff = await _get_staff_and_check(
+            self.bot,
+            guild_id,
+            interaction.user,
+            extra_role_ids=category_role_ids,
+        )
         if not is_staff:
             await interaction.response.send_message(
                 "Only staff members can claim tickets.", ephemeral=True
@@ -496,7 +674,13 @@ class TicketControlView(View):
         is_staff = False
 
         if isinstance(interaction.user, discord.Member):
-            is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
+            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            is_staff = await _get_staff_and_check(
+                self.bot,
+                guild_id,
+                interaction.user,
+                extra_role_ids=category_role_ids,
+            )
 
         if not is_creator and not is_staff:
             await interaction.response.send_message(
@@ -507,28 +691,6 @@ class TicketControlView(View):
         # Show the close-reason modal
         modal = TicketCloseReasonModal(self.bot, thread)
         await interaction.response.send_modal(modal)
-
-
-# ---------------------------------------------------------------------------
-# Reopen View — sent after a ticket is closed
-# ---------------------------------------------------------------------------
-
-
-class TicketReopenView(View):
-    """Persistent view with a 'Reopen' button, sent in a closed ticket thread."""
-
-    def __init__(self, bot: MyBot) -> None:
-        super().__init__(timeout=None)
-        self.bot = bot
-
-        reopen_btn = Button(
-            label="Reopen Ticket",
-            style=discord.ButtonStyle.success,
-            custom_id="ticket_reopen_button",
-            emoji="🔓",
-        )
-        reopen_btn.callback = self._on_reopen_ticket
-        self.add_item(reopen_btn)
 
     async def _on_reopen_ticket(self, interaction: discord.Interaction) -> None:
         """Handle the 'Reopen' button press."""
@@ -557,7 +719,13 @@ class TicketReopenView(View):
         is_creator = user_id == ticket["user_id"]
         is_staff = False
         if isinstance(interaction.user, discord.Member):
-            is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
+            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            is_staff = await _get_staff_and_check(
+                self.bot,
+                guild_id,
+                interaction.user,
+                extra_role_ids=category_role_ids,
+            )
 
         if not is_creator and not is_staff:
             await interaction.response.send_message(
@@ -608,8 +776,8 @@ class TicketReopenView(View):
             color=EmbedColors.SUCCESS,
         )
         # Send the control view again so staff can close/claim
-        control_view = TicketControlView(self.bot)
-        await thread.send(embed=reopen_embed, view=control_view)
+        action_view = TicketActionView(self.bot)
+        await thread.send(embed=reopen_embed, view=action_view)
 
         await _log_ticket_event(
             self.bot,
@@ -623,6 +791,92 @@ class TicketReopenView(View):
         )
 
         await interaction.followup.send("Ticket reopened.", ephemeral=True)
+
+    async def _on_delete_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the 'Delete Ticket' button — delete the Discord thread."""
+        if interaction.guild is None or not isinstance(
+            interaction.channel, discord.Thread
+        ):
+            await interaction.response.send_message(
+                "This button only works inside a ticket thread.", ephemeral=True
+            )
+            return
+
+        thread = interaction.channel
+        guild_id = interaction.guild.id
+        ticket_service = self.bot.services.ticket
+
+        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        if ticket is None:
+            await interaction.response.send_message(
+                "Could not find a ticket record for this thread.", ephemeral=True
+            )
+            return
+
+        # Only the creator or staff can delete
+        user_id = interaction.user.id
+        is_creator = user_id == ticket["user_id"]
+        is_staff = False
+        if isinstance(interaction.user, discord.Member):
+            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            is_staff = await _get_staff_and_check(
+                self.bot,
+                guild_id,
+                interaction.user,
+                extra_role_ids=category_role_ids,
+            )
+
+        if not is_creator and not is_staff:
+            await interaction.response.send_message(
+                "You do not have permission to delete this ticket.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            await thread.delete(
+                reason=(
+                    f"Ticket deleted by {interaction.user} "
+                    f"({interaction.user.id})"
+                )
+            )
+        except discord.Forbidden as e:
+            logger.exception(
+                "Failed to delete thread %s in guild %s due to permissions",
+                thread.id,
+                guild_id,
+                exc_info=e,
+            )
+            await interaction.followup.send(
+                "I don't have permission to delete this thread.", ephemeral=True
+            )
+            return
+        except discord.HTTPException as e:
+            logger.exception(
+                "Discord API error while deleting thread %s in guild %s",
+                thread.id,
+                guild_id,
+                exc_info=e,
+            )
+            await interaction.followup.send(
+                "Failed to delete this thread due to a Discord API error.",
+                ephemeral=True,
+            )
+            return
+
+        await _log_ticket_event(
+            self.bot,
+            guild_id,
+            title="🗑️ Ticket Deleted",
+            description=(
+                f"**Thread:** `{thread.id}`\n"
+                f"**Deleted by:** {interaction.user.mention}"
+            ),
+            color=EmbedColors.WARNING,
+        )
+
+        await interaction.followup.send("Ticket thread deleted.", ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
@@ -787,15 +1041,20 @@ async def _create_ticket_thread(
         initial_description=initial_description,
     )
 
-    # Rename thread to ticket number for consistent UX
+    # Rename thread using standard ticket naming format
     if ticket_id is not None:
+        formatted_name = _format_ticket_thread_name(
+            ticket_id,
+            cat_label,
+            user.display_name,
+        )
         try:
-            await thread.edit(name=f"ticket-{ticket_id}")
+            await thread.edit(name=formatted_name)
         except (discord.Forbidden, discord.HTTPException):
             logger.warning(
-                "Could not rename thread %s to ticket-%s in guild %s",
+                "Could not rename thread %s to %s in guild %s",
                 thread.id,
-                ticket_id,
+                formatted_name,
                 guild_id,
             )
 
@@ -840,7 +1099,7 @@ async def _create_ticket_thread(
                     name=label[:256], value=answer[:1024], inline=False
                 )
 
-    control_view = TicketControlView(bot)
+    control_view = TicketActionView(bot)
     await thread.send(embed=welcome_embed, view=control_view)
 
     # --- Add staff roles to the thread ---
@@ -943,21 +1202,33 @@ async def _close_ticket(
         color=EmbedColors.ADMIN,
     )
 
-    # Send close message + reopen view + transcript
-    reopen_view = TicketReopenView(bot)
+    # Send close message + action view + transcript
+    action_view = TicketActionView(bot, ticket_is_closed=True, reopen_enabled=True)
     if transcript_file:
-        await thread.send(embed=close_embed, view=reopen_view, file=transcript_file)
+        await thread.send(embed=close_embed, view=action_view, file=transcript_file)
     else:
-        await thread.send(embed=close_embed, view=reopen_view)
+        await thread.send(embed=close_embed, view=action_view)
 
-    # Archive + lock the thread
+    # Close thread (archive + lock) — never delete
     try:
-        await thread.edit(archived=True, locked=True)
-    except discord.Forbidden:
-        logger.warning(
-            "Missing permissions to archive/lock thread %s in guild %s",
+        await thread.edit(
+            archived=True,
+            locked=True,
+            reason=f"Ticket closed by {interaction.user} ({interaction.user.id})",
+        )
+    except discord.Forbidden as e:
+        logger.exception(
+            "Failed to archive/lock thread %s in guild %s due to permissions",
             thread.id,
             guild_id,
+            exc_info=e,
+        )
+    except discord.HTTPException as e:
+        logger.exception(
+            "Discord API error while archiving/locking thread %s in guild %s",
+            thread.id,
+            guild_id,
+            exc_info=e,
         )
 
     # --- Log to log channel ---
@@ -979,5 +1250,3 @@ async def _close_ticket(
         description=log_desc,
         color=EmbedColors.ADMIN,
     )
-
-    await interaction.followup.send("Ticket closed.", ephemeral=True)

@@ -9,6 +9,7 @@ reopening, transcripts, and statistics.
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from typing import Any
 
@@ -39,9 +40,15 @@ _TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 # Column names for category SELECT queries — keep in sync with _row_to_category()
 _CATEGORY_COLUMN_NAMES = [
     "id", "guild_id", "name", "description", "welcome_message",
-    "role_ids", "emoji", "sort_order", "created_at",
+    "role_ids", "allowed_statuses", "emoji", "sort_order", "created_at",
 ]
 _CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
+
+_ALLOWED_CATEGORY_STATUS_VALUES = {
+    "bot_verified",
+    "org_main",
+    "org_affiliate",
+}
 
 
 class TicketService(BaseService):
@@ -62,6 +69,7 @@ class TicketService(BaseService):
 
     def __init__(self) -> None:
         super().__init__("ticket")
+        self._category_schema_checked = False
 
     async def _initialize_impl(self) -> None:
         """No special startup work; DB schema is applied separately."""
@@ -95,7 +103,16 @@ class TicketService(BaseService):
             guild_id, "tickets.staff_roles", default="[]"
         )
         try:
-            parsed = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            parsed: Any = raw
+            # Handle values that may be JSON encoded more than once,
+            # e.g. '"[123,456]"' from historical config writes.
+            for _ in range(2):
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+                    continue
+                break
+            if parsed is None:
+                parsed = []
             return [int(r) for r in parsed]
         except (json.JSONDecodeError, TypeError, ValueError):
             return []
@@ -111,6 +128,7 @@ class TicketService(BaseService):
         description: str = "",
         welcome_message: str = "",
         role_ids: list[int] | None = None,
+        allowed_statuses: list[str] | None = None,
         emoji: str | None = None,
     ) -> int | None:
         """Create a new ticket category for a guild.
@@ -121,13 +139,20 @@ class TicketService(BaseService):
             description: Short description shown in dropdown.
             welcome_message: Message sent at the start of a new ticket thread.
             role_ids: List of Discord role IDs to add/ping in new tickets.
+            allowed_statuses: Optional eligibility statuses that can open this
+                category. Allowed values: ``bot_verified``, ``org_main``,
+                ``org_affiliate``. Empty means unrestricted.
             emoji: Optional emoji for the dropdown entry.
 
         Returns:
             The new category row ID, or ``None`` on failure.
         """
         try:
+            await self._ensure_category_schema_compatibility()
             role_json = json.dumps(role_ids or [])
+            allowed_statuses_json = json.dumps(
+                self._normalize_allowed_statuses(allowed_statuses)
+            )
             # Determine next sort_order
             max_order: int = await BaseRepository.fetch_value(
                 "SELECT COALESCE(MAX(sort_order), -1) FROM ticket_categories WHERE guild_id = ?",
@@ -139,10 +164,28 @@ class TicketService(BaseService):
             cat_id = await BaseRepository.insert_returning_id(
                 """
                 INSERT INTO ticket_categories
-                    (guild_id, name, description, welcome_message, role_ids, emoji, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (
+                        guild_id,
+                        name,
+                        description,
+                        welcome_message,
+                        role_ids,
+                        allowed_statuses,
+                        emoji,
+                        sort_order
+                    )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (guild_id, name, description, welcome_message, role_json, emoji, sort_order),
+                (
+                    guild_id,
+                    name,
+                    description,
+                    welcome_message,
+                    role_json,
+                    allowed_statuses_json,
+                    emoji,
+                    sort_order,
+                ),
             )
             self.logger.info(
                 "Created ticket category %s (id=%s) for guild %s",
@@ -167,19 +210,31 @@ class TicketService(BaseService):
         """Update fields on an existing ticket category.
 
         Accepted keyword arguments: ``name``, ``description``,
-        ``welcome_message``, ``role_ids`` (list[int]), ``emoji``,
+        ``welcome_message``, ``role_ids`` (list[int]),
+        ``allowed_statuses`` (list[str]), ``emoji``,
         ``sort_order``.
 
         Returns:
             ``True`` if the row was updated.
         """
-        allowed = {"name", "description", "welcome_message", "role_ids", "emoji", "sort_order"}
+        await self._ensure_category_schema_compatibility()
+        allowed = {
+            "name",
+            "description",
+            "welcome_message",
+            "role_ids",
+            "allowed_statuses",
+            "emoji",
+            "sort_order",
+        }
         updates: dict[str, Any] = {}
         for key, value in kwargs.items():
             if key not in allowed:
                 continue
             if key == "role_ids":
                 updates[key] = json.dumps(value if value is not None else [])
+            elif key == "allowed_statuses":
+                updates[key] = json.dumps(self._normalize_allowed_statuses(value))
             else:
                 updates[key] = value
 
@@ -226,9 +281,11 @@ class TicketService(BaseService):
         """Return all ticket categories for a guild, ordered by ``sort_order``.
 
         Each dict contains: ``id``, ``guild_id``, ``name``, ``description``,
-        ``welcome_message``, ``role_ids`` (list[int]), ``emoji``, ``sort_order``,
+        ``welcome_message``, ``role_ids`` (list[int]),
+        ``allowed_statuses`` (list[str]), ``emoji``, ``sort_order``,
         ``created_at``.
         """
+        await self._ensure_category_schema_compatibility()
         rows = await BaseRepository.fetch_all(
             f"""
             SELECT {_CATEGORY_COLUMNS}
@@ -242,6 +299,7 @@ class TicketService(BaseService):
 
     async def get_category(self, category_id: int) -> dict[str, Any] | None:
         """Return a single category by ID, or ``None``."""
+        await self._ensure_category_schema_compatibility()
         row = await BaseRepository.fetch_one(
             f"""
             SELECT {_CATEGORY_COLUMNS}
@@ -659,8 +717,74 @@ class TicketService(BaseService):
         """Convert a database row to a category dict."""
         d = TicketService._row_to_dict(row, _CATEGORY_COLUMN_NAMES)
         role_ids_raw = d.get("role_ids")
-        d["role_ids"] = json.loads(role_ids_raw) if role_ids_raw else []
+        try:
+            d["role_ids"] = json.loads(role_ids_raw) if role_ids_raw else []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            d["role_ids"] = []
+
+        d["allowed_statuses"] = TicketService._normalize_allowed_statuses(
+            d.get("allowed_statuses")
+        )
         return d
+
+    @staticmethod
+    def _normalize_allowed_statuses(raw: Any) -> list[str]:
+        """Normalize stored category eligibility statuses."""
+        if raw is None:
+            return []
+
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        elif isinstance(raw, list):
+            parsed = raw
+        else:
+            return []
+
+        normalized: list[str] = []
+        for item in parsed:
+            if not isinstance(item, str):
+                continue
+            value = item.strip().lower()
+            if value not in _ALLOWED_CATEGORY_STATUS_VALUES:
+                continue
+            if value in normalized:
+                continue
+            normalized.append(value)
+
+        return normalized
+
+    async def _ensure_category_schema_compatibility(self) -> None:
+        """Ensure ticket category eligibility columns exist on older DBs."""
+        if self._category_schema_checked:
+            return
+
+        rows = await BaseRepository.fetch_all("PRAGMA table_info(ticket_categories)")
+        column_names: set[str] = set()
+        for row in rows:
+            try:
+                column_name = str(row["name"])
+            except (TypeError, KeyError, IndexError):
+                column_name = str(row[1]) if len(row) > 1 else ""
+            if column_name:
+                column_names.add(column_name)
+
+        if "allowed_statuses" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_categories "
+                    "ADD COLUMN allowed_statuses TEXT NOT NULL DEFAULT '[]'"
+                )
+                self.logger.info(
+                    "Added missing allowed_statuses column to ticket_categories"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        self._category_schema_checked = True
 
     # ------------------------------------------------------------------
     # Claim / Assign
