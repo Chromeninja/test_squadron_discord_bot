@@ -34,13 +34,15 @@ class AdminCog(commands.Cog):
         return await self.bot.has_admin_permissions(ctx.author)
 
     @app_commands.command(
-        name="reset-all", description="Reset verification timers for all members."
+        name="reset-all",
+        description="Reset verification and ticket cooldown timers for all members.",
     )
     @app_commands.guild_only()
     @require_permission_level(PermissionLevel.BOT_ADMIN)
     async def reset_all(self, interaction: discord.Interaction) -> None:
         """
-        Reset verification timers for all members. Bot Admins only.
+        Reset verification and ticket cooldown timers for all members.
+        Bot Admins only.
         """
         from helpers.rate_limiter import reset_all_attempts
         from helpers.token_manager import clear_all_tokens
@@ -53,11 +55,20 @@ class AdminCog(commands.Cog):
         # Defer immediately before async operations
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "❌ This command must be used in a server.",
+                ephemeral=True,
+            )
+            return
+
         await reset_all_attempts()
         clear_all_tokens()
+        await self.bot.services.ticket.reset_all_ticket_cooldowns(interaction.guild.id)
 
         await interaction.followup.send(
-            "✅ Reset verification timers for all members.", ephemeral=True
+            "✅ Reset verification timers and ticket cooldown timers for all members.",
+            ephemeral=True,
         )
 
         self.logger.info(
@@ -66,7 +77,8 @@ class AdminCog(commands.Cog):
         )
 
     @app_commands.command(
-        name="reset-user", description="Reset verification timer for a specific user."
+        name="reset-user",
+        description="Reset verification and ticket cooldown timer for a specific user.",
     )
     @app_commands.describe(member="The member whose timer you want to reset.")
     @app_commands.guild_only()
@@ -75,7 +87,8 @@ class AdminCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         """
-        Reset a specific user's verification timer. Bot Admins and Moderators.
+        Reset a specific user's verification and ticket cooldown timer.
+        Bot Admins and Moderators.
         """
         from helpers.rate_limiter import reset_attempts
         from helpers.token_manager import clear_token
@@ -88,11 +101,22 @@ class AdminCog(commands.Cog):
         # Defer immediately before async operations
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "❌ This command must be used in a server.",
+                ephemeral=True,
+            )
+            return
+
         await reset_attempts(member.id)
         clear_token(member.id)
+        await self.bot.services.ticket.reset_user_ticket_cooldown(
+            interaction.guild.id,
+            member.id,
+        )
 
         await interaction.followup.send(
-            f"✅ Reset verification timer for {member.mention}.",
+            f"✅ Reset verification and ticket cooldown timers for {member.mention}.",
             ephemeral=True,
         )
 

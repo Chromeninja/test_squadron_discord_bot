@@ -15,9 +15,7 @@ import {
 import {
   MAX_FORM_STEPS,
   MAX_QUESTIONS_PER_STEP,
-  MAX_SELECT_OPTIONS,
   MAX_TOTAL_FOLLOW_UP_QUESTIONS,
-  SELECT_CLASS,
 } from './constants';
 
 // ---------------------------------------------------------------------------
@@ -91,35 +89,17 @@ export default function FormEditorModal({
         step_number: prev.length + 1,
         title: `Step ${prev.length + 1}`,
         questions: [],
-        branch_rules: [],
-        default_next_step: null,
       },
     ]);
   };
 
   const removeStep = (index: number) => {
-    const removedStepNumber = index + 1;
     onStepsChange((prev) =>
       prev
         .filter((_, i) => i !== index)
         .map((step, i) => ({
           ...step,
           step_number: i + 1,
-          default_next_step:
-            step.default_next_step === removedStepNumber
-              ? null
-              : step.default_next_step && step.default_next_step > removedStepNumber
-                ? step.default_next_step - 1
-                : step.default_next_step,
-          branch_rules: step.branch_rules.map((rule) => ({
-            ...rule,
-            next_step_number:
-              rule.next_step_number === removedStepNumber
-                ? null
-                : rule.next_step_number && rule.next_step_number > removedStepNumber
-                  ? rule.next_step_number - 1
-                  : rule.next_step_number,
-          })),
         })),
     );
   };
@@ -149,8 +129,6 @@ export default function FormEditorModal({
             {
               question_id: `q${step.step_number}_${nextIndex}`,
               label: '',
-              input_type: 'text' as const,
-              options: [],
               placeholder: '',
               style: 'short' as const,
               required: true,
@@ -170,77 +148,6 @@ export default function FormEditorModal({
       questions: step.questions
         .filter((_, i) => i !== questionIndex)
         .map((q, i) => ({ ...q, sort_order: i })),
-    }));
-  };
-
-  // --- Select options ---
-
-  const addSelectOption = (stepIndex: number, questionIndex: number) => {
-    updateStep(onStepsChange, stepIndex, (step) => ({
-      ...step,
-      questions: step.questions.map((q, i) => {
-        if (i !== questionIndex) return q;
-        const current = q.options ?? [];
-        if (current.length >= MAX_SELECT_OPTIONS) return q;
-        return { ...q, options: [...current, { value: '', label: '' }] };
-      }),
-    }));
-  };
-
-  const updateSelectOption = (
-    stepIndex: number,
-    questionIndex: number,
-    optionIndex: number,
-    value: string,
-  ) => {
-    updateStep(onStepsChange, stepIndex, (step) => ({
-      ...step,
-      questions: step.questions.map((q, i) => {
-        if (i !== questionIndex) return q;
-        return {
-          ...q,
-          options: (q.options ?? []).map((opt, oi) =>
-            oi === optionIndex ? { label: value, value } : opt,
-          ),
-        };
-      }),
-    }));
-  };
-
-  const removeSelectOption = (
-    stepIndex: number,
-    questionIndex: number,
-    optionIndex: number,
-  ) => {
-    updateStep(onStepsChange, stepIndex, (step) => ({
-      ...step,
-      questions: step.questions.map((q, i) => {
-        if (i !== questionIndex) return q;
-        return { ...q, options: (q.options ?? []).filter((_, oi) => oi !== optionIndex) };
-      }),
-    }));
-  };
-
-  // --- Branch rules ---
-
-  const addBranchRule = (stepIndex: number) => {
-    updateStep(onStepsChange, stepIndex, (step) => ({
-      ...step,
-      branch_rules: [
-        ...step.branch_rules,
-        {
-          question_id: step.questions[0]?.question_id ?? '',
-          match_pattern: '',
-          next_step_number: null,
-        },
-      ],
-    }));
-  };
-
-  const removeBranchRule = (stepIndex: number, ruleIndex: number) => {
-    updateStep(onStepsChange, stepIndex, (step) => ({
-      ...step,
-      branch_rules: step.branch_rules.filter((_, i) => i !== ruleIndex),
     }));
   };
 
@@ -370,9 +277,6 @@ export default function FormEditorModal({
                               saving={saving}
                               deleting={deleting}
                               onChange={onStepsChange}
-                              onAddOption={addSelectOption}
-                              onUpdateOption={updateSelectOption}
-                              onRemoveOption={removeSelectOption}
                               onRemove={removeQuestion}
                             />
                           ))}
@@ -380,176 +284,6 @@ export default function FormEditorModal({
                       )}
                     </div>
 
-                    {/* Branch Rules */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-gray-300">
-                          Branch Rules
-                        </p>
-                        <Button
-                          size="sm"
-                          onClick={() => addBranchRule(stepIndex)}
-                          disabled={
-                            saving || deleting || step.questions.length === 0
-                          }
-                        >
-                          + Add Rule
-                        </Button>
-                      </div>
-
-                      {step.branch_rules.length === 0 ? (
-                        <p className="text-xs text-gray-500">
-                          No branch rules for this step.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {step.branch_rules.map((rule, rIdx) => (
-                            <Card
-                              key={`${step.step_number}-rule-${rIdx}`}
-                              variant="default"
-                              padding="sm"
-                            >
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div>
-                                  <label
-                                    htmlFor={`rule-q-${stepIndex}-${rIdx}`}
-                                    className="block text-sm font-medium text-gray-300 mb-1"
-                                  >
-                                    Question
-                                  </label>
-                                  <select
-                                    id={`rule-q-${stepIndex}-${rIdx}`}
-                                    value={rule.question_id}
-                                    onChange={(e) =>
-                                      updateStep(onStepsChange, stepIndex, (cur) => ({
-                                        ...cur,
-                                        branch_rules: cur.branch_rules.map((r, i) =>
-                                          i === rIdx
-                                            ? { ...r, question_id: e.target.value }
-                                            : r,
-                                        ),
-                                      }))
-                                    }
-                                    className={SELECT_CLASS}
-                                  >
-                                    {step.questions.map((q, qi) => (
-                                      <option
-                                        key={q.question_id}
-                                        value={q.question_id}
-                                      >
-                                        {q.label?.trim() || `Question ${qi + 1}`}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-
-                                <Input
-                                  label="Regex Match"
-                                  value={rule.match_pattern}
-                                  onChange={(e) =>
-                                    updateStep(onStepsChange, stepIndex, (cur) => ({
-                                      ...cur,
-                                      branch_rules: cur.branch_rules.map((r, i) =>
-                                        i === rIdx
-                                          ? { ...r, match_pattern: e.target.value }
-                                          : r,
-                                      ),
-                                    }))
-                                  }
-                                  placeholder="(?i)billing"
-                                />
-
-                                <div>
-                                  <label
-                                    htmlFor={`rule-next-${stepIndex}-${rIdx}`}
-                                    className="block text-sm font-medium text-gray-300 mb-1"
-                                  >
-                                    Next Step
-                                  </label>
-                                  <select
-                                    id={`rule-next-${stepIndex}-${rIdx}`}
-                                    value={rule.next_step_number ?? ''}
-                                    onChange={(e) =>
-                                      updateStep(onStepsChange, stepIndex, (cur) => ({
-                                        ...cur,
-                                        branch_rules: cur.branch_rules.map((r, i) =>
-                                          i === rIdx
-                                            ? {
-                                                ...r,
-                                                next_step_number: e.target.value
-                                                  ? Number.parseInt(e.target.value, 10)
-                                                  : null,
-                                              }
-                                            : r,
-                                        ),
-                                      }))
-                                    }
-                                    className={SELECT_CLASS}
-                                  >
-                                    <option value="">End Flow</option>
-                                    {steps
-                                      .filter((c) => c.step_number !== step.step_number)
-                                      .map((c) => (
-                                        <option
-                                          key={`next-step-${c.step_number}`}
-                                          value={c.step_number}
-                                        >
-                                          Step {c.step_number}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </div>
-                              </div>
-                              <div className="flex justify-end mt-3">
-                                <Button
-                                  variant="danger"
-                                  size="sm"
-                                  onClick={() => removeBranchRule(stepIndex, rIdx)}
-                                  disabled={saving || deleting}
-                                >
-                                  Remove Rule
-                                </Button>
-                              </div>
-                            </Card>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Default next step */}
-                      <div>
-                        <label
-                          htmlFor={`default-next-${stepIndex}`}
-                          className="block text-sm font-medium text-gray-300 mb-1"
-                        >
-                          Default Next Step
-                        </label>
-                        <select
-                          id={`default-next-${stepIndex}`}
-                          value={step.default_next_step ?? ''}
-                          onChange={(e) =>
-                            updateStep(onStepsChange, stepIndex, (cur) => ({
-                              ...cur,
-                              default_next_step: e.target.value
-                                ? Number.parseInt(e.target.value, 10)
-                                : null,
-                            }))
-                          }
-                          className={SELECT_CLASS}
-                        >
-                          <option value="">End Flow</option>
-                          {steps
-                            .filter((c) => c.step_number !== step.step_number)
-                            .map((c) => (
-                              <option
-                                key={`default-next-${c.step_number}`}
-                                value={c.step_number}
-                              >
-                                Step {c.step_number}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    </div>
                   </div>
                 </Card>
               ))}
@@ -578,9 +312,6 @@ interface QuestionCardProps {
   saving: boolean;
   deleting: boolean;
   onChange: React.Dispatch<React.SetStateAction<TicketFormStep[]>>;
-  onAddOption: (stepIdx: number, qIdx: number) => void;
-  onUpdateOption: (stepIdx: number, qIdx: number, optIdx: number, val: string) => void;
-  onRemoveOption: (stepIdx: number, qIdx: number, optIdx: number) => void;
   onRemove: (stepIdx: number, qIdx: number) => void;
 }
 
@@ -591,9 +322,6 @@ function QuestionCard({
   saving,
   deleting,
   onChange,
-  onAddOption,
-  onUpdateOption,
-  onRemoveOption,
   onRemove,
 }: QuestionCardProps) {
   return (
@@ -627,41 +355,6 @@ function QuestionCard({
         />
         <div>
           <label
-            htmlFor={`q-type-${stepIndex}-${questionIndex}`}
-            className="block text-sm font-medium text-gray-300 mb-1"
-          >
-            Question Type
-          </label>
-          <select
-            id={`q-type-${stepIndex}-${questionIndex}`}
-            value={question.input_type ?? 'text'}
-            onChange={(e) =>
-              updateStep(onChange, stepIndex, (cur) => ({
-                ...cur,
-                questions: cur.questions.map((q, i) =>
-                  i === questionIndex
-                    ? {
-                        ...q,
-                        input_type: e.target.value === 'select' ? ('select' as const) : ('text' as const),
-                        options:
-                          e.target.value === 'select'
-                            ? q.options && q.options.length > 0
-                              ? q.options
-                              : [{ value: 'option_1', label: '' }]
-                            : [],
-                      }
-                    : q,
-                ),
-              }))
-            }
-            className={SELECT_CLASS}
-          >
-            <option value="text">Text Input</option>
-            <option value="select">Dropdown (Single Select)</option>
-          </select>
-        </div>
-        <div>
-          <label
             htmlFor={`q-style-${stepIndex}-${questionIndex}`}
             className="block text-sm font-medium text-gray-300 mb-1"
           >
@@ -670,7 +363,6 @@ function QuestionCard({
           <select
             id={`q-style-${stepIndex}-${questionIndex}`}
             value={question.style ?? 'short'}
-            disabled={question.input_type === 'select'}
             onChange={(e) =>
               updateStep(onChange, stepIndex, (cur) => ({
                 ...cur,
@@ -686,60 +378,13 @@ function QuestionCard({
                 ),
               }))
             }
-            className={SELECT_CLASS}
+            className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
           >
             <option value="short">Short</option>
             <option value="paragraph">Paragraph</option>
           </select>
         </div>
       </div>
-
-      {/* Select options */}
-      {question.input_type === 'select' && (
-        <div className="mt-3 space-y-2 rounded border border-slate-700 p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-300">
-              Dropdown Options (max {MAX_SELECT_OPTIONS})
-            </p>
-            <Button
-              size="sm"
-              onClick={() => onAddOption(stepIndex, questionIndex)}
-              disabled={(question.options?.length ?? 0) >= MAX_SELECT_OPTIONS}
-            >
-              + Add Option
-            </Button>
-          </div>
-          {(question.options ?? []).length === 0 ? (
-            <p className="text-xs text-gray-500">No options yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {(question.options ?? []).map((option, optIdx) => (
-                <div
-                  key={`${question.question_id}-opt-${optIdx}`}
-                  className="flex items-end gap-2"
-                >
-                  <Input
-                    className="flex-1"
-                    label="Option Label"
-                    value={option.label}
-                    onChange={(e) =>
-                      onUpdateOption(stepIndex, questionIndex, optIdx, e.target.value)
-                    }
-                    placeholder="Billing Support"
-                  />
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => onRemoveOption(stepIndex, questionIndex, optIdx)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="flex justify-end mt-3">
         <Button

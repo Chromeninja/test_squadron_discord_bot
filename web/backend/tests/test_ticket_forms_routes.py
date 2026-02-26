@@ -43,15 +43,13 @@ def _simple_form_payload() -> dict:
                     {"question_id": "q1", "label": "Name"},
                     {"question_id": "q2", "label": "Email", "style": "short"},
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ],
     }
 
 
-def _branching_form_payload() -> dict:
-    """Return a form config with branch rules."""
+def _two_step_form_payload() -> dict:
+    """Return a simple two-step form payload."""
     return {
         "steps": [
             {
@@ -60,14 +58,6 @@ def _branching_form_payload() -> dict:
                 "questions": [
                     {"question_id": "issue_type", "label": "Type of Issue"},
                 ],
-                "branch_rules": [
-                    {
-                        "question_id": "issue_type",
-                        "match_pattern": "(?i)bug",
-                        "next_step_number": 2,
-                    },
-                ],
-                "default_next_step": None,
             },
             {
                 "step_number": 2,
@@ -79,15 +69,13 @@ def _branching_form_payload() -> dict:
                         "style": "paragraph",
                     },
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ],
     }
 
 
-def _ten_question_branching_payload() -> dict:
-    """Return a valid branching config with exactly 10 total questions."""
+def _ten_question_payload() -> dict:
+    """Return a valid config with exactly 10 total questions."""
     return {
         "steps": [
             {
@@ -100,14 +88,6 @@ def _ten_question_branching_payload() -> dict:
                     {"question_id": "q4", "label": "Q4"},
                     {"question_id": "q5", "label": "Q5"},
                 ],
-                "branch_rules": [
-                    {
-                        "question_id": "q1",
-                        "match_pattern": "(?i)advanced",
-                        "next_step_number": 2,
-                    }
-                ],
-                "default_next_step": 2,
             },
             {
                 "step_number": 2,
@@ -119,8 +99,6 @@ def _ten_question_branching_payload() -> dict:
                     {"question_id": "q9", "label": "Q9"},
                     {"question_id": "q10", "label": "Q10"},
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ],
     }
@@ -128,14 +106,12 @@ def _ten_question_branching_payload() -> dict:
 
 def _eleven_question_payload() -> dict:
     """Return an invalid config with 11 total questions."""
-    payload = _ten_question_branching_payload()
+    payload = _ten_question_payload()
     payload["steps"].append(
         {
             "step_number": 3,
             "title": "Extra",
             "questions": [{"question_id": "q11", "label": "Q11"}],
-            "branch_rules": [],
-            "default_next_step": None,
         }
     )
     return payload
@@ -221,10 +197,10 @@ async def test_put_form_replaces_existing(
         cookies={"session": mock_discord_manager_session},
     )
 
-    # Replace with branching config
+    # Replace with two-step config
     resp = await client.put(
         f"/api/tickets/categories/{cat_id}/form",
-        json=_branching_form_payload(),
+        json=_two_step_form_payload(),
         cookies={"session": mock_discord_manager_session},
     )
     assert resp.status_code == 200
@@ -267,12 +243,12 @@ async def test_put_form_requires_discord_manager(
 async def test_put_form_allows_exactly_10_questions(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
-    """A branching payload with 10 total questions should save successfully."""
+    """A payload with 10 total questions should save successfully."""
     cat_id = await _create_category(client, mock_discord_manager_session, name="TenQs")
 
     resp = await client.put(
         f"/api/tickets/categories/{cat_id}/form",
-        json=_ten_question_branching_payload(),
+        json=_ten_question_payload(),
         cookies={"session": mock_discord_manager_session},
     )
     assert resp.status_code == 200

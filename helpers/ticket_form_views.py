@@ -23,7 +23,6 @@ import discord  # type: ignore[import-not-found]
 from discord.ui import (  # type: ignore[import-not-found]
     Button,
     Modal,
-    Select,
     TextInput,
     View,
 )
@@ -237,13 +236,6 @@ class DynamicTicketModal(Modal):
             )
 
 
-def _is_select_step(questions: list[dict[str, Any]]) -> bool:
-    """Return True when the step is a single-question select step."""
-    if len(questions) != 1:
-        return False
-    return questions[0].get("input_type", "text") == "select"
-
-
 async def present_step_ui(
     bot: MyBot,
     interaction: discord.Interaction,
@@ -254,27 +246,7 @@ async def present_step_ui(
     *,
     total_steps: int,
 ) -> None:
-    """Present either a modal step or a dropdown step for route execution."""
-    if _is_select_step(questions):
-        question = questions[0]
-        step_number = int(step_config.get("step_number", 1))
-        next_step_title = step_config.get("title") or category.get("name", "Ticket")
-        view = TicketSelectAnswerView(
-            bot,
-            context,
-            question=question,
-            step_number=step_number,
-            total_steps=total_steps,
-            title=next_step_title,
-        )
-        await interaction.response.send_message(
-            f"**{next_step_title}**\n"
-            f"Step {step_number} of {total_steps}. Choose one option below.",
-            view=view,
-            ephemeral=True,
-        )
-        return
-
+    """Present a modal step for route execution."""
     modal = ModalBuilder.build_modal(
         bot,
         category,
@@ -284,128 +256,6 @@ async def present_step_ui(
         total_steps=total_steps,
     )
     await interaction.response.send_modal(modal)
-
-
-class TicketSelectAnswerView(View):
-    """Ephemeral view for select-type ticket questions."""
-
-    def __init__(
-        self,
-        bot: MyBot,
-        context: RouteExecutionContext,
-        *,
-        question: dict[str, Any],
-        step_number: int,
-        total_steps: int,
-        title: str,
-    ) -> None:
-        super().__init__(timeout=900)
-        self.bot = bot
-        self._context = context
-        self._question = question
-        self._step_number = step_number
-        self._total_steps = total_steps
-        self._title = title
-
-        option_rows = question.get("options", [])
-        select_options = [
-            discord.SelectOption(label=o.get("label", "")[:100], value=o.get("value", "")[:100])
-            for o in option_rows
-            if o.get("label") and o.get("value")
-        ]
-
-        select = Select(
-            placeholder=(question.get("placeholder") or "Select an option")[:150],
-            min_values=1,
-            max_values=1,
-            options=select_options,
-        )
-        select.callback = self._on_select
-        self.add_item(select)
-
-    async def _on_select(self, interaction: discord.Interaction) -> None:
-        """Handle selection and continue or complete the route."""
-        if interaction.guild is None:
-            await interaction.response.send_message(
-                "This can only be used in a server.", ephemeral=True
-            )
-            return
-
-        if not self.children:
-            logger.warning("TicketSelectAnswerView has no children in _on_select")
-            await interaction.response.send_message(
-                "Selection controls are unavailable.", ephemeral=True
-            )
-            return
-
-        select_control = self.children[0]
-        if not isinstance(select_control, Select):
-            await interaction.response.send_message(
-                "Selection controls are unavailable.", ephemeral=True
-            )
-            return
-
-        selected_value = select_control.values[0] if select_control.values else ""
-        if not selected_value:
-            await interaction.response.send_message(
-                "Please choose an option.", ephemeral=True
-            )
-            return
-
-        ticket_form_service = self.bot.services.ticket_form
-
-        ctx = await ticket_form_service.get_session(
-            interaction.guild.id,
-            interaction.user.id,
-        )
-        if ctx is None:
-            await interaction.response.send_message(
-                "⏳ Your session has expired. Please start a new ticket.",
-                ephemeral=True,
-            )
-            return
-
-        answers = {
-            self._question["question_id"]: {
-                "answer": selected_value,
-                "label": self._question["label"],
-                "sort_order": self._question.get("sort_order", 0),
-            }
-        }
-
-        ctx.add_answers(self._step_number, answers)
-        next_step = await ticket_form_service.resolve_next_step(
-            ctx.category_id,
-            self._step_number,
-            ctx.collected_answers,
-        )
-
-        if next_step is None:
-            await interaction.response.defer(ephemeral=True)
-            await ticket_form_service.delete_session(ctx.guild_id, ctx.user_id)
-            await create_ticket_from_route(self.bot, interaction, ctx)
-            return
-
-        await ticket_form_service.update_session(
-            ctx.guild_id,
-            ctx.user_id,
-            next_step,
-            answers,
-            interaction_token=interaction.token,
-        )
-
-        next_step_config = await ticket_form_service.get_step(ctx.category_id, next_step)
-        next_title = next_step_config.get("title") if next_step_config else ""
-        progress = f"Step {self._step_number} of {self._total_steps} complete."
-        if next_title:
-            progress += f"\nNext: **{next_title}**"
-
-        continue_view = TicketContinueView(self.bot)
-        await interaction.response.send_message(
-            f"✅ {progress}\n\nClick **Continue** to proceed or **Cancel** to abort.",
-            view=continue_view,
-            ephemeral=True,
-        )
 
 
 # ---------------------------------------------------------------------------

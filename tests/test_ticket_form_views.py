@@ -60,15 +60,11 @@ def _make_step(
     step_id: int = 1,
     step_number: int = 1,
     title: str = "Step 1",
-    branch_rules: list | None = None,
-    default_next_step: int | None = None,
 ) -> dict:
     return {
         "id": step_id,
         "step_number": step_number,
         "title": title,
-        "branch_rules": branch_rules or [],
-        "default_next_step": default_next_step,
     }
 
 
@@ -476,19 +472,16 @@ class TestTicketContinueView:
         assert interaction.response.sent_modal is not None
 
     @pytest.mark.asyncio
-    async def test_continue_select_step_sends_message_view(self) -> None:
-        """Select steps are presented as ephemeral message components."""
+    async def test_continue_text_only_step_shows_modal(self) -> None:
+        """Ticket form steps are always presented as modals."""
         ctx = _make_context(current_step=2)
         step = _make_step(step_number=2)
         step["questions"] = [
             {
                 "question_id": "issue_type",
                 "label": "Issue Type",
-                "input_type": "select",
-                "options": [
-                    {"value": "billing", "label": "Billing"},
-                    {"value": "bug", "label": "Bug"},
-                ],
+                "input_type": "text",
+                "options": [],
                 "placeholder": "Choose one",
                 "sort_order": 0,
             }
@@ -506,7 +499,7 @@ class TestTicketContinueView:
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        assert interaction.response.sent_modal is None
+        assert interaction.response.sent_modal is not None
 
 
 # ---------------------------------------------------------------------------

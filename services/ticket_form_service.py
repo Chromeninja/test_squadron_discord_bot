@@ -8,8 +8,7 @@ management, and form response storage.
 AI Notes:
     - Each ticket category can optionally have a multi-step form.
     - Steps map 1:1 to Discord modals (max 5 questions per step).
-    - Branch rules on each step use regex matching against answers
-      to decide the next step in the flow.
+        - Step progression is strictly sequential (1 -> 2 -> 3 ...).
     - Route sessions track in-progress multi-step flows and persist
       to the DB so they survive bot restarts.
     - The in-memory cache (``_session_cache``) is the hot path; the
@@ -20,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,7 +26,6 @@ from typing import Any
 from helpers.constants import (
     MAX_FORM_STEPS,
     MAX_QUESTIONS_PER_STEP,
-    MAX_SELECT_OPTIONS,
     MAX_TOTAL_FORM_QUESTIONS,
     ROUTE_SESSION_TTL_SECONDS,
 )
@@ -122,7 +119,7 @@ class TicketFormService(BaseService):
 
     AI Notes:
         - Steps and questions are CRUD-managed and cached per category.
-        - ``resolve_next_step`` evaluates ``branch_rules`` using regex.
+        - ``resolve_next_step`` advances to the next step number.
         - Sessions use dual-layer persistence: in-memory dict + DB.
         - ``cleanup_expired_sessions`` should be called periodically.
     """
@@ -196,7 +193,7 @@ class TicketFormService(BaseService):
                 await BaseRepository.execute(
                     "ALTER TABLE ticket_form_questions "
                     "ADD COLUMN input_type TEXT NOT NULL DEFAULT 'text' "
-                    "CHECK (input_type IN ('text', 'select'))"
+                    "CHECK (input_type IN ('text'))"
                 )
                 self.logger.info(
                     "Added missing 'input_type' column to ticket_form_questions"
@@ -222,8 +219,6 @@ class TicketFormService(BaseService):
         category_id: int,
         step_number: int,
         title: str = "",
-        branch_rules: list[dict[str, Any]] | None = None,
-        default_next_step: int | None = None,
     ) -> int | None:
         """Create a form step for a category.
 
@@ -243,13 +238,12 @@ class TicketFormService(BaseService):
             )
             return None
 
-        rules_json = json.dumps(branch_rules or [])
         try:
             step_id = await BaseRepository.insert_returning_id(
                 "INSERT INTO ticket_form_steps "
                 "(category_id, step_number, title, branch_rules, default_next_step) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (category_id, step_number, title, rules_json, default_next_step),
+                (category_id, step_number, title, json.dumps([]), None),
             )
             self._invalidate_form_cache(category_id)
             return step_id
@@ -265,18 +259,15 @@ class TicketFormService(BaseService):
     async def update_step(self, step_id: int, **kwargs: Any) -> bool:
         """Update fields on an existing form step.
 
-        Allowed kwargs: ``title``, ``branch_rules``, ``default_next_step``,
-        ``step_number``.
+        Allowed kwargs: ``title``, ``step_number``.
         """
         self._ensure_initialized()
 
-        allowed = {"title", "branch_rules", "default_next_step", "step_number"}
+        allowed = {"title", "step_number"}
         updates: dict[str, Any] = {}
         for key, value in kwargs.items():
             if key not in allowed:
                 continue
-            if key == "branch_rules" and isinstance(value, list):
-                value = json.dumps(value)
             updates[key] = value
 
         if not updates:
@@ -352,21 +343,11 @@ class TicketFormService(BaseService):
     @staticmethod
     def _row_to_step(row: Any) -> dict[str, Any]:
         """Convert a DB row to a step dict."""
-        branch_rules_raw = row["branch_rules"] or "[]"
-        try:
-            branch_rules = json.loads(branch_rules_raw)
-        except (json.JSONDecodeError, TypeError):
-            branch_rules = []
-
         return {
             "id": int(row["id"]),
             "category_id": int(row["category_id"]),
             "step_number": int(row["step_number"]),
             "title": row["title"] or "",
-            "branch_rules": branch_rules,
-            "default_next_step": (
-                int(row["default_next_step"]) if row["default_next_step"] is not None else None
-            ),
             "created_at": int(row["created_at"]),
         }
 
@@ -410,21 +391,10 @@ class TicketFormService(BaseService):
             )
             return None
 
-        if input_type not in {"text", "select"}:
+        if input_type != "text":
             self.logger.warning(
                 "Invalid question input_type '%s' for step %s",
                 input_type,
-                step_id,
-            )
-            return None
-
-        normalized_options = self._normalize_select_options(options)
-        if input_type == "select" and not self._is_valid_select_options(
-            normalized_options
-        ):
-            self.logger.warning(
-                "Invalid select options for question '%s' in step %s",
-                question_id,
                 step_id,
             )
             return None
@@ -439,8 +409,8 @@ class TicketFormService(BaseService):
                     step_id,
                     question_id,
                     label,
-                    input_type,
-                    json.dumps(normalized_options),
+                    "text",
+                    json.dumps([]),
                     placeholder,
                     style,
                     1 if required else 0,
@@ -477,7 +447,6 @@ class TicketFormService(BaseService):
         allowed = {
             "label", "placeholder", "style", "required",
             "min_length", "max_length", "sort_order", "question_id",
-            "input_type", "options",
         }
         updates: dict[str, Any] = {}
         for key, value in kwargs.items():
@@ -485,28 +454,7 @@ class TicketFormService(BaseService):
                 continue
             if key == "required" and isinstance(value, bool):
                 value = 1 if value else 0
-            if key == "options":
-                options_value = value if isinstance(value, list) else []
-                value = json.dumps(self._normalize_select_options(options_value))
-                key = "options_json"
             updates[key] = value
-
-        input_type = str(updates.get("input_type", "")).strip()
-        if input_type and input_type not in {"text", "select"}:
-            return False
-
-        if "input_type" in updates and updates["input_type"] == "text":
-            updates.setdefault("options_json", json.dumps([]))
-
-        if updates.get("input_type") == "select":
-            parsed_options: list[dict[str, str]] = []
-            if "options_json" in updates:
-                try:
-                    parsed_options = json.loads(str(updates["options_json"]))
-                except (json.JSONDecodeError, TypeError):
-                    return False
-            if not self._is_valid_select_options(parsed_options):
-                return False
 
         if not updates:
             return False
@@ -570,21 +518,13 @@ class TicketFormService(BaseService):
     @staticmethod
     def _row_to_question(row: Any) -> dict[str, Any]:
         """Convert a DB row to a question dict."""
-        options_raw = row["options_json"] if "options_json" in row.keys() else "[]"
-        try:
-            options = json.loads(options_raw or "[]")
-            if not isinstance(options, list):
-                options = []
-        except (json.JSONDecodeError, TypeError):
-            options = []
-
         return {
             "id": int(row["id"]),
             "step_id": int(row["step_id"]),
             "question_id": row["question_id"],
             "label": row["label"],
-            "input_type": row["input_type"] if "input_type" in row.keys() else "text",
-            "options": options,
+            "input_type": "text",
+            "options": [],
             "placeholder": row["placeholder"] or "",
             "style": row["style"],
             "required": bool(row["required"]),
@@ -596,40 +536,6 @@ class TicketFormService(BaseService):
             ),
             "sort_order": int(row["sort_order"]),
         }
-
-    @staticmethod
-    def _normalize_select_options(
-        options: list[dict[str, Any]] | None,
-    ) -> list[dict[str, str]]:
-        """Normalize select options to a strict value/label list."""
-        if not options:
-            return []
-
-        normalized: list[dict[str, str]] = []
-        for option in options:
-            value = str(option.get("value", "")).strip()
-            label = str(option.get("label", "")).strip()
-            if value and label:
-                normalized.append({"value": value, "label": label})
-        return normalized
-
-    @staticmethod
-    def _is_valid_select_options(options: list[dict[str, str]]) -> bool:
-        """Return True when options are valid for a select question."""
-        if len(options) == 0 or len(options) > MAX_SELECT_OPTIONS:
-            return False
-
-        values_seen: set[str] = set()
-        for option in options:
-            value = option.get("value", "").strip()
-            label = option.get("label", "").strip()
-            if not value or not label:
-                return False
-            if value in values_seen:
-                return False
-            values_seen.add(value)
-
-        return True
 
     # ------------------------------------------------------------------
     # Form Config — aggregated view
@@ -695,8 +601,7 @@ class TicketFormService(BaseService):
 
         Deletes all existing steps/questions and recreates them from
         ``steps_data``.  Each entry in ``steps_data`` must contain:
-        ``step_number``, ``title``, ``questions`` (list), and optionally
-        ``branch_rules`` and ``default_next_step``.
+        ``step_number``, ``title``, and ``questions`` (list).
 
         Returns ``True`` on success.
         """
@@ -720,7 +625,6 @@ class TicketFormService(BaseService):
                 )
 
                 for step in steps_data:
-                    rules_json = json.dumps(step.get("branch_rules", []))
                     cursor = await db.execute(
                         "INSERT INTO ticket_form_steps "
                         "(category_id, step_number, title, branch_rules, default_next_step) "
@@ -729,8 +633,8 @@ class TicketFormService(BaseService):
                             category_id,
                             step["step_number"],
                             step.get("title", ""),
-                            rules_json,
-                            step.get("default_next_step"),
+                            json.dumps([]),
+                            None,
                         ),
                     )
                     step_id = cursor.lastrowid
@@ -745,10 +649,8 @@ class TicketFormService(BaseService):
                                 step_id,
                                 q["question_id"],
                                 q["label"],
-                                q.get("input_type", "text"),
-                                json.dumps(
-                                    self._normalize_select_options(q.get("options"))
-                                ),
+                                "text",
+                                json.dumps([]),
                                 q.get("placeholder", ""),
                                 q.get("style", "short"),
                                 1 if q.get("required", True) else 0,
@@ -785,8 +687,7 @@ class TicketFormService(BaseService):
                 f"(max {MAX_TOTAL_FORM_QUESTIONS})."
             )
 
-        # Payload-specific: empty question_ids & duplicate IDs per step,
-        # empty branch-rule question_ids
+        # Payload-specific: empty question_ids & duplicate IDs per step
         for step in steps_data:
             sn = int(step.get("step_number", 0))
             questions = step.get("questions", [])
@@ -808,13 +709,6 @@ class TicketFormService(BaseService):
                     )
                 question_ids.add(qid)
 
-            for rule in step.get("branch_rules", []) or []:
-                qid = str(rule.get("question_id", "")).strip()
-                if not qid:
-                    errors.append(
-                        f"Step {sn}: branch rule has empty question_id."
-                    )
-
         return errors
 
     @staticmethod
@@ -822,8 +716,7 @@ class TicketFormService(BaseService):
         """Shared validation core used by both validate_form and validate_form_payload.
 
         Checks: step count, duplicate step numbers, questions-per-step limits,
-        input_type validity, select question constraints, select options,
-        branch rule targets, regex patterns, and default_next_step references.
+        and input_type validity (text only).
         """
         errors: list[str] = []
 
@@ -852,57 +745,14 @@ class TicketFormService(BaseService):
                     f"(max {MAX_QUESTIONS_PER_STEP})."
                 )
 
-            select_count = 0
             for question in questions:
                 qid = str(question.get("question_id", "")).strip() or "(unknown)"
                 input_type = str(question.get("input_type", "text")).strip()
-                if input_type not in {"text", "select"}:
+                if input_type != "text":
                     errors.append(
                         f"Step {sn} question '{qid}' has invalid input_type "
                         f"'{input_type}'."
                     )
-                    continue
-
-                if input_type == "select":
-                    select_count += 1
-                    options = TicketFormService._normalize_select_options(question.get("options"))
-                    if not TicketFormService._is_valid_select_options(options):
-                        errors.append(
-                            f"Step {sn} question '{qid}' must have "
-                            f"1-{MAX_SELECT_OPTIONS} unique options with value+label."
-                        )
-
-            if select_count > 1:
-                errors.append(f"Step {sn} can only have one select question.")
-            if select_count == 1 and len(questions) > 1:
-                errors.append(
-                    f"Step {sn} with a select question cannot include other questions."
-                )
-
-        # Second pass for cross-references (needs full step_numbers set)
-        for step in steps:
-            sn = int(step.get("step_number", 0))
-            for rule in step.get("branch_rules", []) or []:
-                target = rule.get("next_step_number")
-                if target is not None and int(target) not in step_numbers:
-                    errors.append(
-                        f"Step {sn}: branch rule targets step {target} "
-                        "which does not exist."
-                    )
-                pattern = str(rule.get("match_pattern", ""))
-                if pattern:
-                    try:
-                        re.compile(pattern)
-                    except re.error as exc:
-                        errors.append(
-                            f"Step {sn}: invalid regex '{pattern}': {exc}"
-                        )
-
-            dns = step.get("default_next_step")
-            if dns is not None and int(dns) not in step_numbers:
-                errors.append(
-                    f"Step {sn}: default_next_step {dns} does not exist."
-                )
 
         return errors
 
@@ -938,44 +788,17 @@ class TicketFormService(BaseService):
         current_step_number: int,
         answers: dict[str, dict[str, Any]],
     ) -> int | None:
-        """Determine the next step number based on branch rules and answers.
-
-        Evaluates each branch rule in order.  The first rule whose
-        ``question_id`` matches a collected answer and whose
-        ``match_pattern`` regex matches the answer text wins.
-
-        Returns:
-            The next step number, or ``None`` if the flow should terminate
-            (i.e., create the ticket).
-        """
+        """Determine the next step number using strictly sequential flow."""
         self._ensure_initialized()
-        step = await self.get_step(category_id, current_step_number)
-        if step is None:
+        _ = answers  # Reserved for future use.
+
+        current = await self.get_step(category_id, current_step_number)
+        if current is None:
             return None
 
-        for rule in step.get("branch_rules", []):
-            qid = rule.get("question_id", "")
-            pattern = rule.get("match_pattern", "")
-            target = rule.get("next_step_number")
-
-            answer_data = answers.get(qid)
-            if answer_data is None:
-                continue
-
-            answer_text = answer_data.get("answer", "")
-            try:
-                if re.search(pattern, answer_text):
-                    return target
-            except re.error:
-                self.logger.warning(
-                    "Invalid regex in branch rule for step %d: %s",
-                    current_step_number,
-                    pattern,
-                )
-                continue
-
-        # No branch matched — fall back to default
-        return step.get("default_next_step")
+        next_step_number = current_step_number + 1
+        next_step = await self.get_step(category_id, next_step_number)
+        return next_step_number if next_step is not None else None
 
     # ------------------------------------------------------------------
     # Session State Management

@@ -510,7 +510,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             step_id       INTEGER NOT NULL REFERENCES ticket_form_steps(id) ON DELETE CASCADE,
             question_id   TEXT    NOT NULL,
             label         TEXT    NOT NULL,
-            input_type    TEXT    NOT NULL DEFAULT 'text' CHECK (input_type IN ('text', 'select')),
+            input_type    TEXT    NOT NULL DEFAULT 'text' CHECK (input_type IN ('text')),
             options_json  TEXT    NOT NULL DEFAULT '[]',
             placeholder   TEXT    DEFAULT '',
             style         TEXT    NOT NULL DEFAULT 'short' CHECK (style IN ('short', 'paragraph')),

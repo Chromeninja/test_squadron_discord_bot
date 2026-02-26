@@ -20,7 +20,7 @@ export function getCategoryName(
 
 /**
  * Normalise form steps before saving — fill defaults, re-index, and
- * clean up option values so the backend receives valid data.
+ * enforce text-only questions so the backend receives valid data.
  */
 export function normalizeStepsForSave(steps: TicketFormStep[]): TicketFormStep[] {
   return steps.map((step, stepIndex) => ({
@@ -33,16 +33,8 @@ export function normalizeStepsForSave(steps: TicketFormStep[]): TicketFormStep[]
         ...q,
         question_id: q.question_id?.trim() || generatedQuestionId,
         label: q.label.trim(),
-        input_type: q.input_type === 'select' ? 'select' : 'text',
-        options:
-          q.input_type === 'select'
-            ? (q.options ?? [])
-                .map((option) => {
-                  const label = option.label.trim();
-                  return { value: label, label };
-                })
-                .filter((option) => option.label)
-            : [],
+        input_type: 'text',
+        options: [],
         placeholder: q.placeholder ?? '',
         style: q.style ?? 'short',
         required: q.required ?? true,
@@ -51,15 +43,5 @@ export function normalizeStepsForSave(steps: TicketFormStep[]): TicketFormStep[]
         sort_order: questionIndex,
       };
     }),
-    branch_rules: step.branch_rules.map((rule) => {
-      const fallbackQuestionId =
-        step.questions[0]?.question_id?.trim() || `step${stepIndex + 1}_q1`;
-      return {
-        question_id: rule.question_id || fallbackQuestionId,
-        match_pattern: rule.match_pattern,
-        next_step_number: rule.next_step_number,
-      };
-    }),
-    default_next_step: step.default_next_step,
   }));
 }

@@ -1121,7 +1121,7 @@ export interface TicketFormQuestion {
   id?: number;
   question_id: string;
   label: string;
-  input_type?: 'text' | 'select';
+  input_type?: 'text';
   options?: Array<{ value: string; label: string }>;
   placeholder?: string;
   style?: 'short' | 'paragraph';
@@ -1131,19 +1131,11 @@ export interface TicketFormQuestion {
   sort_order?: number;
 }
 
-export interface TicketFormBranchRule {
-  question_id: string;
-  match_pattern: string;
-  next_step_number: number | null;
-}
-
 export interface TicketFormStep {
   id?: number;
   step_number: number;
   title: string;
   questions: TicketFormQuestion[];
-  branch_rules: TicketFormBranchRule[];
-  default_next_step: number | null;
 }
 
 export interface TicketFormConfig {

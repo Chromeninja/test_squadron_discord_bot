@@ -327,10 +327,8 @@ export default function Tickets({ guildId }: TicketsProps) {
           ...step,
           questions: step.questions.map((question) => ({
             ...question,
-            options: (question.options ?? []).map((option) => {
-              const label = option.label?.trim() || option.value?.trim() || '';
-              return { label, value: label };
-            }),
+            input_type: 'text',
+            options: [],
           })),
         })),
       );

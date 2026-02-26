@@ -3,7 +3,6 @@
 export const MAX_TOTAL_FOLLOW_UP_QUESTIONS = 10;
 export const MAX_QUESTIONS_PER_STEP = 5;
 export const MAX_FORM_STEPS = 10;
-export const MAX_SELECT_OPTIONS = 10;
 export const TICKET_PAGE_SIZE = 20;
 
 /** Shared Tailwind class for `<select>` inputs across ticket components. */

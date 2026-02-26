@@ -3,6 +3,7 @@ Pydantic schemas for API request/response models.
 """
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal
 
 
 # Auth schemas
@@ -954,7 +955,7 @@ class TicketFormQuestion(BaseModel):
     id: int | None = None
     question_id: str
     label: str
-    input_type: str = "text"
+    input_type: Literal["text"] = "text"
     options: list[dict[str, str]] = Field(default_factory=list)
     placeholder: str = ""
     style: str = "short"
@@ -964,23 +965,13 @@ class TicketFormQuestion(BaseModel):
     sort_order: int = 0
 
 
-class TicketFormBranchRule(BaseModel):
-    """A routing rule that matches an answer to decide the next step."""
-
-    question_id: str
-    match_pattern: str
-    next_step_number: int | None = None
-
-
 class TicketFormStep(BaseModel):
-    """A form step containing questions and routing rules."""
+    """A form step containing questions."""
 
     id: int | None = None
     step_number: int
     title: str = ""
     questions: list[TicketFormQuestion] = Field(default_factory=list)
-    branch_rules: list[TicketFormBranchRule] = Field(default_factory=list)
-    default_next_step: int | None = None
 
 
 class TicketFormConfig(BaseModel):

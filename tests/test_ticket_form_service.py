@@ -120,16 +120,14 @@ class TestStepCRUD:
         assert step["title"] == "New"
 
     @pytest.mark.asyncio
-    async def test_update_step_branch_rules(self, form_svc, category_id) -> None:
+    async def test_update_step_with_unknown_field_is_ignored(self, form_svc, category_id) -> None:
         sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
-        rules = [{"question_id": "q1", "match_pattern": "bug", "next_step_number": 2}]
-        updated = await form_svc.update_step(sid, branch_rules=rules)
-        assert updated is True
+        updated = await form_svc.update_step(sid, unknown_field="value")
+        assert updated is False
         step = await form_svc.get_step(category_id, 1)
         assert step is not None
-        assert len(step["branch_rules"]) == 1
-        assert step["branch_rules"][0]["question_id"] == "q1"
+        assert step["title"] == ""
 
     @pytest.mark.asyncio
     async def test_delete_step(self, form_svc, category_id) -> None:
@@ -159,14 +157,12 @@ class TestStepCRUD:
         assert extra is None
 
     @pytest.mark.asyncio
-    async def test_step_with_default_next_step(self, form_svc, category_id) -> None:
-        sid = await form_svc.create_step(
-            category_id, step_number=1, default_next_step=2
-        )
+    async def test_step_defaults_without_branching(self, form_svc, category_id) -> None:
+        sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
         step = await form_svc.get_step(category_id, 1)
         assert step is not None
-        assert step["default_next_step"] == 2
+        assert step["step_number"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -261,24 +257,16 @@ class TestQuestionCRUD:
         assert deleted is False
 
     @pytest.mark.asyncio
-    async def test_create_select_question_with_options(self, form_svc, step_id) -> None:
-        """Select questions persist options and input type."""
+    async def test_create_select_question_rejected(self, form_svc, step_id) -> None:
+        """Dropdown/select questions are no longer supported."""
         pk = await form_svc.create_question(
             step_id,
             "issue_type",
             "Issue Type",
             input_type="select",
-            options=[
-                {"value": "billing", "label": "Billing"},
-                {"value": "bug", "label": "Bug"},
-            ],
+            options=[{"value": "billing", "label": "Billing"}],
         )
-        assert pk is not None
-
-        questions = await form_svc.get_questions(step_id)
-        assert questions[0]["input_type"] == "select"
-        assert len(questions[0]["options"]) == 2
-        assert questions[0]["options"][0]["value"] == "billing"
+        assert pk is None
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +334,6 @@ class TestFormConfig:
                     {"question_id": "q1", "label": "Name"},
                     {"question_id": "q2", "label": "Email", "style": "short"},
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
             {
                 "step_number": 2,
@@ -355,8 +341,6 @@ class TestFormConfig:
                 "questions": [
                     {"question_id": "q3", "label": "Description", "style": "paragraph"},
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ]
         result = await form_svc.replace_form_config(category_id, steps_data)
@@ -482,44 +466,22 @@ class TestFormConfig:
         assert any("no questions" in e for e in errors)
 
     @pytest.mark.asyncio
-    async def test_validate_form_invalid_branch_target(
-        self, form_svc, category_id
-    ) -> None:
-        sid = await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "q1", "match_pattern": "test", "next_step_number": 99},
-            ],
-        )
+    async def test_validate_form_ignores_extra_unknown_fields(self, form_svc, category_id) -> None:
+        sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
         await form_svc.create_question(sid, "q1", "Q1")
-        errors = await form_svc.validate_form(category_id)
-        assert any("step 99" in e for e in errors)
 
-    @pytest.mark.asyncio
-    async def test_validate_form_invalid_regex(self, form_svc, category_id) -> None:
-        sid = await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "q1", "match_pattern": "[invalid", "next_step_number": 2},
-            ],
+        errors = form_svc.validate_form_payload(
+            [
+                {
+                    "step_number": 1,
+                    "title": "Info",
+                    "questions": [{"question_id": "q1", "label": "Q1"}],
+                    "unexpected": "ignored",
+                },
+            ]
         )
-        assert sid is not None
-        await form_svc.create_question(sid, "q1", "Q1")
-        errors = await form_svc.validate_form(category_id)
-        assert any("invalid regex" in e.lower() for e in errors)
-
-    @pytest.mark.asyncio
-    async def test_validate_form_invalid_default_next(
-        self, form_svc, category_id
-    ) -> None:
-        sid = await form_svc.create_step(
-            category_id, step_number=1, default_next_step=99
-        )
-        assert sid is not None
-        await form_svc.create_question(sid, "q1", "Q1")
-        errors = await form_svc.validate_form(category_id)
-        assert any("default_next_step 99" in e for e in errors)
+        assert errors == []
 
     @pytest.mark.asyncio
     async def test_validate_form_valid(self, form_svc, category_id) -> None:
@@ -529,25 +491,19 @@ class TestFormConfig:
                 "step_number": 1,
                 "title": "Info",
                 "questions": [{"question_id": "q1", "label": "Name"}],
-                "branch_rules": [
-                    {"question_id": "q1", "match_pattern": "bug", "next_step_number": 2},
-                ],
-                "default_next_step": None,
             },
             {
                 "step_number": 2,
                 "title": "Bug Details",
                 "questions": [{"question_id": "q2", "label": "Details"}],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ])
         errors = await form_svc.validate_form(category_id)
         assert errors == []
 
     @pytest.mark.asyncio
-    async def test_validate_payload_select_requires_options(self, form_svc) -> None:
-        """Select questions require at least one value+label option."""
+    async def test_validate_payload_rejects_select_input_type(self, form_svc) -> None:
+        """Dropdown/select question types are rejected."""
         errors = form_svc.validate_form_payload(
             [
                 {
@@ -564,11 +520,11 @@ class TestFormConfig:
                 },
             ]
         )
-        assert any("must have 1-" in error for error in errors)
+        assert any("invalid input_type" in error for error in errors)
 
     @pytest.mark.asyncio
-    async def test_validate_payload_select_step_single_question(self, form_svc) -> None:
-        """Select question step cannot contain additional questions."""
+    async def test_validate_payload_rejects_mixed_select_and_text(self, form_svc) -> None:
+        """Any step containing select question type is invalid."""
         errors = form_svc.validate_form_payload(
             [
                 {
@@ -590,7 +546,7 @@ class TestFormConfig:
                 },
             ]
         )
-        assert any("cannot include other questions" in error for error in errors)
+        assert any("invalid input_type" in error for error in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -599,11 +555,11 @@ class TestFormConfig:
 
 
 class TestBranchResolution:
-    """Tests for resolve_next_step with regex matching."""
+    """Tests for sequential resolve_next_step behavior."""
 
     @pytest.mark.asyncio
-    async def test_resolve_terminal_no_rules(self, form_svc, category_id) -> None:
-        """Step with no branch rules and no default_next_step → None (terminal)."""
+    async def test_resolve_terminal_last_step(self, form_svc, category_id) -> None:
+        """Last step resolves to terminal (None)."""
         sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
         await form_svc.create_question(sid, "q1", "Q1")
@@ -614,14 +570,9 @@ class TestBranchResolution:
         assert next_step is None
 
     @pytest.mark.asyncio
-    async def test_resolve_branch_match(self, form_svc, category_id) -> None:
-        """Branch rule regex matches the answer → returns target step."""
-        await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "issue", "match_pattern": "(?i)bug", "next_step_number": 2},
-            ],
-        )
+    async def test_resolve_returns_next_step_when_present(self, form_svc, category_id) -> None:
+        """Any non-final step resolves to the next sequential step."""
+        await form_svc.create_step(category_id, step_number=1)
         await form_svc.create_step(category_id, step_number=2, title="Bug Details")
 
         next_step = await form_svc.resolve_next_step(
@@ -631,60 +582,16 @@ class TestBranchResolution:
         assert next_step == 2
 
     @pytest.mark.asyncio
-    async def test_resolve_branch_no_match_uses_default(
-        self, form_svc, category_id
-    ) -> None:
-        """No branch rule matches → uses default_next_step."""
-        await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "issue", "match_pattern": "(?i)bug", "next_step_number": 2},
-            ],
-            default_next_step=3,
-        )
-        await form_svc.create_step(category_id, step_number=3, title="Other")
+    async def test_resolve_skips_to_none_when_next_missing(self, form_svc, category_id) -> None:
+        """If next sequential step is missing, flow terminates."""
+        await form_svc.create_step(category_id, step_number=1)
+        await form_svc.create_step(category_id, step_number=3, title="Skipped")
 
         next_step = await form_svc.resolve_next_step(
             category_id, 1,
             {"issue": {"answer": "question about something"}}
         )
-        assert next_step == 3
-
-    @pytest.mark.asyncio
-    async def test_resolve_first_matching_rule_wins(
-        self, form_svc, category_id
-    ) -> None:
-        """When multiple rules match, the first one wins."""
-        await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "q1", "match_pattern": "a", "next_step_number": 2},
-                {"question_id": "q1", "match_pattern": "ab", "next_step_number": 3},
-            ],
-        )
-
-        next_step = await form_svc.resolve_next_step(
-            category_id, 1, {"q1": {"answer": "abc"}}
-        )
-        assert next_step == 2  # First match wins
-
-    @pytest.mark.asyncio
-    async def test_resolve_invalid_regex_skipped(
-        self, form_svc, category_id
-    ) -> None:
-        """Invalid regex in branch rule is skipped gracefully."""
-        await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "q1", "match_pattern": "[invalid", "next_step_number": 2},
-                {"question_id": "q1", "match_pattern": "good", "next_step_number": 3},
-            ],
-        )
-
-        next_step = await form_svc.resolve_next_step(
-            category_id, 1, {"q1": {"answer": "good match"}}
-        )
-        assert next_step == 3
+        assert next_step is None
 
     @pytest.mark.asyncio
     async def test_resolve_nonexistent_step(self, form_svc, category_id) -> None:
@@ -695,22 +602,15 @@ class TestBranchResolution:
         assert next_step is None
 
     @pytest.mark.asyncio
-    async def test_resolve_missing_answer_skips_rule(
-        self, form_svc, category_id
-    ) -> None:
-        """Rule referencing a question not in answers is skipped."""
-        await form_svc.create_step(
-            category_id, step_number=1,
-            branch_rules=[
-                {"question_id": "missing_q", "match_pattern": ".*", "next_step_number": 2},
-            ],
-            default_next_step=3,
-        )
+    async def test_resolve_ignores_answers(self, form_svc, category_id) -> None:
+        """Sequential resolution does not depend on collected answers."""
+        await form_svc.create_step(category_id, step_number=1)
+        await form_svc.create_step(category_id, step_number=2)
 
         next_step = await form_svc.resolve_next_step(
-            category_id, 1, {"other_q": {"answer": "anything"}}
+            category_id, 1, {"unused": {"answer": "anything"}}
         )
-        assert next_step == 3  # Falls through to default
+        assert next_step == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1106,7 +1006,7 @@ class TestValidateStepsRules:
     def test_too_many_steps(self) -> None:
         """Exceeding MAX_FORM_STEPS produces an error."""
         steps = [
-            {"step_number": i, "questions": [], "branch_rules": []}
+            {"step_number": i, "questions": []}
             for i in range(1, MAX_FORM_STEPS + 2)
         ]
         errors = TicketFormService._validate_steps_rules(steps)
@@ -1115,8 +1015,8 @@ class TestValidateStepsRules:
     def test_duplicate_step_numbers(self) -> None:
         """Duplicate step numbers are caught."""
         steps = [
-            {"step_number": 1, "questions": [], "branch_rules": []},
-            {"step_number": 1, "questions": [], "branch_rules": []},
+            {"step_number": 1, "questions": []},
+            {"step_number": 1, "questions": []},
         ]
         errors = TicketFormService._validate_steps_rules(steps)
         assert any("duplicate" in e.lower() for e in errors)
@@ -1127,12 +1027,12 @@ class TestValidateStepsRules:
             {"question_id": f"q{i}", "label": f"Q{i}", "input_type": "text"}
             for i in range(MAX_QUESTIONS_PER_STEP + 1)
         ]
-        steps = [{"step_number": 1, "questions": questions, "branch_rules": []}]
+        steps = [{"step_number": 1, "questions": questions}]
         errors = TicketFormService._validate_steps_rules(steps)
         assert any("questions" in e.lower() for e in errors)
 
-    def test_select_with_no_options(self) -> None:
-        """A select question with 0 options is invalid."""
+    def test_non_text_input_type_is_invalid(self) -> None:
+        """Any non-text input_type is invalid."""
         steps = [
             {
                 "step_number": 1,
@@ -1144,51 +1044,38 @@ class TestValidateStepsRules:
                         "options": [],
                     }
                 ],
-                "branch_rules": [],
             }
         ]
         errors = TicketFormService._validate_steps_rules(steps)
-        assert len(errors) > 0
+        assert any("invalid input_type" in e for e in errors)
 
-    def test_branch_rule_unknown_question(self) -> None:
-        """Branch rule referencing a non-existent question ID is flagged."""
+    def test_unknown_extra_fields_are_ignored(self) -> None:
+        """Unknown step keys are ignored by validation."""
         steps = [
             {
                 "step_number": 1,
                 "questions": [
                     {"question_id": "q1", "label": "Q1", "input_type": "text"}
                 ],
-                "branch_rules": [
-                    {
-                        "question_id": "q_missing",
-                        "match_pattern": ".*",
-                        "next_step_number": 99,
-                    }
-                ],
+                "extra": {"a": 1},
             }
         ]
         errors = TicketFormService._validate_steps_rules(steps)
-        assert any("does not exist" in e.lower() for e in errors)
+        assert errors == []
 
-    def test_invalid_regex_pattern(self) -> None:
-        """Invalid regex in a branch rule match_pattern is caught."""
+    def test_unknown_nested_step_fields_are_ignored(self) -> None:
+        """Validation ignores irrelevant nested step fields."""
         steps = [
             {
                 "step_number": 1,
                 "questions": [
                     {"question_id": "q1", "label": "Q1", "input_type": "text"}
                 ],
-                "branch_rules": [
-                    {
-                        "question_id": "q1",
-                        "match_pattern": "[invalid",
-                        "next_step_number": None,
-                    }
-                ],
+                "metadata": [{"anything": "ok"}],
             }
         ]
         errors = TicketFormService._validate_steps_rules(steps)
-        assert any("regex" in e.lower() for e in errors)
+        assert errors == []
 
     def test_valid_form_no_errors(self) -> None:
         """A well-formed config produces no errors."""
@@ -1198,16 +1085,12 @@ class TestValidateStepsRules:
                 "questions": [
                     {"question_id": "q1", "label": "Name", "input_type": "text"}
                 ],
-                "branch_rules": [],
-                "default_next_step": 2,
             },
             {
                 "step_number": 2,
                 "questions": [
                     {"question_id": "q2", "label": "Details", "input_type": "text"}
                 ],
-                "branch_rules": [],
-                "default_next_step": None,
             },
         ]
         errors = TicketFormService._validate_steps_rules(steps)

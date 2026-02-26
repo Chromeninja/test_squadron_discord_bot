@@ -17,9 +17,6 @@ MAX_QUESTIONS_PER_STEP = 5
 # Maximum total number of follow-up questions allowed per ticket category.
 MAX_TOTAL_FORM_QUESTIONS = 10
 
-# Maximum number of options allowed for a select-type follow-up question.
-MAX_SELECT_OPTIONS = 10
-
 # Maximum number of form steps allowed per category to prevent abuse.
 MAX_FORM_STEPS = 10
 

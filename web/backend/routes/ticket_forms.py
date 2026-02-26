@@ -14,7 +14,6 @@ from core.dependencies import (
     require_staff,
 )
 from core.schemas import (
-    TicketFormBranchRule,
     TicketFormConfig,
     TicketFormConfigResponse,
     TicketFormConfigUpdate,
@@ -88,15 +87,6 @@ def _build_form_response(
                         )
                         for q in s.get("questions", [])
                     ],
-                    branch_rules=[
-                        TicketFormBranchRule(
-                            question_id=r.get("question_id", ""),
-                            match_pattern=r.get("match_pattern", ""),
-                            next_step_number=r.get("next_step_number"),
-                        )
-                        for r in s.get("branch_rules", [])
-                    ],
-                    default_next_step=s.get("default_next_step"),
                 )
                 for s in config.get("steps", [])
             ],
@@ -146,8 +136,6 @@ async def replace_form_config(
         {
             "step_number": s.step_number,
             "title": s.title,
-            "branch_rules": [r.model_dump() for r in s.branch_rules],
-            "default_next_step": s.default_next_step,
             "questions": [q.model_dump() for q in s.questions],
         }
         for s in body.steps

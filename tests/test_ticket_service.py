@@ -352,6 +352,32 @@ class TestRateLimit:
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 16001, USER_ID)
         assert await ticket_svc.check_rate_limit(GUILD_ID + 1, USER_ID) is True
 
+    @pytest.mark.asyncio
+    async def test_reset_user_ticket_cooldown_allows_immediately(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Per-user cooldown reset allows immediate ticket creation attempts."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 16002, USER_ID)
+        assert await ticket_svc.check_rate_limit(GUILD_ID, USER_ID) is False
+
+        reset_ok = await ticket_svc.reset_user_ticket_cooldown(GUILD_ID, USER_ID)
+        assert reset_ok is True
+        assert await ticket_svc.check_rate_limit(GUILD_ID, USER_ID) is True
+        assert await ticket_svc.get_cooldown_remaining(GUILD_ID, USER_ID) == 0
+
+    @pytest.mark.asyncio
+    async def test_reset_all_ticket_cooldowns_allows_immediately(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Guild-wide cooldown reset clears cooldown for users in that guild."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 16003, USER_ID)
+        assert await ticket_svc.check_rate_limit(GUILD_ID, USER_ID) is False
+
+        reset_ok = await ticket_svc.reset_all_ticket_cooldowns(GUILD_ID)
+        assert reset_ok is True
+        assert await ticket_svc.check_rate_limit(GUILD_ID, USER_ID) is True
+        assert await ticket_svc.get_cooldown_remaining(GUILD_ID, USER_ID) == 0
+
 
 # ---------------------------------------------------------------------------
 # Close Reason
