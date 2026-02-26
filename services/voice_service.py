@@ -1175,20 +1175,20 @@ class VoiceService(BaseService):
                 ]
 
                 snapshot = VoiceSettingsSnapshot(
-                    guild_id=guild_id,
-                    jtc_channel_id=jtc_channel_id,
-                    owner_id=owner_id,
-                    voice_channel_id=voice_channel_id,
-                    channel_name=channel_name,
-                    user_limit=user_limit,
-                    is_locked=bool(lock),
-                    created_at=created_at,
-                    last_activity=last_activity,
-                    is_active=is_active,
-                    permissions=permissions,
-                    ptt_settings=ptt_settings,
-                    priority_speaker_settings=priority_settings,
-                    soundboard_settings=soundboard_settings,
+                    guild_id,
+                    jtc_channel_id,
+                    owner_id,
+                    voice_channel_id,
+                    channel_name,
+                    user_limit,
+                    bool(lock),
+                    created_at,
+                    last_activity,
+                    is_active,
+                    permissions,
+                    ptt_settings,
+                    priority_settings,
+                    soundboard_settings,
                 )
 
                 # Resolve names if guild provided

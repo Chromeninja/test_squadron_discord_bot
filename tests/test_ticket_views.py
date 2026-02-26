@@ -6,18 +6,17 @@ Uses FakeInteraction / mock_bot from conftest and mocks the service layer.
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-import pytest
-import pytest_asyncio
-
 import discord
+import pytest
+from discord.ui import Button
 
 from helpers.ticket_views import (
-    TicketCategorySelect,
     TicketActionView,
+    TicketCategorySelect,
     TicketCloseReasonModal,
     TicketDescriptionModal,
     TicketPanelView,
@@ -26,7 +25,6 @@ from helpers.ticket_views import (
     _log_ticket_event,
 )
 from tests.conftest import FakeInteraction, FakeUser
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -281,7 +279,12 @@ class TestTicketActionView:
         assert "ticket_action_reopen_button" in custom_ids
         assert "ticket_action_delete_button" in custom_ids
 
-        button_map = {c.custom_id: c for c in view.children}  # type: ignore[attr-defined]
+        button_map = {
+            button.custom_id: button
+            for item in view.children
+            if isinstance(item, Button)
+            for button in [cast("Button[TicketActionView]", item)]
+        }
         assert button_map["ticket_action_claim_button"].disabled is False
         assert button_map["ticket_action_close_button"].disabled is False
         assert button_map["ticket_action_reopen_button"].disabled is True
@@ -292,7 +295,12 @@ class TestTicketActionView:
         """Closed-state action view disables claim/close and enables reopen."""
         bot = _mock_bot_with_services()
         view = TicketActionView(bot, ticket_is_closed=True, reopen_enabled=True)
-        button_map = {c.custom_id: c for c in view.children}  # type: ignore[attr-defined]
+        button_map = {
+            button.custom_id: button
+            for item in view.children
+            if isinstance(item, Button)
+            for button in [cast("Button[TicketActionView]", item)]
+        }
 
         assert button_map["ticket_action_claim_button"].disabled is True
         assert button_map["ticket_action_close_button"].disabled is True
@@ -775,7 +783,8 @@ class TestTicketDeleteButton:
         user.guild_permissions.administrator = False
 
         interaction = FakeInteraction(user=user)
-        interaction.followup = SimpleNamespace(send=AsyncMock())
+        followup_send = AsyncMock()
+        interaction.followup.send = followup_send
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
         thread.delete = AsyncMock()
@@ -785,7 +794,7 @@ class TestTicketDeleteButton:
             await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
 
         thread.delete.assert_awaited_once()
-        interaction.followup.send.assert_awaited()
+        followup_send.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_ticket_forbidden_reports_error(self) -> None:
@@ -802,7 +811,8 @@ class TestTicketDeleteButton:
         user.guild_permissions.administrator = False
 
         interaction = FakeInteraction(user=user)
-        interaction.followup = SimpleNamespace(send=AsyncMock())
+        followup_send = AsyncMock()
+        interaction.followup.send = followup_send
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
         thread.delete = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "forbidden"))
@@ -810,8 +820,9 @@ class TestTicketDeleteButton:
 
         await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
 
-        interaction.followup.send.assert_awaited()
-        args, _kwargs = interaction.followup.send.await_args
+        followup_send.assert_awaited()
+        assert followup_send.await_args is not None
+        args, _kwargs = followup_send.await_args
         assert "don't have permission" in args[0]
 
 
@@ -828,7 +839,8 @@ class TestCloseTicketFlow:
         """Closing a ticket archives + locks the thread and never deletes it."""
         bot = _mock_bot_with_services(ticket={"id": 1, "user_id": 42, "guild_id": 123})
         interaction = FakeInteraction()
-        interaction.followup = SimpleNamespace(send=AsyncMock())
+        followup_send = AsyncMock()
+        interaction.followup.send = followup_send
 
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
@@ -846,14 +858,15 @@ class TestCloseTicketFlow:
         assert kwargs.get("archived") is True
         assert kwargs.get("locked") is True
         thread.delete.assert_not_awaited()
-        interaction.followup.send.assert_not_awaited()
+        followup_send.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_close_ticket_reports_archive_failure(self) -> None:
         """When archive/lock fails, it is logged without additional followups."""
         bot = _mock_bot_with_services(ticket={"id": 1, "user_id": 42, "guild_id": 123})
         interaction = FakeInteraction()
-        interaction.followup = SimpleNamespace(send=AsyncMock())
+        followup_send = AsyncMock()
+        interaction.followup.send = followup_send
 
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
@@ -861,7 +874,7 @@ class TestCloseTicketFlow:
         thread.send = AsyncMock()
         thread.edit = AsyncMock(
             side_effect=discord.HTTPException(
-                response=SimpleNamespace(status=500, reason="Server Error"),
+                response=cast("Any", SimpleNamespace(status=500, reason="Server Error")),
                 message="archive failed",
             )
         )
@@ -872,4 +885,4 @@ class TestCloseTicketFlow:
                     await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
         log_exception.assert_called()
-        interaction.followup.send.assert_not_awaited()
+        followup_send.assert_not_awaited()
