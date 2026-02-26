@@ -880,6 +880,12 @@ class TicketInfo(BaseModel):
     closed_by: str | None = None
     created_at: int = 0
     closed_at: int | None = None
+    claimed_by: str | None = None
+    claimed_at: int | None = None
+    close_reason: str | None = None
+    initial_description: str | None = None
+    reopened_at: int | None = None
+    reopened_by: str | None = None
 
 
 class TicketListResponse(BaseModel):
@@ -912,6 +918,8 @@ class TicketSettings(BaseModel):
     close_message: str | None = None
     staff_roles: list[str] = Field(default_factory=list)
     default_welcome_message: str | None = None
+    max_open_per_user: int = 5
+    reopen_window_hours: int = 48
 
 
 class TicketSettingsUpdate(BaseModel):
@@ -924,6 +932,8 @@ class TicketSettingsUpdate(BaseModel):
     close_message: str | None = None
     staff_roles: list[str] | None = None
     default_welcome_message: str | None = None
+    max_open_per_user: int | None = None
+    reopen_window_hours: int | None = None
 
 
 class TicketSettingsResponse(BaseModel):
@@ -931,3 +941,88 @@ class TicketSettingsResponse(BaseModel):
 
     success: bool = True
     settings: TicketSettings
+
+
+# ---------------------------------------------------------------------------
+# Ticket Form schemas (dynamic modal routing)
+# ---------------------------------------------------------------------------
+
+
+class TicketFormQuestion(BaseModel):
+    """A single question in a ticket form step."""
+
+    id: int | None = None
+    question_id: str
+    label: str
+    input_type: str = "text"
+    options: list[dict[str, str]] = Field(default_factory=list)
+    placeholder: str = ""
+    style: str = "short"
+    required: bool = True
+    min_length: int | None = None
+    max_length: int | None = None
+    sort_order: int = 0
+
+
+class TicketFormBranchRule(BaseModel):
+    """A routing rule that matches an answer to decide the next step."""
+
+    question_id: str
+    match_pattern: str
+    next_step_number: int | None = None
+
+
+class TicketFormStep(BaseModel):
+    """A form step containing questions and routing rules."""
+
+    id: int | None = None
+    step_number: int
+    title: str = ""
+    questions: list[TicketFormQuestion] = Field(default_factory=list)
+    branch_rules: list[TicketFormBranchRule] = Field(default_factory=list)
+    default_next_step: int | None = None
+
+
+class TicketFormConfig(BaseModel):
+    """Full form configuration for a ticket category."""
+
+    category_id: int
+    steps: list[TicketFormStep] = Field(default_factory=list)
+
+
+class TicketFormConfigUpdate(BaseModel):
+    """Request payload for replacing a category's form configuration."""
+
+    steps: list[TicketFormStep] = Field(default_factory=list)
+
+
+class TicketFormConfigResponse(BaseModel):
+    """Response for form config retrieval."""
+
+    success: bool = True
+    config: TicketFormConfig | None = None
+
+
+class TicketFormResponse(BaseModel):
+    """A single form response entry for a ticket."""
+
+    question_id: str
+    question_label: str
+    answer: str = ""
+    step_number: int = 1
+    sort_order: int = 0
+
+
+class TicketFormResponseList(BaseModel):
+    """Response for listing form responses for a ticket."""
+
+    success: bool = True
+    responses: list[TicketFormResponse] = Field(default_factory=list)
+
+
+class TicketFormValidation(BaseModel):
+    """Response for form config validation."""
+
+    success: bool = True
+    valid: bool = False
+    errors: list[str] = Field(default_factory=list)

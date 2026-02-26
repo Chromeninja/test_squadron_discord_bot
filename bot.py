@@ -257,13 +257,16 @@ class MyBot(commands.Bot):
 
         # Register persistent views (must happen every startup for persistence to work)
         # Import here to avoid circular import issues
-        from helpers.ticket_views import TicketControlView, TicketPanelView
+        from helpers.ticket_form_views import TicketContinueView
+        from helpers.ticket_views import TicketControlView, TicketPanelView, TicketReopenView
         from helpers.views import ChannelSettingsView, VerificationView
 
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
         self.add_view(TicketPanelView(self))  # type: ignore[arg-type]
         self.add_view(TicketControlView(self))  # type: ignore[arg-type]
+        self.add_view(TicketReopenView(self))  # type: ignore[arg-type]
+        self.add_view(TicketContinueView(self))  # type: ignore[arg-type]
 
         # Sync the command tree after loading all cogs
         try:

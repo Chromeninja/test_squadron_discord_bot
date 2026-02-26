@@ -119,7 +119,7 @@ async def get_voice_service() -> VoiceService:
     return _voice_service
 
 
-async def initialize_services():
+async def initialize_services() -> None:
     """Initialize services on application startup.
 
     Observability:
@@ -161,7 +161,7 @@ async def initialize_services():
     )
 
 
-async def shutdown_services():
+async def shutdown_services() -> None:
     """Cleanup services on application shutdown."""
     if _config_service:
         await _config_service.shutdown()

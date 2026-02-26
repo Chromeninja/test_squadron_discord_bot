@@ -624,7 +624,7 @@ function Voice() {
                         <p className="font-medium flex items-center gap-2">
                           {channel.channel_name || `Channel ${channel.voice_channel_id}`}
                           {isStage && <Badge variant="info">Stage</Badge>}
-                          {!isManaged && <Badge variant="default">Unmanaged</Badge>}
+                          {!isManaged && <Badge variant="neutral">Unmanaged</Badge>}
                         </p>
                         <p className="text-sm text-gray-400">
                           {channel.category && <>{channel.category} &bull; </>}

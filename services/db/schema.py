@@ -450,16 +450,22 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS tickets (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id    INTEGER NOT NULL,
-            channel_id  INTEGER NOT NULL,
-            thread_id   INTEGER NOT NULL UNIQUE,
-            user_id     INTEGER NOT NULL,
-            category_id INTEGER DEFAULT NULL REFERENCES ticket_categories(id) ON DELETE SET NULL,
-            status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
-            closed_by   INTEGER DEFAULT NULL,
-            created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            closed_at   INTEGER DEFAULT NULL
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            channel_id          INTEGER NOT NULL,
+            thread_id           INTEGER NOT NULL UNIQUE,
+            user_id             INTEGER NOT NULL,
+            category_id         INTEGER DEFAULT NULL REFERENCES ticket_categories(id) ON DELETE SET NULL,
+            status              TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+            closed_by           INTEGER DEFAULT NULL,
+            created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            closed_at           INTEGER DEFAULT NULL,
+            claimed_by          INTEGER DEFAULT NULL,
+            claimed_at          INTEGER DEFAULT NULL,
+            close_reason        TEXT    DEFAULT NULL,
+            initial_description TEXT    DEFAULT NULL,
+            reopened_at         INTEGER DEFAULT NULL,
+            reopened_by         INTEGER DEFAULT NULL
         )
         """
     )
@@ -471,6 +477,92 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_tickets_thread ON tickets(thread_id)"
+    )
+
+    # -------------------------------------------------------------------------
+    # Ticket Form System (dynamic modal routing)
+    # -------------------------------------------------------------------------
+
+    # Form steps: modal groupings per category, forming decision tree nodes
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_steps (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id       INTEGER NOT NULL REFERENCES ticket_categories(id) ON DELETE CASCADE,
+            step_number       INTEGER NOT NULL,
+            title             TEXT    DEFAULT '',
+            branch_rules      TEXT    DEFAULT '[]',
+            default_next_step INTEGER DEFAULT NULL,
+            created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            UNIQUE(category_id, step_number)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_steps_category ON ticket_form_steps(category_id)"
+    )
+
+    # Form questions: individual inputs within a step (max 5 per step)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_questions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            step_id       INTEGER NOT NULL REFERENCES ticket_form_steps(id) ON DELETE CASCADE,
+            question_id   TEXT    NOT NULL,
+            label         TEXT    NOT NULL,
+            input_type    TEXT    NOT NULL DEFAULT 'text' CHECK (input_type IN ('text', 'select')),
+            options_json  TEXT    NOT NULL DEFAULT '[]',
+            placeholder   TEXT    DEFAULT '',
+            style         TEXT    NOT NULL DEFAULT 'short' CHECK (style IN ('short', 'paragraph')),
+            required      INTEGER NOT NULL DEFAULT 1,
+            min_length    INTEGER DEFAULT NULL,
+            max_length    INTEGER DEFAULT NULL,
+            sort_order    INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_questions_step ON ticket_form_questions(step_id, sort_order)"
+    )
+
+    # Form responses: collected answers per ticket
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_responses (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id       INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+            question_id     TEXT    NOT NULL,
+            question_label  TEXT    NOT NULL,
+            answer          TEXT    NOT NULL DEFAULT '',
+            step_number     INTEGER NOT NULL DEFAULT 1,
+            sort_order      INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(ticket_id, question_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_responses_ticket ON ticket_form_responses(ticket_id)"
+    )
+
+    # Route sessions: in-progress multi-step state (persists across restarts)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_route_sessions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id          INTEGER NOT NULL,
+            user_id           INTEGER NOT NULL,
+            category_id       INTEGER NOT NULL REFERENCES ticket_categories(id) ON DELETE CASCADE,
+            current_step      INTEGER NOT NULL DEFAULT 1,
+            collected_data    TEXT    NOT NULL DEFAULT '{}',
+            interaction_token TEXT    DEFAULT NULL,
+            created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            expires_at        INTEGER NOT NULL,
+            UNIQUE(guild_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_route_sessions_expiry ON ticket_route_sessions(expires_at)"
     )
 
     # Record that the canonical schema has been applied

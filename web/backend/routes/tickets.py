@@ -8,14 +8,15 @@ guild-level ticket settings — all scoped to the active guild.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
     get_config_service,
-    get_db,
     get_internal_api_client,
     require_discord_manager,
     require_staff,
+    translate_internal_api_error,
 )
 from core.schemas import (
     TicketCategory,
@@ -33,10 +34,11 @@ from core.schemas import (
 from core.validation import ensure_active_guild
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from services.config_service import ConfigService
-from services.db.repository import BaseRepository
 from services.ticket_service import TicketService
 from utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from services.config_service import ConfigService
 
 logger = get_logger(__name__)
 
@@ -51,27 +53,18 @@ _ticket_service: TicketService | None = None
 
 def _get_ticket_service() -> TicketService:
     """Lazy-singleton for TicketService in the backend process."""
-    global _ticket_service  # noqa: PLW0603
+    global _ticket_service
     if _ticket_service is None:
         _ticket_service = TicketService()
         _ticket_service._initialized = True  # schema already applied by bot
     return _ticket_service
 
 
-# ---------------------------------------------------------------------------
-# Categories
-# ---------------------------------------------------------------------------
+def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
+    """Build a ``TicketCategoryListResponse`` from service dicts.
 
-
-@router.get("/categories", response_model=TicketCategoryListResponse)
-async def list_categories(
-    current_user: UserProfile = Depends(require_staff()),
-) -> TicketCategoryListResponse:
-    """List all ticket categories for the active guild."""
-    guild_id = ensure_active_guild(current_user)
-    svc = _get_ticket_service()
-    cats = await svc.get_categories(guild_id)
-
+    Single source of truth for category → Pydantic serialisation.
+    """
     items = [
         TicketCategory(
             id=c["id"],
@@ -87,6 +80,22 @@ async def list_categories(
         for c in cats
     ]
     return TicketCategoryListResponse(categories=items)
+
+
+# ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
+
+
+@router.get("/categories", response_model=TicketCategoryListResponse)
+async def list_categories(
+    current_user: UserProfile = Depends(require_staff()),
+) -> TicketCategoryListResponse:
+    """List all ticket categories for the active guild."""
+    guild_id = ensure_active_guild(current_user)
+    svc = _get_ticket_service()
+    cats = await svc.get_categories(guild_id)
+    return _build_category_list(cats)
 
 
 @router.post("/categories", response_model=TicketCategoryListResponse, status_code=201)
@@ -114,21 +123,7 @@ async def create_category(
 
     # Return updated list
     cats = await svc.get_categories(guild_id)
-    items = [
-        TicketCategory(
-            id=c["id"],
-            guild_id=str(c["guild_id"]),
-            name=c["name"],
-            description=c.get("description", ""),
-            welcome_message=c.get("welcome_message", ""),
-            role_ids=[str(r) for r in c.get("role_ids", [])],
-            emoji=c.get("emoji"),
-            sort_order=c.get("sort_order", 0),
-            created_at=c.get("created_at", 0),
-        )
-        for c in cats
-    ]
-    return TicketCategoryListResponse(categories=items)
+    return _build_category_list(cats)
 
 
 @router.put("/categories/{category_id}")
@@ -212,6 +207,12 @@ async def list_tickets(
             closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
             created_at=t.get("created_at", 0),
             closed_at=t.get("closed_at"),
+            claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
+            claimed_at=t.get("claimed_at"),
+            close_reason=t.get("close_reason"),
+            initial_description=t.get("initial_description"),
+            reopened_at=t.get("reopened_at"),
+            reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
         )
         for t in tickets
     ]
@@ -254,15 +255,16 @@ async def get_settings(
     panel_description = await config.get_guild_setting(guild_id, "tickets.panel_description")
     log_channel_id = await config.get_guild_setting(guild_id, "tickets.log_channel_id")
     close_message = await config.get_guild_setting(guild_id, "tickets.close_message")
-    staff_roles_raw = await config.get_guild_setting(guild_id, "tickets.staff_roles", default="[]")
     default_welcome = await config.get_guild_setting(guild_id, "tickets.default_welcome_message")
+    max_open_per_user = await config.get_guild_setting(
+        guild_id, "tickets.max_open_per_user", default="5"
+    )
+    reopen_window_hours = await config.get_guild_setting(
+        guild_id, "tickets.reopen_window_hours", default="48"
+    )
 
-    try:
-        staff_roles = (
-            json.loads(staff_roles_raw) if isinstance(staff_roles_raw, str) else (staff_roles_raw or [])
-        )
-    except (json.JSONDecodeError, TypeError):
-        staff_roles = []
+    svc = _get_ticket_service()
+    staff_roles = await svc.get_staff_role_ids(config, guild_id)
 
     settings = TicketSettings(
         channel_id=str(channel_id) if channel_id else None,
@@ -273,6 +275,8 @@ async def get_settings(
         close_message=close_message,
         staff_roles=[str(r) for r in staff_roles],
         default_welcome_message=default_welcome,
+        max_open_per_user=int(max_open_per_user) if max_open_per_user else 5,
+        reopen_window_hours=int(reopen_window_hours) if reopen_window_hours else 48,
     )
     return TicketSettingsResponse(settings=settings)
 
@@ -304,6 +308,14 @@ async def update_settings(
         await config.set_guild_setting(
             guild_id, "tickets.default_welcome_message", body.default_welcome_message
         )
+    if body.max_open_per_user is not None:
+        await config.set_guild_setting(
+            guild_id, "tickets.max_open_per_user", str(body.max_open_per_user)
+        )
+    if body.reopen_window_hours is not None:
+        await config.set_guild_setting(
+            guild_id, "tickets.reopen_window_hours", str(body.reopen_window_hours)
+        )
 
     return {"success": True}
 
@@ -332,6 +344,7 @@ async def deploy_panel(
         logger.exception(
             "Failed to deploy ticket panel for guild %s", guild_id, exc_info=exc
         )
-        raise HTTPException(
-            status_code=502, detail="Could not reach the bot to deploy the panel."
+        raise translate_internal_api_error(
+            exc,
+            "Could not reach the bot to deploy the panel.",
         ) from exc

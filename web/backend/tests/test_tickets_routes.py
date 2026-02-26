@@ -7,6 +7,7 @@ fixtures from the backend test conftest.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from httpx import AsyncClient
 
@@ -249,6 +250,40 @@ async def test_deploy_panel_triggers_internal_api(
     data = response.json()
     assert data["success"] is True
     assert data["message_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_deploy_panel_propagates_internal_api_error(
+    client: AsyncClient,
+    mock_discord_manager_session: str,
+    fake_internal_api,
+) -> None:
+    """deploy-panel should preserve upstream HTTP status/detail from internal API."""
+
+    async def _raise_upstream_error(guild_id: int) -> dict:
+        request = httpx.Request(
+            "POST", f"http://127.0.0.1:8082/guilds/{guild_id}/tickets/deploy-panel"
+        )
+        response = httpx.Response(
+            status_code=503,
+            request=request,
+            json={"detail": "Bot internal API is warming up"},
+        )
+        raise httpx.HTTPStatusError(
+            "503 Service Unavailable",
+            request=request,
+            response=response,
+        )
+
+    fake_internal_api.deploy_ticket_panel = _raise_upstream_error
+
+    response = await client.post(
+        "/api/tickets/deploy-panel",
+        cookies={"session": mock_discord_manager_session},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Bot internal API is warming up"
 
 
 # ---------------------------------------------------------------------------

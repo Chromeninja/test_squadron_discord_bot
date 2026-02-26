@@ -1117,6 +1117,50 @@ export interface TicketSettingsUpdate {
   default_welcome_message?: string | null;
 }
 
+export interface TicketFormQuestion {
+  id?: number;
+  question_id: string;
+  label: string;
+  input_type?: 'text' | 'select';
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  style?: 'short' | 'paragraph';
+  required?: boolean;
+  min_length?: number | null;
+  max_length?: number | null;
+  sort_order?: number;
+}
+
+export interface TicketFormBranchRule {
+  question_id: string;
+  match_pattern: string;
+  next_step_number: number | null;
+}
+
+export interface TicketFormStep {
+  id?: number;
+  step_number: number;
+  title: string;
+  questions: TicketFormQuestion[];
+  branch_rules: TicketFormBranchRule[];
+  default_next_step: number | null;
+}
+
+export interface TicketFormConfig {
+  category_id: number;
+  steps: TicketFormStep[];
+}
+
+export interface TicketFormConfigUpdate {
+  steps: TicketFormStep[];
+}
+
+export interface TicketFormValidation {
+  success: boolean;
+  valid: boolean;
+  errors: string[];
+}
+
 export const ticketsApi = {
   getSettings: async () => {
     const response = await apiClient.get<{ success: boolean; settings: TicketSettings }>(
@@ -1166,6 +1210,38 @@ export const ticketsApi = {
   deleteCategory: async (categoryId: number) => {
     const response = await apiClient.delete<{ success: boolean }>(
       `/api/tickets/categories/${categoryId}`
+    );
+    return response.data;
+  },
+
+  getCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.get<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`
+    );
+    return response.data;
+  },
+
+  updateCategoryForm: async (
+    categoryId: number,
+    payload: TicketFormConfigUpdate
+  ) => {
+    const response = await apiClient.put<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.delete<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`
+    );
+    return response.data;
+  },
+
+  validateCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.get<TicketFormValidation>(
+      `/api/tickets/categories/${categoryId}/form/validate`
     );
     return response.data;
   },

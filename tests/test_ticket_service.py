@@ -1,5 +1,6 @@
 """
-Tests for TicketService — category CRUD, ticket lifecycle, rate limiting, stats.
+Tests for TicketService — category CRUD, ticket lifecycle, rate limiting,
+claiming, reopening, max open tickets, close reason, initial description, stats.
 
 Uses the ``temp_db`` fixture from conftest so each test gets an isolated database.
 """
@@ -7,11 +8,17 @@ Uses the ``temp_db`` fixture from conftest so each test gets an isolated databas
 from __future__ import annotations
 
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 
-from services.ticket_service import TICKET_RATE_LIMIT_SECONDS, TicketService
+from services.ticket_service import (
+    DEFAULT_MAX_OPEN_PER_USER,
+    DEFAULT_REOPEN_WINDOW_HOURS,
+    TICKET_RATE_LIMIT_SECONDS,
+    TicketService,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +351,311 @@ class TestRateLimit:
         """Rate limit is per-guild; same user in a different guild is independent."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 16001, USER_ID)
         assert await ticket_svc.check_rate_limit(GUILD_ID + 1, USER_ID) is True
+
+
+# ---------------------------------------------------------------------------
+# Close Reason
+# ---------------------------------------------------------------------------
+
+
+class TestCloseReason:
+    """Tests for close_reason parameter on close operations."""
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_with_reason(self, ticket_svc: TicketService) -> None:
+        """Closing a ticket with a reason stores it."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 17001, USER_ID)
+        assert tid is not None
+        closed = await ticket_svc.close_ticket(tid, closed_by=999, close_reason="Resolved")
+        assert closed is True
+        ticket = await ticket_svc.get_ticket_by_thread(17001)
+        assert ticket is not None
+        assert ticket["close_reason"] == "Resolved"
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_by_thread_with_reason(self, ticket_svc: TicketService) -> None:
+        """close_ticket_by_thread with reason stores it."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 17002, USER_ID)
+        closed = await ticket_svc.close_ticket_by_thread(
+            17002, closed_by=888, close_reason="Duplicate"
+        )
+        assert closed is True
+        ticket = await ticket_svc.get_ticket_by_thread(17002)
+        assert ticket is not None
+        assert ticket["close_reason"] == "Duplicate"
+
+    @pytest.mark.asyncio
+    async def test_close_ticket_without_reason(self, ticket_svc: TicketService) -> None:
+        """Closing without a reason stores None."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 17003, USER_ID)
+        assert tid is not None
+        await ticket_svc.close_ticket(tid, closed_by=999)
+        ticket = await ticket_svc.get_ticket_by_thread(17003)
+        assert ticket is not None
+        assert ticket["close_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# Initial Description
+# ---------------------------------------------------------------------------
+
+
+class TestInitialDescription:
+    """Tests for initial_description on ticket creation."""
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_with_description(self, ticket_svc: TicketService) -> None:
+        """Ticket with initial description stores it."""
+        tid = await ticket_svc.create_ticket(
+            GUILD_ID, CHANNEL_ID, 18001, USER_ID,
+            initial_description="I need help with X",
+        )
+        assert tid is not None
+        ticket = await ticket_svc.get_ticket_by_thread(18001)
+        assert ticket is not None
+        assert ticket["initial_description"] == "I need help with X"
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_without_description(self, ticket_svc: TicketService) -> None:
+        """Ticket without description stores None."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 18002, USER_ID)
+        assert tid is not None
+        ticket = await ticket_svc.get_ticket_by_thread(18002)
+        assert ticket is not None
+        assert ticket["initial_description"] is None
+
+
+# ---------------------------------------------------------------------------
+# Claim / Unclaim
+# ---------------------------------------------------------------------------
+
+
+class TestClaimTicket:
+    """Tests for claiming and unclaiming tickets."""
+
+    @pytest.mark.asyncio
+    async def test_claim_ticket(self, ticket_svc: TicketService) -> None:
+        """Claiming an open ticket sets claimed_by and claimed_at."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 19001, USER_ID)
+        claimed = await ticket_svc.claim_ticket(19001, claimed_by=555)
+        assert claimed is True
+        ticket = await ticket_svc.get_ticket_by_thread(19001)
+        assert ticket is not None
+        assert ticket["claimed_by"] == 555
+        assert ticket["claimed_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_claim_closed_ticket_fails(self, ticket_svc: TicketService) -> None:
+        """Cannot claim a closed ticket."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 19002, USER_ID)
+        assert tid is not None
+        await ticket_svc.close_ticket(tid, closed_by=999)
+        claimed = await ticket_svc.claim_ticket(19002, claimed_by=555)
+        assert claimed is False
+
+    @pytest.mark.asyncio
+    async def test_unclaim_ticket(self, ticket_svc: TicketService) -> None:
+        """Unclaiming a ticket clears claimed_by and claimed_at."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 19003, USER_ID)
+        await ticket_svc.claim_ticket(19003, claimed_by=555)
+        unclaimed = await ticket_svc.unclaim_ticket(19003)
+        assert unclaimed is True
+        ticket = await ticket_svc.get_ticket_by_thread(19003)
+        assert ticket is not None
+        assert ticket["claimed_by"] is None
+        assert ticket["claimed_at"] is None
+
+    @pytest.mark.asyncio
+    async def test_claim_nonexistent_ticket(self, ticket_svc: TicketService) -> None:
+        """Claiming a non-existent thread returns False."""
+        assert await ticket_svc.claim_ticket(99999, claimed_by=555) is False
+
+
+# ---------------------------------------------------------------------------
+# Reopen
+# ---------------------------------------------------------------------------
+
+
+class TestReopenTicket:
+    """Tests for reopening closed tickets."""
+
+    @pytest.mark.asyncio
+    async def test_reopen_closed_ticket(self, ticket_svc: TicketService) -> None:
+        """Reopening a closed ticket sets status back to open."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 20001, USER_ID)
+        assert tid is not None
+        await ticket_svc.close_ticket(tid, closed_by=999)
+        reopened = await ticket_svc.reopen_ticket(20001, reopened_by=USER_ID)
+        assert reopened is True
+        ticket = await ticket_svc.get_ticket_by_thread(20001)
+        assert ticket is not None
+        assert ticket["status"] == "open"
+        assert ticket["reopened_by"] == USER_ID
+        assert ticket["reopened_at"] is not None
+        # Close fields should be cleared
+        assert ticket["closed_by"] is None
+        assert ticket["closed_at"] is None
+        assert ticket["close_reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_reopen_open_ticket_fails(self, ticket_svc: TicketService) -> None:
+        """Cannot reopen an already-open ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 20002, USER_ID)
+        reopened = await ticket_svc.reopen_ticket(20002, reopened_by=USER_ID)
+        assert reopened is False
+
+    @pytest.mark.asyncio
+    async def test_can_reopen_within_window(self, ticket_svc: TicketService) -> None:
+        """can_reopen returns True for a recently closed ticket."""
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 20003, USER_ID)
+        assert tid is not None
+        await ticket_svc.close_ticket(tid, closed_by=999)
+        assert await ticket_svc.can_reopen(20003) is True
+
+    @pytest.mark.asyncio
+    async def test_can_reopen_outside_window(self, ticket_svc: TicketService) -> None:
+        """can_reopen returns False if the ticket was closed long ago."""
+        from services.db.repository import BaseRepository
+
+        tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 20004, USER_ID)
+        assert tid is not None
+        await ticket_svc.close_ticket(tid, closed_by=999)
+        # Manually backdate closed_at
+        old_time = int(time.time()) - (DEFAULT_REOPEN_WINDOW_HOURS * 3600 + 100)
+        await BaseRepository.execute(
+            "UPDATE tickets SET closed_at = ? WHERE thread_id = ?",
+            (old_time, 20004),
+        )
+        assert await ticket_svc.can_reopen(20004) is False
+
+
+# ---------------------------------------------------------------------------
+# Max Open Tickets
+# ---------------------------------------------------------------------------
+
+
+class TestMaxOpenTickets:
+    """Tests for max open ticket limit per user."""
+
+    @pytest.mark.asyncio
+    async def test_get_open_ticket_count(self, ticket_svc: TicketService) -> None:
+        """Count only open tickets for a given user."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21001, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21002, USER_ID)
+        tid3 = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21003, USER_ID)
+        assert tid3 is not None
+        await ticket_svc.close_ticket(tid3, closed_by=999)
+
+        count = await ticket_svc.get_open_ticket_count(GUILD_ID, USER_ID)
+        assert count == 2
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_under_limit(self, ticket_svc: TicketService) -> None:
+        """User under the limit can open another ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 22001, USER_ID)
+        assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=3) is True
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_at_limit(self, ticket_svc: TicketService) -> None:
+        """User at the limit cannot open another ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23001, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23002, USER_ID)
+        assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=2) is False
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_default(self, ticket_svc: TicketService) -> None:
+        """Default limit is DEFAULT_MAX_OPEN_PER_USER."""
+        # Create DEFAULT_MAX_OPEN_PER_USER tickets
+        for i in range(DEFAULT_MAX_OPEN_PER_USER):
+            await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24000 + i, USER_ID)
+        assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID) is False
+
+
+# ---------------------------------------------------------------------------
+# Staff Role IDs (DRY helper)
+# ---------------------------------------------------------------------------
+
+
+class TestGetStaffRoleIds:
+    """Tests for the static get_staff_role_ids helper."""
+
+    @pytest.mark.asyncio
+    async def test_parses_json_string(self) -> None:
+        """Parses a JSON array string of role IDs."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = "[1, 2, 3]"
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_handles_list_directly(self) -> None:
+        """Handles when config returns a list directly."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = [10, 20]
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == [10, 20]
+
+    @pytest.mark.asyncio
+    async def test_handles_empty(self) -> None:
+        """Returns empty list when no roles configured."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = "[]"
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_invalid_json(self) -> None:
+        """Returns empty list on invalid JSON."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = "not_json"
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_none(self) -> None:
+        """Returns empty list when config returns None."""
+        config = AsyncMock()
+        config.get_guild_setting.return_value = None
+        result = await TicketService.get_staff_role_ids(config, GUILD_ID)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Row converters
+# ---------------------------------------------------------------------------
+
+
+class TestRowConverters:
+    """Tests for _row_to_ticket and _row_to_category static methods."""
+
+    def test_row_to_ticket_full(self) -> None:
+        """Full 16-column row is converted correctly."""
+        row = (1, 100, 200, 300, 400, 5, "open", None, 1000, None, 555, 1001, "reason", "desc", 1002, 600)
+        result = TicketService._row_to_ticket(row)
+        assert result["id"] == 1
+        assert result["claimed_by"] == 555
+        assert result["close_reason"] == "reason"
+        assert result["initial_description"] == "desc"
+        assert result["reopened_at"] == 1002
+        assert result["reopened_by"] == 600
+
+    def test_row_to_ticket_legacy_10_columns(self) -> None:
+        """Legacy 10-column row gracefully defaults new fields to None."""
+        row = (1, 100, 200, 300, 400, 5, "open", None, 1000, None)
+        result = TicketService._row_to_ticket(row)
+        assert result["claimed_by"] is None
+        assert result["close_reason"] is None
+        assert result["initial_description"] is None
+
+    def test_row_to_category(self) -> None:
+        """Category row is converted correctly with JSON role_ids."""
+        row = (1, 100, "Support", "Help", "Welcome!", "[1,2,3]", "📩", 0, 1000)
+        result = TicketService._row_to_category(row)
+        assert result["name"] == "Support"
+        assert result["role_ids"] == [1, 2, 3]
+
+    def test_row_to_category_empty_roles(self) -> None:
+        """Category with empty/null role_ids returns empty list."""
+        row = (1, 100, "Support", "Help", "Welcome!", "", None, 0, 1000)
+        result = TicketService._row_to_category(row)
+        assert result["role_ids"] == []

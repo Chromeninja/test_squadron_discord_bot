@@ -2,33 +2,194 @@
 Ticket Views Module
 
 Persistent Discord UI components for the ticketing system:
-- ``TicketPanelView``   — "Create Ticket" button (lives on the panel message).
-- ``TicketControlView`` — "Close Ticket" button (lives inside each ticket thread).
+- ``TicketPanelView``    — "Create Ticket" button (lives on the panel message).
+- ``TicketControlView``  — "Close" + "Claim" buttons (lives inside each ticket thread).
+- ``TicketReopenView``   — "Reopen" button (sent after a ticket is closed).
 
-Both use stable ``custom_id`` values so they survive bot restarts.
+Ephemeral / modal components (NOT persistent):
+- ``TicketCategorySelect``   — dropdown for choosing a category.
+- ``TicketDescriptionModal`` — modal for initial ticket description.
+- ``TicketCloseReasonModal`` — modal for providing a close reason.
+
+Both persistent views use stable ``custom_id`` values so they survive bot
+restarts.
 
 AI Notes:
-    The ``TicketCategorySelect`` is ephemeral — it is created on-the-fly
-    when the user clicks "Create Ticket" and is not registered as a
-    persistent view.  Only ``TicketPanelView`` and ``TicketControlView``
-    need ``bot.add_view()`` at startup.
+    Only ``TicketPanelView``, ``TicketControlView``, and ``TicketReopenView``
+    need ``bot.add_view()`` at startup.  The modals and category select are
+    created on-the-fly.
 """
 
 from __future__ import annotations
 
-import json
+import io
 from typing import TYPE_CHECKING, Any
 
 import discord  # type: ignore[import-not-found]
-from discord.ui import Button, Select, View  # type: ignore[import-not-found]
+from discord.ui import (  # type: ignore[import-not-found]
+    Button,
+    Modal,
+    Select,
+    TextInput,
+    View,
+)
 
 from helpers.embeds import EmbedColors, create_embed
+from services.ticket_service import (
+    DEFAULT_MAX_OPEN_PER_USER,
+    DEFAULT_REOPEN_WINDOW_HOURS,
+    TicketService,
+)
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from bot import MyBot
 
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers — shared across views
+# ---------------------------------------------------------------------------
+
+
+async def _get_staff_and_check(
+    bot: MyBot,
+    guild_id: int,
+    member: discord.Member,
+) -> bool:
+    """Return ``True`` if *member* is considered ticket-staff.
+
+    Staff = has a configured staff role **or** has the ``administrator``
+    guild permission.
+    """
+    config_service = bot.services.config
+    staff_role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
+    member_role_ids = {r.id for r in member.roles}
+    if member_role_ids & set(staff_role_ids):
+        return True
+    return member.guild_permissions.administrator
+
+
+async def _log_ticket_event(
+    bot: MyBot,
+    guild_id: int,
+    *,
+    title: str,
+    description: str,
+    color: int,
+) -> None:
+    """Send a ticket event embed to the configured log channel."""
+    try:
+        config_service = bot.services.config
+        log_channel_id = await config_service.get_guild_setting(
+            guild_id, "tickets.log_channel_id"
+        )
+        if not log_channel_id:
+            return
+
+        channel = bot.get_channel(int(log_channel_id))
+        if channel is None or not isinstance(channel, discord.TextChannel):
+            return
+
+        embed = create_embed(title=title, description=description, color=color)
+        await channel.send(embed=embed)
+    except Exception as e:
+        logger.exception(
+            "Failed to log ticket event to channel in guild %s",
+            guild_id,
+            exc_info=e,
+        )
+
+
+async def _generate_transcript(thread: discord.Thread) -> discord.File:
+    """Generate a plain-text transcript of a ticket thread.
+
+    Returns a ``discord.File`` that can be attached to a message.
+    """
+    lines: list[str] = []
+    lines.append(f"=== Transcript for #{thread.name} ===")
+    lines.append(f"Thread ID: {thread.id}")
+    lines.append(f"Created: {thread.created_at or 'unknown'}")
+    lines.append("=" * 50)
+    lines.append("")
+
+    async for message in thread.history(limit=500, oldest_first=True):
+        timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        author = f"{message.author} ({message.author.id})"
+        content = message.content or ""
+
+        lines.append(f"[{timestamp}] {author}")
+        if content:
+            lines.append(content)
+        for attachment in message.attachments:
+            lines.append(f"  [Attachment: {attachment.filename} — {attachment.url}]")
+        for embed in message.embeds:
+            title = embed.title or "(no title)"
+            desc = embed.description or ""
+            lines.append(f"  [Embed: {title}] {desc[:200]}")
+        lines.append("")
+
+    transcript_text = "\n".join(lines)
+    buffer = io.BytesIO(transcript_text.encode("utf-8"))
+    filename = f"transcript-{thread.name}-{thread.id}.txt"
+    return discord.File(buffer, filename=filename)
+
+
+# ---------------------------------------------------------------------------
+# Modals
+# ---------------------------------------------------------------------------
+
+
+class TicketDescriptionModal(Modal, title="Describe Your Issue"):
+    """Modal shown when a user creates a ticket, collecting an initial description.
+
+    After submission the actual thread-creation flow continues.
+    """
+
+    description_input = TextInput(
+        label="Description",
+        style=discord.TextStyle.paragraph,
+        placeholder="Please describe your issue or question…",
+        required=False,
+        max_length=1024,
+    )
+
+    def __init__(self, bot: MyBot, category: dict[str, Any] | None) -> None:
+        super().__init__()
+        self.bot = bot
+        self._category = category
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Defer and continue with thread creation."""
+        await interaction.response.defer(ephemeral=True)
+        description = self.description_input.value or None
+        await _create_ticket_thread(
+            self.bot, interaction, category=self._category, initial_description=description
+        )
+
+
+class TicketCloseReasonModal(Modal, title="Close Ticket"):
+    """Modal for providing an optional reason when closing a ticket."""
+
+    reason_input = TextInput(
+        label="Reason for closing",
+        style=discord.TextStyle.paragraph,
+        placeholder="Optional — why is this ticket being closed?",
+        required=False,
+        max_length=1024,
+    )
+
+    def __init__(self, bot: MyBot, thread: discord.Thread) -> None:
+        super().__init__()
+        self.bot = bot
+        self._thread = thread
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Defer, close the ticket, and follow up."""
+        await interaction.response.defer(ephemeral=True)
+        reason = self.reason_input.value or None
+        await _close_ticket(self.bot, interaction, self._thread, close_reason=reason)
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +219,10 @@ class TicketPanelView(View):
     async def _on_create_ticket(self, interaction: discord.Interaction) -> None:
         """Handle the 'Create Ticket' button press.
 
-        Fetches categories for the guild and shows a dropdown if categories
-        exist, otherwise creates a ticket directly (uncategorised).
+        Flow:
+        1. Rate-limit check
+        2. Max open tickets check
+        3. Fetch categories → dropdown **or** description modal
         """
         if interaction.guild is None:
             await interaction.response.send_message(
@@ -69,8 +232,9 @@ class TicketPanelView(View):
 
         guild_id = interaction.guild.id
         ticket_service = self.bot.services.ticket
+        config_service = self.bot.services.config
 
-        # --- Rate limit check ---
+        # --- Rate-limit check ---
         allowed = await ticket_service.check_rate_limit(guild_id, interaction.user.id)
         if not allowed:
             remaining = await ticket_service.get_cooldown_remaining(
@@ -82,13 +246,33 @@ class TicketPanelView(View):
             )
             return
 
+        # --- Max open tickets check ---
+        max_open_raw = await config_service.get_guild_setting(
+            guild_id, "tickets.max_open_per_user", default=str(DEFAULT_MAX_OPEN_PER_USER)
+        )
+        try:
+            max_open = int(max_open_raw)
+        except (ValueError, TypeError):
+            max_open = DEFAULT_MAX_OPEN_PER_USER
+
+        can_open = await ticket_service.check_max_open_tickets(
+            guild_id, interaction.user.id, max_open
+        )
+        if not can_open:
+            await interaction.response.send_message(
+                f"❌ You already have **{max_open}** open ticket(s). "
+                "Please close an existing ticket before opening a new one.",
+                ephemeral=True,
+            )
+            return
+
         # --- Fetch categories ---
         categories = await ticket_service.get_categories(guild_id)
 
         if not categories:
-            # No categories configured — create ticket directly
-            await interaction.response.defer(ephemeral=True)
-            await _create_ticket_thread(self.bot, interaction, category=None)
+            # No categories — go straight to description modal
+            modal = TicketDescriptionModal(self.bot, category=None)
+            await interaction.response.send_modal(modal)
             return
 
         # Show category dropdown
@@ -133,25 +317,59 @@ class TicketCategorySelect(Select):
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        """User selected a category — create the ticket thread."""
+        """User selected a category — show dynamic form or description modal.
+
+        If the selected category has a form configuration, start the
+        dynamic modal routing flow.  Otherwise, fall back to the legacy
+        ``TicketDescriptionModal``.
+        """
         selected_id = self.values[0]
         category = self._categories.get(selected_id)
 
-        await interaction.response.defer(ephemeral=True)
-        await _create_ticket_thread(self.bot, interaction, category=category)
+        if category is None:
+            modal = TicketDescriptionModal(self.bot, category=None)
+            await interaction.response.send_modal(modal)
+            return
+
+        # Check for dynamic form configuration
+        try:
+            ticket_form_service = self.bot.services.ticket_form
+            has_form = await ticket_form_service.has_form(category["id"])
+        except (RuntimeError, AttributeError):
+            # Service not available — fall back to legacy
+            has_form = False
+
+        if not has_form:
+            modal = TicketDescriptionModal(self.bot, category=category)
+            await interaction.response.send_modal(modal)
+            return
+
+        # --- Dynamic form flow ---
+        await _start_dynamic_form(
+            self.bot, interaction, category, ticket_form_service
+        )
 
 
 # ---------------------------------------------------------------------------
-# Control View — sits inside each ticket thread
+# Control View — sits inside each ticket thread (Close + Claim)
 # ---------------------------------------------------------------------------
 
 
 class TicketControlView(View):
-    """Persistent view with a 'Close Ticket' button inside a ticket thread."""
+    """Persistent view with 'Close' and 'Claim' buttons inside a ticket thread."""
 
     def __init__(self, bot: MyBot) -> None:
         super().__init__(timeout=None)
         self.bot = bot
+
+        claim_btn = Button(
+            label="Claim",
+            style=discord.ButtonStyle.secondary,
+            custom_id="ticket_claim_button",
+            emoji="🙋",
+        )
+        claim_btn.callback = self._on_claim_ticket
+        self.add_item(claim_btn)
 
         close_btn = Button(
             label="Close Ticket",
@@ -162,8 +380,10 @@ class TicketControlView(View):
         close_btn.callback = self._on_close_ticket
         self.add_item(close_btn)
 
-    async def _on_close_ticket(self, interaction: discord.Interaction) -> None:
-        """Handle the 'Close Ticket' button press."""
+    # -- Claim --
+
+    async def _on_claim_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the 'Claim' button — assign a staff member to the ticket."""
         if interaction.guild is None or not isinstance(
             interaction.channel, discord.Thread
         ):
@@ -175,7 +395,92 @@ class TicketControlView(View):
         thread = interaction.channel
         guild_id = interaction.guild.id
         ticket_service = self.bot.services.ticket
-        config_service = self.bot.services.config
+
+        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        if ticket is None:
+            await interaction.response.send_message(
+                "Could not find a ticket record for this thread.", ephemeral=True
+            )
+            return
+
+        # Only staff can claim
+        if not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                "Could not verify your roles.", ephemeral=True
+            )
+            return
+
+        is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
+        if not is_staff:
+            await interaction.response.send_message(
+                "Only staff members can claim tickets.", ephemeral=True
+            )
+            return
+
+        # Toggle claim: if already claimed by this user, unclaim
+        if ticket.get("claimed_by") == interaction.user.id:
+            await ticket_service.unclaim_ticket(thread.id)
+            await interaction.response.send_message(
+                "✅ You have released your claim on this ticket.", ephemeral=True
+            )
+            unclaim_embed = create_embed(
+                title="🙋 Claim Released",
+                description=f"{interaction.user.mention} released their claim on this ticket.",
+                color=EmbedColors.WARNING,
+            )
+            await thread.send(embed=unclaim_embed)
+            return
+
+        # If already claimed by someone else, notify
+        if ticket.get("claimed_by"):
+            await interaction.response.send_message(
+                f"This ticket is already claimed by <@{ticket['claimed_by']}>. "
+                "They must release it first.",
+                ephemeral=True,
+            )
+            return
+
+        # Claim it
+        claimed = await ticket_service.claim_ticket(thread.id, interaction.user.id)
+        if not claimed:
+            await interaction.response.send_message(
+                "Failed to claim this ticket.", ephemeral=True
+            )
+            return
+
+        claim_embed = create_embed(
+            title="🙋 Ticket Claimed",
+            description=f"{interaction.user.mention} is now handling this ticket.",
+            color=EmbedColors.SUCCESS,
+        )
+        await interaction.response.send_message(embed=claim_embed)
+
+        await _log_ticket_event(
+            self.bot,
+            guild_id,
+            title="🙋 Ticket Claimed",
+            description=(
+                f"**Ticket:** {thread.mention}\n"
+                f"**Claimed by:** {interaction.user.mention}"
+            ),
+            color=EmbedColors.INFO,
+        )
+
+    # -- Close --
+
+    async def _on_close_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the 'Close Ticket' button — show close-reason modal."""
+        if interaction.guild is None or not isinstance(
+            interaction.channel, discord.Thread
+        ):
+            await interaction.response.send_message(
+                "This button only works inside a ticket thread.", ephemeral=True
+            )
+            return
+
+        thread = interaction.channel
+        guild_id = interaction.guild.id
+        ticket_service = self.bot.services.ticket
 
         # Look up the ticket
         ticket = await ticket_service.get_ticket_by_thread(thread.id)
@@ -191,25 +496,7 @@ class TicketControlView(View):
         is_staff = False
 
         if isinstance(interaction.user, discord.Member):
-            staff_roles_raw = await config_service.get_guild_setting(
-                guild_id, "tickets.staff_roles", default="[]"
-            )
-            try:
-                staff_role_ids: list[int] = (
-                    json.loads(staff_roles_raw)
-                    if isinstance(staff_roles_raw, str)
-                    else (staff_roles_raw or [])
-                )
-            except (json.JSONDecodeError, TypeError):
-                staff_role_ids = []
-
-            member_role_ids = {r.id for r in interaction.user.roles}
-            if member_role_ids & set(staff_role_ids):
-                is_staff = True
-
-            # Guild admins / bot admins can always close
-            if interaction.user.guild_permissions.administrator:
-                is_staff = True
+            is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
 
         if not is_creator and not is_staff:
             await interaction.response.send_message(
@@ -217,58 +504,185 @@ class TicketControlView(View):
             )
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # Show the close-reason modal
+        modal = TicketCloseReasonModal(self.bot, thread)
+        await interaction.response.send_modal(modal)
 
-        # Close ticket in DB
-        closed = await ticket_service.close_ticket_by_thread(thread.id, user_id)
-        if not closed:
-            await interaction.followup.send(
-                "This ticket is already closed.", ephemeral=True
+
+# ---------------------------------------------------------------------------
+# Reopen View — sent after a ticket is closed
+# ---------------------------------------------------------------------------
+
+
+class TicketReopenView(View):
+    """Persistent view with a 'Reopen' button, sent in a closed ticket thread."""
+
+    def __init__(self, bot: MyBot) -> None:
+        super().__init__(timeout=None)
+        self.bot = bot
+
+        reopen_btn = Button(
+            label="Reopen Ticket",
+            style=discord.ButtonStyle.success,
+            custom_id="ticket_reopen_button",
+            emoji="🔓",
+        )
+        reopen_btn.callback = self._on_reopen_ticket
+        self.add_item(reopen_btn)
+
+    async def _on_reopen_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the 'Reopen' button press."""
+        if interaction.guild is None or not isinstance(
+            interaction.channel, discord.Thread
+        ):
+            await interaction.response.send_message(
+                "This button only works inside a ticket thread.", ephemeral=True
             )
             return
 
-        # --- Close message ---
-        close_msg = await config_service.get_guild_setting(
-            guild_id,
-            "tickets.close_message",
-            default="This ticket has been closed.",
-        )
-        close_embed = create_embed(
-            title="🔒 Ticket Closed",
-            description=f"{close_msg}\n\nClosed by {interaction.user.mention}",
-            color=EmbedColors.ADMIN,
-        )
-        await thread.send(embed=close_embed)
+        thread = interaction.channel
+        guild_id = interaction.guild.id
+        ticket_service = self.bot.services.ticket
+        config_service = self.bot.services.config
 
-        # Archive + lock the thread
+        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        if ticket is None:
+            await interaction.response.send_message(
+                "Could not find a ticket record for this thread.", ephemeral=True
+            )
+            return
+
+        # Only the creator or staff can reopen
+        user_id = interaction.user.id
+        is_creator = user_id == ticket["user_id"]
+        is_staff = False
+        if isinstance(interaction.user, discord.Member):
+            is_staff = await _get_staff_and_check(self.bot, guild_id, interaction.user)
+
+        if not is_creator and not is_staff:
+            await interaction.response.send_message(
+                "You do not have permission to reopen this ticket.", ephemeral=True
+            )
+            return
+
+        # Check reopen window
+        reopen_window_raw = await config_service.get_guild_setting(
+            guild_id, "tickets.reopen_window_hours", default=str(DEFAULT_REOPEN_WINDOW_HOURS)
+        )
         try:
-            await thread.edit(archived=True, locked=True)
+            reopen_window = int(reopen_window_raw)
+        except (ValueError, TypeError):
+            reopen_window = DEFAULT_REOPEN_WINDOW_HOURS
+
+        can_reopen = await ticket_service.can_reopen(thread.id, reopen_window)
+        if not can_reopen:
+            await interaction.response.send_message(
+                f"⏳ The reopen window ({reopen_window}h) has passed. "
+                "Please create a new ticket instead.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        reopened = await ticket_service.reopen_ticket(thread.id, user_id)
+        if not reopened:
+            await interaction.followup.send(
+                "This ticket is not closed or could not be reopened.", ephemeral=True
+            )
+            return
+
+        # Unarchive / unlock the thread
+        try:
+            await thread.edit(archived=False, locked=False)
         except discord.Forbidden:
             logger.warning(
-                "Missing permissions to archive/lock thread %s in guild %s",
+                "Missing permissions to unarchive thread %s in guild %s",
                 thread.id,
                 guild_id,
             )
 
-        # --- Log to log channel ---
+        reopen_embed = create_embed(
+            title="🔓 Ticket Reopened",
+            description=f"This ticket has been reopened by {interaction.user.mention}.",
+            color=EmbedColors.SUCCESS,
+        )
+        # Send the control view again so staff can close/claim
+        control_view = TicketControlView(self.bot)
+        await thread.send(embed=reopen_embed, view=control_view)
+
         await _log_ticket_event(
             self.bot,
             guild_id,
-            title="🔒 Ticket Closed",
+            title="🔓 Ticket Reopened",
             description=(
                 f"**Ticket:** {thread.mention}\n"
-                f"**Closed by:** {interaction.user.mention}\n"
-                f"**Creator:** <@{ticket['user_id']}>"
+                f"**Reopened by:** {interaction.user.mention}"
             ),
-            color=EmbedColors.ADMIN,
+            color=EmbedColors.SUCCESS,
         )
 
-        await interaction.followup.send("Ticket closed.", ephemeral=True)
+        await interaction.followup.send("Ticket reopened.", ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Thread creation
 # ---------------------------------------------------------------------------
+
+
+async def _start_dynamic_form(
+    bot: MyBot,
+    interaction: discord.Interaction,
+    category: dict[str, Any],
+    ticket_form_service: Any,
+) -> None:
+    """Begin a dynamic modal form flow for the selected category.
+
+    Creates a route session, loads the first step's questions, builds
+    a ``DynamicTicketModal``, and presents it to the user.
+
+    AI Notes:
+        Imported lazily to avoid circular imports.  The form views module
+        imports ``_create_ticket_thread`` from this module.
+    """
+    from helpers.ticket_form_views import present_step_ui
+
+    guild_id = interaction.guild.id if interaction.guild else 0
+    user_id = interaction.user.id
+
+    # Create fresh session
+    ctx = await ticket_form_service.create_session(
+        guild_id, user_id, category["id"],
+        interaction_token=interaction.token,
+    )
+    ctx.category = category
+
+    # Load form config + first step
+    form_config = await ticket_form_service.get_form_config(category["id"])
+    if not form_config or not form_config.get("steps"):
+        # Shouldn't happen (has_form was True), but handle gracefully
+        modal = TicketDescriptionModal(bot, category=category)
+        await interaction.response.send_modal(modal)
+        return
+
+    steps = form_config["steps"]
+    first_step = steps[0]
+    questions = first_step.get("questions", [])
+
+    if not questions:
+        modal_fallback = TicketDescriptionModal(bot, category=category)
+        await interaction.response.send_modal(modal_fallback)
+        return
+
+    await present_step_ui(
+        bot,
+        interaction,
+        category,
+        first_step,
+        questions,
+        ctx,
+        total_steps=len(steps),
+    )
 
 
 async def _create_ticket_thread(
@@ -276,11 +690,18 @@ async def _create_ticket_thread(
     interaction: discord.Interaction,
     *,
     category: dict[str, Any] | None,
+    initial_description: str | None = None,
+    form_responses: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Create a private thread for a new ticket.
 
-    Called after the user clicks the panel button (possibly after selecting
-    a category).
+    Called after the user fills in the description modal or completes
+    the dynamic form route.
+
+    Args:
+        form_responses: Optional dict of collected form answers from a
+            dynamic route flow.  When present, the answers are displayed
+            as separate fields in the welcome embed.
 
     AI Notes:
         Private threads require the channel to be a ``TextChannel``.
@@ -299,17 +720,20 @@ async def _create_ticket_thread(
     ticket_service = bot.services.ticket
     config_service = bot.services.config
 
-    # Temporary thread name (renamed to ticket number after DB insert)
-    cat_label = category["name"] if category else "ticket"
-    thread_name = f"{cat_label}-{user.display_name}"[:100]
-
-    # Create private thread
+    # Determine the originating text channel
     channel = interaction.channel
+    # If interaction occurred inside a thread (from category select),
+    # use the parent channel for thread creation.
+    if isinstance(channel, discord.Thread):
+        channel = channel.parent  # type: ignore[assignment]
     if not isinstance(channel, discord.TextChannel):
         await interaction.followup.send(
             "Tickets can only be created in text channels.", ephemeral=True
         )
         return
+
+    cat_label = category["name"] if category else "ticket"
+    thread_name = f"{cat_label}-{user.display_name}"[:100]
 
     try:
         thread = await channel.create_thread(
@@ -348,6 +772,7 @@ async def _create_ticket_thread(
         thread_id=thread.id,
         user_id=user.id,
         category_id=category_id,
+        initial_description=initial_description,
     )
 
     # Rename thread to ticket number for consistent UX
@@ -384,25 +809,33 @@ async def _create_ticket_thread(
     if category:
         welcome_embed.add_field(name="Category", value=category["name"], inline=True)
     welcome_embed.add_field(name="Created by", value=user.mention, inline=True)
+    if ticket_id:
+        welcome_embed.set_footer(text=f"Ticket #{ticket_id}")
+
+    # Send user's initial description if provided
+    if initial_description and not form_responses:
+        welcome_embed.add_field(
+            name="Description", value=initial_description[:1024], inline=False
+        )
+
+    # Display structured form responses when available
+    if form_responses:
+        for _qid, data in form_responses.items():
+            label = data.get("label", _qid)
+            answer = data.get("answer", "")
+            if answer:
+                welcome_embed.add_field(
+                    name=label[:256], value=answer[:1024], inline=False
+                )
 
     control_view = TicketControlView(bot)
     await thread.send(embed=welcome_embed, view=control_view)
 
     # --- Add staff roles to the thread ---
     if category and category.get("role_ids"):
-        role_ids = category["role_ids"]
+        role_ids: list[int] = category["role_ids"]
     else:
-        staff_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.staff_roles", default="[]"
-        )
-        try:
-            role_ids = (
-                json.loads(staff_raw)
-                if isinstance(staff_raw, str)
-                else (staff_raw or [])
-            )
-        except (json.JSONDecodeError, TypeError):
-            role_ids = []
+        role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
 
     # Mention staff roles in the thread so they get notifications
     if role_ids and interaction.guild:
@@ -415,15 +848,19 @@ async def _create_ticket_thread(
             await thread.send(" ".join(mentions))
 
     # --- Log to log channel ---
+    log_desc = (
+        f"**Ticket:** {thread.mention}\n"
+        f"**Creator:** {user.mention}\n"
+        f"**Category:** {cat_label}"
+    )
+    if initial_description:
+        log_desc += f"\n**Description:** {initial_description[:200]}"
+
     await _log_ticket_event(
         bot,
         guild_id,
         title="🎫 Ticket Opened",
-        description=(
-            f"**Ticket:** {thread.mention}\n"
-            f"**Creator:** {user.mention}\n"
-            f"**Category:** {cat_label}"
-        ),
+        description=log_desc,
         color=EmbedColors.INFO,
     )
 
@@ -432,35 +869,101 @@ async def _create_ticket_thread(
     )
 
 
-async def _log_ticket_event(
+# ---------------------------------------------------------------------------
+# Close ticket flow
+# ---------------------------------------------------------------------------
+
+
+async def _close_ticket(
     bot: MyBot,
-    guild_id: int,
+    interaction: discord.Interaction,
+    thread: discord.Thread,
     *,
-    title: str,
-    description: str,
-    color: int,
+    close_reason: str | None = None,
 ) -> None:
-    """Send a ticket event embed to the configured log channel."""
-    try:
-        config_service = bot.services.config
-        log_channel_id = await config_service.get_guild_setting(
-            guild_id, "tickets.log_channel_id"
+    """Close a ticket thread: update DB, send transcript, archive.
+
+    Called from the ``TicketCloseReasonModal`` after the user submits.
+    """
+    if interaction.guild is None:
+        await interaction.followup.send("Missing guild context.", ephemeral=True)
+        return
+
+    guild_id = interaction.guild.id
+    user_id = interaction.user.id
+    ticket_service = bot.services.ticket
+    config_service = bot.services.config
+
+    # Close ticket in DB
+    closed = await ticket_service.close_ticket_by_thread(
+        thread.id, user_id, close_reason=close_reason
+    )
+    if not closed:
+        await interaction.followup.send(
+            "This ticket is already closed.", ephemeral=True
         )
-        if not log_channel_id:
-            return
+        return
 
-        channel = bot.get_channel(int(log_channel_id))
-        if channel is None:
-            return
-
-        if not isinstance(channel, discord.TextChannel):
-            return
-
-        embed = create_embed(title=title, description=description, color=color)
-        await channel.send(embed=embed)
+    # --- Generate transcript ---
+    try:
+        transcript_file = await _generate_transcript(thread)
     except Exception as e:
         logger.exception(
-            "Failed to log ticket event to channel in guild %s",
-            guild_id,
-            exc_info=e,
+            "Failed to generate transcript for thread %s", thread.id, exc_info=e
         )
+        transcript_file = None
+
+    # --- Close message ---
+    close_msg = await config_service.get_guild_setting(
+        guild_id,
+        "tickets.close_message",
+        default="This ticket has been closed.",
+    )
+    close_desc = f"{close_msg}\n\nClosed by {interaction.user.mention}"
+    if close_reason:
+        close_desc += f"\n**Reason:** {close_reason}"
+
+    close_embed = create_embed(
+        title="🔒 Ticket Closed",
+        description=close_desc,
+        color=EmbedColors.ADMIN,
+    )
+
+    # Send close message + reopen view + transcript
+    reopen_view = TicketReopenView(bot)
+    if transcript_file:
+        await thread.send(embed=close_embed, view=reopen_view, file=transcript_file)
+    else:
+        await thread.send(embed=close_embed, view=reopen_view)
+
+    # Archive + lock the thread
+    try:
+        await thread.edit(archived=True, locked=True)
+    except discord.Forbidden:
+        logger.warning(
+            "Missing permissions to archive/lock thread %s in guild %s",
+            thread.id,
+            guild_id,
+        )
+
+    # --- Log to log channel ---
+    ticket = await ticket_service.get_ticket_by_thread(thread.id)
+    creator_mention = f"<@{ticket['user_id']}>" if ticket else "unknown"
+
+    log_desc = (
+        f"**Ticket:** {thread.mention}\n"
+        f"**Closed by:** {interaction.user.mention}\n"
+        f"**Creator:** {creator_mention}"
+    )
+    if close_reason:
+        log_desc += f"\n**Reason:** {close_reason}"
+
+    await _log_ticket_event(
+        bot,
+        guild_id,
+        title="🔒 Ticket Closed",
+        description=log_desc,
+        color=EmbedColors.ADMIN,
+    )
+
+    await interaction.followup.send("Ticket closed.", ephemeral=True)

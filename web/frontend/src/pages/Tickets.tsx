@@ -13,6 +13,7 @@ import {
   DiscordChannel,
   GuildRole,
   TicketCategory,
+  TicketFormStep,
   TicketInfo,
   guildApi,
   ticketsApi,
@@ -33,11 +34,17 @@ import {
   Spinner,
   Textarea,
 } from '../components/ui';
+import DiscordMarkdownEditor from '../components/DiscordMarkdownEditor';
 import { handleApiError, showSuccess } from '../utils/toast';
 
 interface TicketsProps {
   guildId: string;
 }
+
+const MAX_TOTAL_FOLLOW_UP_QUESTIONS = 10;
+const MAX_QUESTIONS_PER_STEP = 5;
+const MAX_FORM_STEPS = 10;
+const MAX_SELECT_OPTIONS = 10;
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -77,6 +84,16 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [catRoleIds, setCatRoleIds] = useState<string[]>([]);
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
+
+  // --- Follow-up form editor state ---
+  const [formEditorOpen, setFormEditorOpen] = useState(false);
+  const [formCategory, setFormCategory] = useState<TicketCategory | null>(null);
+  const [formSteps, setFormSteps] = useState<TicketFormStep[]>([]);
+  const [formLoading, setFormLoading] = useState(false);
+  const [formSaving, setFormSaving] = useState(false);
+  const [formDeleting, setFormDeleting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formValidationErrors, setFormValidationErrors] = useState<string[]>([]);
 
   // --- Tickets list state ---
   const [tickets, setTickets] = useState<TicketInfo[]>([]);
@@ -286,6 +303,492 @@ export default function Tickets({ guildId }: TicketsProps) {
     }
   };
 
+  const totalFollowUpQuestions = useMemo(
+    () => formSteps.reduce((total, step) => total + step.questions.length, 0),
+    [formSteps]
+  );
+
+  const normalizeStepsForSave = (steps: TicketFormStep[]): TicketFormStep[] =>
+    steps.map((step, stepIndex) => ({
+      ...step,
+      step_number: stepIndex + 1,
+      title: step.title ?? '',
+      questions: step.questions.map((q, questionIndex) => {
+        const generatedQuestionId = `step${stepIndex + 1}_q${questionIndex + 1}`;
+        return {
+          ...q,
+          question_id: q.question_id?.trim() || generatedQuestionId,
+          label: q.label.trim(),
+          input_type: q.input_type === 'select' ? 'select' : 'text',
+          options:
+            q.input_type === 'select'
+              ? (q.options ?? [])
+                  .map((option) => {
+                    const label = option.label.trim();
+                    return {
+                      value: label,
+                      label,
+                    };
+                  })
+                  .filter((option) => option.label)
+              : [],
+          placeholder: q.placeholder ?? '',
+          style: q.style ?? 'short',
+          required: q.required ?? true,
+          min_length: q.min_length ?? null,
+          max_length: q.max_length ?? null,
+          sort_order: questionIndex,
+        };
+      }),
+      branch_rules: step.branch_rules.map((rule) => {
+        const fallbackQuestionId =
+          step.questions[0]?.question_id?.trim() || `step${stepIndex + 1}_q1`;
+        return {
+          question_id: rule.question_id || fallbackQuestionId,
+          match_pattern: rule.match_pattern,
+          next_step_number: rule.next_step_number,
+        };
+      }),
+      default_next_step: step.default_next_step,
+    }));
+
+  const openFollowUpEditor = async (category: TicketCategory) => {
+    setFormCategory(category);
+    setFormEditorOpen(true);
+    setFormLoading(true);
+    setFormError(null);
+    setFormValidationErrors([]);
+
+    try {
+      const res = await ticketsApi.getCategoryForm(category.id);
+      const sorted = [...(res.config?.steps ?? [])].sort(
+        (a, b) => a.step_number - b.step_number
+      );
+      setFormSteps(
+        sorted.map((step) => ({
+          ...step,
+          questions: step.questions.map((question) => ({
+            ...question,
+            options: (question.options ?? []).map((option) => {
+              const label = option.label?.trim() || option.value?.trim() || '';
+              return { label, value: label };
+            }),
+          })),
+        }))
+      );
+    } catch (err) {
+      setFormError('Failed to load follow-up questions for this category.');
+      handleApiError(err, 'Failed to load follow-up questions');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const closeFollowUpEditor = () => {
+    setFormEditorOpen(false);
+    setFormCategory(null);
+    setFormSteps([]);
+    setFormError(null);
+    setFormValidationErrors([]);
+  };
+
+  const addStep = () => {
+    if (formSteps.length >= 10) {
+      setFormError('You can only configure up to 10 form steps.');
+      return;
+    }
+    setFormError(null);
+    setFormSteps((prev) => [
+      ...prev,
+      {
+        step_number: prev.length + 1,
+        title: `Step ${prev.length + 1}`,
+        questions: [],
+        branch_rules: [],
+        default_next_step: null,
+      },
+    ]);
+  };
+
+  const removeStep = (index: number) => {
+    const removedStepNumber = index + 1;
+    setFormSteps((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        .map((step, i) => ({
+          ...step,
+          step_number: i + 1,
+          default_next_step:
+            step.default_next_step === removedStepNumber
+              ? null
+              : step.default_next_step && step.default_next_step > removedStepNumber
+                ? step.default_next_step - 1
+              : step.default_next_step,
+          branch_rules: step.branch_rules.map((rule) => ({
+            ...rule,
+            next_step_number:
+              rule.next_step_number === removedStepNumber
+                ? null
+                : rule.next_step_number && rule.next_step_number > removedStepNumber
+                  ? rule.next_step_number - 1
+                : rule.next_step_number,
+          })),
+        }))
+    );
+  };
+
+  const updateStep = (index: number, updater: (step: TicketFormStep) => TicketFormStep) => {
+    setFormSteps((prev) => prev.map((step, i) => (i === index ? updater(step) : step)));
+  };
+
+  const addQuestion = (stepIndex: number) => {
+    setFormError(null);
+    setFormSteps((prev) => {
+      const total = prev.reduce((acc, step) => acc + step.questions.length, 0);
+      if (total >= MAX_TOTAL_FOLLOW_UP_QUESTIONS) {
+        setFormError(`You can only configure up to ${MAX_TOTAL_FOLLOW_UP_QUESTIONS} follow-up questions.`);
+        return prev;
+      }
+
+      return prev.map((step, idx) => {
+        if (idx !== stepIndex) return step;
+        if (step.questions.length >= MAX_QUESTIONS_PER_STEP) {
+          setFormError(`Each step can only contain up to ${MAX_QUESTIONS_PER_STEP} questions.`);
+          return step;
+        }
+        const nextIndex = step.questions.length + 1;
+        return {
+          ...step,
+          questions: [
+            ...step.questions,
+            {
+              question_id: `q${step.step_number}_${nextIndex}`,
+              label: '',
+              input_type: 'text',
+              options: [],
+              placeholder: '',
+              style: 'short',
+              required: true,
+              min_length: null,
+              max_length: null,
+              sort_order: nextIndex - 1,
+            },
+          ],
+        };
+      });
+    });
+  };
+
+  const removeQuestion = (stepIndex: number, questionIndex: number) => {
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      questions: step.questions
+        .filter((_, i) => i !== questionIndex)
+        .map((q, i) => ({ ...q, sort_order: i })),
+    }));
+  };
+
+  const addSelectOption = (stepIndex: number, questionIndex: number) => {
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      questions: step.questions.map((q, i) => {
+        if (i !== questionIndex) return q;
+        const currentOptions = q.options ?? [];
+        if (currentOptions.length >= 10) return q;
+        return {
+          ...q,
+          options: [
+            ...currentOptions,
+            {
+              value: '',
+              label: '',
+            },
+          ],
+        };
+      }),
+    }));
+  };
+
+  const updateSelectOption = (
+    stepIndex: number,
+    questionIndex: number,
+    optionIndex: number,
+    value: string
+  ) => {
+    const label = value;
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      questions: step.questions.map((q, i) => {
+        if (i !== questionIndex) return q;
+        return {
+          ...q,
+          options: (q.options ?? []).map((option, optionPos) =>
+            optionPos === optionIndex
+              ? { ...option, label, value: label }
+              : option
+          ),
+        };
+      }),
+    }));
+  };
+
+  const removeSelectOption = (
+    stepIndex: number,
+    questionIndex: number,
+    optionIndex: number
+  ) => {
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      questions: step.questions.map((q, i) => {
+        if (i !== questionIndex) return q;
+        return {
+          ...q,
+          options: (q.options ?? []).filter((_, idx) => idx !== optionIndex),
+        };
+      }),
+    }));
+  };
+
+  const addBranchRule = (stepIndex: number) => {
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      branch_rules: [
+        ...step.branch_rules,
+        {
+          question_id: step.questions[0]?.question_id ?? '',
+          match_pattern: '',
+          next_step_number: null,
+        },
+      ],
+    }));
+  };
+
+  const removeBranchRule = (stepIndex: number, ruleIndex: number) => {
+    updateStep(stepIndex, (step) => ({
+      ...step,
+      branch_rules: step.branch_rules.filter((_, i) => i !== ruleIndex),
+    }));
+  };
+
+  const runFormValidation = async (categoryId: number) => {
+    try {
+      const validation = await ticketsApi.validateCategoryForm(categoryId);
+      setFormValidationErrors(validation.errors ?? []);
+      return validation.valid;
+    } catch (err) {
+      handleApiError(err, 'Failed to validate follow-up questions');
+      return false;
+    }
+  };
+
+  const handleSaveFollowUpForm = async () => {
+    if (!formCategory) return;
+
+    setFormError(null);
+    setFormValidationErrors([]);
+    const normalized = normalizeStepsForSave(formSteps);
+    const total = normalized.reduce((acc, step) => acc + step.questions.length, 0);
+
+    const validationErrors: string[] = [];
+
+    if (normalized.length > MAX_FORM_STEPS) {
+      validationErrors.push(
+        `This category has ${normalized.length} steps. Maximum allowed is ${MAX_FORM_STEPS}.`
+      );
+    }
+
+    if (total > MAX_TOTAL_FOLLOW_UP_QUESTIONS) {
+      validationErrors.push(
+        `This category has ${total} questions. Maximum allowed is ${MAX_TOTAL_FOLLOW_UP_QUESTIONS}.`
+      );
+    }
+
+    const stepNumbers = new Set<number>();
+    for (const step of normalized) {
+      if (stepNumbers.has(step.step_number)) {
+        validationErrors.push(`Duplicate step number ${step.step_number}.`);
+      }
+      stepNumbers.add(step.step_number);
+    }
+
+    for (const step of normalized) {
+      const stepLabel = `Step ${step.step_number}`;
+
+      if (step.questions.length > MAX_QUESTIONS_PER_STEP) {
+        validationErrors.push(
+          `${stepLabel} has ${step.questions.length} questions. Maximum allowed is ${MAX_QUESTIONS_PER_STEP}.`
+        );
+      }
+
+      const questionIds = new Set<string>();
+      let selectQuestions = 0;
+
+      for (const question of step.questions) {
+        const questionId = question.question_id.trim();
+        const questionLabel = question.label.trim();
+
+        if (!questionLabel) {
+          validationErrors.push('Every follow-up question requires a label.');
+        }
+
+        if (!questionId) {
+          validationErrors.push(`${stepLabel} has a question with an empty question ID.`);
+        } else {
+          if (questionIds.has(questionId)) {
+            validationErrors.push(
+              `${stepLabel} has duplicate question ID \"${questionId}\".`
+            );
+          }
+          questionIds.add(questionId);
+        }
+
+        if (question.input_type === 'select') {
+          selectQuestions += 1;
+          const options = question.options ?? [];
+          if (options.length < 1 || options.length > MAX_SELECT_OPTIONS) {
+            validationErrors.push(
+              `${stepLabel} dropdown questions require 1-${MAX_SELECT_OPTIONS} options.`
+            );
+          }
+
+          const optionValues = new Set<string>();
+          for (const option of options) {
+            const optionValue = option.value.trim();
+            const optionLabel = option.label.trim();
+            if (!optionValue || !optionLabel) {
+              validationErrors.push(
+                `${stepLabel} has a dropdown option with an empty label.`
+              );
+              continue;
+            }
+            if (optionValues.has(optionValue)) {
+              validationErrors.push(
+                `${stepLabel} has duplicate dropdown option labels.`
+              );
+              continue;
+            }
+            optionValues.add(optionValue);
+          }
+        }
+      }
+
+      if (selectQuestions > 1) {
+        validationErrors.push(`${stepLabel} can only contain one dropdown question.`);
+      }
+
+      if (selectQuestions === 1 && step.questions.length > 1) {
+        validationErrors.push(
+          `${stepLabel} cannot mix dropdown questions with other question types.`
+        );
+      }
+
+      for (const rule of step.branch_rules) {
+        const ruleQuestionId = rule.question_id.trim();
+        if (!ruleQuestionId) {
+          validationErrors.push(`${stepLabel} has a branch rule with an empty question ID.`);
+        } else if (!questionIds.has(ruleQuestionId)) {
+          validationErrors.push(
+            `${stepLabel} has a branch rule referencing unknown question ID \"${ruleQuestionId}\".`
+          );
+        }
+
+        if (rule.match_pattern) {
+          try {
+            new RegExp(rule.match_pattern);
+          } catch {
+            validationErrors.push(
+              `${stepLabel} has an invalid regex pattern: ${rule.match_pattern}`
+            );
+          }
+        }
+
+        if (
+          rule.next_step_number !== null &&
+          !stepNumbers.has(rule.next_step_number)
+        ) {
+          validationErrors.push(
+            `${stepLabel} has a branch rule pointing to missing step ${rule.next_step_number}.`
+          );
+        }
+      }
+
+      if (
+        step.default_next_step !== null &&
+        !stepNumbers.has(step.default_next_step)
+      ) {
+        validationErrors.push(
+          `${stepLabel} has a default next step pointing to missing step ${step.default_next_step}.`
+        );
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setFormError(validationErrors[0]);
+      setFormValidationErrors(validationErrors);
+      return;
+    }
+
+    setFormSaving(true);
+    try {
+      await ticketsApi.updateCategoryForm(formCategory.id, { steps: normalized });
+      const isValid = await runFormValidation(formCategory.id);
+      showSuccess(
+        isValid
+          ? 'Follow-up questions saved'
+          : 'Follow-up questions saved with validation warnings'
+      );
+    } catch (err) {
+      const detail = (
+        err as {
+          response?: {
+            data?: {
+              detail?: { errors?: string[]; message?: string } | string;
+            };
+          };
+        }
+      )?.response?.data?.detail;
+      const apiErrors =
+        typeof detail === 'object' && detail !== null && Array.isArray(detail.errors)
+          ? detail.errors
+          : [];
+      const apiMessage =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail === 'object' && detail !== null && typeof detail.message === 'string'
+            ? detail.message
+            : null;
+
+      if (Array.isArray(apiErrors) && apiErrors.length > 0) {
+        setFormError(apiErrors[0]);
+        setFormValidationErrors(apiErrors);
+      } else if (apiMessage) {
+        setFormError(apiMessage);
+        setFormValidationErrors([]);
+      } else {
+        setFormValidationErrors([]);
+        handleApiError(err, 'Failed to save follow-up questions');
+      }
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const handleDeleteFollowUpForm = async () => {
+    if (!formCategory) return;
+    setFormDeleting(true);
+    setFormError(null);
+    try {
+      await ticketsApi.deleteCategoryForm(formCategory.id);
+      setFormSteps([]);
+      setFormValidationErrors([]);
+      showSuccess('Follow-up questions removed for this category');
+    } catch (err) {
+      handleApiError(err, 'Failed to delete follow-up questions');
+    } finally {
+      setFormDeleting(false);
+    }
+  };
+
   const ticketTotalPages = Math.ceil(ticketTotal / ticketPageSize) || 1;
 
   const getCategoryName = (categoryId: number | null): string => {
@@ -413,11 +916,12 @@ export default function Tickets({ guildId }: TicketsProps) {
             <p className="text-xs text-gray-500 mb-2">
               Description shown on the ticket panel embed.
             </p>
-            <Textarea
+            <DiscordMarkdownEditor
               value={panelDescription}
-              onChange={(e) => setPanelDescription(e.target.value)}
+              onChange={setPanelDescription}
               placeholder="Click the button below to create a support ticket."
               rows={3}
+              helperText="Use Discord markdown for clean panel copy (bold, italics, bullets, quotes, code, and links)."
             />
           </div>
 
@@ -427,11 +931,12 @@ export default function Tickets({ guildId }: TicketsProps) {
             <p className="text-xs text-gray-500 mb-2">
               Message displayed when a ticket is closed.
             </p>
-            <Textarea
+            <DiscordMarkdownEditor
               value={closeMessage}
-              onChange={(e) => setCloseMessage(e.target.value)}
+              onChange={setCloseMessage}
               placeholder="This ticket has been closed."
               rows={2}
+              helperText="Supports Discord formatting and list/quote patterns for clear closure guidance."
             />
           </div>
 
@@ -441,11 +946,12 @@ export default function Tickets({ guildId }: TicketsProps) {
             <p className="text-xs text-gray-500 mb-2">
               Welcome message for new tickets without a category-specific message.
             </p>
-            <Textarea
+            <DiscordMarkdownEditor
               value={defaultWelcomeMessage}
-              onChange={(e) => setDefaultWelcomeMessage(e.target.value)}
+              onChange={setDefaultWelcomeMessage}
               placeholder="Welcome to your support ticket! Please describe your issue…"
               rows={3}
+              helperText="Use concise Discord markdown prompts to improve intake quality."
             />
           </div>
 
@@ -510,6 +1016,13 @@ export default function Tickets({ guildId }: TicketsProps) {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openFollowUpEditor(cat)}
+                      >
+                        Follow-up Questions
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -660,12 +1173,13 @@ export default function Tickets({ guildId }: TicketsProps) {
             placeholder="Brief description shown in the category dropdown."
             rows={2}
           />
-          <Textarea
+          <DiscordMarkdownEditor
             label="Welcome Message"
             value={catWelcomeMessage}
-            onChange={(e) => setCatWelcomeMessage(e.target.value)}
+            onChange={setCatWelcomeMessage}
             placeholder="Custom welcome message for tickets in this category. Leave empty to use the default."
             rows={3}
+            helperText="Category welcome messages support Discord markdown (bold, bullets, italics, quotes, code, links)."
           />
           <div>
             <h5 className="text-sm font-medium text-gray-300 mb-1">Notified Roles</h5>
@@ -682,6 +1196,428 @@ export default function Tickets({ guildId }: TicketsProps) {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Category Follow-up Questions */}
+      {/* ---------------------------------------------------------------- */}
+      <Modal
+        open={formEditorOpen}
+        onClose={closeFollowUpEditor}
+        title={formCategory ? `Follow-up Questions: ${formCategory.name}` : 'Follow-up Questions'}
+        size="lg"
+        footer={
+          <ModalFooter>
+            <Button variant="secondary" onClick={closeFollowUpEditor} disabled={formSaving || formDeleting}>
+              Close
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteFollowUpForm}
+              loading={formDeleting}
+              disabled={formSaving || formLoading || formSteps.length === 0}
+            >
+              {formDeleting ? 'Deleting…' : 'Delete Form'}
+            </Button>
+            <Button onClick={handleSaveFollowUpForm} loading={formSaving} disabled={formDeleting || formLoading}>
+              {formSaving ? 'Saving…' : 'Save Follow-up Questions'}
+            </Button>
+          </ModalFooter>
+        }
+      >
+        {formLoading ? (
+          <div className="flex items-center gap-3 py-4">
+            <Spinner className="h-5 w-5" />
+            <span className="text-gray-400">Loading follow-up questions…</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-400">
+                Configure follow-up modal questions for this category. Max {MAX_TOTAL_FOLLOW_UP_QUESTIONS} questions total.
+              </p>
+              <Badge variant={totalFollowUpQuestions > MAX_TOTAL_FOLLOW_UP_QUESTIONS ? 'error' : 'primary-outline'}>
+                {totalFollowUpQuestions}/{MAX_TOTAL_FOLLOW_UP_QUESTIONS}
+              </Badge>
+            </div>
+
+            {formError && <Alert variant="error">{formError}</Alert>}
+
+            {formValidationErrors.length > 0 && (
+              <Alert variant="warning">
+                <div className="space-y-1">
+                  <p className="font-medium">Validation warnings</p>
+                  {formValidationErrors.map((error, index) => (
+                    <p key={`${error}-${index}`} className="text-xs">
+                      • {error}
+                    </p>
+                  ))}
+                </div>
+              </Alert>
+            )}
+
+            {formSteps.length === 0 ? (
+              <Alert variant="info">
+                No follow-up questions configured. Ticket creation will use the default description modal for this category.
+              </Alert>
+            ) : (
+              <div className="space-y-3">
+                {formSteps.map((step, stepIndex) => (
+                  <Card key={`step-${step.step_number}`} variant="ghost" padding="sm">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <Input
+                          label={`Step ${step.step_number} Title`}
+                          value={step.title}
+                          onChange={(e) =>
+                            updateStep(stepIndex, (current) => ({
+                              ...current,
+                              title: e.target.value,
+                            }))
+                          }
+                          placeholder={`Step ${step.step_number}`}
+                        />
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => removeStep(stepIndex)}
+                          disabled={formSaving || formDeleting}
+                        >
+                          Remove Step
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-300">Questions</p>
+                          <Button
+                            size="sm"
+                            onClick={() => addQuestion(stepIndex)}
+                            disabled={formSaving || formDeleting}
+                          >
+                            + Add Question
+                          </Button>
+                        </div>
+
+                        {step.questions.length === 0 ? (
+                          <p className="text-xs text-gray-500">No questions in this step.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {step.questions.map((question, questionIndex) => (
+                              <Card
+                                key={`${step.step_number}-question-${questionIndex}`}
+                                variant="default"
+                                padding="sm"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <Input
+                                    label="Question Label"
+                                    value={question.label}
+                                    onChange={(e) =>
+                                      updateStep(stepIndex, (current) => ({
+                                        ...current,
+                                        questions: current.questions.map((q, i) =>
+                                          i === questionIndex ? { ...q, label: e.target.value } : q
+                                        ),
+                                      }))
+                                    }
+                                    placeholder="What is the issue?"
+                                  />
+                                  <Input
+                                    label="Placeholder"
+                                    value={question.placeholder ?? ''}
+                                    onChange={(e) =>
+                                      updateStep(stepIndex, (current) => ({
+                                        ...current,
+                                        questions: current.questions.map((q, i) =>
+                                          i === questionIndex
+                                            ? { ...q, placeholder: e.target.value }
+                                            : q
+                                        ),
+                                      }))
+                                    }
+                                    placeholder="Optional helper text"
+                                  />
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Question Type</label>
+                                    <select
+                                      value={question.input_type ?? 'text'}
+                                      onChange={(e) =>
+                                        updateStep(stepIndex, (current) => ({
+                                          ...current,
+                                          questions: current.questions.map((q, i) =>
+                                            i === questionIndex
+                                              ? {
+                                                  ...q,
+                                                  input_type: e.target.value === 'select' ? 'select' : 'text',
+                                                  options:
+                                                    e.target.value === 'select'
+                                                      ? q.options && q.options.length > 0
+                                                        ? q.options
+                                                        : [{ value: 'option_1', label: '' }]
+                                                      : [],
+                                                }
+                                              : q
+                                          ),
+                                        }))
+                                      }
+                                      className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
+                                    >
+                                      <option value="text">Text Input</option>
+                                      <option value="select">Dropdown (Single Select)</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Style</label>
+                                    <select
+                                      value={question.style ?? 'short'}
+                                      disabled={question.input_type === 'select'}
+                                      onChange={(e) =>
+                                        updateStep(stepIndex, (current) => ({
+                                          ...current,
+                                          questions: current.questions.map((q, i) =>
+                                            i === questionIndex
+                                              ? {
+                                                  ...q,
+                                                  style: (e.target.value === 'paragraph' ? 'paragraph' : 'short') as
+                                                    | 'short'
+                                                    | 'paragraph',
+                                                }
+                                              : q
+                                          ),
+                                        }))
+                                      }
+                                      className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
+                                    >
+                                      <option value="short">Short</option>
+                                      <option value="paragraph">Paragraph</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                {question.input_type === 'select' && (
+                                  <div className="mt-3 space-y-2 rounded border border-slate-700 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs text-gray-300">Dropdown Options (max 10)</p>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => addSelectOption(stepIndex, questionIndex)}
+                                        disabled={(question.options?.length ?? 0) >= 10}
+                                      >
+                                        + Add Option
+                                      </Button>
+                                    </div>
+                                    {(question.options ?? []).length === 0 ? (
+                                      <p className="text-xs text-gray-500">No options yet.</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {(question.options ?? []).map((option, optionIndex) => (
+                                          <div
+                                            key={`${question.question_id}-option-${optionIndex}`}
+                                            className="flex items-end gap-2"
+                                          >
+                                            <Input
+                                              className="flex-1"
+                                              label="Option Label"
+                                              value={option.label}
+                                              onChange={(e) =>
+                                                updateSelectOption(
+                                                  stepIndex,
+                                                  questionIndex,
+                                                  optionIndex,
+                                                  e.target.value
+                                                )
+                                              }
+                                              placeholder="Billing Support"
+                                            />
+                                            <Button
+                                              variant="danger"
+                                              size="sm"
+                                              onClick={() =>
+                                                removeSelectOption(
+                                                  stepIndex,
+                                                  questionIndex,
+                                                  optionIndex
+                                                )
+                                              }
+                                            >
+                                              Remove
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="flex justify-end mt-3">
+                                  <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => removeQuestion(stepIndex, questionIndex)}
+                                    disabled={formSaving || formDeleting}
+                                  >
+                                    Remove Question
+                                  </Button>
+                                </div>
+                              </Card>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-300">Branch Rules</p>
+                          <Button
+                            size="sm"
+                            onClick={() => addBranchRule(stepIndex)}
+                            disabled={formSaving || formDeleting || step.questions.length === 0}
+                          >
+                            + Add Rule
+                          </Button>
+                        </div>
+
+                        {step.branch_rules.length === 0 ? (
+                          <p className="text-xs text-gray-500">No branch rules for this step.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {step.branch_rules.map((rule, ruleIndex) => (
+                              <Card
+                                key={`${step.step_number}-rule-${ruleIndex}`}
+                                variant="default"
+                                padding="sm"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Question</label>
+                                    <select
+                                      value={rule.question_id}
+                                      onChange={(e) =>
+                                        updateStep(stepIndex, (current) => ({
+                                          ...current,
+                                          branch_rules: current.branch_rules.map((r, i) =>
+                                            i === ruleIndex
+                                              ? { ...r, question_id: e.target.value }
+                                              : r
+                                          ),
+                                        }))
+                                      }
+                                      className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
+                                    >
+                                      {step.questions.map((question, questionIdx) => (
+                                        <option key={question.question_id} value={question.question_id}>
+                                          {question.label?.trim() || `Question ${questionIdx + 1}`}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <Input
+                                    label="Regex Match"
+                                    value={rule.match_pattern}
+                                    onChange={(e) =>
+                                      updateStep(stepIndex, (current) => ({
+                                        ...current,
+                                        branch_rules: current.branch_rules.map((r, i) =>
+                                          i === ruleIndex
+                                            ? { ...r, match_pattern: e.target.value }
+                                            : r
+                                        ),
+                                      }))
+                                    }
+                                    placeholder="(?i)billing"
+                                  />
+
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Next Step</label>
+                                    <select
+                                      value={rule.next_step_number ?? ''}
+                                      onChange={(e) =>
+                                        updateStep(stepIndex, (current) => ({
+                                          ...current,
+                                          branch_rules: current.branch_rules.map((r, i) =>
+                                            i === ruleIndex
+                                              ? {
+                                                  ...r,
+                                                  next_step_number: e.target.value
+                                                    ? Number.parseInt(e.target.value, 10)
+                                                    : null,
+                                                }
+                                              : r
+                                          ),
+                                        }))
+                                      }
+                                      className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
+                                    >
+                                      <option value="">End Flow</option>
+                                      {formSteps
+                                        .filter((candidate) => candidate.step_number !== step.step_number)
+                                        .map((candidate) => (
+                                          <option
+                                            key={`next-step-${candidate.step_number}`}
+                                            value={candidate.step_number}
+                                          >
+                                            Step {candidate.step_number}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="flex justify-end mt-3">
+                                  <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => removeBranchRule(stepIndex, ruleIndex)}
+                                    disabled={formSaving || formDeleting}
+                                  >
+                                    Remove Rule
+                                  </Button>
+                                </div>
+                              </Card>
+                            ))}
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">Default Next Step</label>
+                          <select
+                            value={step.default_next_step ?? ''}
+                            onChange={(e) =>
+                              updateStep(stepIndex, (current) => ({
+                                ...current,
+                                default_next_step: e.target.value
+                                  ? Number.parseInt(e.target.value, 10)
+                                  : null,
+                              }))
+                            }
+                            className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-full"
+                          >
+                            <option value="">End Flow</option>
+                            {formSteps
+                              .filter((candidate) => candidate.step_number !== step.step_number)
+                              .map((candidate) => (
+                                <option
+                                  key={`default-next-${candidate.step_number}`}
+                                  value={candidate.step_number}
+                                >
+                                  Step {candidate.step_number}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-1">
+              <Button onClick={addStep} disabled={formSaving || formDeleting}>
+                + Add Step
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ---------------------------------------------------------------- */}

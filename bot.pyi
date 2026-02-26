@@ -6,6 +6,7 @@ from discord.ext import commands
 from helpers.http_helper import HTTPClient
 from services.internal_api import InternalAPIServer
 from services.service_container import ServiceContainer
+from services.ticket_form_service import TicketFormService
 from services.ticket_service import TicketService
 
 class MyBot(commands.Bot):

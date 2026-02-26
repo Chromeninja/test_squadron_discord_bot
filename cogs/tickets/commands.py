@@ -9,12 +9,11 @@ dashboard.  This cog handles:
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 import discord  # type: ignore[import-not-found]
 from discord import app_commands  # type: ignore[import-not-found]
-from discord.ext import commands  # type: ignore[import-not-found]
+from discord.ext import commands, tasks  # type: ignore[import-not-found]
 
 from helpers.decorators import require_permission_level
 from helpers.embeds import EmbedColors, create_embed
@@ -26,6 +25,9 @@ from utils.tasks import spawn
 
 if TYPE_CHECKING:
     from bot import MyBot
+    from services.config_service import ConfigService
+    from services.ticket_form_service import TicketFormService
+    from services.ticket_service import TicketService
 
 logger = get_logger(__name__)
 
@@ -44,8 +46,8 @@ async def _load_panel_message_ids() -> dict[int, int]:
         )
         for row in rows:
             try:
-                ids[int(row[0])] = int(json.loads(row[1]))
-            except (ValueError, json.JSONDecodeError, TypeError):
+                ids[int(row[0])] = int(row[1])
+            except (ValueError, TypeError):
                 pass
         logger.info("Loaded %d ticket panel message IDs from database", len(ids))
     except Exception as e:
@@ -60,7 +62,7 @@ async def _save_panel_message_id(guild_id: int, message_id: int) -> None:
             "INSERT INTO guild_settings (guild_id, key, value) "
             "VALUES (?, ?, ?) "
             "ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value",
-            (guild_id, "tickets.panel_message_id", json.dumps(message_id)),
+            (guild_id, "tickets.panel_message_id", str(message_id)),
         )
     except Exception as e:
         logger.exception(
@@ -84,18 +86,44 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         self.logger = get_logger(__name__)
         # Ensure panels exist on startup
         spawn(self._wait_and_ensure_panels())
+        # Start periodic session cleanup
+        self._session_cleanup_task.start()  # pylint: disable=no-member
 
     @property
-    def ticket_service(self):  # noqa: ANN201
+    def ticket_service(self) -> TicketService:
         """Shortcut to TicketService."""
         if not hasattr(self.bot, "services") or self.bot.services is None:
             raise RuntimeError("Bot services not initialized")
         return self.bot.services.ticket
 
     @property
-    def config_service(self):  # noqa: ANN201
+    def config_service(self) -> ConfigService:
         """Shortcut to ConfigService."""
         return self.bot.services.config
+
+    @property
+    def ticket_form_service(self) -> TicketFormService:
+        """Shortcut to TicketFormService."""
+        return self.bot.services.ticket_form
+
+    # ------------------------------------------------------------------
+    # Periodic cleanup of expired route sessions
+    # ------------------------------------------------------------------
+
+    @tasks.loop(minutes=5)
+    async def _session_cleanup_task(self) -> None:
+        """Periodically remove expired ticket route sessions."""
+        try:
+            await self.ticket_form_service.cleanup_expired_sessions()
+        except Exception as e:
+            self.logger.exception(
+                "Error during ticket route session cleanup", exc_info=e
+            )
+
+    @_session_cleanup_task.before_loop
+    async def _before_session_cleanup(self) -> None:
+        """Wait for the bot to be ready before starting cleanup."""
+        await self.bot.wait_until_ready()
 
     # ------------------------------------------------------------------
     # Startup — ensure panel messages exist
@@ -205,7 +233,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Display ticket counts."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None  # noqa: S101
+        assert guild is not None
 
         data = await self.ticket_service.get_ticket_stats(guild.id)
         embed = create_embed(
@@ -223,3 +251,10 @@ class TicketCommands(commands.GroupCog, name="tickets"):
 async def setup(bot: MyBot) -> None:
     """Register the Tickets cog."""
     await bot.add_cog(TicketCommands(bot))
+
+
+async def teardown(bot: MyBot) -> None:
+    """Unregister the Tickets cog and stop background tasks."""
+    cog = bot.get_cog("tickets")
+    if isinstance(cog, TicketCommands):
+        cog._session_cleanup_task.cancel()  # pylint: disable=no-member
