@@ -2,8 +2,9 @@
 Pydantic schemas for API request/response models.
 """
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # Auth schemas
@@ -847,6 +848,7 @@ class TicketCategory(BaseModel):
     emoji: str | None = None
     sort_order: int = 0
     created_at: int = 0
+    channel_id: str = "0"
 
 
 class TicketCategoryCreate(BaseModel):
@@ -861,6 +863,7 @@ class TicketCategoryCreate(BaseModel):
         default_factory=list
     )
     emoji: str | None = None
+    channel_id: str = "0"
 
 
 class TicketCategoryUpdate(BaseModel):
@@ -873,6 +876,7 @@ class TicketCategoryUpdate(BaseModel):
     allowed_statuses: list[TicketCategoryEligibilityStatus] | None = None
     emoji: str | None = None
     sort_order: int | None = None
+    channel_id: str | None = None
 
 
 class TicketCategoryListResponse(BaseModel):
@@ -880,6 +884,72 @@ class TicketCategoryListResponse(BaseModel):
 
     success: bool = True
     categories: list[TicketCategory] = Field(default_factory=list)
+
+
+class TicketChannelConfig(BaseModel):
+    """A ticket channel configuration record."""
+
+    id: int
+    guild_id: str
+    channel_id: str
+    panel_title: str = "🎫 Support Tickets"
+    panel_description: str = (
+        "Need help? Click the button below to open a support ticket.\n\n"
+        "A private thread will be created for you and a staff member "
+        "will assist you as soon as possible."
+    )
+    panel_color: str = "0099FF"
+    button_text: str = "Create Ticket"
+    button_emoji: str | None = "🎫"
+    enable_public_button: bool = False
+    public_button_text: str = "Create Public Ticket"
+    public_button_emoji: str | None = "🌐"
+    private_button_color: str | None = None
+    public_button_color: str | None = None
+    button_order: str = "private_first"
+    sort_order: int = 0
+    created_at: int = 0
+
+
+class TicketChannelConfigCreate(BaseModel):
+    """Request payload for creating a ticket channel config."""
+
+    guild_id: str
+    channel_id: str
+    panel_title: str | None = None
+    panel_description: str | None = None
+    panel_color: str | None = None
+    button_text: str | None = None
+    button_emoji: str | None = None
+    enable_public_button: bool | None = None
+    public_button_text: str | None = None
+    public_button_emoji: str | None = None
+    private_button_color: str | None = None
+    public_button_color: str | None = None
+    button_order: str | None = None
+
+
+class TicketChannelConfigUpdate(BaseModel):
+    """Request payload for updating a ticket channel config."""
+
+    panel_title: str | None = None
+    panel_description: str | None = None
+    panel_color: str | None = None
+    button_text: str | None = None
+    button_emoji: str | None = None
+    enable_public_button: bool | None = None
+    public_button_text: str | None = None
+    public_button_emoji: str | None = None
+    private_button_color: str | None = None
+    public_button_color: str | None = None
+    button_order: str | None = None
+
+
+class TicketChannelConfigListResponse(BaseModel):
+    """Response for listing ticket channel configs."""
+
+    success: bool = True
+    channels: list[TicketChannelConfig] = Field(default_factory=list)
 
 
 class TicketInfo(BaseModel):
@@ -927,8 +997,6 @@ class TicketSettings(BaseModel):
 
     channel_id: str | None = None
     panel_message_id: str | None = None
-    panel_title: str | None = None
-    panel_description: str | None = None
     log_channel_id: str | None = None
     close_message: str | None = None
     staff_roles: list[str] = Field(default_factory=list)
@@ -940,9 +1008,9 @@ class TicketSettings(BaseModel):
 class TicketSettingsUpdate(BaseModel):
     """Request payload for updating ticket settings."""
 
+    model_config = ConfigDict(extra="forbid")
+
     channel_id: str | None = None
-    panel_title: str | None = None
-    panel_description: str | None = None
     log_channel_id: str | None = None
     close_message: str | None = None
     staff_roles: list[str] | None = None

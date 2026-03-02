@@ -432,6 +432,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         CREATE TABLE IF NOT EXISTS ticket_categories (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id    INTEGER NOT NULL,
+            channel_id  INTEGER NOT NULL DEFAULT 0,
             name        TEXT    NOT NULL,
             description TEXT    DEFAULT '',
             welcome_message TEXT DEFAULT '',
@@ -445,6 +446,37 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild_channel ON ticket_categories(guild_id, channel_id)"
+    )
+
+    # Ticket channel configs (per-channel panel customization)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_channel_configs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            channel_id          INTEGER NOT NULL,
+            panel_title         TEXT    NOT NULL DEFAULT '🎫 Support Tickets',
+            panel_description   TEXT    NOT NULL DEFAULT 'Need help? Click the button below to open a support ticket.\n\nA private thread will be created for you and a staff member will assist you as soon as possible.',
+            panel_color         TEXT    NOT NULL DEFAULT '0099FF',
+            button_text         TEXT    NOT NULL DEFAULT 'Create Ticket',
+            button_emoji        TEXT    DEFAULT '🎫',
+            enable_public_button INTEGER NOT NULL DEFAULT 0,
+            public_button_text  TEXT    NOT NULL DEFAULT 'Create Public Ticket',
+            public_button_emoji TEXT    DEFAULT '🌐',
+            private_button_color TEXT   DEFAULT NULL,
+            public_button_color TEXT    DEFAULT NULL,
+            button_order        TEXT    NOT NULL DEFAULT 'private_first',
+            sort_order          INTEGER NOT NULL DEFAULT 0,
+            created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            UNIQUE(guild_id, channel_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_channel_configs_guild ON ticket_channel_configs(guild_id)"
     )
 
     # Tickets (one row per opened ticket thread)
@@ -466,7 +498,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             close_reason        TEXT    DEFAULT NULL,
             initial_description TEXT    DEFAULT NULL,
             reopened_at         INTEGER DEFAULT NULL,
-            reopened_by         INTEGER DEFAULT NULL
+            reopened_by         INTEGER DEFAULT NULL,
+            deleted_at          INTEGER DEFAULT NULL
         )
         """
     )
@@ -556,6 +589,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             current_step      INTEGER NOT NULL DEFAULT 1,
             collected_data    TEXT    NOT NULL DEFAULT '{}',
             interaction_token TEXT    DEFAULT NULL,
+            is_public         INTEGER NOT NULL DEFAULT 0,
             created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             expires_at        INTEGER NOT NULL,
             UNIQUE(guild_id, user_id)

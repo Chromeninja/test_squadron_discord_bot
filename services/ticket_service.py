@@ -33,16 +33,25 @@ _TICKET_COLUMN_NAMES = [
     "id", "guild_id", "channel_id", "thread_id", "user_id",
     "category_id", "status", "closed_by", "created_at", "closed_at",
     "claimed_by", "claimed_at", "close_reason", "initial_description",
-    "reopened_at", "reopened_by",
+    "reopened_at", "reopened_by", "deleted_at",
 ]
 _TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 
 # Column names for category SELECT queries — keep in sync with _row_to_category()
 _CATEGORY_COLUMN_NAMES = [
-    "id", "guild_id", "name", "description", "welcome_message",
+    "id", "guild_id", "channel_id", "name", "description", "welcome_message",
     "role_ids", "allowed_statuses", "emoji", "sort_order", "created_at",
 ]
 _CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
+
+# Column names for channel config SELECT queries — keep in sync with _row_to_channel_config()
+_CHANNEL_CONFIG_COLUMN_NAMES = [
+    "id", "guild_id", "channel_id", "panel_title", "panel_description",
+    "panel_color", "button_text", "button_emoji", "enable_public_button",
+    "public_button_text", "public_button_emoji", "private_button_color",
+    "public_button_color", "button_order", "sort_order", "created_at",
+]
+_CHANNEL_CONFIG_COLUMNS = ", ".join(_CHANNEL_CONFIG_COLUMN_NAMES)
 
 _ALLOWED_CATEGORY_STATUS_VALUES = {
     "bot_verified",
@@ -70,6 +79,8 @@ class TicketService(BaseService):
     def __init__(self) -> None:
         super().__init__("ticket")
         self._category_schema_checked = False
+        self._ticket_schema_checked = False
+        self._channel_config_schema_checked = False
 
     async def _initialize_impl(self) -> None:
         """No special startup work; DB schema is applied separately."""
@@ -130,6 +141,7 @@ class TicketService(BaseService):
         role_ids: list[int] | None = None,
         allowed_statuses: list[str] | None = None,
         emoji: str | None = None,
+        channel_id: int = 0,
     ) -> int | None:
         """Create a new ticket category for a guild.
 
@@ -143,6 +155,7 @@ class TicketService(BaseService):
                 category. Allowed values: ``bot_verified``, ``org_main``,
                 ``org_affiliate``. Empty means unrestricted.
             emoji: Optional emoji for the dropdown entry.
+            channel_id: Discord channel ID where this category's panel lives.
 
         Returns:
             The new category row ID, or ``None`` on failure.
@@ -166,6 +179,7 @@ class TicketService(BaseService):
                 INSERT INTO ticket_categories
                     (
                         guild_id,
+                        channel_id,
                         name,
                         description,
                         welcome_message,
@@ -174,10 +188,11 @@ class TicketService(BaseService):
                         emoji,
                         sort_order
                     )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guild_id,
+                    channel_id,
                     name,
                     description,
                     welcome_message,
@@ -188,10 +203,11 @@ class TicketService(BaseService):
                 ),
             )
             self.logger.info(
-                "Created ticket category %s (id=%s) for guild %s",
+                "Created ticket category %s (id=%s) for guild %s channel %s",
                 name,
                 cat_id,
                 guild_id,
+                channel_id,
             )
             return cat_id
         except Exception as e:
@@ -226,6 +242,7 @@ class TicketService(BaseService):
             "allowed_statuses",
             "emoji",
             "sort_order",
+            "channel_id",
         }
         updates: dict[str, Any] = {}
         for key, value in kwargs.items():
@@ -311,6 +328,352 @@ class TicketService(BaseService):
         if row is None:
             return None
         return self._row_to_category(row)
+
+    async def get_categories_for_channel(
+        self,
+        guild_id: int,
+        channel_id: int,
+    ) -> list[dict[str, Any]]:
+        """Return ticket categories assigned to a specific channel.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: Discord text channel ID.
+
+        Returns:
+            List of category dicts for the given channel, ordered by
+            ``sort_order``.
+        """
+        await self._ensure_category_schema_compatibility()
+        rows = await BaseRepository.fetch_all(
+            f"""
+            SELECT {_CATEGORY_COLUMNS}
+            FROM ticket_categories
+            WHERE guild_id = ? AND channel_id = ?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (guild_id, channel_id),
+        )
+        return [self._row_to_category(r) for r in rows]
+
+    async def get_ticket_channel_ids(self, guild_id: int) -> list[int]:
+        """Return distinct channel IDs that have ticket categories assigned.
+
+        Args:
+            guild_id: Discord guild ID.
+
+        Returns:
+            List of unique channel ID integers (excluding 0/unassigned).
+        """
+        await self._ensure_category_schema_compatibility()
+        rows = await BaseRepository.fetch_all(
+            """
+            SELECT DISTINCT channel_id
+            FROM ticket_categories
+            WHERE guild_id = ? AND channel_id != 0
+            """,
+            (guild_id,),
+        )
+        result: list[int] = []
+        for row in rows:
+            try:
+                val = row["channel_id"] if isinstance(row, dict) else row[0]
+                result.append(int(val))
+            except (TypeError, ValueError, KeyError, IndexError):
+                continue
+        return result
+
+    # ------------------------------------------------------------------
+    # Channel Configs (per-channel panel customization)
+    # ------------------------------------------------------------------
+
+    async def get_channel_configs(self, guild_id: int) -> list[dict[str, Any]]:
+        """Return all channel configs for a guild, ordered by sort_order.
+
+        Each dict contains: ``id``, ``guild_id``, ``channel_id``,
+        ``panel_title``, ``panel_description``, ``panel_color``,
+        ``button_text``, ``button_emoji``, ``enable_public_button``,
+        ``public_button_text``, ``public_button_emoji``,
+        ``private_button_color``, ``public_button_color``, ``button_order``,
+        ``sort_order``, ``created_at``.
+        """
+        await self._ensure_channel_config_schema_compatibility()
+        rows = await BaseRepository.fetch_all(
+            f"""
+            SELECT {_CHANNEL_CONFIG_COLUMNS}
+            FROM ticket_channel_configs
+            WHERE guild_id = ?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (guild_id,),
+        )
+        return [self._row_to_channel_config(r) for r in rows]
+
+    async def get_channel_config(
+        self,
+        guild_id: int,
+        channel_id: int,
+    ) -> dict[str, Any] | None:
+        """Return channel config for a specific channel, or None."""
+        await self._ensure_channel_config_schema_compatibility()
+        row = await BaseRepository.fetch_one(
+            f"""
+            SELECT {_CHANNEL_CONFIG_COLUMNS}
+            FROM ticket_channel_configs
+            WHERE guild_id = ? AND channel_id = ?
+            """,
+            (guild_id, channel_id),
+        )
+        if row is None:
+            return None
+        return self._row_to_channel_config(row)
+
+    async def create_channel_config(
+        self,
+        guild_id: int,
+        channel_id: int,
+        panel_title: str | None = None,
+        panel_description: str | None = None,
+        panel_color: str | None = None,
+        button_text: str | None = None,
+        button_emoji: str | None = None,
+        enable_public_button: bool | None = None,
+        public_button_text: str | None = None,
+        public_button_emoji: str | None = None,
+        private_button_color: str | None = None,
+        public_button_color: str | None = None,
+        button_order: str | None = None,
+    ) -> int | None:
+        """Create a new channel config with customized panel settings.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: Discord text channel ID.
+            panel_title: Optional custom title (uses default if None).
+            panel_description: Optional custom description (uses default if None).
+            panel_color: Optional hex color (uses default if None).
+            button_text: Optional button text (uses default if None).
+            button_emoji: Optional button emoji (uses default if None).
+            enable_public_button: Optional public-button toggle.
+            public_button_text: Optional public-button label.
+            public_button_emoji: Optional public-button emoji.
+            private_button_color: Optional hex color for private button.
+            public_button_color: Optional hex color for public button.
+            button_order: Order of buttons ('private_first' or 'public_first').
+
+        Returns:
+            The new channel config row ID, or None on failure.
+        """
+        try:
+            await self._ensure_channel_config_schema_compatibility()
+            # Build SQL with optional columns
+            cols = ["guild_id", "channel_id"]
+            vals: list[Any] = [guild_id, channel_id]
+
+            if panel_title is not None:
+                cols.append("panel_title")
+                vals.append(panel_title)
+            if panel_description is not None:
+                cols.append("panel_description")
+                vals.append(panel_description)
+            if panel_color is not None:
+                cols.append("panel_color")
+                vals.append(panel_color)
+            if button_text is not None:
+                cols.append("button_text")
+                vals.append(button_text)
+            if button_emoji is not None:
+                cols.append("button_emoji")
+                vals.append(button_emoji)
+            if enable_public_button is not None:
+                cols.append("enable_public_button")
+                vals.append(1 if enable_public_button else 0)
+            if public_button_text is not None:
+                cols.append("public_button_text")
+                vals.append(public_button_text)
+            if public_button_emoji is not None:
+                cols.append("public_button_emoji")
+                vals.append(public_button_emoji)
+            if private_button_color is not None:
+                cols.append("private_button_color")
+                vals.append(private_button_color)
+            if public_button_color is not None:
+                cols.append("public_button_color")
+                vals.append(public_button_color)
+            if button_order is not None:
+                cols.append("button_order")
+                vals.append(button_order)
+
+            placeholders = ", ".join("?" * len(vals))
+            col_names = ", ".join(cols)
+
+            config_id = await BaseRepository.insert_returning_id(
+                f"""
+                INSERT INTO ticket_channel_configs ({col_names})
+                VALUES ({placeholders})
+                """,
+                tuple(vals),
+            )
+            self.logger.info(
+                "Created channel config %s for guild %s channel %s",
+                config_id,
+                guild_id,
+                channel_id,
+            )
+            return config_id
+        except Exception as e:
+            self.logger.exception(
+                "Failed to create channel config for guild %s channel %s",
+                guild_id,
+                channel_id,
+                exc_info=e,
+            )
+            return None
+
+    async def update_channel_config(
+        self,
+        guild_id: int,
+        channel_id: int,
+        panel_title: str | None = None,
+        panel_description: str | None = None,
+        panel_color: str | None = None,
+        button_text: str | None = None,
+        button_emoji: str | None = None,
+        enable_public_button: bool | None = None,
+        public_button_text: str | None = None,
+        public_button_emoji: str | None = None,
+        private_button_color: str | None = None,
+        public_button_color: str | None = None,
+        button_order: str | None = None,
+    ) -> bool:
+        """Update an existing channel config.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: Discord channel ID.
+            panel_title: New panel title (unchanged if None).
+            panel_description: New panel description (unchanged if None).
+            panel_color: New panel color (unchanged if None).
+            button_text: New button text (unchanged if None).
+            button_emoji: New button emoji (unchanged if None).
+            enable_public_button: Enable public button when true.
+            public_button_text: New public button text.
+            public_button_emoji: New public button emoji.
+
+        Returns:
+            True if the config was updated, False otherwise.
+        """
+        try:
+            await self._ensure_channel_config_schema_compatibility()
+            updates: list[str] = []
+            vals: list[Any] = []
+
+            if panel_title is not None:
+                updates.append("panel_title = ?")
+                vals.append(panel_title)
+            if panel_description is not None:
+                updates.append("panel_description = ?")
+                vals.append(panel_description)
+            if panel_color is not None:
+                updates.append("panel_color = ?")
+                vals.append(panel_color)
+            if button_text is not None:
+                updates.append("button_text = ?")
+                vals.append(button_text)
+            if button_emoji is not None:
+                updates.append("button_emoji = ?")
+                vals.append(button_emoji)
+            if enable_public_button is not None:
+                updates.append("enable_public_button = ?")
+                vals.append(1 if enable_public_button else 0)
+            if public_button_text is not None:
+                updates.append("public_button_text = ?")
+                vals.append(public_button_text)
+            if public_button_emoji is not None:
+                updates.append("public_button_emoji = ?")
+                vals.append(public_button_emoji)
+            if private_button_color is not None:
+                updates.append("private_button_color = ?")
+                vals.append(private_button_color)
+            if public_button_color is not None:
+                updates.append("public_button_color = ?")
+                vals.append(public_button_color)
+            if button_order is not None:
+                updates.append("button_order = ?")
+                vals.append(button_order)
+
+            if not updates:
+                return False  # Nothing to update
+
+            vals.append(guild_id)
+            vals.append(channel_id)
+
+            rows = await BaseRepository.execute(
+                f"""
+                UPDATE ticket_channel_configs
+                SET {", ".join(updates)}
+                WHERE guild_id = ? AND channel_id = ?
+                """,
+                tuple(vals),
+            )
+            if rows > 0:
+                self.logger.info(
+                    "Updated channel config for guild %s channel %s",
+                    guild_id,
+                    channel_id,
+                )
+            return rows > 0
+        except Exception as e:
+            self.logger.exception(
+                "Failed to update channel config for guild %s channel %s",
+                guild_id,
+                channel_id,
+                exc_info=e,
+            )
+            return False
+
+    async def delete_channel_config(
+        self,
+        guild_id: int,
+        channel_id: int,
+    ) -> bool:
+        """Delete a channel config.
+
+        AI Notes:
+            This does NOT delete the categories assigned to the channel.
+            Those will become "unassigned" (channel_id = 0) and should be
+            handled by the caller.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: Discord channel ID.
+
+        Returns:
+            True if the config was deleted, False otherwise.
+        """
+        try:
+            rows = await BaseRepository.execute(
+                """
+                DELETE FROM ticket_channel_configs
+                WHERE guild_id = ? AND channel_id = ?
+                """,
+                (guild_id, channel_id),
+            )
+            if rows > 0:
+                self.logger.info(
+                    "Deleted channel config for guild %s channel %s",
+                    guild_id,
+                    channel_id,
+                )
+            return rows > 0
+        except Exception as e:
+            self.logger.exception(
+                "Failed to delete channel config for guild %s channel %s",
+                guild_id,
+                channel_id,
+                exc_info=e,
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Ticket Lifecycle
@@ -582,6 +945,157 @@ class TicketService(BaseService):
             "total": counts["open"] + counts["closed"],
         }
 
+    async def get_thread_health(self, guild_id: int) -> dict[str, Any]:
+        """Return thread usage data for a guild.
+
+        Returns a dict with:
+            ``active`` — open ticket count (threads still active).
+            ``archived`` — closed tickets whose threads still exist.
+            ``deleted`` — tickets whose threads have been cleaned up.
+            ``total_threads`` — estimated Discord thread consumption
+                (active + archived, excluding deleted).
+            ``limit`` — Discord's 1000 thread per guild limit.
+            ``usage_pct`` — percentage of the limit used.
+            ``status`` — human-readable health label.
+
+        AI Notes:
+            ``total_threads`` is an estimate from DB records. The real
+            Discord thread count may differ if threads were deleted
+            outside the bot.
+        """
+        await self._ensure_ticket_schema_compatibility()
+        rows = await BaseRepository.fetch_all(
+            """
+            SELECT
+                SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN status = 'closed' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS archived,
+                SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted
+            FROM tickets
+            WHERE guild_id = ?
+            """,
+            (guild_id,),
+        )
+        row = rows[0] if rows else None
+        active = int((row["active"] if isinstance(row, dict) else row[0]) or 0) if row else 0
+        archived = int((row["archived"] if isinstance(row, dict) else row[1]) or 0) if row else 0
+        deleted = int((row["deleted"] if isinstance(row, dict) else row[2]) or 0) if row else 0
+        total_threads = active + archived
+        limit = 1000
+        usage_pct = round((total_threads / limit) * 100, 1) if limit else 0
+
+        if usage_pct >= 95:
+            status = "critical"
+        elif usage_pct >= 90:
+            status = "warning"
+        elif usage_pct >= 80:
+            status = "notice"
+        else:
+            status = "healthy"
+
+        return {
+            "active": active,
+            "archived": archived,
+            "deleted": deleted,
+            "total_threads": total_threads,
+            "limit": limit,
+            "usage_pct": usage_pct,
+            "status": status,
+        }
+
+    async def get_oldest_closed_tickets(
+        self,
+        guild_id: int,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Return the oldest closed tickets that still have threads.
+
+        Useful for ``/tickets health`` to show cleanup candidates.
+
+        Args:
+            guild_id: Discord guild ID.
+            limit: Max number of tickets to return.
+
+        Returns:
+            List of ticket dicts ordered oldest-closed first.
+        """
+        rows = await BaseRepository.fetch_all(
+            f"""
+            SELECT {_TICKET_COLUMNS}
+            FROM tickets
+            WHERE guild_id = ? AND status = 'closed' AND deleted_at IS NULL
+            ORDER BY closed_at ASC
+            LIMIT ?
+            """,
+            (guild_id, limit),
+        )
+        return [self._row_to_ticket(r) for r in rows]
+
+    async def get_cleanup_candidates(
+        self,
+        guild_id: int,
+        older_than_days: int,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return closed tickets older than ``older_than_days`` days.
+
+        Only returns tickets whose threads have not been deleted yet
+        (``deleted_at IS NULL``) and that are past the safety buffer
+        (minimum 30 days).
+
+        Args:
+            guild_id: Discord guild ID.
+            older_than_days: Minimum days since closure.
+            limit: Max number of results; ``None`` for unlimited.
+
+        Returns:
+            List of ticket dicts eligible for thread deletion.
+        """
+        # Safety buffer — never suggest tickets closed less than 30 days ago
+        await self._ensure_ticket_schema_compatibility()
+        safe_days = max(older_than_days, 30)
+        cutoff = int(time.time()) - (safe_days * 86400)
+        sql = (
+            f"SELECT {_TICKET_COLUMNS} FROM tickets "
+            "WHERE guild_id = ? AND status = 'closed' "
+            "AND deleted_at IS NULL AND closed_at IS NOT NULL "
+            "AND closed_at < ? "
+            "ORDER BY closed_at ASC"
+        )
+        params: list[Any] = [guild_id, cutoff]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = await BaseRepository.fetch_all(sql, tuple(params))
+        return [self._row_to_ticket(r) for r in rows]
+
+    async def mark_thread_deleted(self, thread_id: int) -> bool:
+        """Record that a ticket's Discord thread has been deleted.
+
+        The ticket row is preserved for analytics — only the ``deleted_at``
+        timestamp is set.
+
+        Args:
+            thread_id: Discord thread ID.
+
+        Returns:
+            ``True`` if a row was updated, ``False`` otherwise.
+        """
+        try:
+            await self._ensure_ticket_schema_compatibility()
+            now = int(time.time())
+            rows = await BaseRepository.execute(
+                "UPDATE tickets SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL",
+                (now, thread_id),
+            )
+            if rows > 0:
+                self.logger.info("Marked thread %s as deleted", thread_id)
+            return rows > 0
+        except Exception as e:
+            self.logger.exception(
+                "Failed to mark thread %s as deleted", thread_id, exc_info=e
+            )
+            return False
+
     # ------------------------------------------------------------------
     # Rate Limiting
     # ------------------------------------------------------------------
@@ -728,6 +1242,11 @@ class TicketService(BaseService):
         return d
 
     @staticmethod
+    def _row_to_channel_config(row: Any) -> dict[str, Any]:
+        """Convert a database row to a channel config dict."""
+        return TicketService._row_to_dict(row, _CHANNEL_CONFIG_COLUMN_NAMES)
+
+    @staticmethod
     def _normalize_allowed_statuses(raw: Any) -> list[str]:
         """Normalize stored category eligibility statuses."""
         if raw is None:
@@ -757,7 +1276,13 @@ class TicketService(BaseService):
         return normalized
 
     async def _ensure_category_schema_compatibility(self) -> None:
-        """Ensure ticket category eligibility columns exist on older DBs."""
+        """Ensure ticket category columns exist on older DBs.
+
+        AI Notes:
+            Checks for ``allowed_statuses`` and ``channel_id`` columns
+            that may be missing on databases created before those features
+            were added.
+        """
         if self._category_schema_checked:
             return
 
@@ -784,7 +1309,151 @@ class TicketService(BaseService):
                 if "duplicate column name" not in str(e).lower():
                     raise
 
+        if "channel_id" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_categories "
+                    "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
+                )
+                self.logger.info(
+                    "Added missing channel_id column to ticket_categories"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
         self._category_schema_checked = True
+
+    async def _ensure_ticket_schema_compatibility(self) -> None:
+        """Ensure ``deleted_at`` column exists on older DBs.
+
+        AI Notes:
+            Mirrors the ``_ensure_category_schema_compatibility`` pattern.
+            Only runs once per process lifetime.
+        """
+        if self._ticket_schema_checked:
+            return
+
+        rows = await BaseRepository.fetch_all("PRAGMA table_info(tickets)")
+        column_names: set[str] = set()
+        for row in rows:
+            try:
+                column_name = str(row["name"])
+            except (TypeError, KeyError, IndexError):
+                column_name = str(row[1]) if len(row) > 1 else ""
+            if column_name:
+                column_names.add(column_name)
+
+        if "deleted_at" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE tickets "
+                    "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
+                )
+                self.logger.info("Added missing deleted_at column to tickets")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        self._ticket_schema_checked = True
+
+    async def _ensure_channel_config_schema_compatibility(self) -> None:
+        """Ensure public button columns exist on older DBs."""
+        if self._channel_config_schema_checked:
+            return
+
+        rows = await BaseRepository.fetch_all(
+            "PRAGMA table_info(ticket_channel_configs)"
+        )
+        column_names: set[str] = set()
+        for row in rows:
+            try:
+                column_name = str(row["name"])
+            except (TypeError, KeyError, IndexError):
+                column_name = str(row[1]) if len(row) > 1 else ""
+            if column_name:
+                column_names.add(column_name)
+
+        if "enable_public_button" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
+                )
+                self.logger.info(
+                    "Added missing enable_public_button column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        if "public_button_text" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN public_button_text TEXT NOT NULL "
+                    "DEFAULT 'Create Public Ticket'"
+                )
+                self.logger.info(
+                    "Added missing public_button_text column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        if "public_button_emoji" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN public_button_emoji TEXT DEFAULT '🌐'"
+                )
+                self.logger.info(
+                    "Added missing public_button_emoji column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        if "private_button_color" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN private_button_color TEXT DEFAULT NULL"
+                )
+                self.logger.info(
+                    "Added missing private_button_color column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        if "public_button_color" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN public_button_color TEXT DEFAULT NULL"
+                )
+                self.logger.info(
+                    "Added missing public_button_color column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        if "button_order" not in column_names:
+            try:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_channel_configs "
+                    "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
+                )
+                self.logger.info(
+                    "Added missing button_order column to ticket_channel_configs"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        self._channel_config_schema_checked = True
 
     # ------------------------------------------------------------------
     # Claim / Assign

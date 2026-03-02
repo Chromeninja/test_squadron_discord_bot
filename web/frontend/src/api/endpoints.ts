@@ -1064,6 +1064,7 @@ export interface TicketCategory {
   emoji: string | null;
   sort_order: number;
   created_at: number;
+  channel_id: string;
 }
 
 export type TicketCategoryEligibilityStatus =
@@ -1079,6 +1080,7 @@ export interface TicketCategoryCreate {
   role_ids?: string[];
   allowed_statuses?: TicketCategoryEligibilityStatus[];
   emoji?: string | null;
+  channel_id?: string;
 }
 
 export interface TicketCategoryUpdate {
@@ -1089,6 +1091,7 @@ export interface TicketCategoryUpdate {
   allowed_statuses?: TicketCategoryEligibilityStatus[];
   emoji?: string | null;
   sort_order?: number;
+  channel_id?: string;
 }
 
 export interface TicketInfo {
@@ -1107,8 +1110,6 @@ export interface TicketInfo {
 export interface TicketSettings {
   channel_id: string | null;
   panel_message_id: string | null;
-  panel_title: string | null;
-  panel_description: string | null;
   log_channel_id: string | null;
   close_message: string | null;
   staff_roles: string[];
@@ -1117,12 +1118,59 @@ export interface TicketSettings {
 
 export interface TicketSettingsUpdate {
   channel_id?: string | null;
-  panel_title?: string | null;
-  panel_description?: string | null;
   log_channel_id?: string | null;
   close_message?: string | null;
   staff_roles?: string[];
   default_welcome_message?: string | null;
+}
+
+export interface TicketChannelConfig {
+  id: number;
+  guild_id: string;
+  channel_id: string;
+  panel_title: string;
+  panel_description: string;
+  panel_color: string;
+  button_text: string;
+  button_emoji: string | null;
+  enable_public_button: boolean;
+  public_button_text: string;
+  public_button_emoji: string | null;
+  private_button_color: string | null;
+  public_button_color: string | null;
+  button_order: string;
+  sort_order: number;
+  created_at: number;
+}
+
+export interface TicketChannelConfigCreate {
+  guild_id: string;
+  channel_id: string;
+  panel_title?: string | null;
+  panel_description?: string | null;
+  panel_color?: string | null;
+  button_text?: string | null;
+  button_emoji?: string | null;
+  enable_public_button?: boolean | null;
+  public_button_text?: string | null;
+  public_button_emoji?: string | null;
+  private_button_color?: string | null;
+  public_button_color?: string | null;
+  button_order?: string | null;
+}
+
+export interface TicketChannelConfigUpdate {
+  panel_title?: string | null;
+  panel_description?: string | null;
+  panel_color?: string | null;
+  button_text?: string | null;
+  button_emoji?: string | null;
+  enable_public_button?: boolean | null;
+  public_button_text?: string | null;
+  public_button_emoji?: string | null;
+  private_button_color?: string | null;
+  public_button_color?: string | null;
+  button_order?: string | null;
 }
 
 export interface TicketFormQuestion {
@@ -1180,6 +1228,36 @@ export const ticketsApi = {
   deployPanel: async () => {
     const response = await apiClient.post<{ success: boolean; message_id: string }>(
       '/api/tickets/deploy-panel'
+    );
+    return response.data;
+  },
+
+  getChannelConfigs: async () => {
+    const response = await apiClient.get<{ success: boolean; channels: TicketChannelConfig[] }>(
+      '/api/tickets/channels'
+    );
+    return response.data;
+  },
+
+  createChannelConfig: async (payload: TicketChannelConfigCreate) => {
+    const response = await apiClient.post<{ success: boolean; channels: TicketChannelConfig[] }>(
+      '/api/tickets/channels',
+      payload
+    );
+    return response.data;
+  },
+
+  updateChannelConfig: async (channelId: string, payload: TicketChannelConfigUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      `/api/tickets/channels/${channelId}`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteChannelConfig: async (channelId: string) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/tickets/channels/${channelId}`
     );
     return response.data;
   },

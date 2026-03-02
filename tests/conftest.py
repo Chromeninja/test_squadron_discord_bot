@@ -98,6 +98,7 @@ class FakeInteraction:
         self.followup = FakeFollowup()
         self.guild: SimpleNamespace | None = SimpleNamespace(id=123, name="TestGuild")
         self.channel: SimpleNamespace | None = None
+        self.channel_id: int | None = None
         self.token: str = "fake_interaction_token"
 
         async def _edit(**kwargs: object) -> None:

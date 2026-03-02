@@ -24,6 +24,10 @@ from core.schemas import (
     TicketCategoryCreate,
     TicketCategoryListResponse,
     TicketCategoryUpdate,
+    TicketChannelConfig,
+    TicketChannelConfigCreate,
+    TicketChannelConfigListResponse,
+    TicketChannelConfigUpdate,
     TicketInfo,
     TicketListResponse,
     TicketSettings,
@@ -35,11 +39,11 @@ from core.schemas import (
 from core.validation import ensure_active_guild
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from services.ticket_service import TicketService
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from services.config_service import ConfigService
+    from services.ticket_service import TicketService
 
 logger = get_logger(__name__)
 
@@ -63,6 +67,7 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
             emoji=c.get("emoji"),
             sort_order=c.get("sort_order", 0),
             created_at=c.get("created_at", 0),
+            channel_id=str(c.get("channel_id", 0)),
         )
         for c in cats
     ]
@@ -115,8 +120,9 @@ async def create_category(
         description=body.description,
         welcome_message=body.welcome_message,
         role_ids=[int(r) for r in body.role_ids],
-        allowed_statuses=cast(list[str], list(body.allowed_statuses)),
+        allowed_statuses=cast("list[str]", list(body.allowed_statuses)),
         emoji=body.emoji,
+        channel_id=int(body.channel_id) if body.channel_id else 0,
     )
     if cat_id is None:
         raise HTTPException(status_code=500, detail="Failed to create category")
@@ -139,7 +145,7 @@ async def update_category(
 
     # Build kwargs from non-None fields
     kwargs: dict = {
-        k: ([int(r) for r in v] if k == "role_ids" else v)
+        k: ([int(r) for r in v] if k == "role_ids" else (int(v) if k == "channel_id" else v))
         for k, v in {
             "name": body.name,
             "description": body.description,
@@ -148,6 +154,7 @@ async def update_category(
             "allowed_statuses": body.allowed_statuses,
             "emoji": body.emoji,
             "sort_order": body.sort_order,
+            "channel_id": body.channel_id,
         }.items()
         if v is not None
     }
@@ -175,6 +182,176 @@ async def delete_category(
     deleted = await svc.delete_category(category_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Category not found")
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Channel Configs (per-channel panel customization)
+# ---------------------------------------------------------------------------
+
+
+def _build_channel_config_list(
+    configs: list[dict],
+) -> TicketChannelConfigListResponse:
+    """Build a ``TicketChannelConfigListResponse`` from service dicts."""
+    items = [
+        TicketChannelConfig(
+            id=c["id"],
+            guild_id=str(c["guild_id"]),
+            channel_id=str(c["channel_id"]),
+            panel_title=c.get("panel_title", "🎫 Support Tickets"),
+            panel_description=c.get("panel_description", ""),
+            panel_color=c.get("panel_color", "0099FF"),
+            button_text=c.get("button_text", "Create Ticket"),
+            button_emoji=c.get("button_emoji", "🎫"),
+            enable_public_button=bool(c.get("enable_public_button", 0)),
+            public_button_text=c.get(
+                "public_button_text", "Create Public Ticket"
+            ),
+            public_button_emoji=c.get("public_button_emoji", "🌐"),
+            private_button_color=c.get("private_button_color"),
+            public_button_color=c.get("public_button_color"),
+            button_order=c.get("button_order", "private_first"),
+            sort_order=c.get("sort_order", 0),
+            created_at=c.get("created_at", 0),
+        )
+        for c in configs
+    ]
+    return TicketChannelConfigListResponse(channels=items)
+
+
+async def _require_guild_channel_config(
+    svc: TicketService, guild_id: int, channel_id: int
+) -> dict:
+    """Verify a channel config exists and belongs to the given guild.
+
+    Raises ``HTTPException(404)`` on mismatch.
+    """
+    cfg = await svc.get_channel_config(guild_id, channel_id)
+    if cfg is None or cfg["guild_id"] != guild_id:
+        raise HTTPException(status_code=404, detail="Channel config not found")
+    return cfg
+
+
+@router.get("/channels", response_model=TicketChannelConfigListResponse)
+async def list_channel_configs(
+    current_user: UserProfile = Depends(require_staff()),
+    svc: TicketService = Depends(get_ticket_service),
+) -> TicketChannelConfigListResponse:
+    """List all ticket channel configs for the active guild."""
+    guild_id = ensure_active_guild(current_user)
+    configs = await svc.get_channel_configs(guild_id)
+    return _build_channel_config_list(configs)
+
+
+@router.post(
+    "/channels", response_model=TicketChannelConfigListResponse, status_code=201
+)
+async def create_channel_config(
+    body: TicketChannelConfigCreate,
+    current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
+) -> TicketChannelConfigListResponse:
+    """Create a new ticket channel config."""
+    guild_id = ensure_active_guild(current_user)
+    # Ensure the body guild_id matches the active guild
+    if str(guild_id) != body.guild_id:
+        raise HTTPException(status_code=403, detail="Guild mismatch")
+
+    # Check if config already exists
+    existing = await svc.get_channel_config(guild_id, int(body.channel_id))
+    if existing is not None:
+        raise HTTPException(
+            status_code=409, detail="Channel config already exists"
+        )
+
+    config_id = await svc.create_channel_config(
+        guild_id=guild_id,
+        channel_id=int(body.channel_id),
+        panel_title=body.panel_title,
+        panel_description=body.panel_description,
+        panel_color=body.panel_color,
+        button_text=body.button_text,
+        button_emoji=body.button_emoji,
+        enable_public_button=body.enable_public_button,
+        public_button_text=body.public_button_text,
+        public_button_emoji=body.public_button_emoji,
+        private_button_color=body.private_button_color,
+        public_button_color=body.public_button_color,
+        button_order=body.button_order,
+    )
+    if config_id is None:
+        raise HTTPException(
+            status_code=500, detail="Failed to create channel config"
+        )
+
+    # Return updated list
+    configs = await svc.get_channel_configs(guild_id)
+    return _build_channel_config_list(configs)
+
+
+@router.put("/channels/{channel_id}")
+async def update_channel_config(
+    channel_id: str,
+    body: TicketChannelConfigUpdate,
+    current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
+) -> dict:
+    """Update a ticket channel config."""
+    guild_id = ensure_active_guild(current_user)
+    channel_id_int = int(channel_id)
+    await _require_guild_channel_config(svc, guild_id, channel_id_int)
+
+    # Build kwargs from non-None fields
+    kwargs: dict = {
+        k: v
+        for k, v in {
+            "panel_title": body.panel_title,
+            "panel_description": body.panel_description,
+            "panel_color": body.panel_color,
+            "button_text": body.button_text,
+            "button_emoji": body.button_emoji,
+            "enable_public_button": body.enable_public_button,
+            "public_button_text": body.public_button_text,
+            "public_button_emoji": body.public_button_emoji,
+            "private_button_color": body.private_button_color,
+            "public_button_color": body.public_button_color,
+            "button_order": body.button_order,
+        }.items()
+        if v is not None
+    }
+
+    if not kwargs:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    updated = await svc.update_channel_config(
+        guild_id, channel_id_int, **kwargs
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Channel config not found")
+
+    return {"success": True}
+
+
+@router.delete("/channels/{channel_id}")
+async def delete_channel_config(
+    channel_id: str,
+    current_user: UserProfile = Depends(require_discord_manager()),
+    svc: TicketService = Depends(get_ticket_service),
+) -> dict:
+    """Delete a ticket channel config.
+
+    AI Notes:
+        This does NOT delete categories assigned to the channel.
+        They will become unassigned (channel_id = 0).
+    """
+    guild_id = ensure_active_guild(current_user)
+    channel_id_int = int(channel_id)
+    await _require_guild_channel_config(svc, guild_id, channel_id_int)
+
+    deleted = await svc.delete_channel_config(guild_id, channel_id_int)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Channel config not found")
     return {"success": True}
 
 
@@ -255,7 +432,6 @@ async def get_settings(
     # Fetch all settings in one batch
     _keys = [
         "tickets.channel_id", "tickets.panel_message_id",
-        "tickets.panel_title", "tickets.panel_description",
         "tickets.log_channel_id", "tickets.close_message",
         "tickets.default_welcome_message",
     ]
@@ -279,8 +455,6 @@ async def get_settings(
     settings = TicketSettings(
         channel_id=_str_or_none("tickets.channel_id"),
         panel_message_id=_str_or_none("tickets.panel_message_id"),
-        panel_title=raw["tickets.panel_title"],
-        panel_description=raw["tickets.panel_description"],
         log_channel_id=_str_or_none("tickets.log_channel_id"),
         close_message=raw["tickets.close_message"],
         staff_roles=[str(r) for r in staff_roles],
@@ -303,8 +477,6 @@ async def update_settings(
     # Simple string settings — write directly if set
     _simple: dict[str, str | None] = {
         "tickets.channel_id": body.channel_id,
-        "tickets.panel_title": body.panel_title,
-        "tickets.panel_description": body.panel_description,
         "tickets.log_channel_id": body.log_channel_id,
         "tickets.close_message": body.close_message,
         "tickets.default_welcome_message": body.default_welcome_message,
@@ -337,19 +509,26 @@ async def update_settings(
 
 @router.post("/deploy-panel")
 async def deploy_panel(
+    channel_id: str | None = Query(None, description="Deploy to a specific channel"),
     current_user: UserProfile = Depends(require_discord_manager()),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ) -> dict:
-    """Ask the bot to deploy (or refresh) the ticket panel in the configured channel.
+    """Ask the bot to deploy (or refresh) ticket panels.
 
-    The dashboard should save settings first via ``PUT /settings``, then call
-    this endpoint so the bot sends the embed + button.
+    If ``channel_id`` is provided, deploy to that specific channel only.
+    Otherwise, deploy to all channels that have categories assigned.
     """
     guild_id = ensure_active_guild(current_user)
 
     try:
-        result = await internal_api.deploy_ticket_panel(guild_id)
-        return {"success": True, "message_id": result.get("message_id")}
+        result = await internal_api.deploy_ticket_panel(
+            guild_id, channel_id=channel_id
+        )
+        return {
+            "success": True,
+            "message_id": result.get("message_id"),
+            "panels": result.get("panels"),
+        }
     except Exception as exc:
         logger.exception(
             "Failed to deploy ticket panel for guild %s", guild_id, exc_info=exc

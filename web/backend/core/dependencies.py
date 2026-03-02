@@ -1022,10 +1022,22 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
-    async def deploy_ticket_panel(self, guild_id: int) -> dict:
-        """Ask the bot to deploy (or refresh) the ticket panel in the configured channel."""
+    async def deploy_ticket_panel(
+        self, guild_id: int, *, channel_id: str | None = None
+    ) -> dict:
+        """Ask the bot to deploy (or refresh) ticket panels.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: If provided, deploy to this specific channel only.
+        """
         client = await self._get_client()
-        response = await client.post(f"/guilds/{guild_id}/tickets/deploy-panel")
+        params: dict[str, str] = {}
+        if channel_id:
+            params["channel_id"] = channel_id
+        response = await client.post(
+            f"/guilds/{guild_id}/tickets/deploy-panel", params=params
+        )
         response.raise_for_status()
         return response.json()
 

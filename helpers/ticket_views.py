@@ -261,17 +261,28 @@ class TicketDescriptionModal(Modal, title="Describe Your Issue"):
         max_length=1024,
     )
 
-    def __init__(self, bot: MyBot, category: dict[str, Any] | None) -> None:
+    def __init__(
+        self,
+        bot: MyBot,
+        category: dict[str, Any] | None,
+        *,
+        is_public: bool = False,
+    ) -> None:
         super().__init__()
         self.bot = bot
         self._category = category
+        self._is_public = is_public
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Defer and continue with thread creation."""
         await interaction.response.defer(ephemeral=True)
         description = self.description_input.value or None
         await _create_ticket_thread(
-            self.bot, interaction, category=self._category, initial_description=description
+            self.bot,
+            interaction,
+            category=self._category,
+            initial_description=description,
+            is_public=self._is_public,
         )
 
 
@@ -309,21 +320,98 @@ class TicketPanelView(View):
     Attached to the panel embed in the designated ticket channel.
     """
 
-    def __init__(self, bot: MyBot) -> None:
+    def __init__(
+        self,
+        bot: MyBot,
+        *,
+        private_button_text: str = "Create Ticket",
+        private_button_emoji: str | None = "🎫",
+        enable_public_button: bool = False,
+        public_button_text: str = "Create Public Ticket",
+        public_button_emoji: str | None = "🌐",
+        private_button_color: str | None = None,
+        public_button_color: str | None = None,
+        button_order: str = "private_first",
+    ) -> None:
         super().__init__(timeout=None)
         self.bot = bot
 
-        create_btn = Button(
-            label="Create Ticket",
-            style=discord.ButtonStyle.primary,
-            custom_id="ticket_create_button",
-            emoji="🎫",
-        )
-        create_btn.callback = self._on_create_ticket
-        self.add_item(create_btn)
+        # Convert color hex codes to Discord button styles
+        private_style = self._color_to_button_style(private_button_color, discord.ButtonStyle.primary)
+        public_style = self._color_to_button_style(public_button_color, discord.ButtonStyle.secondary)
 
-    async def _on_create_ticket(self, interaction: discord.Interaction) -> None:
-        """Handle the 'Create Ticket' button press.
+        create_btn = Button(
+            label=private_button_text,
+            style=private_style,
+            custom_id="ticket_create_button",
+            emoji=private_button_emoji,
+        )
+        create_btn.callback = self._on_create_private_ticket
+
+        public_btn = None
+        if enable_public_button:
+            public_btn = Button(
+                label=public_button_text,
+                style=public_style,
+                custom_id="ticket_create_public_button",
+                emoji=public_button_emoji,
+            )
+            public_btn.callback = self._on_create_public_ticket
+
+        # Add buttons in the specified order
+        if button_order == "public_first" and public_btn:
+            self.add_item(public_btn)
+            self.add_item(create_btn)
+        else:
+            self.add_item(create_btn)
+            if public_btn:
+                self.add_item(public_btn)
+
+    @staticmethod
+    def _color_to_button_style(color: str | None, default: discord.ButtonStyle) -> discord.ButtonStyle:
+        """Convert a hex color code to a Discord button style.
+
+        Supports common color mappings:
+        - Blue/Blurple → Primary (5865F2)
+        - Gray → Secondary (4E5058)
+        - Green → Success (3BA55D)
+        - Red → Danger (ED4245)
+
+        Returns the default style if color is None or unrecognized.
+        """
+        if not color:
+            return default
+
+        # Normalize hex color (remove # and convert to uppercase)
+        normalized = color.strip().upper().lstrip("#")
+
+        # Map common colors to button styles
+        if normalized in ("5865F2", "5865F3", "5865F4", "0099FF", "3B88F3"):  # Blue/Blurple
+            return discord.ButtonStyle.primary
+        elif normalized in ("4E5058", "4F545C", "6C757D", "2C2F33"):  # Gray
+            return discord.ButtonStyle.secondary
+        elif normalized in ("3BA55D", "57F287", "43B581", "00C853"):  # Green
+            return discord.ButtonStyle.success
+        elif normalized in ("ED4245", "F04747", "D32F2F", "E74C3C"):  # Red
+            return discord.ButtonStyle.danger
+
+        return default
+
+    async def _on_create_private_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the private ticket button press."""
+        await self._on_create_ticket(interaction, is_public=False)
+
+    async def _on_create_public_ticket(self, interaction: discord.Interaction) -> None:
+        """Handle the public ticket button press."""
+        await self._on_create_ticket(interaction, is_public=True)
+
+    async def _on_create_ticket(
+        self,
+        interaction: discord.Interaction,
+        *,
+        is_public: bool = False,
+    ) -> None:
+        """Handle ticket button press.
 
         Flow:
         1. Rate-limit check
@@ -372,18 +460,29 @@ class TicketPanelView(View):
             )
             return
 
-        # --- Fetch categories ---
-        categories = await ticket_service.get_categories(guild_id)
+        # --- Fetch categories for this channel ---
+        panel_channel_id = interaction.channel_id or 0
+        categories = await ticket_service.get_categories_for_channel(
+            guild_id, panel_channel_id
+        )
 
         if not categories:
-            # No categories — go straight to description modal
-            modal = TicketDescriptionModal(self.bot, category=None)
+            # Fall back to all guild categories (legacy / unassigned)
+            categories = await ticket_service.get_categories(guild_id)
+
+        if not categories:
+            # No categories at all — go straight to description modal
+            modal = TicketDescriptionModal(
+                self.bot,
+                category=None,
+                is_public=is_public,
+            )
             await interaction.response.send_modal(modal)
             return
 
         # Show category dropdown
         select_view = View(timeout=60)
-        select = TicketCategorySelect(self.bot, categories)
+        select = TicketCategorySelect(self.bot, categories, is_public=is_public)
         select_view.add_item(select)
         await interaction.response.send_message(
             "Select a category for your ticket:",
@@ -400,8 +499,15 @@ class TicketPanelView(View):
 class TicketCategorySelect(Select):
     """Dropdown for choosing a ticket category before thread creation."""
 
-    def __init__(self, bot: MyBot, categories: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        bot: MyBot,
+        categories: list[dict[str, Any]],
+        *,
+        is_public: bool = False,
+    ) -> None:
         self.bot = bot
+        self._is_public = is_public
         self._categories = {str(c["id"]): c for c in categories}
 
         options = []
@@ -433,7 +539,11 @@ class TicketCategorySelect(Select):
         category = self._categories.get(selected_id)
 
         if category is None:
-            modal = TicketDescriptionModal(self.bot, category=None)
+            modal = TicketDescriptionModal(
+                self.bot,
+                category=None,
+                is_public=self._is_public,
+            )
             await interaction.response.send_modal(modal)
             return
 
@@ -485,13 +595,21 @@ class TicketCategorySelect(Select):
             has_form = False
 
         if not has_form:
-            modal = TicketDescriptionModal(self.bot, category=category)
+            modal = TicketDescriptionModal(
+                self.bot,
+                category=category,
+                is_public=self._is_public,
+            )
             await interaction.response.send_modal(modal)
             return
 
         # --- Dynamic form flow ---
         await _start_dynamic_form(
-            self.bot, interaction, category, ticket_form_service
+            self.bot,
+            interaction,
+            category,
+            ticket_form_service,
+            is_public=self._is_public,
         )
 
 
@@ -865,6 +983,9 @@ class TicketActionView(View):
             )
             return
 
+        # Mark the ticket's thread as deleted in the DB for analytics
+        await ticket_service.mark_thread_deleted(thread.id)
+
         await _log_ticket_event(
             self.bot,
             guild_id,
@@ -889,6 +1010,8 @@ async def _start_dynamic_form(
     interaction: discord.Interaction,
     category: dict[str, Any],
     ticket_form_service: Any,
+    *,
+    is_public: bool = False,
 ) -> None:
     """Begin a dynamic modal form flow for the selected category.
 
@@ -908,6 +1031,7 @@ async def _start_dynamic_form(
     ctx = await ticket_form_service.create_session(
         guild_id, user_id, category["id"],
         interaction_token=interaction.token,
+        is_public=is_public,
     )
     ctx.category = category
 
@@ -915,7 +1039,7 @@ async def _start_dynamic_form(
     form_config = await ticket_form_service.get_form_config(category["id"])
     if not form_config or not form_config.get("steps"):
         # Shouldn't happen (has_form was True), but handle gracefully
-        modal = TicketDescriptionModal(bot, category=category)
+        modal = TicketDescriptionModal(bot, category=category, is_public=is_public)
         await interaction.response.send_modal(modal)
         return
 
@@ -924,7 +1048,11 @@ async def _start_dynamic_form(
     questions = first_step.get("questions", [])
 
     if not questions:
-        modal_fallback = TicketDescriptionModal(bot, category=category)
+        modal_fallback = TicketDescriptionModal(
+            bot,
+            category=category,
+            is_public=is_public,
+        )
         await interaction.response.send_modal(modal_fallback)
         return
 
@@ -946,8 +1074,9 @@ async def _create_ticket_thread(
     category: dict[str, Any] | None,
     initial_description: str | None = None,
     form_responses: dict[str, dict[str, Any]] | None = None,
+    is_public: bool = False,
 ) -> int | None:
-    """Create a private thread for a new ticket.
+    """Create a thread for a new ticket.
 
     Called after the user fills in the description modal or completes
     the dynamic form route.
@@ -961,7 +1090,7 @@ async def _create_ticket_thread(
         The new ticket's database row ID, or ``None`` on failure.
 
     AI Notes:
-        Private threads require the channel to be a ``TextChannel``.
+        Thread creation requires the channel to be a ``TextChannel``.
         The thread is renamed to use the ticket number once the DB record
         is created.
     """
@@ -995,13 +1124,17 @@ async def _create_ticket_thread(
     try:
         thread = await channel.create_thread(
             name=thread_name,
-            type=discord.ChannelType.private_thread,
+            type=(
+                discord.ChannelType.public_thread
+                if is_public
+                else discord.ChannelType.private_thread
+            ),
             auto_archive_duration=10080,  # 7 days
             reason=f"Ticket created by {user} (category: {cat_label})",
         )
     except discord.Forbidden:
         await interaction.followup.send(
-            "I don't have permission to create private threads in this channel.",
+            "I don't have permission to create threads in this channel.",
             ephemeral=True,
         )
         return None

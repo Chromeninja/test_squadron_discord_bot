@@ -10,6 +10,7 @@
 CREATE TABLE IF NOT EXISTS ticket_categories (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id    INTEGER NOT NULL,
+    channel_id  INTEGER NOT NULL DEFAULT 0,
     name        TEXT    NOT NULL,
     description TEXT    DEFAULT '',
     welcome_message TEXT DEFAULT '',
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS ticket_categories (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild_channel ON ticket_categories(guild_id, channel_id);
 
 CREATE TABLE IF NOT EXISTS tickets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

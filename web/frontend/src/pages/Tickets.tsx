@@ -3,6 +3,12 @@
  *
  * Orchestrates data-fetching and delegates rendering to focused
  * sub-components located in `./tickets/`.
+ *
+ * AI Notes:
+ * Layout follows a channel-first approach: users add channels, then
+ * each channel gets its own panel config + categories via ChannelSection.
+ * Global settings (log channel, staff roles, ticket messages) remain in a
+ * separate collapsible section.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,6 +17,7 @@ import {
   GuildRole,
   TicketCategory,
   TicketCategoryEligibilityStatus,
+  TicketChannelConfig,
   TicketFormStep,
   TicketInfo,
   guildApi,
@@ -21,11 +28,9 @@ import SearchableSelect, { type SelectOption } from '../components/SearchableSel
 import SearchableMultiSelect, { type MultiSelectOption } from '../components/SearchableMultiSelect';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardBody,
-  Input,
   Spinner,
 } from '../components/ui';
 import DiscordMarkdownEditor from '../components/DiscordMarkdownEditor';
@@ -33,6 +38,8 @@ import { handleApiError, showSuccess } from '../utils/toast';
 
 import {
   CategoryModal,
+  ChannelAddModal,
+  ChannelSection,
   DeleteCategoryModal,
   FormEditorModal,
   TicketList,
@@ -62,11 +69,12 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [roles, setRoles] = useState<GuildRole[]>([]);
 
+  // --- Channel configs state (per-channel panel customization) ---
+  const [channelConfigs, setChannelConfigs] = useState<TicketChannelConfig[]>([]);
+  const [channelAddModalOpen, setChannelAddModalOpen] = useState(false);
+
   // --- Settings state ---
-  const [channelId, setChannelId] = useState<string | null>(null);
   const [logChannelId, setLogChannelId] = useState<string | null>(null);
-  const [panelTitle, setPanelTitle] = useState('');
-  const [panelDescription, setPanelDescription] = useState('');
   const [closeMessage, setCloseMessage] = useState('');
   const [staffRoles, setStaffRoles] = useState<string[]>([]);
   const [defaultWelcomeMessage, setDefaultWelcomeMessage] = useState('');
@@ -86,6 +94,7 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [catAllowedStatuses, setCatAllowedStatuses] = useState<
     TicketCategoryEligibilityStatus[]
   >([]);
+  const [catChannelId, setCatChannelId] = useState<string>('0');
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
 
@@ -126,6 +135,26 @@ export default function Tickets({ guildId }: TicketsProps) {
     [roles],
   );
 
+  /** Channels not yet configured for ticketing (available to add). */
+  const availableChannels: MultiSelectOption[] = useMemo(() => {
+    const configuredIds = new Set(channelConfigs.map((c) => c.channel_id));
+    return channels
+      .filter((c) => !configuredIds.has(c.id))
+      .map((c) => ({ id: c.id, name: c.name }));
+  }, [channels, channelConfigs]);
+
+  /** Categories grouped by channel_id for rendering inside ChannelSections. */
+  const categoriesByChannel = useMemo(() => {
+    const map = new Map<string, TicketCategory[]>();
+    for (const cat of categories) {
+      const key = cat.channel_id ?? '0';
+      const list = map.get(key) ?? [];
+      list.push(cat);
+      map.set(key, list);
+    }
+    return map;
+  }, [categories]);
+
   // -----------------------------------------------------------------
   // Data fetching
   // -----------------------------------------------------------------
@@ -135,21 +164,20 @@ export default function Tickets({ guildId }: TicketsProps) {
     setError(null);
 
     try {
-      const [settingsRes, catsRes, statsRes, channelsRes, rolesRes] = await Promise.all([
-        ticketsApi.getSettings(),
-        ticketsApi.getCategories(),
-        ticketsApi.getStats(),
-        guildApi.getDiscordChannels(guildId),
-        guildApi.getDiscordRoles(guildId),
-      ]);
+      const [settingsRes, catsRes, statsRes, channelsRes, rolesRes, channelConfigsRes] =
+        await Promise.all([
+          ticketsApi.getSettings(),
+          ticketsApi.getCategories(),
+          ticketsApi.getStats(),
+          guildApi.getDiscordChannels(guildId),
+          guildApi.getDiscordRoles(guildId),
+          ticketsApi.getChannelConfigs(),
+        ]);
 
       if (!isMountedRef.current) return;
 
       const s = settingsRes.settings;
-      setChannelId(s.channel_id);
       setLogChannelId(s.log_channel_id);
-      setPanelTitle(s.panel_title ?? '');
-      setPanelDescription(s.panel_description ?? '');
       setCloseMessage(s.close_message ?? '');
       setStaffRoles(s.staff_roles);
       setDefaultWelcomeMessage(s.default_welcome_message ?? '');
@@ -159,6 +187,7 @@ export default function Tickets({ guildId }: TicketsProps) {
       setStatsTotal(statsRes.total);
       setChannels(channelsRes.channels);
       setRoles(rolesRes.roles);
+      setChannelConfigs(channelConfigsRes.channels);
     } catch (err) {
       if (isMountedRef.current) {
         setError('Failed to load ticket settings.');
@@ -205,9 +234,6 @@ export default function Tickets({ guildId }: TicketsProps) {
     setSaving(true);
     try {
       await ticketsApi.updateSettings({
-        channel_id: channelId,
-        panel_title: panelTitle || null,
-        panel_description: panelDescription || null,
         log_channel_id: logChannelId,
         close_message: closeMessage || null,
         staff_roles: staffRoles,
@@ -234,6 +260,64 @@ export default function Tickets({ guildId }: TicketsProps) {
   };
 
   // -----------------------------------------------------------------
+  // Channel config handlers
+  // -----------------------------------------------------------------
+
+  const handleAddChannels = async (channelIds: string[]) => {
+    try {
+      for (const channelId of channelIds) {
+        await ticketsApi.createChannelConfig({
+          guild_id: guildId,
+          channel_id: channelId,
+        });
+      }
+      const res = await ticketsApi.getChannelConfigs();
+      if (isMountedRef.current) setChannelConfigs(res.channels);
+      showSuccess(
+        `Added ${channelIds.length} channel${channelIds.length === 1 ? '' : 's'}`,
+      );
+    } catch (err) {
+      handleApiError(err, 'Failed to add channel');
+    }
+  };
+
+  const handleUpdateChannelConfig = async (
+    channelId: string,
+    updates: Partial<TicketChannelConfig>,
+  ) => {
+    try {
+      await ticketsApi.updateChannelConfig(channelId, {
+        panel_title: updates.panel_title,
+        panel_description: updates.panel_description,
+        panel_color: updates.panel_color,
+        button_text: updates.button_text,
+        button_emoji: updates.button_emoji,
+      });
+      // Update local state to reflect saved values
+      setChannelConfigs((prev) =>
+        prev.map((c) =>
+          c.channel_id === channelId ? { ...c, ...updates } : c,
+        ),
+      );
+      showSuccess('Channel panel updated');
+    } catch (err) {
+      handleApiError(err, 'Failed to update channel config');
+    }
+  };
+
+  const handleDeleteChannelConfig = async (channelId: string) => {
+    try {
+      await ticketsApi.deleteChannelConfig(channelId);
+      setChannelConfigs((prev) =>
+        prev.filter((c) => c.channel_id !== channelId),
+      );
+      showSuccess('Channel removed');
+    } catch (err) {
+      handleApiError(err, 'Failed to remove channel');
+    }
+  };
+
+  // -----------------------------------------------------------------
   // Category handlers
   // -----------------------------------------------------------------
 
@@ -244,11 +328,13 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatWelcomeMessage('');
     setCatRoleIds([]);
     setCatAllowedStatuses([]);
+    setCatChannelId('0');
   };
 
-  const openCreateCategory = () => {
+  const openCreateCategory = (channelId?: string) => {
     setEditingCategory(null);
     resetCategoryForm();
+    if (channelId) setCatChannelId(channelId);
     setCategoryModalOpen(true);
   };
 
@@ -260,6 +346,7 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatWelcomeMessage(cat.welcome_message);
     setCatRoleIds(cat.role_ids);
     setCatAllowedStatuses(cat.allowed_statuses ?? []);
+    setCatChannelId(cat.channel_id ?? '0');
     setCategoryModalOpen(true);
   };
 
@@ -274,6 +361,7 @@ export default function Tickets({ guildId }: TicketsProps) {
           emoji: catEmoji || null,
           role_ids: catRoleIds,
           allowed_statuses: catAllowedStatuses,
+          channel_id: catChannelId,
         });
         showSuccess('Category updated');
       } else {
@@ -285,6 +373,7 @@ export default function Tickets({ guildId }: TicketsProps) {
           emoji: catEmoji || null,
           role_ids: catRoleIds,
           allowed_statuses: catAllowedStatuses,
+          channel_id: catChannelId,
         });
         showSuccess('Category created');
       }
@@ -471,199 +560,157 @@ export default function Tickets({ guildId }: TicketsProps) {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">🎫 Ticket System</h2>
 
-      {/* Statistics */}
+      {/* Statistics — compact inline bar */}
       <TicketStats open={statsOpen} closed={statsClosed} total={statsTotal} />
 
-      {/* Settings */}
-      <AccordionSection title="Settings" defaultOpen>
-        <div className="space-y-6">
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Ticket Channel</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              The text channel where the ticket panel embed will be posted.
+      {/* Channels — primary setup area */}
+      <AccordionSection title="Channels" defaultOpen>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-400">
+              Each channel gets its own ticket panel with customizable
+              appearance. Add categories under each channel for users to
+              choose from.
             </p>
-            <SearchableSelect
-              options={channelOptions}
-              selected={channelId}
-              onChange={setChannelId}
-              placeholder="Select a channel…"
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Log Channel</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Channel where ticket open/close events are logged. Optional.
-            </p>
-            <SearchableSelect
-              options={channelOptions}
-              selected={logChannelId}
-              onChange={setLogChannelId}
-              placeholder="Select a log channel…"
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Staff Roles</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Global ticket admins that can claim and close any ticket. These roles are
-              mentioned only when a category does not define Notified Roles.
-            </p>
-            <SearchableMultiSelect
-              options={roleOptions}
-              selected={staffRoles}
-              onChange={setStaffRoles}
-              placeholder="Search roles…"
-              componentId="ticket-staff-roles"
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Panel Title</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Title of the ticket panel embed. Leave empty for the default.
-            </p>
-            <Input
-              value={panelTitle}
-              onChange={(e) => setPanelTitle(e.target.value)}
-              placeholder="🎫 Support Tickets"
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Panel Description</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Description shown on the ticket panel embed.
-            </p>
-            <DiscordMarkdownEditor
-              value={panelDescription}
-              onChange={setPanelDescription}
-              placeholder="Click the button below to create a support ticket."
-              rows={3}
-              helperText="Use Discord markdown for clean panel copy (bold, italics, bullets, quotes, code, and links)."
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Close Message</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Message displayed when a ticket is closed.
-            </p>
-            <DiscordMarkdownEditor
-              value={closeMessage}
-              onChange={setCloseMessage}
-              placeholder="This ticket has been closed."
-              rows={2}
-              helperText="Supports Discord formatting and list/quote patterns for clear closure guidance."
-            />
-          </div>
-
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-1">Default Welcome Message</h5>
-            <p className="text-xs text-gray-500 mb-2">
-              Welcome message for new tickets without a category-specific message.
-            </p>
-            <DiscordMarkdownEditor
-              value={defaultWelcomeMessage}
-              onChange={setDefaultWelcomeMessage}
-              placeholder="Welcome to your support ticket! Please describe your issue…"
-              rows={3}
-              helperText="Use concise Discord markdown prompts to improve intake quality."
-            />
-          </div>
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button onClick={handleSaveSettings} loading={saving}>
-              {saving ? 'Saving…' : 'Save Settings'}
+            <Button
+              size="sm"
+              onClick={() => setChannelAddModalOpen(true)}
+              className="flex-shrink-0 ml-4"
+            >
+              + Add Channel
             </Button>
+          </div>
+
+          {channelConfigs.length === 0 ? (
+            <Alert variant="info">
+              No channels configured yet — add one to get started.
+            </Alert>
+          ) : (
+            <div className="space-y-4">
+              {channelConfigs.map((config) => {
+                const ch = channels.find((c) => c.id === config.channel_id);
+                return (
+                  <ChannelSection
+                    key={config.channel_id}
+                    config={config}
+                    channelName={ch?.name ?? `Unknown (${config.channel_id})`}
+                    categories={categoriesByChannel.get(config.channel_id) ?? []}
+                    onUpdateConfig={handleUpdateChannelConfig}
+                    onDeleteConfig={handleDeleteChannelConfig}
+                    onAddCategory={(chId) => openCreateCategory(chId)}
+                    onEditCategory={openEditCategory}
+                    onDeleteCategory={setDeletingCategory}
+                    onOpenFormEditor={openFollowUpEditor}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Unassigned categories warning */}
+          {(categoriesByChannel.get('0')?.length ?? 0) > 0 && (
+            <Alert variant="warning">
+              <span className="font-medium">
+                {categoriesByChannel.get('0')!.length} unassigned{' '}
+                {categoriesByChannel.get('0')!.length === 1
+                  ? 'category'
+                  : 'categories'}
+              </span>{' '}
+              — edit them to assign a channel, or they won&apos;t appear on any panel.
+            </Alert>
+          )}
+
+          {/* Deploy action */}
+          <div className="flex items-center gap-3 pt-3 border-t border-slate-700">
             <Button
               variant="success"
               onClick={handleDeployPanel}
               loading={deploying}
-              disabled={!channelId}
+              disabled={channelConfigs.length === 0}
             >
-              {deploying ? 'Deploying…' : '🚀 Deploy Panel'}
+              {deploying ? 'Deploying…' : '🚀 Deploy Panels'}
             </Button>
-            {!channelId && (
-              <span className="text-xs text-gray-500">
-                Select a ticket channel before deploying the panel.
-              </span>
-            )}
+            <span className="text-xs text-gray-500">
+              {channelConfigs.length === 0
+                ? 'Add at least one channel first.'
+                : 'Posts or updates the ticket panel in each configured channel.'}
+            </span>
           </div>
         </div>
       </AccordionSection>
 
-      {/* Categories */}
-      <AccordionSection title="Categories">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-400">
-              Ticket categories let users choose a topic when creating a ticket.
-              Each category can have its own welcome message and notified roles.
-              Category notified roles can claim/close tickets in that category and are
-              the roles mentioned for those tickets.
-            </p>
-            <Button size="sm" onClick={openCreateCategory} className="flex-shrink-0 ml-4">
-              + Add Category
-            </Button>
+      {/* Settings — secondary, collapsed by default */}
+      <AccordionSection title="Settings">
+        <div className="space-y-6">
+
+          {/* Behavior group */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h5 className="text-sm font-medium text-gray-300 mb-1">Log Channel</h5>
+              <p className="text-xs text-gray-500 mb-2">
+                Channel where ticket open/close events are logged.
+              </p>
+              <SearchableSelect
+                options={channelOptions}
+                selected={logChannelId}
+                onChange={setLogChannelId}
+                placeholder="Select a log channel…"
+              />
+            </div>
+
+            <div>
+              <h5 className="text-sm font-medium text-gray-300 mb-1">Staff Roles</h5>
+              <p className="text-xs text-gray-500 mb-2">
+                Global admins that can claim/close any ticket. Used when a
+                category has no Notified Roles.
+              </p>
+              <SearchableMultiSelect
+                options={roleOptions}
+                selected={staffRoles}
+                onChange={setStaffRoles}
+                placeholder="Search roles…"
+                componentId="ticket-staff-roles"
+              />
+            </div>
           </div>
 
-          {categories.length === 0 ? (
-            <Alert variant="info">
-              No categories configured. Tickets will be created without a category.
-            </Alert>
-          ) : (
-            <div className="space-y-2">
-              {categories.map((cat) => (
-                <Card key={cat.id} variant="ghost" padding="sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {cat.emoji && <span className="text-lg">{cat.emoji}</span>}
-                      <div>
-                        <p className="font-medium text-white">{cat.name}</p>
-                        {cat.description && (
-                          <p className="text-xs text-gray-400">{cat.description}</p>
-                        )}
-                      </div>
-                      {cat.role_ids.length > 0 && (
-                        <Badge variant="primary-outline" className="ml-2">
-                          {cat.role_ids.length} role{cat.role_ids.length !== 1 ? 's' : ''}
-                        </Badge>
-                      )}
-                      {(cat.allowed_statuses?.length ?? 0) > 0 && (
-                        <Badge variant="primary-outline" className="ml-2">
-                          Requires: {cat.allowed_statuses.join(', ')}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openFollowUpEditor(cat)}
-                      >
-                        Follow-up Questions
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditCategory(cat)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => setDeletingCategory(cat)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
+          {/* Messages group */}
+          <div className="border-t border-slate-700 pt-5">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">Messages</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h5 className="text-sm font-medium text-gray-300 mb-1">Close Message</h5>
+                <p className="text-xs text-gray-500 mb-2">
+                  Sent when a ticket is closed.
+                </p>
+                <DiscordMarkdownEditor
+                  value={closeMessage}
+                  onChange={setCloseMessage}
+                  placeholder="This ticket has been closed."
+                  rows={2}
+                />
+              </div>
+
+              <div>
+                <h5 className="text-sm font-medium text-gray-300 mb-1">Default Welcome Message</h5>
+                <p className="text-xs text-gray-500 mb-2">
+                  Used when a category has no custom welcome message.
+                </p>
+                <DiscordMarkdownEditor
+                  value={defaultWelcomeMessage}
+                  onChange={setDefaultWelcomeMessage}
+                  placeholder="Welcome to your support ticket! Please describe your issue…"
+                  rows={3}
+                />
+              </div>
             </div>
-          )}
+          </div>
+
+          <div className="pt-2">
+            <Button onClick={handleSaveSettings} loading={saving}>
+              {saving ? 'Saving…' : 'Save Settings'}
+            </Button>
+          </div>
         </div>
       </AccordionSection>
 
@@ -678,6 +725,14 @@ export default function Tickets({ guildId }: TicketsProps) {
         onPageChange={setTicketPage}
       />
 
+      {/* Channel Add Modal */}
+      <ChannelAddModal
+        open={channelAddModalOpen}
+        onClose={() => setChannelAddModalOpen(false)}
+        availableChannels={availableChannels}
+        onAdd={handleAddChannels}
+      />
+
       {/* Category Create/Edit Modal */}
       <CategoryModal
         open={categoryModalOpen}
@@ -689,14 +744,17 @@ export default function Tickets({ guildId }: TicketsProps) {
         catWelcomeMessage={catWelcomeMessage}
         catRoleIds={catRoleIds}
         catAllowedStatuses={catAllowedStatuses}
+        catChannelId={catChannelId}
         catSaving={catSaving}
         roleOptions={roleOptions}
+        channelOptions={channelOptions}
         onCatNameChange={setCatName}
         onCatDescriptionChange={setCatDescription}
         onCatEmojiChange={setCatEmoji}
         onCatWelcomeMessageChange={setCatWelcomeMessage}
         onCatRoleIdsChange={setCatRoleIds}
         onCatAllowedStatusesChange={setCatAllowedStatuses}
+        onCatChannelIdChange={setCatChannelId}
         onSave={handleSaveCategory}
       />
 

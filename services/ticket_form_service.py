@@ -58,6 +58,7 @@ class RouteExecutionContext:
     collected_answers: dict[str, dict[str, Any]] = field(default_factory=dict)
     session_id: int | None = None
     interaction_token: str | None = None
+    is_public: bool = False
     created_at: float = field(default_factory=lambda: time.time())
     expires_at: float = field(
         default_factory=lambda: time.time() + ROUTE_SESSION_TTL_SECONDS
@@ -88,6 +89,7 @@ class RouteExecutionContext:
             "current_step": self.current_step,
             "collected_data": json.dumps(self.collected_answers),
             "interaction_token": self.interaction_token,
+            "is_public": 1 if self.is_public else 0,
             "created_at": int(self.created_at),
             "expires_at": int(self.expires_at),
         }
@@ -96,6 +98,10 @@ class RouteExecutionContext:
     def from_db_row(cls, row: Any) -> RouteExecutionContext:
         """Reconstruct from a DB row (``aiosqlite.Row`` or tuple)."""
         collected = json.loads(row["collected_data"] or "{}")
+        try:
+            is_public_raw = row["is_public"]
+        except (TypeError, KeyError, IndexError):
+            is_public_raw = 0
         return cls(
             guild_id=int(row["guild_id"]),
             user_id=int(row["user_id"]),
@@ -104,6 +110,7 @@ class RouteExecutionContext:
             collected_answers=collected,
             session_id=int(row["id"]),
             interaction_token=row["interaction_token"],
+            is_public=bool(is_public_raw),
             created_at=float(row["created_at"]),
             expires_at=float(row["expires_at"]),
         )
@@ -133,6 +140,8 @@ class TicketFormService(BaseService):
         self._form_cache_lock = asyncio.Lock()
         self._question_schema_checked = False
         self._question_schema_lock = asyncio.Lock()
+        self._route_session_schema_checked = False
+        self._route_session_schema_lock = asyncio.Lock()
 
     async def _initialize_impl(self) -> None:
         """No special startup work; DB schema applied separately."""
@@ -209,6 +218,39 @@ class TicketFormService(BaseService):
                 )
 
             self._question_schema_checked = True
+
+    async def _ensure_route_session_schema_compatibility(self) -> None:
+        """Ensure route sessions have an ``is_public`` column."""
+        if self._route_session_schema_checked:
+            return
+
+        async with self._route_session_schema_lock:
+            if self._route_session_schema_checked:
+                return
+
+            rows = await BaseRepository.fetch_all(
+                "PRAGMA table_info(ticket_route_sessions)"
+            )
+            if not rows:
+                self._route_session_schema_checked = True
+                return
+
+            column_names = {
+                self._extract_column_name(row)
+                for row in rows
+                if self._extract_column_name(row)
+            }
+
+            if "is_public" not in column_names:
+                await BaseRepository.execute(
+                    "ALTER TABLE ticket_route_sessions "
+                    "ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0"
+                )
+                self.logger.info(
+                    "Added missing 'is_public' column to ticket_route_sessions"
+                )
+
+            self._route_session_schema_checked = True
 
     # ------------------------------------------------------------------
     # Form Step CRUD
@@ -811,12 +853,14 @@ class TicketFormService(BaseService):
         category_id: int,
         *,
         interaction_token: str | None = None,
+        is_public: bool = False,
     ) -> RouteExecutionContext:
         """Create a new route session, replacing any existing one.
 
         Writes to both DB and in-memory cache.
         """
         self._ensure_initialized()
+        await self._ensure_route_session_schema_compatibility()
         now = time.time()
         expires = now + ROUTE_SESSION_TTL_SECONDS
 
@@ -827,6 +871,7 @@ class TicketFormService(BaseService):
             current_step=1,
             collected_answers={},
             interaction_token=interaction_token,
+            is_public=is_public,
             created_at=now,
             expires_at=expires,
         )
@@ -836,16 +881,17 @@ class TicketFormService(BaseService):
             session_id = await BaseRepository.insert_returning_id(
                 "INSERT INTO ticket_route_sessions "
                 "(guild_id, user_id, category_id, current_step, collected_data, "
-                "interaction_token, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "interaction_token, is_public, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(guild_id, user_id) DO UPDATE SET "
                 "category_id=excluded.category_id, current_step=excluded.current_step, "
                 "collected_data=excluded.collected_data, "
                 "interaction_token=excluded.interaction_token, "
+                "is_public=excluded.is_public, "
                 "created_at=excluded.created_at, expires_at=excluded.expires_at",
                 (
                     guild_id, user_id, category_id, 1,
-                    json.dumps({}), interaction_token,
+                    json.dumps({}), interaction_token, 1 if is_public else 0,
                     int(now), int(expires),
                 ),
             )
@@ -872,6 +918,7 @@ class TicketFormService(BaseService):
         Expired sessions are deleted and ``None`` is returned.
         """
         self._ensure_initialized()
+        await self._ensure_route_session_schema_compatibility()
 
         # Try cache first
         async with self._session_lock:
@@ -924,6 +971,7 @@ class TicketFormService(BaseService):
         Merges answers into the session's collected data and persists.
         """
         self._ensure_initialized()
+        await self._ensure_route_session_schema_compatibility()
         ctx = await self.get_session(guild_id, user_id)
         if ctx is None:
             return False
@@ -936,12 +984,14 @@ class TicketFormService(BaseService):
         try:
             await BaseRepository.execute(
                 "UPDATE ticket_route_sessions SET "
-                "current_step = ?, collected_data = ?, interaction_token = ? "
+                "current_step = ?, collected_data = ?, interaction_token = ?, "
+                "is_public = ? "
                 "WHERE guild_id = ? AND user_id = ?",
                 (
                     step,
                     json.dumps(ctx.collected_answers),
                     ctx.interaction_token,
+                    1 if ctx.is_public else 0,
                     guild_id,
                     user_id,
                 ),

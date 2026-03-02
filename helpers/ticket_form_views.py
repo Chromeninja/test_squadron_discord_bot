@@ -16,7 +16,6 @@ AI Notes:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import discord  # type: ignore[import-not-found]
@@ -423,6 +422,7 @@ async def create_ticket_from_route(
         category=category,
         initial_description=combined_description,
         form_responses=context.collected_answers,
+        is_public=context.is_public,
     )
 
     # Save form responses using the returned ticket_id directly

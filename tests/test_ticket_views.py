@@ -34,6 +34,7 @@ from tests.conftest import FakeInteraction, FakeUser
 def _mock_bot_with_services(
     *,
     categories: list | None = None,
+    channel_categories: list | None = None,
     rate_allowed: bool = True,
     cooldown: int = 0,
     ticket_id: int | None = 1,
@@ -49,6 +50,9 @@ def _mock_bot_with_services(
     # TicketService
     ts = AsyncMock()
     ts.get_categories = AsyncMock(return_value=categories or [])
+    ts.get_categories_for_channel = AsyncMock(
+        return_value=channel_categories if channel_categories is not None else []
+    )
     ts.check_rate_limit = AsyncMock(return_value=rate_allowed)
     ts.get_cooldown_remaining = AsyncMock(return_value=cooldown)
     ts.create_ticket = AsyncMock(return_value=ticket_id)
@@ -107,6 +111,63 @@ class TestTicketPanelView:
         assert btn.custom_id == "ticket_create_button"  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
+    async def test_view_has_public_button_when_enabled(self) -> None:
+        """Panel view includes a second public-ticket button when enabled."""
+        bot = _mock_bot_with_services()
+        view = TicketPanelView(
+            bot,
+            enable_public_button=True,
+            public_button_text="Open Public Ticket",
+            public_button_emoji="🌍",
+        )
+        assert len(view.children) == 2
+        custom_ids = {c.custom_id for c in view.children}  # type: ignore[attr-defined]
+        assert "ticket_create_button" in custom_ids
+        assert "ticket_create_public_button" in custom_ids
+
+    @pytest.mark.asyncio
+    async def test_button_order_private_first(self) -> None:
+        """Buttons appear in private-first order by default."""
+        bot = _mock_bot_with_services()
+        view = TicketPanelView(
+            bot,
+            enable_public_button=True,
+            button_order="private_first",
+        )
+        assert len(view.children) == 2
+        assert view.children[0].custom_id == "ticket_create_button"  # type: ignore[attr-defined]
+        assert view.children[1].custom_id == "ticket_create_public_button"  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_button_order_public_first(self) -> None:
+        """Buttons appear in public-first order when specified."""
+        bot = _mock_bot_with_services()
+        view = TicketPanelView(
+            bot,
+            enable_public_button=True,
+            button_order="public_first",
+        )
+        assert len(view.children) == 2
+        assert view.children[0].custom_id == "ticket_create_public_button"  # type: ignore[attr-defined]
+        assert view.children[1].custom_id == "ticket_create_button"  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_button_color_mapping(self) -> None:
+        """Button colors map to Discord button styles."""
+        bot = _mock_bot_with_services()
+        view = TicketPanelView(
+            bot,
+            private_button_color="3BA55D",  # Green -> Success
+            enable_public_button=True,
+            public_button_color="ED4245",  # Red -> Danger
+        )
+        import discord
+        private_btn = view.children[0]  # type: ignore[attr-defined]
+        public_btn = view.children[1]  # type: ignore[attr-defined]
+        assert private_btn.style == discord.ButtonStyle.success  # type: ignore[attr-defined]
+        assert public_btn.style == discord.ButtonStyle.danger  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
     async def test_create_ticket_no_guild(self) -> None:
         """Button click outside a guild sends an error."""
         bot = _mock_bot_with_services()
@@ -151,6 +212,47 @@ class TestTicketPanelView:
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
         # response.send_message should have been called (ephemeral select)
         assert interaction.response._is_done
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_channel_filtered_categories(self) -> None:
+        """Panel click uses channel-specific categories when available."""
+        chan_cats = [
+            {"id": 10, "name": "Chan-A Only", "description": "", "emoji": None}
+        ]
+        all_cats = [
+            {"id": 10, "name": "Chan-A Only", "description": "", "emoji": None},
+            {"id": 20, "name": "Chan-B Only", "description": "", "emoji": None},
+        ]
+        bot = _mock_bot_with_services(
+            categories=all_cats, channel_categories=chan_cats
+        )
+        view = TicketPanelView(bot)
+        interaction = FakeInteraction()
+        interaction.channel_id = 8001  # panel channel
+
+        await view._on_create_ticket(interaction)  # type: ignore[arg-type]
+        assert interaction.response._is_done
+        # Should have called get_categories_for_channel with the panel channel
+        bot.services.ticket.get_categories_for_channel.assert_called_once_with(
+            interaction.guild.id, 8001  # type: ignore[union-attr]
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_falls_back_to_all_categories(self) -> None:
+        """When channel has no categories, falls back to all guild categories."""
+        all_cats = [
+            {"id": 1, "name": "General", "description": "", "emoji": None}
+        ]
+        # channel_categories is empty → triggers fallback
+        bot = _mock_bot_with_services(categories=all_cats, channel_categories=[])
+        view = TicketPanelView(bot)
+        interaction = FakeInteraction()
+        interaction.channel_id = 9999
+
+        await view._on_create_ticket(interaction)  # type: ignore[arg-type]
+        assert interaction.response._is_done
+        # Fallback: get_categories should be called after empty channel result
+        bot.services.ticket.get_categories.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +563,33 @@ class TestCreateTicketThread:
         await _create_ticket_thread(bot, interaction, category=None)  # type: ignore[arg-type]
 
         thread.edit.assert_any_await(name="T:123 - ticket - Pilot")
+
+    @pytest.mark.asyncio
+    async def test_public_ticket_uses_public_thread_type(self) -> None:
+        """Public ticket path creates a public thread in the same channel."""
+        bot = _mock_bot_with_services(ticket_id=123)
+
+        interaction = FakeInteraction(user=FakeUser(user_id=42, display_name="Pilot"))
+        text_channel = MagicMock(spec=discord.TextChannel)
+        text_channel.id = 777
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 889
+        thread.add_user = AsyncMock()
+        thread.send = AsyncMock()
+        thread.edit = AsyncMock()
+        thread.mention = "#ticket-123"
+        text_channel.create_thread = AsyncMock(return_value=thread)
+        interaction.channel = text_channel
+
+        await _create_ticket_thread(
+            bot,
+            cast("discord.Interaction", interaction),
+            category=None,
+            is_public=True,
+        )
+
+        kwargs = text_channel.create_thread.await_args.kwargs
+        assert kwargs["type"] == discord.ChannelType.public_thread
 
     @pytest.mark.asyncio
     async def test_category_mentions_override_global_staff_mentions(self) -> None:
@@ -794,6 +923,7 @@ class TestTicketDeleteButton:
             await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
 
         thread.delete.assert_awaited_once()
+        bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
         followup_send.assert_awaited()
 
     @pytest.mark.asyncio

@@ -165,6 +165,143 @@ async def test_delete_category_not_found(
 
 
 # ---------------------------------------------------------------------------
+# Channel Configs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_channel_config_with_public_button_fields(
+    client: AsyncClient, mock_discord_manager_session: str
+) -> None:
+    """Creating a channel config accepts optional public button fields."""
+    response = await client.post(
+        "/api/tickets/channels",
+        json={
+            "guild_id": "123",
+            "channel_id": "456",
+            "button_text": "Create Private Ticket",
+            "enable_public_button": True,
+            "public_button_text": "Create Public Ticket",
+            "public_button_emoji": "🌍",
+        },
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["success"] is True
+    assert len(data["channels"]) == 1
+    channel_cfg = data["channels"][0]
+    assert channel_cfg["enable_public_button"] is True
+    assert channel_cfg["public_button_text"] == "Create Public Ticket"
+    assert channel_cfg["public_button_emoji"] == "🌍"
+
+
+@pytest.mark.asyncio
+async def test_update_channel_config_public_button_fields(
+    client: AsyncClient, mock_discord_manager_session: str
+) -> None:
+    """Updating channel config can toggle public button settings."""
+    create_resp = await client.post(
+        "/api/tickets/channels",
+        json={"guild_id": "123", "channel_id": "789"},
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert create_resp.status_code == 201
+
+    update_resp = await client.put(
+        "/api/tickets/channels/789",
+        json={
+            "enable_public_button": True,
+            "public_button_text": "Open Public Ticket",
+            "public_button_emoji": "🌐",
+        },
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["success"] is True
+
+    list_resp = await client.get(
+        "/api/tickets/channels",
+        cookies={"session": mock_discord_manager_session},
+    )
+    channels = list_resp.json()["channels"]
+    target = next((c for c in channels if c["channel_id"] == "789"), None)
+    assert target is not None
+    assert target["enable_public_button"] is True
+    assert target["public_button_text"] == "Open Public Ticket"
+    assert target["public_button_emoji"] == "🌐"
+
+
+@pytest.mark.asyncio
+async def test_create_channel_config_with_button_colors_and_order(
+    client: AsyncClient, mock_discord_manager_session: str
+) -> None:
+    """Creating a channel config accepts button color and order fields."""
+    response = await client.post(
+        "/api/tickets/channels",
+        json={
+            "guild_id": "123",
+            "channel_id": "999",
+            "enable_public_button": True,
+            "private_button_color": "3BA55D",
+            "public_button_color": "ED4245",
+            "button_order": "public_first",
+        },
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["success"] is True
+    channel_cfg = data["channels"][0]
+    assert channel_cfg["private_button_color"] == "3BA55D"
+    assert channel_cfg["public_button_color"] == "ED4245"
+    assert channel_cfg["button_order"] == "public_first"
+
+
+@pytest.mark.asyncio
+async def test_update_channel_config_button_colors(
+    client: AsyncClient, mock_discord_manager_session: str
+) -> None:
+    """Updating channel config can modify button colors and order."""
+    # Create config
+    create_resp = await client.post(
+        "/api/tickets/channels",
+        json={
+            "guild_id": "123",
+            "channel_id": "888",
+            "enable_public_button": True,
+        },
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert create_resp.status_code == 201
+
+    # Update colors and order
+    update_resp = await client.put(
+        "/api/tickets/channels/888",
+        json={
+            "private_button_color": "5865F2",
+            "public_button_color": "4F545C",
+            "button_order": "public_first",
+        },
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["success"] is True
+
+    # Verify persistence
+    list_resp = await client.get(
+        "/api/tickets/channels",
+        cookies={"session": mock_discord_manager_session},
+    )
+    channels = list_resp.json()["channels"]
+    target = next((c for c in channels if c["channel_id"] == "888"), None)
+    assert target is not None
+    assert target["private_button_color"] == "5865F2"
+    assert target["public_button_color"] == "4F545C"
+    assert target["button_order"] == "public_first"
+
+
+# ---------------------------------------------------------------------------
 # Tickets list & stats
 # ---------------------------------------------------------------------------
 
@@ -229,8 +366,6 @@ async def test_update_settings(
     """Updating settings stores the values."""
     payload = {
         "channel_id": "111222333",
-        "panel_title": "Support Center",
-        "panel_description": "Click below for help.",
         "close_message": "Thanks!",
     }
     response = await client.put(
@@ -248,8 +383,20 @@ async def test_update_settings(
     )
     settings = get_resp.json()["settings"]
     assert settings["channel_id"] == "111222333"
-    assert settings["panel_title"] == "Support Center"
     assert settings["close_message"] == "Thanks!"
+
+
+@pytest.mark.asyncio
+async def test_update_settings_rejects_deprecated_panel_fields(
+    client: AsyncClient, mock_discord_manager_session: str
+) -> None:
+    """Deprecated global panel fields should be rejected."""
+    response = await client.put(
+        "/api/tickets/settings",
+        json={"panel_title": "Legacy title"},
+        cookies={"session": mock_discord_manager_session},
+    )
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +427,9 @@ async def test_deploy_panel_propagates_internal_api_error(
 ) -> None:
     """deploy-panel should preserve upstream HTTP status/detail from internal API."""
 
-    async def _raise_upstream_error(guild_id: int) -> dict:
+    async def _raise_upstream_error(
+        guild_id: int, *, channel_id: str | None = None,
+    ) -> dict:
         request = httpx.Request(
             "POST", f"http://127.0.0.1:8082/guilds/{guild_id}/tickets/deploy-panel"
         )
@@ -325,7 +474,7 @@ async def test_settings_require_discord_manager(
     """Moderators should not be able to update settings (requires discord_manager)."""
     response = await client.put(
         "/api/tickets/settings",
-        json={"panel_title": "Nope"},
+        json={"close_message": "Nope"},
         cookies={"session": mock_moderator_session},
     )
     assert response.status_code == 403

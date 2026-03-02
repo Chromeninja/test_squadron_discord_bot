@@ -380,10 +380,15 @@ class InternalAPIServer:
             return web.json_response({"error": "Internal server error"}, status=500)
 
     async def deploy_ticket_panel(self, request: web.Request) -> web.Response:
-        """Deploy (or refresh) the ticket panel for a guild.
+        """Deploy (or refresh) ticket panels for a guild.
 
-        The dashboard saves settings first, then calls this endpoint so the
-        bot sends the panel embed + button into the configured channel.
+        Supports deploying to all channels that have categories, or a
+        specific channel via the ``channel_id`` query parameter.
+
+        AI Notes:
+            Panel channels are now derived from ``ticket_categories.channel_id``
+            rather than the legacy ``tickets.channel_id`` guild setting.
+            If ``?channel_id=<id>`` is provided, only that channel is updated.
         """
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
@@ -407,32 +412,66 @@ class InternalAPIServer:
                     {"error": "Ticket cog unavailable"}, status=503
                 )
 
-            # Read the configured channel from guild_settings
-            config_svc = self.services.config
-            channel_id_raw = await config_svc.get_guild_setting(
-                guild_id, "tickets.channel_id"
-            )
-            if not channel_id_raw:
-                return web.json_response(
-                    {"error": "No ticket channel configured"}, status=400
-                )
-
             import discord  # type: ignore[import-not-found]
 
-            channel = guild.get_channel(int(channel_id_raw))
-            if not isinstance(channel, discord.TextChannel):
+            # Determine which channels to deploy to
+            specific_channel_id = request.query.get("channel_id")
+            if specific_channel_id:
+                channel_ids = [int(specific_channel_id)]
+            else:
+                # Deploy to all channels that have categories
+                ticket_svc = self.services.ticket
+                channel_ids = await ticket_svc.get_ticket_channel_ids(guild_id)
+
+                # Fall back to legacy single-channel setting
+                if not channel_ids:
+                    config_svc = self.services.config
+                    legacy_id = await config_svc.get_guild_setting(
+                        guild_id, "tickets.channel_id"
+                    )
+                    if legacy_id:
+                        channel_ids = [int(legacy_id)]
+
+            if not channel_ids:
                 return web.json_response(
-                    {"error": "Configured channel not found or not a text channel"},
-                    status=404,
+                    {"error": "No ticket channels configured"}, status=400
                 )
 
-            msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
-            if msg:
+            results: list[dict[str, str]] = []
+            for chan_id in channel_ids:
+                channel = guild.get_channel(chan_id)
+                if not isinstance(channel, discord.TextChannel):
+                    results.append(
+                        {"channel_id": str(chan_id), "status": "not_found"}
+                    )
+                    continue
+
+                msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
+                if msg:
+                    results.append(
+                        {
+                            "channel_id": str(chan_id),
+                            "status": "deployed",
+                            "message_id": str(msg.id),
+                        }
+                    )
+                else:
+                    results.append(
+                        {"channel_id": str(chan_id), "status": "failed"}
+                    )
+
+            deployed = [r for r in results if r["status"] == "deployed"]
+            if deployed:
                 return web.json_response(
-                    {"success": True, "message_id": str(msg.id)}
+                    {
+                        "success": True,
+                        "panels": results,
+                        # Backward compat: return first message_id
+                        "message_id": deployed[0].get("message_id"),
+                    }
                 )
             return web.json_response(
-                {"error": "Failed to send panel — check bot permissions"},
+                {"error": "Failed to send panels — check bot permissions"},
                 status=500,
             )
         except Exception as exc:

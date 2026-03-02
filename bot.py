@@ -263,7 +263,7 @@ class MyBot(commands.Bot):
 
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
-        self.add_view(TicketPanelView(self))  # type: ignore[arg-type]
+        self.add_view(TicketPanelView(self, enable_public_button=True))  # type: ignore[arg-type]
         self.add_view(TicketActionView(self))  # type: ignore[arg-type]
         self.add_view(TicketContinueView(self))  # type: ignore[arg-type]
 
