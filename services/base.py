@@ -81,3 +81,25 @@ class BaseService(ABC):
             "initialized": self._initialized,
             "status": "healthy" if self._initialized else "not_initialized",
         }
+
+    @staticmethod
+    def extract_column_name(row: Any) -> str:
+        """Return a column name from a ``PRAGMA table_info`` row.
+
+        Handles dict-like rows, Row proxies, and plain tuples so that
+        callers don't need to worry about SQLite driver differences.
+        """
+        if isinstance(row, dict):
+            return str(row.get("name", ""))
+
+        try:
+            row_dict = dict(row)
+            if "name" in row_dict:
+                return str(row_dict["name"])
+        except (TypeError, ValueError):
+            pass
+
+        if isinstance(row, tuple) and len(row) > 1:
+            return str(row[1])
+
+        return ""

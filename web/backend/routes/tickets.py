@@ -40,6 +40,7 @@ from core.validation import ensure_active_guild
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from utils.logging import get_logger
+from web.backend.routes._ticket_helpers import require_guild_category
 
 if TYPE_CHECKING:
     from services.config_service import ConfigService
@@ -72,19 +73,6 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
         for c in cats
     ]
     return TicketCategoryListResponse(categories=items)
-
-
-async def _require_guild_category(
-    svc: TicketService, category_id: int, guild_id: int
-) -> dict:
-    """Verify a category exists and belongs to the given guild.
-
-    Raises ``HTTPException(404)`` on mismatch.
-    """
-    cat = await svc.get_category(category_id)
-    if cat is None or cat["guild_id"] != guild_id:
-        raise HTTPException(status_code=404, detail="Category not found")
-    return cat
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +129,7 @@ async def update_category(
 ) -> dict:
     """Update a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
 
     # Build kwargs from non-None fields
     kwargs: dict = {
@@ -176,7 +164,7 @@ async def delete_category(
 ) -> dict:
     """Delete a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
 
     deleted = await svc.delete_category(category_id)
     if not deleted:

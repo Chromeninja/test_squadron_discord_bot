@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS ticket_form_steps (
 CREATE INDEX IF NOT EXISTS idx_form_steps_category ON ticket_form_steps(category_id);
 
 -- Form questions: individual inputs within a step (max 5 per step — Discord limit).
+-- NOTE: 'select' is reserved in the CHECK constraint for future dropdown support.
+-- The application layer currently only accepts 'text'; see TicketFormService.
 CREATE TABLE IF NOT EXISTS ticket_form_questions (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     step_id       INTEGER NOT NULL REFERENCES ticket_form_steps(id) ON DELETE CASCADE,

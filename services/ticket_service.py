@@ -8,6 +8,7 @@ reopening, transcripts, and statistics.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import time
@@ -24,6 +25,12 @@ DEFAULT_MAX_OPEN_PER_USER = 5
 
 # Default reopen window in hours
 DEFAULT_REOPEN_WINDOW_HOURS = 48
+
+# Default thread limit used for health-percentage calculations.
+# Discord's actual per-guild active thread cap varies by boost level
+# (default ~500 active).  This value is a conservative upper bound
+# representing total tracked ticket threads (active + archived).
+DEFAULT_THREAD_LIMIT = 1000
 
 # Special user_id used for guild-wide cooldown reset markers.
 _GLOBAL_COOLDOWN_RESET_USER_ID = 0
@@ -81,6 +88,7 @@ class TicketService(BaseService):
         self._category_schema_checked = False
         self._ticket_schema_checked = False
         self._channel_config_schema_checked = False
+        self._schema_lock = asyncio.Lock()
 
     async def _initialize_impl(self) -> None:
         """No special startup work; DB schema is applied separately."""
@@ -945,8 +953,17 @@ class TicketService(BaseService):
             "total": counts["open"] + counts["closed"],
         }
 
-    async def get_thread_health(self, guild_id: int) -> dict[str, Any]:
+    async def get_thread_health(
+        self,
+        guild_id: int,
+        thread_limit: int = DEFAULT_THREAD_LIMIT,
+    ) -> dict[str, Any]:
         """Return thread usage data for a guild.
+
+        Args:
+            guild_id: Discord guild ID.
+            thread_limit: Maximum thread count used for usage-percentage
+                calculations.  Defaults to ``DEFAULT_THREAD_LIMIT``.
 
         Returns a dict with:
             ``active`` — open ticket count (threads still active).
@@ -954,7 +971,7 @@ class TicketService(BaseService):
             ``deleted`` — tickets whose threads have been cleaned up.
             ``total_threads`` — estimated Discord thread consumption
                 (active + archived, excluding deleted).
-            ``limit`` — Discord's 1000 thread per guild limit.
+            ``limit`` — the thread limit used for percentage calculation.
             ``usage_pct`` — percentage of the limit used.
             ``status`` — human-readable health label.
 
@@ -980,8 +997,7 @@ class TicketService(BaseService):
         archived = int((row["archived"] if isinstance(row, dict) else row[1]) or 0) if row else 0
         deleted = int((row["deleted"] if isinstance(row, dict) else row[2]) or 0) if row else 0
         total_threads = active + archived
-        limit = 1000
-        usage_pct = round((total_threads / limit) * 100, 1) if limit else 0
+        usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
 
         if usage_pct >= 95:
             status = "critical"
@@ -997,7 +1013,7 @@ class TicketService(BaseService):
             "archived": archived,
             "deleted": deleted,
             "total_threads": total_threads,
-            "limit": limit,
+            "limit": thread_limit,
             "usage_pct": usage_pct,
             "status": status,
         }
@@ -1281,179 +1297,184 @@ class TicketService(BaseService):
         AI Notes:
             Checks for ``allowed_statuses`` and ``channel_id`` columns
             that may be missing on databases created before those features
-            were added.
+            were added.  Uses double-checked locking to prevent concurrent
+            ALTER TABLE races.
         """
         if self._category_schema_checked:
             return
 
-        rows = await BaseRepository.fetch_all("PRAGMA table_info(ticket_categories)")
-        column_names: set[str] = set()
-        for row in rows:
-            try:
-                column_name = str(row["name"])
-            except (TypeError, KeyError, IndexError):
-                column_name = str(row[1]) if len(row) > 1 else ""
-            if column_name:
-                column_names.add(column_name)
+        async with self._schema_lock:
+            if self._category_schema_checked:
+                return
 
-        if "allowed_statuses" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_categories "
-                    "ADD COLUMN allowed_statuses TEXT NOT NULL DEFAULT '[]'"
-                )
-                self.logger.info(
-                    "Added missing allowed_statuses column to ticket_categories"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            rows = await BaseRepository.fetch_all("PRAGMA table_info(ticket_categories)")
+            column_names = {
+                self.extract_column_name(row)
+                for row in rows
+                if self.extract_column_name(row)
+            }
 
-        if "channel_id" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_categories "
-                    "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
-                )
-                self.logger.info(
-                    "Added missing channel_id column to ticket_categories"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "allowed_statuses" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_categories "
+                        "ADD COLUMN allowed_statuses TEXT NOT NULL DEFAULT '[]'"
+                    )
+                    self.logger.info(
+                        "Added missing allowed_statuses column to ticket_categories"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        self._category_schema_checked = True
+            if "channel_id" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_categories "
+                        "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
+                    )
+                    self.logger.info(
+                        "Added missing channel_id column to ticket_categories"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
+
+            self._category_schema_checked = True
 
     async def _ensure_ticket_schema_compatibility(self) -> None:
         """Ensure ``deleted_at`` column exists on older DBs.
 
         AI Notes:
             Mirrors the ``_ensure_category_schema_compatibility`` pattern.
-            Only runs once per process lifetime.
+            Only runs once per process lifetime.  Uses double-checked
+            locking via ``_schema_lock``.
         """
         if self._ticket_schema_checked:
             return
 
-        rows = await BaseRepository.fetch_all("PRAGMA table_info(tickets)")
-        column_names: set[str] = set()
-        for row in rows:
-            try:
-                column_name = str(row["name"])
-            except (TypeError, KeyError, IndexError):
-                column_name = str(row[1]) if len(row) > 1 else ""
-            if column_name:
-                column_names.add(column_name)
+        async with self._schema_lock:
+            if self._ticket_schema_checked:
+                return
 
-        if "deleted_at" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE tickets "
-                    "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
-                )
-                self.logger.info("Added missing deleted_at column to tickets")
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            rows = await BaseRepository.fetch_all("PRAGMA table_info(tickets)")
+            column_names = {
+                self.extract_column_name(row)
+                for row in rows
+                if self.extract_column_name(row)
+            }
 
-        self._ticket_schema_checked = True
+            if "deleted_at" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE tickets "
+                        "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
+                    )
+                    self.logger.info("Added missing deleted_at column to tickets")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
+
+            self._ticket_schema_checked = True
 
     async def _ensure_channel_config_schema_compatibility(self) -> None:
         """Ensure public button columns exist on older DBs."""
         if self._channel_config_schema_checked:
             return
 
-        rows = await BaseRepository.fetch_all(
-            "PRAGMA table_info(ticket_channel_configs)"
-        )
-        column_names: set[str] = set()
-        for row in rows:
-            try:
-                column_name = str(row["name"])
-            except (TypeError, KeyError, IndexError):
-                column_name = str(row[1]) if len(row) > 1 else ""
-            if column_name:
-                column_names.add(column_name)
+        async with self._schema_lock:
+            if self._channel_config_schema_checked:
+                return
 
-        if "enable_public_button" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
-                )
-                self.logger.info(
-                    "Added missing enable_public_button column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            rows = await BaseRepository.fetch_all(
+                "PRAGMA table_info(ticket_channel_configs)"
+            )
+            column_names = {
+                self.extract_column_name(row)
+                for row in rows
+                if self.extract_column_name(row)
+            }
 
-        if "public_button_text" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN public_button_text TEXT NOT NULL "
-                    "DEFAULT 'Create Public Ticket'"
-                )
-                self.logger.info(
-                    "Added missing public_button_text column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "enable_public_button" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
+                    )
+                    self.logger.info(
+                        "Added missing enable_public_button column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        if "public_button_emoji" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN public_button_emoji TEXT DEFAULT '🌐'"
-                )
-                self.logger.info(
-                    "Added missing public_button_emoji column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "public_button_text" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN public_button_text TEXT NOT NULL "
+                        "DEFAULT 'Create Public Ticket'"
+                    )
+                    self.logger.info(
+                        "Added missing public_button_text column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        if "private_button_color" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN private_button_color TEXT DEFAULT NULL"
-                )
-                self.logger.info(
-                    "Added missing private_button_color column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "public_button_emoji" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN public_button_emoji TEXT DEFAULT '\U0001f310'"
+                    )
+                    self.logger.info(
+                        "Added missing public_button_emoji column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        if "public_button_color" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN public_button_color TEXT DEFAULT NULL"
-                )
-                self.logger.info(
-                    "Added missing public_button_color column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "private_button_color" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN private_button_color TEXT DEFAULT NULL"
+                    )
+                    self.logger.info(
+                        "Added missing private_button_color column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        if "button_order" not in column_names:
-            try:
-                await BaseRepository.execute(
-                    "ALTER TABLE ticket_channel_configs "
-                    "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
-                )
-                self.logger.info(
-                    "Added missing button_order column to ticket_channel_configs"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if "public_button_color" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN public_button_color TEXT DEFAULT NULL"
+                    )
+                    self.logger.info(
+                        "Added missing public_button_color column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        self._channel_config_schema_checked = True
+            if "button_order" not in column_names:
+                try:
+                    await BaseRepository.execute(
+                        "ALTER TABLE ticket_channel_configs "
+                        "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
+                    )
+                    self.logger.info(
+                        "Added missing button_order column to ticket_channel_configs"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
+
+            self._channel_config_schema_checked = True
 
     # ------------------------------------------------------------------
     # Claim / Assign

@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from services.ticket_form_service import TicketFormService
 from services.ticket_service import TicketService
 from utils.logging import get_logger
+from web.backend.routes._ticket_helpers import require_guild_category
 
 logger = get_logger(__name__)
 
@@ -39,19 +40,6 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _require_guild_category(
-    svc: TicketService, category_id: int, guild_id: int
-) -> dict:
-    """Verify a category exists and belongs to the given guild.
-
-    Raises ``HTTPException(404)`` on mismatch.
-    """
-    cat = await svc.get_category(category_id)
-    if cat is None or cat["guild_id"] != guild_id:
-        raise HTTPException(status_code=404, detail="Category not found")
-    return cat
 
 
 def _build_form_response(
@@ -111,7 +99,7 @@ async def get_form_config(
 ) -> TicketFormConfigResponse:
     """Get the full form configuration for a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
     config = await form_svc.get_form_config(category_id)
     return _build_form_response(category_id, config)
 
@@ -129,7 +117,7 @@ async def replace_form_config(
 ) -> TicketFormConfigResponse:
     """Replace the entire form config for a category (atomic)."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
 
     # Convert to plain dicts for the service
     steps_data = [
@@ -168,7 +156,7 @@ async def delete_form_config(
 ) -> TicketFormConfigResponse:
     """Delete all form config for a category (reverts to legacy modal)."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
 
     await form_svc.delete_form_config(category_id)
 
@@ -192,7 +180,7 @@ async def validate_form_config(
 ) -> TicketFormValidation:
     """Validate the form configuration for a category."""
     guild_id = ensure_active_guild(current_user)
-    await _require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(svc, category_id, guild_id)
 
     errors = await form_svc.validate_form(category_id)
 

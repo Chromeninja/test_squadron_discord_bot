@@ -32,7 +32,6 @@ from helpers.constants import (
 from services.base import BaseService
 from services.db.repository import BaseRepository
 
-
 # ---------------------------------------------------------------------------
 # Route Execution Context — state container for an in-progress flow
 # ---------------------------------------------------------------------------
@@ -152,24 +151,6 @@ class TicketFormService(BaseService):
         self._session_cache.clear()
         self._form_cache.clear()
 
-    @staticmethod
-    def _extract_column_name(row: Any) -> str:
-        """Return a column name from ``PRAGMA table_info`` rows."""
-        if isinstance(row, dict):
-            return str(row.get("name", ""))
-
-        try:
-            row_dict = dict(row)
-            if "name" in row_dict:
-                return str(row_dict["name"])
-        except (TypeError, ValueError):
-            pass
-
-        if isinstance(row, tuple) and len(row) > 1:
-            return str(row[1])
-
-        return ""
-
     async def _ensure_question_schema_compatibility(self) -> None:
         """Ensure legacy DBs have required ``ticket_form_questions`` columns.
 
@@ -193,9 +174,9 @@ class TicketFormService(BaseService):
                 return
 
             column_names = {
-                self._extract_column_name(row)
+                self.extract_column_name(row)
                 for row in rows
-                if self._extract_column_name(row)
+                if self.extract_column_name(row)
             }
 
             if "input_type" not in column_names:
@@ -236,9 +217,9 @@ class TicketFormService(BaseService):
                 return
 
             column_names = {
-                self._extract_column_name(row)
+                self.extract_column_name(row)
                 for row in rows
-                if self._extract_column_name(row)
+                if self.extract_column_name(row)
             }
 
             if "is_public" not in column_names:
@@ -319,7 +300,7 @@ class TicketFormService(BaseService):
         params = (*updates.values(), step_id)
         try:
             affected = await BaseRepository.execute(
-                f"UPDATE ticket_form_steps SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE ticket_form_steps SET {set_clause} WHERE id = ?",
                 params,
             )
             if affected > 0:
@@ -505,7 +486,7 @@ class TicketFormService(BaseService):
         params = (*updates.values(), pk)
         try:
             affected = await BaseRepository.execute(
-                f"UPDATE ticket_form_questions SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE ticket_form_questions SET {set_clause} WHERE id = ?",
                 params,
             )
             if affected > 0:
