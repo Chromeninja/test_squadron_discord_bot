@@ -14,5 +14,5 @@ beautifulsoup4>=4.12.2,<5.0.0
 lxml>=4.9.3,<5.0.0
 pyyaml~=6.0.0
 python-dotenv~=1.0.0
-pytest~=8.3.0
+pytest~=9.0.2
 pytest-asyncio~=0.24.0
