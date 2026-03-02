@@ -869,6 +869,8 @@ class TicketCategoryCreate(BaseModel):
 class TicketCategoryUpdate(BaseModel):
     """Request payload for updating a ticket category."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     description: str | None = None
     welcome_message: str | None = None
@@ -876,7 +878,6 @@ class TicketCategoryUpdate(BaseModel):
     allowed_statuses: list[TicketCategoryEligibilityStatus] | None = None
     emoji: str | None = None
     sort_order: int | None = None
-    channel_id: str | None = None
 
 
 class TicketCategoryListResponse(BaseModel):

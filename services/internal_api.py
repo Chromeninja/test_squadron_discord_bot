@@ -1513,6 +1513,7 @@ class InternalAPIServer:
 
         try:
             live = metrics.get_live_snapshot(guild_id)
+            messages_today = await metrics.get_messages_today(guild_id)
             user_ids = self._parse_user_ids(request)
             period = await metrics.get_guild_metrics(
                 guild_id, days=days, user_ids=user_ids
@@ -1521,7 +1522,7 @@ class InternalAPIServer:
             return web.json_response(
                 {
                     "live": {
-                        "messages_today": live.messages_today,
+                        "messages_today": messages_today,
                         "active_voice_users": live.active_voice_users,
                         "active_game_sessions": live.active_game_sessions,
                         "top_game": live.top_game,

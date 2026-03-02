@@ -102,6 +102,26 @@ async def test_update_category(
 
 
 @pytest.mark.asyncio
+async def test_update_category_rejects_channel_change(
+    client: AsyncClient, mock_admin_session: str
+) -> None:
+    """Category channel assignment cannot be changed via update payload."""
+    create_resp = await client.post(
+        "/api/tickets/categories",
+        json={"guild_id": "123", "name": "Old", "channel_id": "456"},
+        cookies={"session": mock_admin_session},
+    )
+    cat_id = create_resp.json()["categories"][0]["id"]
+
+    update_resp = await client.put(
+        f"/api/tickets/categories/{cat_id}",
+        json={"channel_id": "789"},
+        cookies={"session": mock_admin_session},
+    )
+    assert update_resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_create_category_invalid_allowed_statuses(
     client: AsyncClient, mock_admin_session: str
 ) -> None:

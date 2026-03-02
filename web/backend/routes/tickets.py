@@ -145,7 +145,7 @@ async def update_category(
 
     # Build kwargs from non-None fields
     kwargs: dict = {
-        k: ([int(r) for r in v] if k == "role_ids" else (int(v) if k == "channel_id" else v))
+        k: ([int(r) for r in v] if k == "role_ids" else v)
         for k, v in {
             "name": body.name,
             "description": body.description,
@@ -154,7 +154,6 @@ async def update_category(
             "allowed_statuses": body.allowed_statuses,
             "emoji": body.emoji,
             "sort_order": body.sort_order,
-            "channel_id": body.channel_id,
         }.items()
         if v is not None
     }

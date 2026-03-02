@@ -5,9 +5,7 @@ import type {
   TicketCategoryEligibilityStatus,
 } from '../../api/endpoints';
 import type { MultiSelectOption } from '../../components/SearchableMultiSelect';
-import type { SelectOption } from '../../components/SearchableSelect';
 import SearchableMultiSelect from '../../components/SearchableMultiSelect';
-import SearchableSelect from '../../components/SearchableSelect';
 import DiscordMarkdownEditor from '../../components/DiscordMarkdownEditor';
 import { Button, Input, Modal, ModalFooter, Textarea } from '../../components/ui';
 
@@ -21,17 +19,14 @@ interface CategoryModalProps {
   catWelcomeMessage: string;
   catRoleIds: string[];
   catAllowedStatuses: TicketCategoryEligibilityStatus[];
-  catChannelId: string;
   catSaving: boolean;
   roleOptions: MultiSelectOption[];
-  channelOptions: SelectOption[];
   onCatNameChange: (v: string) => void;
   onCatDescriptionChange: (v: string) => void;
   onCatEmojiChange: (v: string) => void;
   onCatWelcomeMessageChange: (v: string) => void;
   onCatRoleIdsChange: (v: string[]) => void;
   onCatAllowedStatusesChange: (v: TicketCategoryEligibilityStatus[]) => void;
-  onCatChannelIdChange: (v: string) => void;
   onSave: () => void;
 }
 
@@ -45,17 +40,14 @@ export default function CategoryModal({
   catWelcomeMessage,
   catRoleIds,
   catAllowedStatuses,
-  catChannelId,
   catSaving,
   roleOptions,
-  channelOptions,
   onCatNameChange,
   onCatDescriptionChange,
   onCatEmojiChange,
   onCatWelcomeMessageChange,
   onCatRoleIdsChange,
   onCatAllowedStatusesChange,
-  onCatChannelIdChange,
   onSave,
 }: CategoryModalProps) {
   const toggleAllowedStatus = (status: TicketCategoryEligibilityStatus) => {
@@ -98,19 +90,6 @@ export default function CategoryModal({
             onChange={(e) => onCatEmojiChange(e.target.value)}
             placeholder="📩"
             className="w-20 text-center"
-          />
-        </div>
-
-        <div>
-          <h5 className="text-sm font-medium text-gray-300 mb-1">Panel Channel</h5>
-          <p className="text-xs text-gray-500 mb-2">
-            Which channel this category&apos;s &quot;Create Ticket&quot; panel lives in.
-          </p>
-          <SearchableSelect
-            options={channelOptions}
-            selected={catChannelId === '0' ? null : catChannelId}
-            onChange={(v) => onCatChannelIdChange(v ?? '0')}
-            placeholder="Select a channel…"
           />
         </div>
 

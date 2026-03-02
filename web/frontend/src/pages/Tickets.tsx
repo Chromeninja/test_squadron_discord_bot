@@ -94,7 +94,8 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [catAllowedStatuses, setCatAllowedStatuses] = useState<
     TicketCategoryEligibilityStatus[]
   >([]);
-  const [catChannelId, setCatChannelId] = useState<string>('0');
+  const [createCategoryChannelId, setCreateCategoryChannelId] =
+    useState<string>('0');
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
 
@@ -328,13 +329,13 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatWelcomeMessage('');
     setCatRoleIds([]);
     setCatAllowedStatuses([]);
-    setCatChannelId('0');
+    setCreateCategoryChannelId('0');
   };
 
   const openCreateCategory = (channelId?: string) => {
     setEditingCategory(null);
     resetCategoryForm();
-    if (channelId) setCatChannelId(channelId);
+    if (channelId) setCreateCategoryChannelId(channelId);
     setCategoryModalOpen(true);
   };
 
@@ -346,7 +347,6 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatWelcomeMessage(cat.welcome_message);
     setCatRoleIds(cat.role_ids);
     setCatAllowedStatuses(cat.allowed_statuses ?? []);
-    setCatChannelId(cat.channel_id ?? '0');
     setCategoryModalOpen(true);
   };
 
@@ -361,7 +361,6 @@ export default function Tickets({ guildId }: TicketsProps) {
           emoji: catEmoji || null,
           role_ids: catRoleIds,
           allowed_statuses: catAllowedStatuses,
-          channel_id: catChannelId,
         });
         showSuccess('Category updated');
       } else {
@@ -373,7 +372,7 @@ export default function Tickets({ guildId }: TicketsProps) {
           emoji: catEmoji || null,
           role_ids: catRoleIds,
           allowed_statuses: catAllowedStatuses,
-          channel_id: catChannelId,
+          channel_id: createCategoryChannelId,
         });
         showSuccess('Category created');
       }
@@ -616,7 +615,8 @@ export default function Tickets({ guildId }: TicketsProps) {
                   ? 'category'
                   : 'categories'}
               </span>{' '}
-              — edit them to assign a channel, or they won&apos;t appear on any panel.
+              — these won&apos;t appear on any panel. Create categories from a channel
+              section to assign them.
             </Alert>
           )}
 
@@ -744,17 +744,14 @@ export default function Tickets({ guildId }: TicketsProps) {
         catWelcomeMessage={catWelcomeMessage}
         catRoleIds={catRoleIds}
         catAllowedStatuses={catAllowedStatuses}
-        catChannelId={catChannelId}
         catSaving={catSaving}
         roleOptions={roleOptions}
-        channelOptions={channelOptions}
         onCatNameChange={setCatName}
         onCatDescriptionChange={setCatDescription}
         onCatEmojiChange={setCatEmoji}
         onCatWelcomeMessageChange={setCatWelcomeMessage}
         onCatRoleIdsChange={setCatRoleIds}
         onCatAllowedStatusesChange={setCatAllowedStatuses}
-        onCatChannelIdChange={setCatChannelId}
         onSave={handleSaveCategory}
       />
 

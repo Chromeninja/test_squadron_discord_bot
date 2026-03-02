@@ -1091,7 +1091,6 @@ export interface TicketCategoryUpdate {
   allowed_statuses?: TicketCategoryEligibilityStatus[];
   emoji?: string | null;
   sort_order?: number;
-  channel_id?: string;
 }
 
 export interface TicketInfo {
