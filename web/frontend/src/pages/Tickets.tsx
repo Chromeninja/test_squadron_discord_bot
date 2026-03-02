@@ -305,20 +305,9 @@ export default function Tickets({ guildId }: TicketsProps) {
         button_order: updates.button_order,
       });
       
-      // If channel was changed, refetch all configs (IDs have changed in DB)
-      // Otherwise just update in place
-      if (hasChannelChange) {
-        const res = await ticketsApi.getChannelConfigs();
-        setChannelConfigs(res.channels);
-        showSuccess('Channel moved and panel updated');
-      } else {
-        setChannelConfigs((prev) =>
-          prev.map((c) =>
-            c.channel_id === channelId ? { ...c, ...updates } : c,
-          ),
-        );
-        showSuccess('Channel panel updated');
-      }
+      const res = await ticketsApi.getChannelConfigs();
+      setChannelConfigs(res.channels);
+      showSuccess(hasChannelChange ? 'Channel moved and panel updated' : 'Channel panel updated');
     } catch (err) {
       handleApiError(err, 'Failed to update channel config');
     }

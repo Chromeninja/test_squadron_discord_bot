@@ -257,7 +257,7 @@ export default function ChannelSection({
                 <SearchableSelect
                   options={channelOptions}
                   selected={newChannelId}
-                  onChange={setNewChannelId}
+                  onChange={(id) => setNewChannelId(id ?? '')}
                   placeholder="Search channels to move…"
                 />
               </div>
