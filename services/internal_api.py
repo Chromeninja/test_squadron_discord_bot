@@ -417,7 +417,13 @@ class InternalAPIServer:
             # Determine which channels to deploy to
             specific_channel_id = request.query.get("channel_id")
             if specific_channel_id:
-                channel_ids = [int(specific_channel_id)]
+                try:
+                    channel_ids = [int(specific_channel_id)]
+                except ValueError:
+                    return web.json_response(
+                        {"error": "Invalid channel_id — must be numeric"},
+                        status=400,
+                    )
             else:
                 # Deploy to all channels that have categories
                 ticket_svc = self.services.ticket
@@ -430,7 +436,16 @@ class InternalAPIServer:
                         guild_id, "tickets.channel_id"
                     )
                     if legacy_id:
-                        channel_ids = [int(legacy_id)]
+                        try:
+                            channel_ids = [int(legacy_id)]
+                        except ValueError:
+                            logger.warning(
+                                "Invalid legacy tickets.channel_id for guild %s: %s",
+                                guild_id,
+                                legacy_id,
+                            )
+                            # Fail gracefully—proceed with no fallback channels
+                            channel_ids = []
 
             if not channel_ids:
                 return web.json_response(
