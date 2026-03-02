@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { cn } from '../../utils/cn';
 import { modalVariants, type ModalSize, type ModalHeaderVariant } from '../../utils/theme';
 
@@ -56,6 +56,8 @@ export function Modal({
   children,
   footer,
 }: ModalProps) {
+  const mouseDownOnOverlayRef = useRef(false);
+
   // Handle Escape key
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -79,12 +81,31 @@ export function Modal({
     };
   }, [open, handleKeyDown]);
 
+  const handleOverlayMouseDown = useCallback(() => {
+    mouseDownOnOverlayRef.current = true;
+  }, []);
+
+  const handleContentMouseDown = useCallback((e: React.MouseEvent) => {
+    mouseDownOnOverlayRef.current = false;
+    e.stopPropagation(); // Prevent bubbling to overlay
+  }, []);
+
+  // Handle overlay click - only close if both mousedown and mouseup were on overlay
+  const handleOverlayClick = useCallback(() => {
+    if (closeOnOverlayClick && mouseDownOnOverlayRef.current) {
+      onClose();
+    }
+    // Reset for next interaction
+    mouseDownOnOverlayRef.current = false;
+  }, [closeOnOverlayClick, onClose]);
+
   if (!open) return null;
 
   return (
     <div
       className={modalVariants.overlay}
-      onClick={closeOnOverlayClick ? onClose : undefined}
+      onMouseDown={handleOverlayMouseDown}
+      onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? 'modal-title' : undefined}
@@ -95,6 +116,7 @@ export function Modal({
           modalVariants.size[size],
           scrollable && 'max-h-[90vh] flex flex-col'
         )}
+        onMouseDown={handleContentMouseDown}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
