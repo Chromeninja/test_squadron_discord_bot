@@ -1159,6 +1159,7 @@ export interface TicketChannelConfigCreate {
 }
 
 export interface TicketChannelConfigUpdate {
+  new_channel_id?: string | null;  // Change the Discord channel assignment
   panel_title?: string | null;
   panel_description?: string | null;
   panel_color?: string | null;

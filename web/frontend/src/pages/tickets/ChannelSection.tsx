@@ -6,7 +6,8 @@
  */
 
 import { useState } from 'react';
-import type { TicketCategory, TicketChannelConfig } from '../../api/endpoints';
+import type { TicketCategory, TicketChannelConfig, TicketChannelConfigUpdate } from '../../api/endpoints';
+import SearchableSelect, { type SelectOption } from '../../components/SearchableSelect';
 import { Badge, Button, Card, CardBody, Input, Textarea } from '../../components/ui';
 import { PanelPreview } from './PanelPreview';
 
@@ -58,9 +59,10 @@ interface ChannelSectionProps {
   config: TicketChannelConfig;
   channelName: string;
   categories: TicketCategory[];
+  availableChannels: { id: string; name: string }[];  // Channels not yet configured (excludes current)
   onUpdateConfig: (
     channelId: string,
-    updates: Partial<TicketChannelConfig>,
+    updates: TicketChannelConfigUpdate,
   ) => Promise<void>;
   onDeleteConfig: (channelId: string) => Promise<void>;
   onAddCategory: (channelId: string) => void;
@@ -73,6 +75,7 @@ export default function ChannelSection({
   config,
   channelName,
   categories,
+  availableChannels,
   onUpdateConfig,
   onDeleteConfig,
   onAddCategory,
@@ -84,6 +87,7 @@ export default function ChannelSection({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [newChannelId, setNewChannelId] = useState<string>('');
 
   // Local edit state
   const [panelTitle, setPanelTitle] = useState(config.panel_title);
@@ -110,10 +114,20 @@ export default function ChannelSection({
     config.button_order || 'private_first',
   );
 
+  // Build channel options for searchable select
+  const channelOptions: SelectOption[] = availableChannels.map((ch) => ({
+    id: ch.id,
+    name: ch.name,
+  }));
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Only send new_channel_id if it differs from current
+      const hasChannelChange = newChannelId && newChannelId !== config.channel_id;
+
       await onUpdateConfig(config.channel_id, {
+        new_channel_id: hasChannelChange ? newChannelId : undefined,
         panel_title: panelTitle,
         panel_description: panelDescription,
         panel_color: panelColor,
@@ -127,6 +141,7 @@ export default function ChannelSection({
         button_order: buttonOrder,
       });
       setEditing(false);
+      setNewChannelId('');
     } finally {
       setSaving(false);
     }
@@ -145,6 +160,7 @@ export default function ChannelSection({
     setPrivateButtonColor(config.private_button_color || '');
     setPublicButtonColor(config.public_button_color || '');
     setButtonOrder(config.button_order || 'private_first');
+    setNewChannelId('');
     setEditing(false);
   };
 
@@ -231,6 +247,22 @@ export default function ChannelSection({
         {/* Expanded Content */}
         {expanded && (
           <div className="space-y-6 mt-4">
+            {/* Channel Assignment */}
+            {editing && availableChannels.length > 0 && (
+              <div className="p-4 bg-blue-900/20 border border-blue-700/50 rounded">
+                <h5 className="text-sm font-semibold text-blue-300 mb-1">Discord Channel</h5>
+                <p className="text-xs text-gray-400 mb-3">
+                  Currently assigned to <span className="font-medium text-blue-200">#{channelName}</span>. Type to move this panel to a different channel — all categories will move with it.
+                </p>
+                <SearchableSelect
+                  options={channelOptions}
+                  selected={newChannelId}
+                  onChange={setNewChannelId}
+                  placeholder="Search channels to move…"
+                />
+              </div>
+            )}
+
             {/* Panel Customization */}
             <div>
               <h4 className="text-sm font-semibold text-gray-300 mb-3">Panel Settings</h4>

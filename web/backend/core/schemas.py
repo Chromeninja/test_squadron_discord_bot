@@ -933,6 +933,7 @@ class TicketChannelConfigCreate(BaseModel):
 class TicketChannelConfigUpdate(BaseModel):
     """Request payload for updating a ticket channel config."""
 
+    new_channel_id: str | None = None  # Change the Discord channel assignment
     panel_title: str | None = None
     panel_description: str | None = None
     panel_color: str | None = None

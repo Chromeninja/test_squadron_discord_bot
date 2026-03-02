@@ -382,12 +382,13 @@ class InternalAPIServer:
     async def deploy_ticket_panel(self, request: web.Request) -> web.Response:
         """Deploy (or refresh) ticket panels for a guild.
 
-        Supports deploying to all channels that have categories, or a
+        Supports deploying to all channels that have channel configs, or a
         specific channel via the ``channel_id`` query parameter.
 
         AI Notes:
-            Panel channels are now derived from ``ticket_categories.channel_id``
-            rather than the legacy ``tickets.channel_id`` guild setting.
+            Panel channels are now derived from ``ticket_channel_configs`` table.
+            This ensures ALL configured channels get panels deployed, even if they
+            don't have categories assigned yet.
             If ``?channel_id=<id>`` is provided, only that channel is updated.
         """
         if not self._check_auth(request):
@@ -425,9 +426,10 @@ class InternalAPIServer:
                         status=400,
                     )
             else:
-                # Deploy to all channels that have categories
+                # Deploy to all channels that have channel configs
                 ticket_svc = self.services.ticket
-                channel_ids = await ticket_svc.get_ticket_channel_ids(guild_id)
+                configs = await ticket_svc.get_channel_configs(guild_id)
+                channel_ids = [int(c["channel_id"]) for c in configs]
 
                 # Fall back to legacy single-channel setting
                 if not channel_ids:

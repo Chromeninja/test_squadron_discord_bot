@@ -542,6 +542,7 @@ class TicketService(BaseService):
         self,
         guild_id: int,
         channel_id: int,
+        new_channel_id: int | None = None,
         panel_title: str | None = None,
         panel_description: str | None = None,
         panel_color: str | None = None,
@@ -558,7 +559,8 @@ class TicketService(BaseService):
 
         Args:
             guild_id: Discord guild ID.
-            channel_id: Discord channel ID.
+            channel_id: Current Discord channel ID.
+            new_channel_id: New Discord channel ID (to move the config).
             panel_title: New panel title (unchanged if None).
             panel_description: New panel description (unchanged if None).
             panel_color: New panel color (unchanged if None).
@@ -567,14 +569,33 @@ class TicketService(BaseService):
             enable_public_button: Enable public button when true.
             public_button_text: New public button text.
             public_button_emoji: New public button emoji.
+            private_button_color: Private button color (hex).
+            public_button_color: Public button color (hex).
+            button_order: Button display order.
 
         Returns:
             True if the config was updated, False otherwise.
+
+        Raises:
+            ValueError: If new_channel_id is provided but already has a config.
         """
         try:
             await self._ensure_channel_config_schema_compatibility()
+
+            # Validate new channel_id doesn't conflict
+            if new_channel_id is not None and new_channel_id != channel_id:
+                existing = await self.get_channel_config(guild_id, new_channel_id)
+                if existing:
+                    raise ValueError(
+                        f"Channel {new_channel_id} already has a ticket panel configuration"
+                    )
+
             updates: list[str] = []
             vals: list[Any] = []
+
+            if new_channel_id is not None and new_channel_id != channel_id:
+                updates.append("channel_id = ?")
+                vals.append(new_channel_id)
 
             if panel_title is not None:
                 updates.append("panel_title = ?")
@@ -624,13 +645,34 @@ class TicketService(BaseService):
                 """,
                 tuple(vals),
             )
+
             if rows > 0:
-                self.logger.info(
-                    "Updated channel config for guild %s channel %s",
-                    guild_id,
-                    channel_id,
-                )
+                # If channel_id changed, update categories assigned to this channel
+                if new_channel_id is not None and new_channel_id != channel_id:
+                    await BaseRepository.execute(
+                        """
+                        UPDATE ticket_categories
+                        SET channel_id = ?
+                        WHERE guild_id = ? AND channel_id = ?
+                        """,
+                        (new_channel_id, guild_id, channel_id),
+                    )
+                    self.logger.info(
+                        "Moved channel config from %s to %s for guild %s",
+                        channel_id,
+                        new_channel_id,
+                        guild_id,
+                    )
+                else:
+                    self.logger.info(
+                        "Updated channel config for guild %s channel %s",
+                        guild_id,
+                        channel_id,
+                    )
             return rows > 0
+        except ValueError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
             self.logger.exception(
                 "Failed to update channel config for guild %s channel %s",

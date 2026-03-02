@@ -293,6 +293,7 @@ async def update_channel_config(
     kwargs: dict = {
         k: v
         for k, v in {
+            "new_channel_id": int(body.new_channel_id) if body.new_channel_id else None,
             "panel_title": body.panel_title,
             "panel_description": body.panel_description,
             "panel_color": body.panel_color,
@@ -311,9 +312,13 @@ async def update_channel_config(
     if not kwargs:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    updated = await svc.update_channel_config(
-        guild_id, channel_id_int, **kwargs
-    )
+    try:
+        updated = await svc.update_channel_config(
+            guild_id, channel_id_int, **kwargs
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     if not updated:
         raise HTTPException(status_code=404, detail="Channel config not found")
 

@@ -18,6 +18,7 @@ import {
   TicketCategory,
   TicketCategoryEligibilityStatus,
   TicketChannelConfig,
+  TicketChannelConfigUpdate,
   TicketFormStep,
   TicketInfo,
   guildApi,
@@ -284,23 +285,40 @@ export default function Tickets({ guildId }: TicketsProps) {
 
   const handleUpdateChannelConfig = async (
     channelId: string,
-    updates: Partial<TicketChannelConfig>,
+    updates: TicketChannelConfigUpdate,
   ) => {
     try {
+      const hasChannelChange = updates.new_channel_id && updates.new_channel_id !== channelId;
+      
       await ticketsApi.updateChannelConfig(channelId, {
+        new_channel_id: updates.new_channel_id,
         panel_title: updates.panel_title,
         panel_description: updates.panel_description,
         panel_color: updates.panel_color,
         button_text: updates.button_text,
         button_emoji: updates.button_emoji,
+        enable_public_button: updates.enable_public_button,
+        public_button_text: updates.public_button_text,
+        public_button_emoji: updates.public_button_emoji,
+        private_button_color: updates.private_button_color,
+        public_button_color: updates.public_button_color,
+        button_order: updates.button_order,
       });
-      // Update local state to reflect saved values
-      setChannelConfigs((prev) =>
-        prev.map((c) =>
-          c.channel_id === channelId ? { ...c, ...updates } : c,
-        ),
-      );
-      showSuccess('Channel panel updated');
+      
+      // If channel was changed, refetch all configs (IDs have changed in DB)
+      // Otherwise just update in place
+      if (hasChannelChange) {
+        const res = await ticketsApi.getChannelConfigs();
+        setChannelConfigs(res.channels);
+        showSuccess('Channel moved and panel updated');
+      } else {
+        setChannelConfigs((prev) =>
+          prev.map((c) =>
+            c.channel_id === channelId ? { ...c, ...updates } : c,
+          ),
+        );
+        showSuccess('Channel panel updated');
+      }
     } catch (err) {
       handleApiError(err, 'Failed to update channel config');
     }
@@ -588,12 +606,17 @@ export default function Tickets({ guildId }: TicketsProps) {
             <div className="space-y-4">
               {channelConfigs.map((config) => {
                 const ch = channels.find((c) => c.id === config.channel_id);
+                // Available channels = unconfigured + other configured channels (for swapping)
+                const availableForThis = channels
+                  .filter((c) => c.id !== config.channel_id && !channelConfigs.some(cfg => cfg.channel_id === c.id))
+                  .map((c) => ({ id: c.id, name: c.name }));
                 return (
                   <ChannelSection
                     key={config.channel_id}
                     config={config}
                     channelName={ch?.name ?? `Unknown (${config.channel_id})`}
                     categories={categoriesByChannel.get(config.channel_id) ?? []}
+                    availableChannels={availableForThis}
                     onUpdateConfig={handleUpdateChannelConfig}
                     onDeleteConfig={handleDeleteChannelConfig}
                     onAddCategory={(chId) => openCreateCategory(chId)}
