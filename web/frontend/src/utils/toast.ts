@@ -54,7 +54,23 @@ export function showLoading(message: string): () => void {
  * Extracts error message from axios error response if available.
  */
 export function handleApiError(error: any, fallbackMessage: string = 'An error occurred') {
-  const message = error?.response?.data?.error?.message || error?.message || fallbackMessage;
+  const detail = error?.response?.data?.detail;
+  const detailError =
+    Array.isArray(detail?.errors) && detail.errors.length > 0
+      ? detail.errors[0]
+      : null;
+  const detailMessage =
+    typeof detail === 'string'
+      ? detail
+      : typeof detail?.message === 'string'
+        ? detail.message
+        : null;
+  const message =
+    detailError ||
+    detailMessage ||
+    error?.response?.data?.error?.message ||
+    error?.message ||
+    fallbackMessage;
   showError(message);
 }
 

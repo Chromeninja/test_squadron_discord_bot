@@ -93,6 +93,10 @@ class InternalAPIServer:
             "/guilds/{guild_id}/verification/resend", self.resend_verification_message
         )
         self.app.router.add_post(
+            "/guilds/{guild_id}/tickets/deploy-panel",
+            self.deploy_ticket_panel,
+        )
+        self.app.router.add_post(
             "/guilds/{guild_id}/bulk-recheck/summary", self.post_bulk_recheck_summary
         )
         self.app.router.add_post("/guilds/{guild_id}/leave", self.leave_guild)
@@ -370,6 +374,124 @@ class InternalAPIServer:
         except Exception as exc:  # pragma: no cover - runtime safeguard
             logger.exception(
                 "Failed to resend verification message for guild %s",
+                guild_id,
+                exc_info=exc,
+            )
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    async def deploy_ticket_panel(self, request: web.Request) -> web.Response:
+        """Deploy (or refresh) ticket panels for a guild.
+
+        Supports deploying to all channels that have categories, or a
+        specific channel via the ``channel_id`` query parameter.
+
+        AI Notes:
+            Panel channels are now derived from ``ticket_categories.channel_id``
+            rather than the legacy ``tickets.channel_id`` guild setting.
+            If ``?channel_id=<id>`` is provided, only that channel is updated.
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info.get("guild_id", "0"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid guild id"}, status=400)
+
+        guild = self.bot.get_guild(guild_id) if self.bot else None
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            cog = self.bot.get_cog("tickets") or self.bot.get_cog("TicketCommands")
+            if not cog or not hasattr(cog, "_send_panel"):
+                return web.json_response(
+                    {"error": "Ticket cog unavailable"}, status=503
+                )
+
+            import discord  # type: ignore[import-not-found]
+
+            # Determine which channels to deploy to
+            specific_channel_id = request.query.get("channel_id")
+            if specific_channel_id:
+                try:
+                    channel_ids = [int(specific_channel_id)]
+                except ValueError:
+                    return web.json_response(
+                        {"error": "Invalid channel_id — must be numeric"},
+                        status=400,
+                    )
+            else:
+                # Deploy to all channels that have categories
+                ticket_svc = self.services.ticket
+                channel_ids = await ticket_svc.get_ticket_channel_ids(guild_id)
+
+                # Fall back to legacy single-channel setting
+                if not channel_ids:
+                    config_svc = self.services.config
+                    legacy_id = await config_svc.get_guild_setting(
+                        guild_id, "tickets.channel_id"
+                    )
+                    if legacy_id:
+                        try:
+                            channel_ids = [int(legacy_id)]
+                        except ValueError:
+                            logger.warning(
+                                "Invalid legacy tickets.channel_id for guild %s: %s",
+                                guild_id,
+                                legacy_id,
+                            )
+                            # Fail gracefully—proceed with no fallback channels
+                            channel_ids = []
+
+            if not channel_ids:
+                return web.json_response(
+                    {"error": "No ticket channels configured"}, status=400
+                )
+
+            results: list[dict[str, str]] = []
+            for chan_id in channel_ids:
+                channel = guild.get_channel(chan_id)
+                if not isinstance(channel, discord.TextChannel):
+                    results.append(
+                        {"channel_id": str(chan_id), "status": "not_found"}
+                    )
+                    continue
+
+                msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
+                if msg:
+                    results.append(
+                        {
+                            "channel_id": str(chan_id),
+                            "status": "deployed",
+                            "message_id": str(msg.id),
+                        }
+                    )
+                else:
+                    results.append(
+                        {"channel_id": str(chan_id), "status": "failed"}
+                    )
+
+            deployed = [r for r in results if r["status"] == "deployed"]
+            if deployed:
+                return web.json_response(
+                    {
+                        "success": True,
+                        "panels": results,
+                        # Backward compat: return first message_id
+                        "message_id": deployed[0].get("message_id"),
+                    }
+                )
+            return web.json_response(
+                {"error": "Failed to send panels — check bot permissions"},
+                status=500,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to deploy ticket panel for guild %s",
                 guild_id,
                 exc_info=exc,
             )
@@ -1406,6 +1528,7 @@ class InternalAPIServer:
 
         try:
             live = metrics.get_live_snapshot(guild_id)
+            messages_today = await metrics.get_messages_today(guild_id)
             user_ids = self._parse_user_ids(request)
             period = await metrics.get_guild_metrics(
                 guild_id, days=days, user_ids=user_ids
@@ -1414,7 +1537,7 @@ class InternalAPIServer:
             return web.json_response(
                 {
                     "live": {
-                        "messages_today": live.messages_today,
+                        "messages_today": messages_today,
                         "active_voice_users": live.active_voice_users,
                         "active_game_sessions": live.active_game_sessions,
                         "top_game": live.top_game,

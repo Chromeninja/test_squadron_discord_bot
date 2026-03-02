@@ -448,6 +448,66 @@ class TestLiveSnapshot:
         assert snap.top_game == "Star Citizen"  # 2 players vs 1
 
 
+class TestMessagesToday:
+    @pytest.mark.asyncio
+    async def test_get_messages_today_includes_persisted_and_buffered(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now = int(time.time())
+        today_start = now - (now % 86400)
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (100, 1, today_start, 180, 4),
+            )
+            await db.commit()
+
+        metrics_service.record_message(guild_id=100, user_id=2)
+        metrics_service.record_message(guild_id=100, user_id=3)
+
+        total = await metrics_service.get_messages_today(guild_id=100)
+
+        assert total == 6
+
+    @pytest.mark.asyncio
+    async def test_get_messages_today_excludes_other_guild_and_old_rows(
+        self, metrics_service: MetricsService
+    ) -> None:
+        now = int(time.time())
+        today_start = now - (now % 86400)
+        yesterday = today_start - 180
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (100, 1, yesterday, 180, 10),
+            )
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (200, 1, today_start, 180, 10),
+            )
+            await db.execute(
+                "INSERT INTO message_counts "
+                "(guild_id, user_id, hour_bucket, bucket_seconds, message_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (100, 2, today_start, 180, 3),
+            )
+            await db.commit()
+
+        metrics_service.record_message(guild_id=200, user_id=9)
+
+        total = await metrics_service.get_messages_today(guild_id=100)
+
+        assert total == 3
+
+
 # ---------------------------------------------------------------------------
 # Query methods
 # ---------------------------------------------------------------------------

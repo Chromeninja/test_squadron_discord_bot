@@ -805,6 +805,47 @@ class MetricsService(BaseService):
             top_game=top_game,
         )
 
+    async def get_messages_today(self, guild_id: int) -> int:
+        """Return today's message total (UTC) from DB plus current in-memory buffer.
+
+        AI Notes:
+            The dashboard "Live" row should represent current day totals, not
+            only unflushed in-memory increments.  We combine persisted rows from
+            ``message_counts`` with the current buffer to avoid dropping to zero
+            between flushes or after process restarts.
+        """
+        self._ensure_initialized()
+
+        now = int(time.time())
+        today_start = now - (now % 86400)  # midnight UTC
+
+        # Capture current in-memory increments for today.
+        async with self._message_buffer_lock:
+            buffered_today = sum(
+                count
+                for (gid, _uid, bucket), count in self._message_buffer.items()
+                if gid == guild_id and bucket >= today_start
+            )
+
+        persisted_today = 0
+        try:
+            async with MetricsDatabase.get_connection() as db:
+                cursor = await db.execute(
+                    "SELECT COALESCE(SUM(message_count), 0) "
+                    "FROM message_counts "
+                    "WHERE guild_id = ? AND hour_bucket >= ?",
+                    (guild_id, today_start),
+                )
+                row = await cursor.fetchone()
+                persisted_today = int(row[0]) if row and row[0] is not None else 0
+        except Exception:
+            self.logger.exception(
+                "Failed to query persisted messages_today for guild %d",
+                guild_id,
+            )
+
+        return persisted_today + buffered_today
+
     # ------------------------------------------------------------------
     # Query methods (for API endpoints)
     # ------------------------------------------------------------------

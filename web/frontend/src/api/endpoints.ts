@@ -1048,3 +1048,301 @@ export const guildApi = {
     return response.data;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Tickets
+// ---------------------------------------------------------------------------
+
+export interface TicketCategory {
+  id: number;
+  guild_id: string;
+  name: string;
+  description: string;
+  welcome_message: string;
+  role_ids: string[];
+  allowed_statuses: TicketCategoryEligibilityStatus[];
+  emoji: string | null;
+  sort_order: number;
+  created_at: number;
+  channel_id: string;
+}
+
+export type TicketCategoryEligibilityStatus =
+  | 'bot_verified'
+  | 'org_main'
+  | 'org_affiliate';
+
+export interface TicketCategoryCreate {
+  guild_id: string;
+  name: string;
+  description?: string;
+  welcome_message?: string;
+  role_ids?: string[];
+  allowed_statuses?: TicketCategoryEligibilityStatus[];
+  emoji?: string | null;
+  channel_id?: string;
+}
+
+export interface TicketCategoryUpdate {
+  name?: string;
+  description?: string;
+  welcome_message?: string;
+  role_ids?: string[];
+  allowed_statuses?: TicketCategoryEligibilityStatus[];
+  emoji?: string | null;
+  sort_order?: number;
+}
+
+export interface TicketInfo {
+  id: number;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  user_id: string;
+  category_id: number | null;
+  status: string;
+  closed_by: string | null;
+  created_at: number;
+  closed_at: number | null;
+}
+
+export interface TicketSettings {
+  channel_id: string | null;
+  panel_message_id: string | null;
+  log_channel_id: string | null;
+  close_message: string | null;
+  staff_roles: string[];
+  default_welcome_message: string | null;
+}
+
+export interface TicketSettingsUpdate {
+  channel_id?: string | null;
+  log_channel_id?: string | null;
+  close_message?: string | null;
+  staff_roles?: string[];
+  default_welcome_message?: string | null;
+}
+
+export interface TicketChannelConfig {
+  id: number;
+  guild_id: string;
+  channel_id: string;
+  panel_title: string;
+  panel_description: string;
+  panel_color: string;
+  button_text: string;
+  button_emoji: string | null;
+  enable_public_button: boolean;
+  public_button_text: string;
+  public_button_emoji: string | null;
+  private_button_color: string | null;
+  public_button_color: string | null;
+  button_order: string;
+  sort_order: number;
+  created_at: number;
+}
+
+export interface TicketChannelConfigCreate {
+  guild_id: string;
+  channel_id: string;
+  panel_title?: string | null;
+  panel_description?: string | null;
+  panel_color?: string | null;
+  button_text?: string | null;
+  button_emoji?: string | null;
+  enable_public_button?: boolean | null;
+  public_button_text?: string | null;
+  public_button_emoji?: string | null;
+  private_button_color?: string | null;
+  public_button_color?: string | null;
+  button_order?: string | null;
+}
+
+export interface TicketChannelConfigUpdate {
+  panel_title?: string | null;
+  panel_description?: string | null;
+  panel_color?: string | null;
+  button_text?: string | null;
+  button_emoji?: string | null;
+  enable_public_button?: boolean | null;
+  public_button_text?: string | null;
+  public_button_emoji?: string | null;
+  private_button_color?: string | null;
+  public_button_color?: string | null;
+  button_order?: string | null;
+}
+
+export interface TicketFormQuestion {
+  id?: number;
+  question_id: string;
+  label: string;
+  input_type?: 'text';
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  style?: 'short' | 'paragraph';
+  required?: boolean;
+  min_length?: number | null;
+  max_length?: number | null;
+  sort_order?: number;
+}
+
+export interface TicketFormStep {
+  id?: number;
+  step_number: number;
+  title: string;
+  questions: TicketFormQuestion[];
+}
+
+export interface TicketFormConfig {
+  category_id: number;
+  steps: TicketFormStep[];
+}
+
+export interface TicketFormConfigUpdate {
+  steps: TicketFormStep[];
+}
+
+export interface TicketFormValidation {
+  success: boolean;
+  valid: boolean;
+  errors: string[];
+}
+
+export const ticketsApi = {
+  getSettings: async () => {
+    const response = await apiClient.get<{ success: boolean; settings: TicketSettings }>(
+      '/api/tickets/settings'
+    );
+    return response.data;
+  },
+
+  updateSettings: async (payload: TicketSettingsUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      '/api/tickets/settings',
+      payload
+    );
+    return response.data;
+  },
+
+  deployPanel: async () => {
+    const response = await apiClient.post<{ success: boolean; message_id: string }>(
+      '/api/tickets/deploy-panel'
+    );
+    return response.data;
+  },
+
+  getChannelConfigs: async () => {
+    const response = await apiClient.get<{ success: boolean; channels: TicketChannelConfig[] }>(
+      '/api/tickets/channels'
+    );
+    return response.data;
+  },
+
+  createChannelConfig: async (payload: TicketChannelConfigCreate) => {
+    const response = await apiClient.post<{ success: boolean; channels: TicketChannelConfig[] }>(
+      '/api/tickets/channels',
+      payload
+    );
+    return response.data;
+  },
+
+  updateChannelConfig: async (channelId: string, payload: TicketChannelConfigUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      `/api/tickets/channels/${channelId}`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteChannelConfig: async (channelId: string) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/tickets/channels/${channelId}`
+    );
+    return response.data;
+  },
+
+  getCategories: async () => {
+    const response = await apiClient.get<{ success: boolean; categories: TicketCategory[] }>(
+      '/api/tickets/categories'
+    );
+    return response.data;
+  },
+
+  createCategory: async (payload: TicketCategoryCreate) => {
+    const response = await apiClient.post<{ success: boolean; categories: TicketCategory[] }>(
+      '/api/tickets/categories',
+      payload
+    );
+    return response.data;
+  },
+
+  updateCategory: async (categoryId: number, payload: TicketCategoryUpdate) => {
+    const response = await apiClient.put<{ success: boolean }>(
+      `/api/tickets/categories/${categoryId}`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteCategory: async (categoryId: number) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/tickets/categories/${categoryId}`
+    );
+    return response.data;
+  },
+
+  getCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.get<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`
+    );
+    return response.data;
+  },
+
+  updateCategoryForm: async (
+    categoryId: number,
+    payload: TicketFormConfigUpdate
+  ) => {
+    const response = await apiClient.put<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`,
+      payload
+    );
+    return response.data;
+  },
+
+  deleteCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.delete<{ success: boolean; config: TicketFormConfig }>(
+      `/api/tickets/categories/${categoryId}/form`
+    );
+    return response.data;
+  },
+
+  validateCategoryForm: async (categoryId: number) => {
+    const response = await apiClient.get<TicketFormValidation>(
+      `/api/tickets/categories/${categoryId}/form/validate`
+    );
+    return response.data;
+  },
+
+  listTickets: async (status?: string, page: number = 1, pageSize: number = 20) => {
+    const params: Record<string, string | number> = { page, page_size: pageSize };
+    if (status) params.status = status;
+    const response = await apiClient.get<{
+      success: boolean;
+      items: TicketInfo[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/api/tickets/list', { params });
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await apiClient.get<{
+      success: boolean;
+      open: number;
+      closed: number;
+      total: number;
+    }>('/api/tickets/stats');
+    return response.data;
+  },
+};

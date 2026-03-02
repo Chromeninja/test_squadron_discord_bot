@@ -422,6 +422,184 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_new_member_roles_guild ON new_member_roles(guild_id)"
     )
 
+    # -------------------------------------------------------------------------
+    # Ticketing System
+    # -------------------------------------------------------------------------
+
+    # Ticket categories (per-guild, selectable by users when creating a ticket)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_categories (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id    INTEGER NOT NULL,
+            channel_id  INTEGER NOT NULL DEFAULT 0,
+            name        TEXT    NOT NULL,
+            description TEXT    DEFAULT '',
+            welcome_message TEXT DEFAULT '',
+            role_ids    TEXT    DEFAULT '[]',
+            allowed_statuses TEXT DEFAULT '[]',
+            emoji       TEXT    DEFAULT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild_channel ON ticket_categories(guild_id, channel_id)"
+    )
+
+    # Ticket channel configs (per-channel panel customization)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_channel_configs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            channel_id          INTEGER NOT NULL,
+            panel_title         TEXT    NOT NULL DEFAULT '🎫 Support Tickets',
+            panel_description   TEXT    NOT NULL DEFAULT 'Need help? Click the button below to open a support ticket.\n\nA private thread will be created for you and a staff member will assist you as soon as possible.',
+            panel_color         TEXT    NOT NULL DEFAULT '0099FF',
+            button_text         TEXT    NOT NULL DEFAULT 'Create Ticket',
+            button_emoji        TEXT    DEFAULT '🎫',
+            enable_public_button INTEGER NOT NULL DEFAULT 0,
+            public_button_text  TEXT    NOT NULL DEFAULT 'Create Public Ticket',
+            public_button_emoji TEXT    DEFAULT '🌐',
+            private_button_color TEXT   DEFAULT NULL,
+            public_button_color TEXT    DEFAULT NULL,
+            button_order        TEXT    NOT NULL DEFAULT 'private_first',
+            sort_order          INTEGER NOT NULL DEFAULT 0,
+            created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            UNIQUE(guild_id, channel_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_channel_configs_guild ON ticket_channel_configs(guild_id)"
+    )
+
+    # Tickets (one row per opened ticket thread)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickets (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            channel_id          INTEGER NOT NULL,
+            thread_id           INTEGER NOT NULL UNIQUE,
+            user_id             INTEGER NOT NULL,
+            category_id         INTEGER DEFAULT NULL REFERENCES ticket_categories(id) ON DELETE SET NULL,
+            status              TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+            closed_by           INTEGER DEFAULT NULL,
+            created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            closed_at           INTEGER DEFAULT NULL,
+            claimed_by          INTEGER DEFAULT NULL,
+            claimed_at          INTEGER DEFAULT NULL,
+            close_reason        TEXT    DEFAULT NULL,
+            initial_description TEXT    DEFAULT NULL,
+            reopened_at         INTEGER DEFAULT NULL,
+            reopened_by         INTEGER DEFAULT NULL,
+            deleted_at          INTEGER DEFAULT NULL
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_guild_status ON tickets(guild_id, status)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_guild_user_status ON tickets(guild_id, user_id, status)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_thread ON tickets(thread_id)"
+    )
+
+    # -------------------------------------------------------------------------
+    # Ticket Form System (dynamic modal routing)
+    # -------------------------------------------------------------------------
+
+    # Form steps: modal groupings per category, forming decision tree nodes
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_steps (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id       INTEGER NOT NULL REFERENCES ticket_categories(id) ON DELETE CASCADE,
+            step_number       INTEGER NOT NULL,
+            title             TEXT    DEFAULT '',
+            branch_rules      TEXT    DEFAULT '[]',
+            default_next_step INTEGER DEFAULT NULL,
+            created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            UNIQUE(category_id, step_number)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_steps_category ON ticket_form_steps(category_id)"
+    )
+
+    # Form questions: individual inputs within a step (max 5 per step)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_questions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            step_id       INTEGER NOT NULL REFERENCES ticket_form_steps(id) ON DELETE CASCADE,
+            question_id   TEXT    NOT NULL,
+            label         TEXT    NOT NULL,
+            input_type    TEXT    NOT NULL DEFAULT 'text' CHECK (input_type IN ('text')),
+            options_json  TEXT    NOT NULL DEFAULT '[]',
+            placeholder   TEXT    DEFAULT '',
+            style         TEXT    NOT NULL DEFAULT 'short' CHECK (style IN ('short', 'paragraph')),
+            required      INTEGER NOT NULL DEFAULT 1,
+            min_length    INTEGER DEFAULT NULL,
+            max_length    INTEGER DEFAULT NULL,
+            sort_order    INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_questions_step ON ticket_form_questions(step_id, sort_order)"
+    )
+
+    # Form responses: collected answers per ticket
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_form_responses (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id       INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+            question_id     TEXT    NOT NULL,
+            question_label  TEXT    NOT NULL,
+            answer          TEXT    NOT NULL DEFAULT '',
+            step_number     INTEGER NOT NULL DEFAULT 1,
+            sort_order      INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(ticket_id, question_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_form_responses_ticket ON ticket_form_responses(ticket_id)"
+    )
+
+    # Route sessions: in-progress multi-step state (persists across restarts)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_route_sessions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id          INTEGER NOT NULL,
+            user_id           INTEGER NOT NULL,
+            category_id       INTEGER NOT NULL REFERENCES ticket_categories(id) ON DELETE CASCADE,
+            current_step      INTEGER NOT NULL DEFAULT 1,
+            collected_data    TEXT    NOT NULL DEFAULT '{}',
+            interaction_token TEXT    DEFAULT NULL,
+            is_public         INTEGER NOT NULL DEFAULT 0,
+            created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            expires_at        INTEGER NOT NULL,
+            UNIQUE(guild_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_route_sessions_expiry ON ticket_route_sessions(expires_at)"
+    )
+
     # Record that the canonical schema has been applied
     await db.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"

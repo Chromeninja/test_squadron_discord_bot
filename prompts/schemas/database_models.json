@@ -3,7 +3,7 @@
   "$id": "database_models.json",
   "title": "Database Models Schema",
   "description": "Schema definitions for database models and operations",
-  
+
   "definitions": {
     "verification_record": {
       "type": "object",
@@ -38,7 +38,7 @@
       },
       "required": ["user_id", "rsi_handle", "membership_status", "last_updated"]
     },
-    
+
     "voice_channel_record": {
       "type": "object",
       "description": "Voice channel database record",
@@ -66,7 +66,7 @@
       },
       "required": ["voice_channel_id", "owner_id", "guild_id", "jtc_channel_id", "created_at"]
     },
-    
+
     "changeset": {
       "type": "object",
       "description": "Leadership log changeset for tracking member changes",
@@ -99,12 +99,53 @@
           "description": "Roles that were added"
         },
         "roles_removed": {
-          "type": "array", 
+          "type": "array",
           "items": {"type": "string"},
           "description": "Roles that were removed"
         }
       },
       "required": ["user_id", "event", "initiator_kind"]
+    },
+
+    "ticket_category_record": {
+      "type": "object",
+      "description": "Ticket category record in database",
+      "properties": {
+        "id": { "type": "integer", "description": "Auto-increment primary key" },
+        "guild_id": { "type": "integer", "description": "Discord guild ID" },
+        "name": { "type": "string", "description": "Display name" },
+        "description": { "type": "string", "description": "Short description shown in dropdown" },
+        "welcome_message": { "type": "string", "description": "Message sent at ticket thread start" },
+        "role_ids": { "type": "string", "description": "JSON array of Discord role IDs" },
+        "emoji": { "type": ["string", "null"], "description": "Emoji for dropdown" },
+        "sort_order": { "type": "integer", "description": "Display ordering" },
+        "created_at": { "type": "integer", "description": "Unix timestamp" }
+      },
+      "required": ["id", "guild_id", "name"]
+    },
+
+    "ticket_record": {
+      "type": "object",
+      "description": "Ticket record in database (one per thread)",
+      "properties": {
+        "id": { "type": "integer", "description": "Auto-increment primary key" },
+        "guild_id": { "type": "integer", "description": "Discord guild ID" },
+        "channel_id": { "type": "integer", "description": "Parent text channel ID" },
+        "thread_id": { "type": "integer", "description": "Discord thread ID (unique)" },
+        "user_id": { "type": "integer", "description": "Creator's Discord user ID" },
+        "category_id": { "type": ["integer", "null"], "description": "FK to ticket_categories" },
+        "status": { "type": "string", "enum": ["open", "closed"], "description": "Ticket status" },
+        "closed_by": { "type": ["integer", "null"], "description": "User ID who closed" },
+        "created_at": { "type": "integer", "description": "Unix timestamp of creation" },
+        "closed_at": { "type": ["integer", "null"], "description": "Unix timestamp of closure" },
+        "claimed_by": { "type": ["integer", "null"], "description": "Staff user ID who claimed" },
+        "claimed_at": { "type": ["integer", "null"], "description": "Unix timestamp of claim" },
+        "close_reason": { "type": ["string", "null"], "description": "Reason for closing" },
+        "initial_description": { "type": ["string", "null"], "description": "User's initial description" },
+        "reopened_at": { "type": ["integer", "null"], "description": "Unix timestamp of reopen" },
+        "reopened_by": { "type": ["integer", "null"], "description": "User ID who reopened" }
+      },
+      "required": ["id", "guild_id", "channel_id", "thread_id", "user_id", "status"]
     }
   }
 }

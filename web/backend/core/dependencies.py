@@ -69,6 +69,8 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
+from services.ticket_form_service import TicketFormService
+from services.ticket_service import TicketService
 from services.voice_service import VoiceService
 
 from .request_id import get_request_id
@@ -89,6 +91,8 @@ _config_loader: ConfigLoader | None = None
 # Internal API client singleton
 _internal_api_client: InternalAPIClient | None = None
 _voice_service: VoiceService | None = None
+_ticket_service: TicketService | None = None
+_ticket_form_service: TicketFormService | None = None
 
 
 def get_internal_api_client() -> InternalAPIClient:
@@ -119,7 +123,29 @@ async def get_voice_service() -> VoiceService:
     return _voice_service
 
 
-async def initialize_services():
+async def get_ticket_service() -> TicketService:
+    """Lazily initialize and return a TicketService for backend use.
+
+    The backend does not run the bot; schema is already applied by the bot
+    process, so we skip schema migration and mark the service as initialized.
+    """
+    global _ticket_service
+    if _ticket_service is None:
+        _ticket_service = TicketService()
+        _ticket_service._initialized = True  # noqa: SLF001 — schema already applied
+    return _ticket_service
+
+
+async def get_ticket_form_service() -> TicketFormService:
+    """Lazily initialize and return a TicketFormService for backend use."""
+    global _ticket_form_service
+    if _ticket_form_service is None:
+        _ticket_form_service = TicketFormService()
+        _ticket_form_service._initialized = True  # noqa: SLF001 — schema already applied
+    return _ticket_form_service
+
+
+async def initialize_services() -> None:
     """Initialize services on application startup.
 
     Observability:
@@ -161,7 +187,7 @@ async def initialize_services():
     )
 
 
-async def shutdown_services():
+async def shutdown_services() -> None:
     """Cleanup services on application shutdown."""
     if _config_service:
         await _config_service.shutdown()
@@ -993,6 +1019,25 @@ class InternalAPIClient:
         """Trigger the bot to resend the verification message for a guild."""
         client = await self._get_client()
         response = await client.post(f"/guilds/{guild_id}/verification/resend")
+        response.raise_for_status()
+        return response.json()
+
+    async def deploy_ticket_panel(
+        self, guild_id: int, *, channel_id: str | None = None
+    ) -> dict:
+        """Ask the bot to deploy (or refresh) ticket panels.
+
+        Args:
+            guild_id: Discord guild ID.
+            channel_id: If provided, deploy to this specific channel only.
+        """
+        client = await self._get_client()
+        params: dict[str, str] = {}
+        if channel_id:
+            params["channel_id"] = channel_id
+        response = await client.post(
+            f"/guilds/{guild_id}/tickets/deploy-panel", params=params
+        )
         response.raise_for_status()
         return response.json()
 
