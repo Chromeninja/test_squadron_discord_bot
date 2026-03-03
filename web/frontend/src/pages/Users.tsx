@@ -3,13 +3,11 @@ import {
   usersApi,
   authApi,
   adminApi,
-  metricsApi,
   EnrichedUser,
   ExportUsersRequest,
   BulkRecheckResponse,
   BulkRecheckProgress,
   UserProfile,
-  UserMetrics,
   ALL_GUILDS_SENTINEL,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
@@ -69,10 +67,7 @@ function Users() {
   const [selectedUser, setSelectedUser] = useState<EnrichedUser | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
 
-  // Per-user metrics in modal
-  const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
-  const [userMetricsLoading, setUserMetricsLoading] = useState(false);
-  const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
+
 
   const resetSelection = () => {
     setSelectAllFiltered(false);
@@ -469,31 +464,7 @@ function Users() {
     };
   }, [showUserModal, selectedUser?.discord_id]);
 
-  // Fetch per-user metrics when the modal opens (only for guild-scoped mode)
-  useEffect(() => {
-    if (!showUserModal || !selectedUser || isCrossGuild) {
-      return;
-    }
-    let cancelled = false;
-    setUserMetrics(null);
-    setUserMetricsError(null);
-    setUserMetricsLoading(true);
-    metricsApi
-      .getUserMetrics(selectedUser.discord_id, 30)
-      .then((resp) => {
-        if (!cancelled) setUserMetrics(resp.data);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUserMetrics(null);
-          setUserMetricsError('Metrics are currently unavailable for this member.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setUserMetricsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [showUserModal, selectedUser?.discord_id, isCrossGuild]);
+
 
   // Filter handlers
   const toggleStatus = (status: string) => {
@@ -1159,15 +1130,11 @@ function Users() {
         onClose={() => {
           setShowUserModal(false);
           setSelectedUser(null);
-          setUserMetrics(null);
-          setUserMetricsError(null);
         }}
-        userMetrics={userMetrics}
-        userMetricsLoading={userMetricsLoading}
-        userMetricsError={userMetricsError}
         canRecheck={canRecheck}
         recheckingUserId={recheckingUserId}
         onRecheck={handleRecheckUser}
+        canViewMetrics={canRecheck}
       />
 
       {/* Recheck Results Modal */}

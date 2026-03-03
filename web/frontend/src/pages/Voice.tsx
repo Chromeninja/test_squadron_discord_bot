@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { voiceApi, authApi, usersApi, metricsApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, UserMetrics, ALL_GUILDS_SENTINEL } from '../api/endpoints';
+import { voiceApi, authApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { hasPermission } from '../utils/permissions';
 import { handleApiError } from '../utils/toast';
 import { UserDetailsModal } from '../components/users/UserDetailsModal';
@@ -64,9 +64,6 @@ function Voice() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
   const [userDetailError, setUserDetailError] = useState<string | null>(null);
-  const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
-  const [userMetricsLoading, setUserMetricsLoading] = useState(false);
-  const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
 
   // Check if in cross-guild (All Guilds) mode
   const isCrossGuildMode = userProfile?.active_guild_id === ALL_GUILDS_SENTINEL;
@@ -203,8 +200,6 @@ function Voice() {
     setSelectedUser(null);
     setUserDetailLoading(false);
     setUserDetailError(null);
-    setUserMetrics(null);
-    setUserMetricsError(null);
   };
 
   const buildFallbackUserFromVoiceMember = (
@@ -232,8 +227,6 @@ function Voice() {
     setShowUserModal(true);
     setSelectedUser(null);
     setUserDetailError(null);
-    setUserMetrics(null);
-    setUserMetricsError(null);
     setUserDetailLoading(true);
 
     try {
@@ -245,40 +238,6 @@ function Voice() {
       setUserDetailLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (!showUserModal || !selectedUser || isCrossGuildMode) {
-      return;
-    }
-
-    let cancelled = false;
-    setUserMetrics(null);
-    setUserMetricsError(null);
-    setUserMetricsLoading(true);
-
-    metricsApi
-      .getUserMetrics(selectedUser.discord_id, 30)
-      .then((resp) => {
-        if (!cancelled) {
-          setUserMetrics(resp.data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUserMetrics(null);
-          setUserMetricsError('Metrics are currently unavailable for this member.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setUserMetricsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [showUserModal, selectedUser?.discord_id, isCrossGuildMode]);
 
   const handleResetVoiceSettings = async () => {
     if (!resetTargetUser) return;
@@ -1019,9 +978,7 @@ function Voice() {
         onClose={closeUserModal}
         userLoading={userDetailLoading}
         userLoadError={userDetailError}
-        userMetrics={userMetrics}
-        userMetricsLoading={userMetricsLoading}
-        userMetricsError={userMetricsError}
+        canViewMetrics={canReset}
       />
     </div>
   );

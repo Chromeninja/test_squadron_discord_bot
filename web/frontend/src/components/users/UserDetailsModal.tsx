@@ -1,9 +1,10 @@
 import { Badge, Button, Modal, Spinner } from '../ui';
-import { EnrichedUser, UserMetrics } from '../../api/endpoints';
+import { EnrichedUser } from '../../api/endpoints';
 import { OrgBadgeList } from './OrgBadgeList';
+import { UserMetricsPanel } from '../metrics/UserMetricsPanel';
+import { useUserMetrics } from '../../hooks/useUserMetrics';
 import { getStatusVariant } from '../../utils/statusHelpers';
-import { formatDateValue, formatDuration } from '../../utils/format';
-import { TIER_BADGE_COLORS, TIER_TEXT_COLORS } from '../../utils/tierColors';
+import { formatDateValue } from '../../utils/format';
 
 function RoleBadgeList({ roles }: { roles: Array<{ id: number; name: string }> }) {
   if (roles.length === 0) {
@@ -34,12 +35,11 @@ interface UserDetailsModalProps {
   onClose: () => void;
   userLoading?: boolean;
   userLoadError?: string | null;
-  userMetrics: UserMetrics | null;
-  userMetricsLoading: boolean;
-  userMetricsError: string | null;
   canRecheck?: boolean;
   recheckingUserId?: string | null;
   onRecheck?: (userId: string) => void;
+  /** Gate metrics display to Moderator+ roles. Defaults to false (metrics hidden). */
+  canViewMetrics?: boolean;
 }
 
 export function UserDetailsModal({
@@ -49,13 +49,21 @@ export function UserDetailsModal({
   onClose,
   userLoading = false,
   userLoadError = null,
-  userMetrics,
-  userMetricsLoading,
-  userMetricsError,
   canRecheck = false,
   recheckingUserId = null,
   onRecheck,
+  canViewMetrics = false,
 }: UserDetailsModalProps) {
+  // Fetch metrics internally — only if user has permission to view
+  const {
+    userMetrics,
+    userMetricsLoading,
+    userMetricsError,
+  } = useUserMetrics({
+    userId: open && user ? user.discord_id : null,
+    days: 30,
+    enabled: open && !!user && !isCrossGuild && canViewMetrics,
+  });
   return (
     <Modal
       open={open}
@@ -206,108 +214,21 @@ export function UserDetailsModal({
             </div>
           </div>
 
-          {userMetricsLoading && (
-            <div className="mt-6 flex items-center justify-center py-6 text-gray-500 text-sm">
-              <Spinner className="mr-2 text-gray-400" label="Loading metrics…" />
+          {!isCrossGuild && canViewMetrics && (
+            <div className="mt-6">
+              <UserMetricsPanel
+                metrics={userMetrics}
+                loading={userMetricsLoading}
+                error={userMetricsError}
+                days={30}
+                showChart={true}
+              />
             </div>
           )}
 
-          {!userMetricsLoading && userMetricsError && (
-            <div className="mt-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3 text-sm text-amber-300">
-              {userMetricsError}
-            </div>
-          )}
-
-          {!userMetricsLoading && userMetrics && (
-            <div className="mt-6 space-y-4">
-              <div className="bg-slate-900/50 rounded-lg p-4">
-                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">
-                  Activity Levels{' '}
-                  <span className="normal-case text-gray-600">(last 30 days)</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { key: 'combined', label: 'Combined', icon: '⚡', tier: userMetrics.combined_tier },
-                    { key: 'voice', label: 'Voice', icon: '🎤', tier: userMetrics.voice_tier },
-                    { key: 'chat', label: 'Text', icon: '💬', tier: userMetrics.chat_tier },
-                    { key: 'game', label: 'Gaming', icon: '🎮', tier: userMetrics.game_tier },
-                  ].map(({ key, label, icon, tier }) => {
-                    const t = tier ?? 'inactive';
-                    // Split TIER_BADGE_COLORS to get border+bg portion only
-                    const badgeColor = TIER_BADGE_COLORS[t] || TIER_BADGE_COLORS.inactive;
-                    const textColor = TIER_TEXT_COLORS[t] || TIER_TEXT_COLORS.inactive;
-                    return (
-                      <div
-                        key={key}
-                        className={`rounded-lg border p-2.5 text-center ${badgeColor}`}
-                      >
-                        <div className="text-base mb-0.5">{icon}</div>
-                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">
-                          {label}
-                        </div>
-                        <div className={`text-sm font-semibold capitalize ${textColor}`}>
-                          {t}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-slate-900/50 rounded-lg p-4">
-                <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">
-                  Metrics Summary
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div>
-                    <div className="text-[10px] text-gray-500 uppercase">Messages</div>
-                    <div className="text-lg font-bold text-white">
-                      {userMetrics.total_messages.toLocaleString()}
-                    </div>
-                    <div className="text-[10px] text-gray-500">
-                      {userMetrics.avg_messages_per_day.toFixed(1)}/day
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-gray-500 uppercase">Voice Time</div>
-                    <div className="text-lg font-bold text-white">
-                      {formatDuration(userMetrics.total_voice_seconds)}
-                    </div>
-                    <div className="text-[10px] text-gray-500">
-                      {formatDuration(userMetrics.avg_voice_per_day)}
-                      /day
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <div className="text-[10px] text-gray-500 uppercase">Top Games</div>
-                    {userMetrics.top_games.length > 0 ? (
-                      <div className="mt-1 space-y-1">
-                        {userMetrics.top_games.slice(0, 3).map((game, i) => (
-                          <div
-                            key={game.game_name}
-                            className="flex items-center justify-between"
-                          >
-                            <span className="text-gray-300 truncate mr-2">
-                              <span className="text-gray-500 text-[10px] mr-1">#{i + 1}</span>
-                              {game.game_name}
-                            </span>
-                            <span className="text-indigo-400 text-xs font-medium whitespace-nowrap">
-                              {formatDuration(game.total_seconds)}
-                            </span>
-                          </div>
-                        ))}
-                        {userMetrics.top_games.length > 3 && (
-                          <div className="text-[10px] text-gray-600">
-                            +{userMetrics.top_games.length - 3} more
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-gray-600 mt-1">No game activity</div>
-                    )}
-                  </div>
-                </div>
-              </div>
+          {!isCrossGuild && !canViewMetrics && (
+            <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/30 p-4 text-center text-sm text-gray-400">
+              Metrics require Moderator or higher permissions.
             </div>
           )}
         </>
