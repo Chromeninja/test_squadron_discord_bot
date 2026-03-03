@@ -27,12 +27,11 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
-from helpers.embeds import EmbedColors, create_embed
-from services.ticket_form_service import RouteExecutionContext
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from bot import MyBot
+    from services.ticket_form_service import RouteExecutionContext
 
 logger = get_logger(__name__)
 

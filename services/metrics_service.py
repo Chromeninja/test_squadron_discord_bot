@@ -1336,13 +1336,19 @@ class MetricsService(BaseService):
         Called on bot startup / on_ready to recover state.  Only members who
         are **not** self-muted and **not** self-deafened are considered eligible
         for an active voice session.
+
+        Excluded channels are honoured identically to the live event handler
+        so that backfill never collects data the operator has opted out of.
         """
         if not self._enabled:
             return
 
         count = 0
         for guild in bot.guilds:
+            excluded_ids = await self.get_excluded_channel_ids(guild.id)
             for vc in guild.voice_channels:
+                if vc.id in excluded_ids:
+                    continue
                 for member in vc.members:
                     if member.bot:
                         continue
@@ -1370,6 +1376,9 @@ class MetricsService(BaseService):
         Scan all guilds for members currently playing games and open sessions.
 
         Requires the presences intent.
+
+        Members sitting in an excluded voice channel are skipped, matching
+        the live ``on_presence_update`` handler's minimization behaviour.
         """
         if not self._enabled:
             return
@@ -1378,8 +1387,18 @@ class MetricsService(BaseService):
 
         count = 0
         for guild in bot.guilds:
+            excluded_ids = await self.get_excluded_channel_ids(guild.id)
             for member in guild.members:
                 if member.bot:
+                    continue
+                # Skip members in excluded voice channels (mirrors live handler)
+                voice_state = getattr(member, "voice", None)
+                current_vc_id = (
+                    voice_state.channel.id
+                    if voice_state is not None and voice_state.channel is not None
+                    else None
+                )
+                if current_vc_id in excluded_ids:
                     continue
                 for activity in member.activities:
                     if (

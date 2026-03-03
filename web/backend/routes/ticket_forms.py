@@ -7,6 +7,8 @@ validation, and retrieval of per-ticket form responses.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from core.dependencies import (
     get_ticket_form_service,
     get_ticket_service,
@@ -27,10 +29,12 @@ from core.schemas import (
 from core.validation import ensure_active_guild
 from fastapi import APIRouter, Depends, HTTPException
 
-from services.ticket_form_service import TicketFormService
-from services.ticket_service import TicketService
 from utils.logging import get_logger
 from web.backend.routes._ticket_helpers import require_guild_category
+
+if TYPE_CHECKING:
+    from services.ticket_form_service import TicketFormService
+    from services.ticket_service import TicketService
 
 logger = get_logger(__name__)
 

@@ -951,6 +951,13 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       {/* Metrics Settings - Top Level Accordion */}
       <AccordionSection title="📊 Metrics Settings" level={1}>
         <div className="space-y-4">
+          <div className="rounded-md bg-blue-900/30 border border-blue-700/40 px-3 py-2 text-xs text-blue-200">
+            <strong>Data handling:</strong> Metrics collect aggregate counts and session
+            timing only — message content is never read or stored. Data is automatically
+            purged after the configured retention period (default 90 days). Per-user
+            deletion is available via the admin API. See{" "}
+            <code className="text-blue-300">PRIVACY.md</code> for full policy.
+          </div>
           <div>
             <h5 className="text-sm font-semibold text-white mb-1">Metrics Excluded Channels</h5>
             <p className="text-xs text-gray-400 mb-2">

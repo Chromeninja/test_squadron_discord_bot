@@ -21,6 +21,8 @@ In Discord Developer Portal → **Bot**, enable these intents before starting se
 
 Without the presence intent, metrics pages will load but game/activity data will remain empty.
 
+> **Privacy/minimization note:** The PRESENCE INTENT is a privileged intent and is currently enabled globally for the bot process. If metrics collection is disabled in `config/config.yaml` (`metrics.enabled: false`), presence events are still received but are not processed or stored. A future improvement could conditionally request this intent based on the metrics enabled flag. The MESSAGE CONTENT privileged intent is **not** requested — only message counts are tracked.
+
 ## 1. System Prep (root or sudo)
 
 ```bash

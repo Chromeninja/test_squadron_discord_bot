@@ -8,7 +8,7 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 - **Role Assignment:** Automatically assigns roles based on verification status.
 - **Cooldown System:** Limits verification attempts to prevent spam and abuse.
 - **Voice Channel Management:** Users can create and customize their voice channels via bot commands (the bot retains channel management permissions; users manage through the bot).
-- **Activity Metrics Dashboard:** Tracks server-wide and per-user voice time (all voice channels), message counts, and game activity with leaderboard/time-series views.
+- **Activity Metrics Dashboard:** Tracks server-wide and per-user voice time (all voice channels), message counts, and game activity with leaderboard/time-series views. Dashboard access requires Discord Manager or higher. No message content is ever read or stored. See `PRIVACY.md` for data handling details.
 - **Persistent Settings:** User channel settings are stored in a database for a consistent experience.
 - **Interactive Modals and Views:** Provides an interactive user experience with Discord's UI components.
 - **Persistent Verification Message:** The bot keeps a single verification message in the verification channel — it stores the message ID in `verification_message_id.json` and will reuse that message instead of creating duplicates. It does not currently delete old messages on startup.
@@ -86,12 +86,15 @@ Metrics collection depends on privileged intents. In Discord Developer Portal �
 
 Voice time metrics are tracked from voice state events across **all voice channels**, not just channels created by the bot.
 
+> **Privacy Note:** Metrics data is retained for a configurable period (default 90 days, set `metrics.retention_days` in `config/config.yaml`). Per-user deletion is available via the admin dashboard API. Excluded channels configured in guild settings are honoured during both live collection and startup backfill. See `PRIVACY.md` for full data handling policy.
+
 #### Role Configuration:
 Configure role access levels in the **Web Dashboard → Guild Settings → Roles**. Role lists are stored in the database (per guild) and kept in sync with Discord role IDs.
 
 **Web Dashboard Access:**
 - **Bot Admin & Moderator**: Full access (user recheck, reset voice, manage settings)
-- **Staff & Higher**: Read-only access (view dashboards, search users, statistics)
+- **Discord Manager+**: Metrics dashboard access (view activity leaderboards, time-series, per-user detail)
+- **Staff & Higher**: Read-only access (view dashboards, search users, statistics — excludes metrics)
 - All role levels require at least one guild where they have the configured role
 
 ### Admin Commands
@@ -103,6 +106,7 @@ The bot includes several administrative commands for configuration and managemen
 #### About Command
 
 - `/about` (ephemeral): Shows bot purpose, current version, privacy summary, user rights, and support contact. Uses centralized metadata in `utils/about_metadata.py` (update version/contact during releases). Full policy: `PRIVACY.md`.
+- `/privacy` (ephemeral): Shows privacy/legal basis summary, user rights, request steps (access/correction/deletion/objection), retention summary, support contact, and `PRIVACY.md` policy link.
 
 #### Dashboard Command
 
@@ -254,8 +258,9 @@ Both the Discord bot and web dashboard use a **hierarchical role-based permissio
 
 #### Permission Examples:
 - **Bot Admin**: Can recheck users, reset voice settings, manage guild configuration, access logs via Web Admin
+- **Discord Manager**: Metrics dashboard (leaderboards, time-series, per-user detail, per-user deletion)
 - **Moderator**: Can recheck users, manage user-specific settings
-- **Staff**: Can view dashboards, search users, monitor statistics (read-only)
+- **Staff**: Can view dashboards, search users, monitor statistics (read-only; no metrics access)
 - **Regular Users**: Can manage their own voice channels, request verification
 
 #### Permission Checks:
@@ -299,7 +304,8 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
 - **Discord OAuth2 Authentication**: Secure login with your Discord account
 - **Live Role-Based Access Control**: Access enforced based on Discord roles
   - **Bot Admin** & **Moderator**: Full administrative access (user recheck, voice reset, logs export)
-  - **Staff & Higher**: Read-only dashboard access (statistics, user search, voice management)
+  - **Discord Manager+**: Metrics dashboard access (leaderboards, time-series, per-user detail and deletion)
+  - **Staff & Higher**: Read-only dashboard access (statistics, user search, voice management — excludes metrics)
   - **Regular Users**: No dashboard access
 - **Live Role Validation**: Access immediately revoked if Discord roles change (TTL: 30 seconds)
 - **Dashboard Overview**: View verification statistics and active voice channels

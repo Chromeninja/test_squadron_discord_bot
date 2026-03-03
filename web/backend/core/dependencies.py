@@ -132,7 +132,7 @@ async def get_ticket_service() -> TicketService:
     global _ticket_service
     if _ticket_service is None:
         _ticket_service = TicketService()
-        _ticket_service._initialized = True  # noqa: SLF001 — schema already applied
+        _ticket_service._initialized = True
     return _ticket_service
 
 
@@ -141,7 +141,7 @@ async def get_ticket_form_service() -> TicketFormService:
     global _ticket_form_service
     if _ticket_form_service is None:
         _ticket_form_service = TicketFormService()
-        _ticket_form_service._initialized = True  # noqa: SLF001 — schema already applied
+        _ticket_form_service._initialized = True
     return _ticket_form_service
 
 

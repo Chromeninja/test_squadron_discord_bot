@@ -16,7 +16,10 @@ from utils.about_metadata import (
     BOT_NAME,
     BOT_PURPOSE_ITEMS,
     BOT_VERSION,
+    DATA_RETENTION_SUMMARY,
+    LEGAL_BASIS_SUMMARY,
     PRIVACY_POLICY_URL,
+    PRIVACY_REQUEST_STEPS,
     PRIVACY_SUMMARY,
     SUPPORT_EMAIL,
     SUPPORT_TICKET_INFO,
@@ -133,6 +136,63 @@ def build_about_embed() -> discord.Embed:
     embed.add_field(
         name="User Rights",
         value=USER_RIGHTS_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Support & Contact",
+        value=f"{SUPPORT_TICKET_INFO}\nEmail: {SUPPORT_EMAIL}",
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Full Privacy Policy",
+        value=f"Read the full policy: {PRIVACY_POLICY_URL}",
+        inline=False,
+    )
+
+    return embed
+
+
+def build_privacy_embed() -> discord.Embed:
+    """Build the Privacy & Data Rights embed."""
+
+    embed = create_embed(
+        title=f"{BOT_NAME} – Privacy & Data Rights",
+        description=(
+            "Use this guide for data-access and deletion requests. "
+            "For complete details, see the full policy link below."
+        ),
+        color=EmbedColors.PRIMARY,
+    )
+
+    embed.add_field(
+        name="Legal Basis",
+        value=LEGAL_BASIS_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="What We Process",
+        value=PRIVACY_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Your Rights",
+        value=USER_RIGHTS_SUMMARY,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="How To Request",
+        value="\n".join(f"• {step}" for step in PRIVACY_REQUEST_STEPS),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Retention",
+        value=DATA_RETENTION_SUMMARY,
         inline=False,
     )
 
