@@ -760,6 +760,7 @@ class UserTimeSeriesPoint(BaseModel):
     timestamp: int
     messages: int = 0
     voice_seconds: int = 0
+    game_seconds: int = 0
 
 
 class UserMetrics(BaseModel):

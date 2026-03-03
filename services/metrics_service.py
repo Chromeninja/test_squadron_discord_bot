@@ -1271,12 +1271,27 @@ class MetricsService(BaseService):
                 r[0]: r[1] for r in await cursor.fetchall()
             }
 
-            all_hours = sorted(set(msg_by_hour) | set(voice_by_hour))
+            # Game time per hour for this user
+            cursor = await db.execute(
+                "SELECT (ended_at - (ended_at % 3600)) as hour_bucket, SUM(duration_seconds) "
+                "FROM game_sessions "
+                "WHERE guild_id = ? AND user_id = ? AND ended_at IS NOT NULL AND ended_at >= ? "
+                "AND duration_seconds IS NOT NULL "
+                "GROUP BY hour_bucket "
+                "ORDER BY hour_bucket",
+                (guild_id, user_id, cutoff),
+            )
+            game_by_hour: dict[int, int] = {
+                r[0]: r[1] for r in await cursor.fetchall()
+            }
+
+            all_hours = sorted(set(msg_by_hour) | set(voice_by_hour) | set(game_by_hour))
             timeseries = [
                 {
                     "timestamp": hour_bucket,
                     "messages": msg_by_hour.get(hour_bucket, 0),
                     "voice_seconds": voice_by_hour.get(hour_bucket, 0),
+                    "game_seconds": game_by_hour.get(hour_bucket, 0),
                 }
                 for hour_bucket in all_hours
             ]

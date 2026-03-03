@@ -64,6 +64,7 @@ export function UserDetailsModal({
     days: 30,
     enabled: open && !!user && !isCrossGuild && canViewMetrics,
   });
+
   return (
     <Modal
       open={open}

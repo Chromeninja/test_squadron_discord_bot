@@ -80,18 +80,20 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
   // Aggregate hourly timeseries to daily
   const dailyData = (() => {
     if (!data?.timeseries) return [];
-    const map = new Map<string, { day: string; messages: number; voice_hours: number }>();
+    const map = new Map<string, { day: string; messages: number; voice_hours: number; game_hours: number }>();
     for (const pt of data.timeseries) {
       const dayKey = formatTimestamp(pt.timestamp);
       const existing = map.get(dayKey);
       if (existing) {
         existing.messages += pt.messages;
         existing.voice_hours += pt.voice_seconds / 3600;
+        existing.game_hours += (pt.game_seconds || 0) / 3600;
       } else {
         map.set(dayKey, {
           day: dayKey,
           messages: pt.messages,
           voice_hours: pt.voice_seconds / 3600,
+          game_hours: (pt.game_seconds || 0) / 3600,
         });
       }
     }
@@ -202,6 +204,10 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
                           <stop offset="5%" stopColor="#22c55e" stopOpacity={0.15} />
                           <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                         </linearGradient>
+                        <linearGradient id="userGameGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                        </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                       <XAxis
@@ -227,7 +233,7 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
                       <Tooltip
                         contentStyle={CHART_TOOLTIP_STYLE}
                         formatter={((value: number | undefined, name: string | undefined) => {
-                          if (name === 'Voice (hrs)') return [`${(value ?? 0).toFixed(1)}h`, name];
+                          if (name === 'Voice (hrs)' || name === 'Gaming (hrs)') return [`${(value ?? 0).toFixed(1)}h`, name];
                           return [(value ?? 0).toLocaleString(), name ?? ''];
                         }) as any}
                       />
@@ -251,6 +257,15 @@ export default function UserDetailPanel({ userId, username, days, onClose }: Use
                         strokeWidth={2}
                         fill="url(#userVoiceGrad)"
                         name="Voice (hrs)"
+                      />
+                      <Area
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="game_hours"
+                        stroke="#f97316"
+                        strokeWidth={2}
+                        fill="url(#userGameGrad)"
+                        name="Gaming (hrs)"
                       />
                     </AreaChart>
                   </ResponsiveContainer>

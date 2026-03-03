@@ -505,6 +505,7 @@ export interface UserTimeSeriesPoint {
   timestamp: number;
   messages: number;
   voice_seconds: number;
+  game_seconds?: number;
 }
 
 export interface UserMetrics {
