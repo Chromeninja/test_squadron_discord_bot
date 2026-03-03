@@ -12,33 +12,139 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-async def _get_table_columns(
-    db: aiosqlite.Connection, table_name: str
-) -> set[str]:
-    """Return the set of current columns for a SQLite table."""
-    cursor = await db.execute(f"PRAGMA table_info({table_name})")
+async def _ensure_ticket_categories_columns(db: aiosqlite.Connection) -> None:
+    """Ensure ticket category compatibility columns exist."""
+    cursor = await db.execute("PRAGMA table_info(ticket_categories)")
     rows = await cursor.fetchall()
-    return {str(row[1]) for row in rows}
+    existing_columns = {str(row[1]) for row in rows}
+
+    if "channel_id" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_categories "
+            "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "ticket_categories", "column": "channel_id"},
+        )
+
+    if "prerequisite_role_ids_all" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_categories "
+            "ADD COLUMN prerequisite_role_ids_all TEXT NOT NULL DEFAULT '[]'"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_categories",
+                "column": "prerequisite_role_ids_all",
+            },
+        )
+
+    if "prerequisite_role_ids_any" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_categories "
+            "ADD COLUMN prerequisite_role_ids_any TEXT NOT NULL DEFAULT '[]'"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_categories",
+                "column": "prerequisite_role_ids_any",
+            },
+        )
 
 
-async def _add_column_if_missing(
-    db: aiosqlite.Connection,
-    table_name: str,
-    column_name: str,
-    column_definition: str,
-) -> None:
-    """Add a column to an existing table only when it is absent."""
-    existing_columns = await _get_table_columns(db, table_name)
-    if column_name in existing_columns:
-        return
+async def _ensure_ticket_channel_config_columns(db: aiosqlite.Connection) -> None:
+    """Ensure ticket channel config compatibility columns exist."""
+    cursor = await db.execute("PRAGMA table_info(ticket_channel_configs)")
+    rows = await cursor.fetchall()
+    existing_columns = {str(row[1]) for row in rows}
 
-    await db.execute(
-        f"ALTER TABLE {table_name} ADD COLUMN {column_definition}"
-    )
-    logger.info(
-        "Added missing column to table",
-        extra={"table": table_name, "column": column_name},
-    )
+    if "enable_public_button" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "enable_public_button",
+            },
+        )
+
+    if "public_button_text" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN public_button_text TEXT NOT NULL "
+            "DEFAULT 'Create Public Ticket'"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "public_button_text",
+            },
+        )
+
+    if "public_button_emoji" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN public_button_emoji TEXT DEFAULT '🌐'"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "public_button_emoji",
+            },
+        )
+
+    if "private_button_color" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN private_button_color TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "private_button_color",
+            },
+        )
+
+    if "public_button_color" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN public_button_color TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "public_button_color",
+            },
+        )
+
+    if "button_order" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE ticket_channel_configs "
+            "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "ticket_channel_configs",
+                "column": "button_order",
+            },
+        )
+
+
+async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
+    """Ensure ticket schema compatibility columns exist on legacy databases."""
+    await _ensure_ticket_categories_columns(db)
+    await _ensure_ticket_channel_config_columns(db)
 
 
 async def init_schema(db: aiosqlite.Connection) -> None:
@@ -474,24 +580,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-    await _add_column_if_missing(
-        db,
-        "ticket_categories",
-        "channel_id",
-        "channel_id INTEGER NOT NULL DEFAULT 0",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_categories",
-        "prerequisite_role_ids_all",
-        "prerequisite_role_ids_all TEXT NOT NULL DEFAULT '[]'",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_categories",
-        "prerequisite_role_ids_any",
-        "prerequisite_role_ids_any TEXT NOT NULL DEFAULT '[]'",
-    )
+    await _ensure_ticket_categories_columns(db)
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id)"
     )
@@ -523,42 +612,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "enable_public_button",
-        "enable_public_button INTEGER NOT NULL DEFAULT 0",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "public_button_text",
-        "public_button_text TEXT NOT NULL DEFAULT 'Create Public Ticket'",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "public_button_emoji",
-        "public_button_emoji TEXT DEFAULT '🌐'",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "private_button_color",
-        "private_button_color TEXT DEFAULT NULL",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "public_button_color",
-        "public_button_color TEXT DEFAULT NULL",
-    )
-    await _add_column_if_missing(
-        db,
-        "ticket_channel_configs",
-        "button_order",
-        "button_order TEXT NOT NULL DEFAULT 'private_first'",
-    )
+    await _ensure_ticket_channel_config_columns(db)
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_channel_configs_guild ON ticket_channel_configs(guild_id)"
     )

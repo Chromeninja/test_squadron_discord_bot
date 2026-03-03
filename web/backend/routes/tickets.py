@@ -39,6 +39,7 @@ from core.schemas import (
 from core.validation import ensure_active_guild
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from helpers.role_ids import normalize_role_id_list
 from utils.logging import get_logger
 from web.backend.routes._ticket_helpers import require_guild_category
 
@@ -53,22 +54,13 @@ router = APIRouter()
 
 def _parse_role_id_list(field_name: str, raw_role_ids: list[str]) -> list[int]:
     """Parse role ID list from API payload and raise 422 on invalid values."""
-    parsed: list[int] = []
-    for raw_role_id in raw_role_ids:
-        try:
-            role_id = int(raw_role_id)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid role ID in {field_name}",
-            ) from exc
-        if role_id <= 0:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid role ID in {field_name}",
-            )
-        parsed.append(role_id)
-    return parsed
+    try:
+        return normalize_role_id_list(raw_role_ids, strict=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid role ID in {field_name}",
+        ) from exc
 
 
 def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:

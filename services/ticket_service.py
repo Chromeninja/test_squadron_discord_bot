@@ -14,8 +14,11 @@ import sqlite3
 import time
 from typing import Any
 
+from helpers.role_ids import normalize_role_id_list
 from services.base import BaseService
+from services.db.database import Database
 from services.db.repository import BaseRepository
+from services.db.schema import ensure_ticket_schema_compatibility
 
 # Default rate-limit: one ticket per 5 minutes (300 seconds)
 TICKET_RATE_LIMIT_SECONDS = 300
@@ -1314,40 +1317,22 @@ class TicketService(BaseService):
     @staticmethod
     def _normalize_role_id_list(raw: Any) -> list[int]:
         """Normalize a list of role IDs into a unique int list."""
-        if raw is None:
-            return []
-
         if isinstance(raw, str):
             try:
-                parsed = json.loads(raw)
+                parsed: Any = json.loads(raw)
             except json.JSONDecodeError:
                 return []
-        elif isinstance(raw, list):
-            parsed = raw
-        else:
-            return []
+            return normalize_role_id_list(parsed)
 
-        normalized: list[int] = []
-        for item in parsed:
-            try:
-                value = int(item)
-            except (TypeError, ValueError):
-                continue
-            if value <= 0:
-                continue
-            if value in normalized:
-                continue
-            normalized.append(value)
-
-        return normalized
+        return normalize_role_id_list(raw)
 
     async def _ensure_category_schema_compatibility(self) -> None:
         """Ensure ticket category columns exist on older DBs.
 
         AI Notes:
-            Checks for role prerequisite columns and ``channel_id`` that may
-            be missing on older databases. Uses double-checked locking to
-            prevent concurrent ALTER TABLE races.
+            Delegates to ``services.db.schema.ensure_ticket_schema_compatibility``
+            so compatibility ALTER logic has a single source of truth.
+            Uses double-checked locking to prevent concurrent runs.
         """
         if self._category_schema_checked:
             return
@@ -1356,52 +1341,10 @@ class TicketService(BaseService):
             if self._category_schema_checked:
                 return
 
-            rows = await BaseRepository.fetch_all("PRAGMA table_info(ticket_categories)")
-            column_names = {
-                self.extract_column_name(row)
-                for row in rows
-                if self.extract_column_name(row)
-            }
-
-            if "prerequisite_role_ids_all" not in column_names:
+            async with Database.get_connection() as db:
                 try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_categories "
-                        "ADD COLUMN prerequisite_role_ids_all "
-                        "TEXT NOT NULL DEFAULT '[]'"
-                    )
-                    self.logger.info(
-                        "Added missing prerequisite_role_ids_all column to "
-                        "ticket_categories"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
-
-            if "prerequisite_role_ids_any" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_categories "
-                        "ADD COLUMN prerequisite_role_ids_any "
-                        "TEXT NOT NULL DEFAULT '[]'"
-                    )
-                    self.logger.info(
-                        "Added missing prerequisite_role_ids_any column to "
-                        "ticket_categories"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
-
-            if "channel_id" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_categories "
-                        "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
-                    )
-                    self.logger.info(
-                        "Added missing channel_id column to ticket_categories"
-                    )
+                    await ensure_ticket_schema_compatibility(db)
+                    await db.commit()
                 except sqlite3.OperationalError as e:
                     if "duplicate column name" not in str(e).lower():
                         raise
