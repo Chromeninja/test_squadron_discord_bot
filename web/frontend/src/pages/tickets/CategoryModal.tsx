@@ -2,7 +2,6 @@
 
 import type {
   TicketCategory,
-  TicketCategoryEligibilityStatus,
 } from '../../api/endpoints';
 import type { MultiSelectOption } from '../../components/SearchableMultiSelect';
 import SearchableMultiSelect from '../../components/SearchableMultiSelect';
@@ -18,7 +17,8 @@ interface CategoryModalProps {
   catEmoji: string;
   catWelcomeMessage: string;
   catRoleIds: string[];
-  catAllowedStatuses: TicketCategoryEligibilityStatus[];
+  catPrerequisiteRoleIdsAll: string[];
+  catPrerequisiteRoleIdsAny: string[];
   catSaving: boolean;
   roleOptions: MultiSelectOption[];
   onCatNameChange: (v: string) => void;
@@ -26,7 +26,8 @@ interface CategoryModalProps {
   onCatEmojiChange: (v: string) => void;
   onCatWelcomeMessageChange: (v: string) => void;
   onCatRoleIdsChange: (v: string[]) => void;
-  onCatAllowedStatusesChange: (v: TicketCategoryEligibilityStatus[]) => void;
+  onCatPrerequisiteRoleIdsAllChange: (v: string[]) => void;
+  onCatPrerequisiteRoleIdsAnyChange: (v: string[]) => void;
   onSave: () => void;
 }
 
@@ -39,7 +40,8 @@ export default function CategoryModal({
   catEmoji,
   catWelcomeMessage,
   catRoleIds,
-  catAllowedStatuses,
+  catPrerequisiteRoleIdsAll,
+  catPrerequisiteRoleIdsAny,
   catSaving,
   roleOptions,
   onCatNameChange,
@@ -47,17 +49,10 @@ export default function CategoryModal({
   onCatEmojiChange,
   onCatWelcomeMessageChange,
   onCatRoleIdsChange,
-  onCatAllowedStatusesChange,
+  onCatPrerequisiteRoleIdsAllChange,
+  onCatPrerequisiteRoleIdsAnyChange,
   onSave,
 }: CategoryModalProps) {
-  const toggleAllowedStatus = (status: TicketCategoryEligibilityStatus) => {
-    if (catAllowedStatuses.includes(status)) {
-      onCatAllowedStatusesChange(catAllowedStatuses.filter((value) => value !== status));
-      return;
-    }
-    onCatAllowedStatusesChange([...catAllowedStatuses, status]);
-  };
-
   return (
     <Modal
       open={open}
@@ -135,36 +130,34 @@ export default function CategoryModal({
             <div>
               <h5 className="text-sm font-medium text-gray-300 mb-1">Eligibility</h5>
               <p className="text-xs text-gray-500 mb-2">
-                Restrict who can open this category. Leave all unchecked for no restriction.
+                Restrict who can open this category. Leave both empty for no restriction.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm text-gray-200">
-                  <input
-                    type="checkbox"
-                    checked={catAllowedStatuses.includes('bot_verified')}
-                    onChange={() => toggleAllowedStatus('bot_verified')}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+              <div className="space-y-3">
+                <div>
+                  <h6 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                    Must Have ALL
+                  </h6>
+                  <SearchableMultiSelect
+                    options={roleOptions}
+                    selected={catPrerequisiteRoleIdsAll}
+                    onChange={onCatPrerequisiteRoleIdsAllChange}
+                    placeholder="Search required roles…"
+                    componentId="cat-prerequisite-role-ids-all"
                   />
-                  Bot Verified
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-200">
-                  <input
-                    type="checkbox"
-                    checked={catAllowedStatuses.includes('org_main')}
-                    onChange={() => toggleAllowedStatus('org_main')}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+                </div>
+
+                <div>
+                  <h6 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                    Must Have ANY
+                  </h6>
+                  <SearchableMultiSelect
+                    options={roleOptions}
+                    selected={catPrerequisiteRoleIdsAny}
+                    onChange={onCatPrerequisiteRoleIdsAnyChange}
+                    placeholder="Search optional roles…"
+                    componentId="cat-prerequisite-role-ids-any"
                   />
-                  Org Main
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-200">
-                  <input
-                    type="checkbox"
-                    checked={catAllowedStatuses.includes('org_affiliate')}
-                    onChange={() => toggleAllowedStatus('org_affiliate')}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
-                  />
-                  Org Affiliate
-                </label>
+                </div>
               </div>
             </div>
           </div>

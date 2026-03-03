@@ -34,7 +34,6 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.embeds import EmbedColors, create_embed
-from services.db.database import Database, derive_membership_status
 from services.ticket_service import (
     DEFAULT_MAX_OPEN_PER_USER,
     DEFAULT_REOPEN_WINDOW_HOURS,
@@ -136,65 +135,80 @@ async def _log_ticket_event(
         )
 
 
-def _normalize_org_sid(raw_org_sid: Any) -> str:
-    """Normalize configured org SID to an uppercase plain string."""
-    if isinstance(raw_org_sid, str):
-        value = raw_org_sid.strip().strip('"')
-    elif raw_org_sid is None:
-        value = ""
-    else:
-        value = str(raw_org_sid)
-
-    if not value:
-        return "TEST"
-    return value.upper()
-
-
-async def _get_ticket_category_statuses(
-    bot: MyBot,
-    guild_id: int,
-    user_id: int,
-) -> set[str]:
-    """Return the computed ticket-eligibility statuses for a user."""
-    verification_state = await Database.get_global_verification_state(user_id)
-    if verification_state is None:
+def _normalize_category_role_id_set(
+    raw_role_ids: Any,
+) -> set[int]:
+    """Normalize category role requirement values into an integer ID set."""
+    if not isinstance(raw_role_ids, list):
         return set()
 
-    statuses: set[str] = {"bot_verified"}
-    config_service = bot.services.config
-    raw_org_sid = await config_service.get_guild_setting(
-        guild_id,
-        "organization.sid",
-        default="TEST",
-    )
-    org_sid = _normalize_org_sid(raw_org_sid)
-    membership = derive_membership_status(
-        verification_state.get("main_orgs"),
-        verification_state.get("affiliate_orgs"),
-        target_sid=org_sid,
-    )
-    if membership == "main":
-        statuses.add("org_main")
-    elif membership == "affiliate":
-        statuses.add("org_affiliate")
+    normalized: set[int] = set()
+    for raw_role_id in raw_role_ids:
+        try:
+            role_id = int(raw_role_id)
+        except (TypeError, ValueError):
+            continue
+        if role_id > 0:
+            normalized.add(role_id)
 
-    return statuses
+    return normalized
 
 
-def _user_meets_category_status_requirement(
+def _get_category_role_requirements(
     category: dict[str, Any],
-    user_statuses: set[str],
-) -> bool:
-    """Return whether user status set satisfies a category's restriction."""
-    allowed_statuses_raw = category.get("allowed_statuses")
-    if not isinstance(allowed_statuses_raw, list):
-        return True
+) -> tuple[set[int], set[int]]:
+    """Return ``(required_all, required_any)`` role-ID sets for a category."""
+    required_all = _normalize_category_role_id_set(
+        category.get("prerequisite_role_ids_all")
+    )
+    required_any = _normalize_category_role_id_set(
+        category.get("prerequisite_role_ids_any")
+    )
+    return required_all, required_any
 
-    allowed_statuses = [s for s in allowed_statuses_raw if isinstance(s, str)]
-    if not allowed_statuses:
-        return True
 
-    return any(status in user_statuses for status in allowed_statuses)
+def _resolve_role_labels(guild: discord.Guild, role_ids: set[int]) -> list[str]:
+    """Resolve role IDs to display labels for user-facing requirement errors."""
+    labels: list[str] = []
+    for role_id in sorted(role_ids):
+        role = guild.get_role(role_id)
+        if role is None:
+            labels.append(f"<@&{role_id}>")
+            continue
+        labels.append(role.mention)
+    return labels
+
+
+def _build_missing_role_requirement_message(
+    guild: discord.Guild,
+    missing_all: set[int],
+    required_any: set[int],
+) -> str:
+    """Build the popup message shown when category role requirements fail."""
+    all_labels = _resolve_role_labels(guild, missing_all)
+    any_labels = _resolve_role_labels(guild, required_any)
+
+    if all_labels and not any_labels:
+        if len(all_labels) == 1:
+            return f"You need {all_labels[0]} role to create a ticket here."
+        return (
+            "You need all of these roles to create a ticket here: "
+            f"{', '.join(all_labels)}."
+        )
+
+    if any_labels and not all_labels:
+        if len(any_labels) == 1:
+            return f"You need {any_labels[0]} role to create a ticket here."
+        return (
+            "You need at least one of these roles to create a ticket here: "
+            f"{', '.join(any_labels)}."
+        )
+
+    return (
+        "You need all of these roles "
+        f"({', '.join(all_labels)}) and at least one of these roles "
+        f"({', '.join(any_labels)}) to create a ticket here."
+    )
 
 
 def _format_ticket_thread_name(
@@ -547,41 +561,33 @@ class TicketCategorySelect(Select):
             await interaction.response.send_modal(modal)
             return
 
-        # Check eligibility requirements (if configured on category)
-        allowed_statuses_raw = category.get("allowed_statuses")
-        if isinstance(allowed_statuses_raw, list) and allowed_statuses_raw:
+        required_all, required_any = _get_category_role_requirements(category)
+        if required_all or required_any:
             if interaction.guild is None:
                 await interaction.response.send_message(
                     "Tickets can only be created in a server.", ephemeral=True
                 )
                 return
 
-            try:
-                user_statuses = await _get_ticket_category_statuses(
-                    self.bot,
-                    interaction.guild.id,
-                    interaction.user.id,
-                )
-            except Exception as e:
-                logger.exception(
-                    (
-                        "Failed to resolve ticket category eligibility "
-                        "for user %s in guild %s"
-                    ),
-                    interaction.user.id,
-                    interaction.guild.id,
-                    exc_info=e,
-                )
-                await interaction.response.send_message(
-                    "❌ Could not validate category requirements right now. "
-                    "Please try again in a moment.",
-                    ephemeral=True,
-                )
-                return
+            member_roles = getattr(interaction.user, "roles", [])
+            member_role_ids = {
+                role.id
+                for role in member_roles
+                if getattr(role, "id", None) is not None
+            }
+            missing_all = required_all - member_role_ids
+            missing_any = set()
+            if required_any and not member_role_ids.intersection(required_any):
+                missing_any = required_any
 
-            if not _user_meets_category_status_requirement(category, user_statuses):
+            if missing_all or missing_any:
+                requirement_message = _build_missing_role_requirement_message(
+                    interaction.guild,
+                    missing_all,
+                    missing_any,
+                )
                 await interaction.response.send_message(
-                    "❌ You do not meet this category's verification requirements.",
+                    f"❌ {requirement_message}",
                     ephemeral=True,
                 )
                 return

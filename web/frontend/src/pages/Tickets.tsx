@@ -16,7 +16,6 @@ import {
   DiscordChannel,
   GuildRole,
   TicketCategory,
-  TicketCategoryEligibilityStatus,
   TicketChannelConfig,
   TicketChannelConfigUpdate,
   TicketFormStep,
@@ -92,8 +91,11 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [catEmoji, setCatEmoji] = useState('');
   const [catWelcomeMessage, setCatWelcomeMessage] = useState('');
   const [catRoleIds, setCatRoleIds] = useState<string[]>([]);
-  const [catAllowedStatuses, setCatAllowedStatuses] = useState<
-    TicketCategoryEligibilityStatus[]
+  const [catPrerequisiteRoleIdsAll, setCatPrerequisiteRoleIdsAll] = useState<
+    string[]
+  >([]);
+  const [catPrerequisiteRoleIdsAny, setCatPrerequisiteRoleIdsAny] = useState<
+    string[]
   >([]);
   const [createCategoryChannelId, setCreateCategoryChannelId] =
     useState<string>('0');
@@ -289,7 +291,7 @@ export default function Tickets({ guildId }: TicketsProps) {
   ) => {
     try {
       const hasChannelChange = updates.new_channel_id && updates.new_channel_id !== channelId;
-      
+
       await ticketsApi.updateChannelConfig(channelId, {
         new_channel_id: updates.new_channel_id,
         panel_title: updates.panel_title,
@@ -304,7 +306,7 @@ export default function Tickets({ guildId }: TicketsProps) {
         public_button_color: updates.public_button_color,
         button_order: updates.button_order,
       });
-      
+
       const res = await ticketsApi.getChannelConfigs();
       setChannelConfigs(res.channels);
       showSuccess(hasChannelChange ? 'Channel moved and panel updated' : 'Channel panel updated');
@@ -335,7 +337,8 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatEmoji('');
     setCatWelcomeMessage('');
     setCatRoleIds([]);
-    setCatAllowedStatuses([]);
+    setCatPrerequisiteRoleIdsAll([]);
+    setCatPrerequisiteRoleIdsAny([]);
     setCreateCategoryChannelId('0');
   };
 
@@ -353,7 +356,8 @@ export default function Tickets({ guildId }: TicketsProps) {
     setCatEmoji(cat.emoji ?? '');
     setCatWelcomeMessage(cat.welcome_message);
     setCatRoleIds(cat.role_ids);
-    setCatAllowedStatuses(cat.allowed_statuses ?? []);
+    setCatPrerequisiteRoleIdsAll(cat.prerequisite_role_ids_all ?? []);
+    setCatPrerequisiteRoleIdsAny(cat.prerequisite_role_ids_any ?? []);
     setCategoryModalOpen(true);
   };
 
@@ -367,7 +371,8 @@ export default function Tickets({ guildId }: TicketsProps) {
           welcome_message: catWelcomeMessage,
           emoji: catEmoji || null,
           role_ids: catRoleIds,
-          allowed_statuses: catAllowedStatuses,
+          prerequisite_role_ids_all: catPrerequisiteRoleIdsAll,
+          prerequisite_role_ids_any: catPrerequisiteRoleIdsAny,
         });
         showSuccess('Category updated');
       } else {
@@ -378,7 +383,8 @@ export default function Tickets({ guildId }: TicketsProps) {
           welcome_message: catWelcomeMessage,
           emoji: catEmoji || null,
           role_ids: catRoleIds,
-          allowed_statuses: catAllowedStatuses,
+          prerequisite_role_ids_all: catPrerequisiteRoleIdsAll,
+          prerequisite_role_ids_any: catPrerequisiteRoleIdsAny,
           channel_id: createCategoryChannelId,
         });
         showSuccess('Category created');
@@ -755,7 +761,8 @@ export default function Tickets({ guildId }: TicketsProps) {
         catEmoji={catEmoji}
         catWelcomeMessage={catWelcomeMessage}
         catRoleIds={catRoleIds}
-        catAllowedStatuses={catAllowedStatuses}
+        catPrerequisiteRoleIdsAll={catPrerequisiteRoleIdsAll}
+        catPrerequisiteRoleIdsAny={catPrerequisiteRoleIdsAny}
         catSaving={catSaving}
         roleOptions={roleOptions}
         onCatNameChange={setCatName}
@@ -763,7 +770,8 @@ export default function Tickets({ guildId }: TicketsProps) {
         onCatEmojiChange={setCatEmoji}
         onCatWelcomeMessageChange={setCatWelcomeMessage}
         onCatRoleIdsChange={setCatRoleIds}
-        onCatAllowedStatusesChange={setCatAllowedStatuses}
+        onCatPrerequisiteRoleIdsAllChange={setCatPrerequisiteRoleIdsAll}
+        onCatPrerequisiteRoleIdsAnyChange={setCatPrerequisiteRoleIdsAny}
         onSave={handleSaveCategory}
       />
 

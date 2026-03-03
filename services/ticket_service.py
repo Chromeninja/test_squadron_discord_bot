@@ -14,8 +14,11 @@ import sqlite3
 import time
 from typing import Any
 
+from helpers.role_ids import normalize_role_id_list
 from services.base import BaseService
+from services.db.database import Database
 from services.db.repository import BaseRepository
+from services.db.schema import ensure_ticket_schema_compatibility
 
 # Default rate-limit: one ticket per 5 minutes (300 seconds)
 TICKET_RATE_LIMIT_SECONDS = 300
@@ -47,7 +50,8 @@ _TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 # Column names for category SELECT queries — keep in sync with _row_to_category()
 _CATEGORY_COLUMN_NAMES = [
     "id", "guild_id", "channel_id", "name", "description", "welcome_message",
-    "role_ids", "allowed_statuses", "emoji", "sort_order", "created_at",
+    "role_ids", "prerequisite_role_ids_all", "prerequisite_role_ids_any",
+    "emoji", "sort_order", "created_at",
 ]
 _CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
 
@@ -59,13 +63,6 @@ _CHANNEL_CONFIG_COLUMN_NAMES = [
     "public_button_color", "button_order", "sort_order", "created_at",
 ]
 _CHANNEL_CONFIG_COLUMNS = ", ".join(_CHANNEL_CONFIG_COLUMN_NAMES)
-
-_ALLOWED_CATEGORY_STATUS_VALUES = {
-    "bot_verified",
-    "org_main",
-    "org_affiliate",
-}
-
 
 class TicketService(BaseService):
     """Service for managing the thread-based ticketing system.
@@ -147,7 +144,8 @@ class TicketService(BaseService):
         description: str = "",
         welcome_message: str = "",
         role_ids: list[int] | None = None,
-        allowed_statuses: list[str] | None = None,
+        prerequisite_role_ids_all: list[int] | None = None,
+        prerequisite_role_ids_any: list[int] | None = None,
         emoji: str | None = None,
         channel_id: int = 0,
     ) -> int | None:
@@ -159,9 +157,10 @@ class TicketService(BaseService):
             description: Short description shown in dropdown.
             welcome_message: Message sent at the start of a new ticket thread.
             role_ids: List of Discord role IDs to add/ping in new tickets.
-            allowed_statuses: Optional eligibility statuses that can open this
-                category. Allowed values: ``bot_verified``, ``org_main``,
-                ``org_affiliate``. Empty means unrestricted.
+            prerequisite_role_ids_all: Role IDs the member must all have to
+                create a ticket in this category.
+            prerequisite_role_ids_any: Role IDs where the member must have at
+                least one to create a ticket in this category.
             emoji: Optional emoji for the dropdown entry.
             channel_id: Discord channel ID where this category's panel lives.
 
@@ -171,8 +170,11 @@ class TicketService(BaseService):
         try:
             await self._ensure_category_schema_compatibility()
             role_json = json.dumps(role_ids or [])
-            allowed_statuses_json = json.dumps(
-                self._normalize_allowed_statuses(allowed_statuses)
+            prerequisite_role_ids_all_json = json.dumps(
+                self._normalize_role_id_list(prerequisite_role_ids_all)
+            )
+            prerequisite_role_ids_any_json = json.dumps(
+                self._normalize_role_id_list(prerequisite_role_ids_any)
             )
             # Determine next sort_order
             max_order: int = await BaseRepository.fetch_value(
@@ -192,11 +194,12 @@ class TicketService(BaseService):
                         description,
                         welcome_message,
                         role_ids,
-                        allowed_statuses,
+                        prerequisite_role_ids_all,
+                        prerequisite_role_ids_any,
                         emoji,
                         sort_order
                     )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guild_id,
@@ -205,7 +208,8 @@ class TicketService(BaseService):
                     description,
                     welcome_message,
                     role_json,
-                    allowed_statuses_json,
+                    prerequisite_role_ids_all_json,
+                    prerequisite_role_ids_any_json,
                     emoji,
                     sort_order,
                 ),
@@ -235,7 +239,8 @@ class TicketService(BaseService):
 
         Accepted keyword arguments: ``name``, ``description``,
         ``welcome_message``, ``role_ids`` (list[int]),
-        ``allowed_statuses`` (list[str]), ``emoji``,
+        ``prerequisite_role_ids_all`` (list[int]),
+        ``prerequisite_role_ids_any`` (list[int]), ``emoji``,
         ``sort_order``.
 
         Returns:
@@ -247,7 +252,8 @@ class TicketService(BaseService):
             "description",
             "welcome_message",
             "role_ids",
-            "allowed_statuses",
+            "prerequisite_role_ids_all",
+            "prerequisite_role_ids_any",
             "emoji",
             "sort_order",
             "channel_id",
@@ -258,8 +264,8 @@ class TicketService(BaseService):
                 continue
             if key == "role_ids":
                 updates[key] = json.dumps(value if value is not None else [])
-            elif key == "allowed_statuses":
-                updates[key] = json.dumps(self._normalize_allowed_statuses(value))
+            elif key in {"prerequisite_role_ids_all", "prerequisite_role_ids_any"}:
+                updates[key] = json.dumps(self._normalize_role_id_list(value))
             else:
                 updates[key] = value
 
@@ -307,7 +313,8 @@ class TicketService(BaseService):
 
         Each dict contains: ``id``, ``guild_id``, ``name``, ``description``,
         ``welcome_message``, ``role_ids`` (list[int]),
-        ``allowed_statuses`` (list[str]), ``emoji``, ``sort_order``,
+        ``prerequisite_role_ids_all`` (list[int]),
+        ``prerequisite_role_ids_any`` (list[int]), ``emoji``, ``sort_order``,
         ``created_at``.
         """
         await self._ensure_category_schema_compatibility()
@@ -1294,8 +1301,11 @@ class TicketService(BaseService):
         except (TypeError, ValueError, json.JSONDecodeError):
             d["role_ids"] = []
 
-        d["allowed_statuses"] = TicketService._normalize_allowed_statuses(
-            d.get("allowed_statuses")
+        d["prerequisite_role_ids_all"] = TicketService._normalize_role_id_list(
+            d.get("prerequisite_role_ids_all")
+        )
+        d["prerequisite_role_ids_any"] = TicketService._normalize_role_id_list(
+            d.get("prerequisite_role_ids_any")
         )
         return d
 
@@ -1305,42 +1315,24 @@ class TicketService(BaseService):
         return TicketService._row_to_dict(row, _CHANNEL_CONFIG_COLUMN_NAMES)
 
     @staticmethod
-    def _normalize_allowed_statuses(raw: Any) -> list[str]:
-        """Normalize stored category eligibility statuses."""
-        if raw is None:
-            return []
-
+    def _normalize_role_id_list(raw: Any) -> list[int]:
+        """Normalize a list of role IDs into a unique int list."""
         if isinstance(raw, str):
             try:
-                parsed = json.loads(raw)
+                parsed: Any = json.loads(raw)
             except json.JSONDecodeError:
                 return []
-        elif isinstance(raw, list):
-            parsed = raw
-        else:
-            return []
+            return normalize_role_id_list(parsed)
 
-        normalized: list[str] = []
-        for item in parsed:
-            if not isinstance(item, str):
-                continue
-            value = item.strip().lower()
-            if value not in _ALLOWED_CATEGORY_STATUS_VALUES:
-                continue
-            if value in normalized:
-                continue
-            normalized.append(value)
-
-        return normalized
+        return normalize_role_id_list(raw)
 
     async def _ensure_category_schema_compatibility(self) -> None:
         """Ensure ticket category columns exist on older DBs.
 
         AI Notes:
-            Checks for ``allowed_statuses`` and ``channel_id`` columns
-            that may be missing on databases created before those features
-            were added.  Uses double-checked locking to prevent concurrent
-            ALTER TABLE races.
+            Delegates to ``services.db.schema.ensure_ticket_schema_compatibility``
+            so compatibility ALTER logic has a single source of truth.
+            Uses double-checked locking to prevent concurrent runs.
         """
         if self._category_schema_checked:
             return
@@ -1349,35 +1341,10 @@ class TicketService(BaseService):
             if self._category_schema_checked:
                 return
 
-            rows = await BaseRepository.fetch_all("PRAGMA table_info(ticket_categories)")
-            column_names = {
-                self.extract_column_name(row)
-                for row in rows
-                if self.extract_column_name(row)
-            }
-
-            if "allowed_statuses" not in column_names:
+            async with Database.get_connection() as db:
                 try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_categories "
-                        "ADD COLUMN allowed_statuses TEXT NOT NULL DEFAULT '[]'"
-                    )
-                    self.logger.info(
-                        "Added missing allowed_statuses column to ticket_categories"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
-
-            if "channel_id" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_categories "
-                        "ADD COLUMN channel_id INTEGER NOT NULL DEFAULT 0"
-                    )
-                    self.logger.info(
-                        "Added missing channel_id column to ticket_categories"
-                    )
+                    await ensure_ticket_schema_compatibility(db)
+                    await db.commit()
                 except sqlite3.OperationalError as e:
                     if "duplicate column name" not in str(e).lower():
                         raise

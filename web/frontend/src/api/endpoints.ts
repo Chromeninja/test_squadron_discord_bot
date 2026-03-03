@@ -1061,17 +1061,13 @@ export interface TicketCategory {
   description: string;
   welcome_message: string;
   role_ids: string[];
-  allowed_statuses: TicketCategoryEligibilityStatus[];
+  prerequisite_role_ids_all: string[];
+  prerequisite_role_ids_any: string[];
   emoji: string | null;
   sort_order: number;
   created_at: number;
   channel_id: string;
 }
-
-export type TicketCategoryEligibilityStatus =
-  | 'bot_verified'
-  | 'org_main'
-  | 'org_affiliate';
 
 export interface TicketCategoryCreate {
   guild_id: string;
@@ -1079,7 +1075,8 @@ export interface TicketCategoryCreate {
   description?: string;
   welcome_message?: string;
   role_ids?: string[];
-  allowed_statuses?: TicketCategoryEligibilityStatus[];
+  prerequisite_role_ids_all?: string[];
+  prerequisite_role_ids_any?: string[];
   emoji?: string | null;
   channel_id?: string;
 }
@@ -1089,7 +1086,8 @@ export interface TicketCategoryUpdate {
   description?: string;
   welcome_message?: string;
   role_ids?: string[];
-  allowed_statuses?: TicketCategoryEligibilityStatus[];
+  prerequisite_role_ids_all?: string[];
+  prerequisite_role_ids_any?: string[];
   emoji?: string | null;
   sort_order?: number;
 }

@@ -45,7 +45,8 @@ async def test_create_category(
         "description": "General support",
         "welcome_message": "Hi!",
         "role_ids": [],
-        "allowed_statuses": ["bot_verified"],
+        "prerequisite_role_ids_all": ["111"],
+        "prerequisite_role_ids_any": ["222", "333"],
         "emoji": "📩",
     }
     response = await client.post(
@@ -58,7 +59,8 @@ async def test_create_category(
     assert data["success"] is True
     assert len(data["categories"]) == 1
     assert data["categories"][0]["name"] == "General"
-    assert data["categories"][0]["allowed_statuses"] == ["bot_verified"]
+    assert data["categories"][0]["prerequisite_role_ids_all"] == ["111"]
+    assert data["categories"][0]["prerequisite_role_ids_any"] == ["222", "333"]
 
 
 @pytest.mark.asyncio
@@ -122,14 +124,14 @@ async def test_update_category_rejects_channel_change(
 
 
 @pytest.mark.asyncio
-async def test_create_category_invalid_allowed_statuses(
+async def test_create_category_invalid_prerequisite_role_ids(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
-    """Invalid eligibility status values are rejected by schema validation."""
+    """Invalid prerequisite role IDs are rejected by schema validation."""
     payload = {
         "guild_id": "123",
         "name": "General",
-        "allowed_statuses": ["invalid_status"],
+        "prerequisite_role_ids_all": ["abc"],
     }
     response = await client.post(
         "/api/tickets/categories",
