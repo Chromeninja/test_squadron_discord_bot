@@ -78,19 +78,16 @@ function aggregateDaily(
     if (existing) {
       existing.messages += pt.messages;
       existing.voice_hours += pt.voice_seconds / 3600;
+      existing.game_hours += (pt.game_seconds || 0) / 3600;
     } else {
       map.set(dayKey, {
         day: dayKey,
         messages: pt.messages,
         voice_hours: pt.voice_seconds / 3600,
-        game_hours: 0,
+        game_hours: (pt.game_seconds || 0) / 3600,
       });
     }
   }
-
-  // Note: Currently, game_hours is initialized to 0 since the API provides
-  // only aggregated game totals, not hourly breakdowns. A future enhancement
-  // would request hourly game session data from the backend API.
 
   return Array.from(map.values());
 }
