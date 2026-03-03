@@ -297,64 +297,58 @@ class TestTicketCategorySelect:
     async def test_callback_blocks_when_category_requires_org_main(
         self,
     ) -> None:
-        """A non-eligible user is blocked when selecting a restricted category."""
+        """A user missing required category roles is blocked with a popup."""
         cats = [
             {
                 "id": 9,
                 "name": "Main Org",
                 "description": "",
                 "emoji": None,
-                "allowed_statuses": ["org_main"],
+                "prerequisite_role_ids_all": [111],
             }
         ]
         bot = _mock_bot_with_services()
         select = TicketCategorySelect(bot, cats)
         select._values = ["9"]
         interaction = FakeInteraction()
+        interaction.response.send_message = AsyncMock()  # type: ignore[method-assign]
+        interaction.guild = SimpleNamespace(
+            id=123,
+            name="TestGuild",
+            get_role=lambda role_id: SimpleNamespace(mention=f"<@&{role_id}>"),
+        )
 
         type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
-        with patch(
-            "helpers.ticket_views.Database.get_global_verification_state",
-            new=AsyncMock(return_value=None),
-        ):
-            await select.callback(interaction)  # type: ignore[arg-type]
+        await select.callback(interaction)  # type: ignore[arg-type]
 
-        assert interaction.response._is_done
+        interaction.response.send_message.assert_awaited_once()  # type: ignore[union-attr]
+        message = interaction.response.send_message.await_args.args[0]  # type: ignore[union-attr]
+        assert "You need" in message
+        assert "create a ticket here" in message
         assert interaction.response.sent_modal is None
 
     @pytest.mark.asyncio
     async def test_callback_allows_when_category_requires_bot_verified(
         self,
     ) -> None:
-        """A verified user can select a category requiring bot_verified."""
+        """A user with qualifying role can select a role-restricted category."""
         cats = [
             {
                 "id": 10,
                 "name": "Verified",
                 "description": "",
                 "emoji": None,
-                "allowed_statuses": ["bot_verified"],
+                "prerequisite_role_ids_any": [222],
             }
         ]
         bot = _mock_bot_with_services()
         select = TicketCategorySelect(bot, cats)
         select._values = ["10"]
         interaction = FakeInteraction()
+        interaction.user.roles = [SimpleNamespace(id=222)]  # type: ignore[attr-defined]
 
         type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
-        with patch(
-            "helpers.ticket_views.Database.get_global_verification_state",
-            new=AsyncMock(
-                return_value={
-                    "rsi_handle": "pilot",
-                    "main_orgs": [],
-                    "affiliate_orgs": [],
-                    "community_moniker": None,
-                    "last_updated": 0,
-                }
-            ),
-        ):
-            await select.callback(interaction)  # type: ignore[arg-type]
+        await select.callback(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
         assert interaction.response.sent_modal is not None

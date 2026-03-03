@@ -13,14 +13,13 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
+from services.db.database import Database
 from services.ticket_service import (
     DEFAULT_MAX_OPEN_PER_USER,
     DEFAULT_REOPEN_WINDOW_HOURS,
     TICKET_RATE_LIMIT_SECONDS,
     TicketService,
 )
-from services.db.database import Database
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -120,48 +119,50 @@ class TestCategoryCRUD:
         assert cat["role_ids"] == [10, 20]
 
     @pytest.mark.asyncio
-    async def test_create_category_with_allowed_statuses(
+    async def test_create_category_with_prerequisite_roles(
         self, ticket_svc: TicketService
     ) -> None:
-        """Creating a category persists eligibility status restrictions."""
+        """Creating a category persists role prerequisite restrictions."""
         cat_id = await ticket_svc.create_category(
             GUILD_ID,
             "Verified",
-            allowed_statuses=["bot_verified", "org_main"],
+            prerequisite_role_ids_all=[1001, 1002],
+            prerequisite_role_ids_any=[2001, 2002],
         )
         assert cat_id is not None
 
         cat = await ticket_svc.get_category(cat_id)
         assert cat is not None
-        assert cat["allowed_statuses"] == ["bot_verified", "org_main"]
+        assert cat["prerequisite_role_ids_all"] == [1001, 1002]
+        assert cat["prerequisite_role_ids_any"] == [2001, 2002]
 
     @pytest.mark.asyncio
-    async def test_update_category_allowed_statuses_normalized(
+    async def test_update_category_prerequisite_roles_normalized(
         self, ticket_svc: TicketService
     ) -> None:
-        """Updating eligibility statuses normalizes casing and duplicates."""
+        """Updating prerequisite roles normalizes IDs and duplicates."""
         cat_id = await ticket_svc.create_category(GUILD_ID, "Eligibility")
         assert cat_id is not None
 
         await ticket_svc.update_category(
             cat_id,
-            allowed_statuses=[
-                "ORG_MAIN",
-                "org_main",
-                "org_affiliate",
-                "unknown",
+            prerequisite_role_ids_all=[
+                "123",
+                123,
+                "invalid",
+                456,
             ],
         )
 
         cat = await ticket_svc.get_category(cat_id)
         assert cat is not None
-        assert cat["allowed_statuses"] == ["org_main", "org_affiliate"]
+        assert cat["prerequisite_role_ids_all"] == [123, 456]
 
     @pytest.mark.asyncio
-    async def test_get_categories_auto_adds_allowed_statuses_column(
+    async def test_get_categories_auto_adds_prerequisite_columns(
         self, ticket_svc: TicketService
     ) -> None:
-        """Older DB schema is upgraded on read when allowed_statuses is missing."""
+        """Older DB schema is upgraded on read when prerequisite columns are missing."""
         async with Database.get_connection() as db:
             await db.execute("DROP TABLE ticket_categories")
             await db.execute(
@@ -192,7 +193,8 @@ class TestCategoryCRUD:
         categories = await ticket_svc.get_categories(GUILD_ID)
         assert len(categories) == 1
         assert categories[0]["name"] == "Legacy"
-        assert categories[0]["allowed_statuses"] == []
+        assert categories[0]["prerequisite_role_ids_all"] == []
+        assert categories[0]["prerequisite_role_ids_any"] == []
 
     @pytest.mark.asyncio
     async def test_update_no_valid_fields(self, ticket_svc: TicketService) -> None:
@@ -760,18 +762,46 @@ class TestRowConverters:
     def test_row_to_category(self) -> None:
         """Category row is converted correctly with JSON role_ids."""
         # Columns: id, guild_id, channel_id, name, description,
-        #          welcome_message, role_ids, allowed_statuses, emoji,
+        #          welcome_message, role_ids, prerequisite_role_ids_all,
+        #          prerequisite_role_ids_any, emoji,
         #          sort_order, created_at
-        row = (1, 100, 500, "Support", "Help", "Welcome!", "[1,2,3]", "[]", "📩", 0, 1000)
+        row = (
+            1,
+            100,
+            500,
+            "Support",
+            "Help",
+            "Welcome!",
+            "[1,2,3]",
+            "[10,20]",
+            "[30]",
+            "📩",
+            0,
+            1000,
+        )
         result = TicketService._row_to_category(row)
         assert result["name"] == "Support"
         assert result["role_ids"] == [1, 2, 3]
         assert result["channel_id"] == 500
-        assert result["allowed_statuses"] == []
+        assert result["prerequisite_role_ids_all"] == [10, 20]
+        assert result["prerequisite_role_ids_any"] == [30]
 
     def test_row_to_category_empty_roles(self) -> None:
         """Category with empty/null role_ids returns empty list."""
-        row = (1, 100, 0, "Support", "Help", "Welcome!", "", "[]", None, 0, 1000)
+        row = (
+            1,
+            100,
+            0,
+            "Support",
+            "Help",
+            "Welcome!",
+            "",
+            "[]",
+            "[]",
+            None,
+            0,
+            1000,
+        )
         result = TicketService._row_to_category(row)
         assert result["role_ids"] == []
 
@@ -964,7 +994,8 @@ class TestMultiChannelCategories:
                     description TEXT DEFAULT '',
                     welcome_message TEXT DEFAULT '',
                     role_ids TEXT DEFAULT '[]',
-                    allowed_statuses TEXT NOT NULL DEFAULT '[]',
+                    prerequisite_role_ids_all TEXT NOT NULL DEFAULT '[]',
+                    prerequisite_role_ids_any TEXT NOT NULL DEFAULT '[]',
                     emoji TEXT DEFAULT NULL,
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))

@@ -12,6 +12,35 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+async def _get_table_columns(
+    db: aiosqlite.Connection, table_name: str
+) -> set[str]:
+    """Return the set of current columns for a SQLite table."""
+    cursor = await db.execute(f"PRAGMA table_info({table_name})")
+    rows = await cursor.fetchall()
+    return {str(row[1]) for row in rows}
+
+
+async def _add_column_if_missing(
+    db: aiosqlite.Connection,
+    table_name: str,
+    column_name: str,
+    column_definition: str,
+) -> None:
+    """Add a column to an existing table only when it is absent."""
+    existing_columns = await _get_table_columns(db, table_name)
+    if column_name in existing_columns:
+        return
+
+    await db.execute(
+        f"ALTER TABLE {table_name} ADD COLUMN {column_definition}"
+    )
+    logger.info(
+        "Added missing column to table",
+        extra={"table": table_name, "column": column_name},
+    )
+
+
 async def init_schema(db: aiosqlite.Connection) -> None:
     """
     Initialize the database schema with all required tables.
@@ -437,12 +466,31 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             description TEXT    DEFAULT '',
             welcome_message TEXT DEFAULT '',
             role_ids    TEXT    DEFAULT '[]',
-            allowed_statuses TEXT DEFAULT '[]',
+            prerequisite_role_ids_all TEXT DEFAULT '[]',
+            prerequisite_role_ids_any TEXT DEFAULT '[]',
             emoji       TEXT    DEFAULT NULL,
             sort_order  INTEGER NOT NULL DEFAULT 0,
             created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         )
         """
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_categories",
+        "channel_id",
+        "channel_id INTEGER NOT NULL DEFAULT 0",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_categories",
+        "prerequisite_role_ids_all",
+        "prerequisite_role_ids_all TEXT NOT NULL DEFAULT '[]'",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_categories",
+        "prerequisite_role_ids_any",
+        "prerequisite_role_ids_any TEXT NOT NULL DEFAULT '[]'",
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_categories_guild ON ticket_categories(guild_id)"
@@ -474,6 +522,42 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             UNIQUE(guild_id, channel_id)
         )
         """
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "enable_public_button",
+        "enable_public_button INTEGER NOT NULL DEFAULT 0",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "public_button_text",
+        "public_button_text TEXT NOT NULL DEFAULT 'Create Public Ticket'",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "public_button_emoji",
+        "public_button_emoji TEXT DEFAULT '🌐'",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "private_button_color",
+        "private_button_color TEXT DEFAULT NULL",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "public_button_color",
+        "public_button_color TEXT DEFAULT NULL",
+    )
+    await _add_column_if_missing(
+        db,
+        "ticket_channel_configs",
+        "button_order",
+        "button_order TEXT NOT NULL DEFAULT 'private_first'",
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_channel_configs_guild ON ticket_channel_configs(guild_id)"

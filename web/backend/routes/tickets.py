@@ -8,7 +8,7 @@ guild-level ticket settings — all scoped to the active guild.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -51,6 +51,26 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+def _parse_role_id_list(field_name: str, raw_role_ids: list[str]) -> list[int]:
+    """Parse role ID list from API payload and raise 422 on invalid values."""
+    parsed: list[int] = []
+    for raw_role_id in raw_role_ids:
+        try:
+            role_id = int(raw_role_id)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid role ID in {field_name}",
+            ) from exc
+        if role_id <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid role ID in {field_name}",
+            )
+        parsed.append(role_id)
+    return parsed
+
+
 def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
     """Build a ``TicketCategoryListResponse`` from service dicts.
 
@@ -64,7 +84,14 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
             description=c.get("description", ""),
             welcome_message=c.get("welcome_message", ""),
             role_ids=[str(r) for r in c.get("role_ids", [])],
-            allowed_statuses=c.get("allowed_statuses", []),
+            prerequisite_role_ids_all=[
+                str(role_id)
+                for role_id in c.get("prerequisite_role_ids_all", [])
+            ],
+            prerequisite_role_ids_any=[
+                str(role_id)
+                for role_id in c.get("prerequisite_role_ids_any", [])
+            ],
             emoji=c.get("emoji"),
             sort_order=c.get("sort_order", 0),
             created_at=c.get("created_at", 0),
@@ -107,8 +134,15 @@ async def create_category(
         name=body.name,
         description=body.description,
         welcome_message=body.welcome_message,
-        role_ids=[int(r) for r in body.role_ids],
-        allowed_statuses=cast("list[str]", list(body.allowed_statuses)),
+        role_ids=_parse_role_id_list("role_ids", body.role_ids),
+        prerequisite_role_ids_all=_parse_role_id_list(
+            "prerequisite_role_ids_all",
+            body.prerequisite_role_ids_all,
+        ),
+        prerequisite_role_ids_any=_parse_role_id_list(
+            "prerequisite_role_ids_any",
+            body.prerequisite_role_ids_any,
+        ),
         emoji=body.emoji,
         channel_id=int(body.channel_id) if body.channel_id else 0,
     )
@@ -132,19 +166,29 @@ async def update_category(
     await require_guild_category(svc, category_id, guild_id)
 
     # Build kwargs from non-None fields
-    kwargs: dict = {
-        k: ([int(r) for r in v] if k == "role_ids" else v)
-        for k, v in {
-            "name": body.name,
-            "description": body.description,
-            "welcome_message": body.welcome_message,
-            "role_ids": body.role_ids,
-            "allowed_statuses": body.allowed_statuses,
-            "emoji": body.emoji,
-            "sort_order": body.sort_order,
-        }.items()
-        if v is not None
-    }
+    kwargs: dict[str, object] = {}
+    if body.name is not None:
+        kwargs["name"] = body.name
+    if body.description is not None:
+        kwargs["description"] = body.description
+    if body.welcome_message is not None:
+        kwargs["welcome_message"] = body.welcome_message
+    if body.role_ids is not None:
+        kwargs["role_ids"] = _parse_role_id_list("role_ids", body.role_ids)
+    if body.prerequisite_role_ids_all is not None:
+        kwargs["prerequisite_role_ids_all"] = _parse_role_id_list(
+            "prerequisite_role_ids_all",
+            body.prerequisite_role_ids_all,
+        )
+    if body.prerequisite_role_ids_any is not None:
+        kwargs["prerequisite_role_ids_any"] = _parse_role_id_list(
+            "prerequisite_role_ids_any",
+            body.prerequisite_role_ids_any,
+        )
+    if body.emoji is not None:
+        kwargs["emoji"] = body.emoji
+    if body.sort_order is not None:
+        kwargs["sort_order"] = body.sort_order
 
     if not kwargs:
         raise HTTPException(status_code=400, detail="No fields to update")
