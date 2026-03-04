@@ -34,6 +34,7 @@ from helpers.audit import log_admin_action
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+MAX_GAME_DETAIL_FILTER_USERS = 1000
 
 
 def _resolve_guild_id(current_user: UserProfile) -> int:
@@ -109,9 +110,7 @@ async def _resolve_activity_filter(
         return sorted(merged_user_ids)
     except Exception as exc:
         logger.warning(
-            "Failed to resolve activity filter dimension=%s tier=%s",
-            dimension,
-            tier,
+            "Failed to resolve activity filter",
             exc_info=exc,
         )
         return []
@@ -299,6 +298,14 @@ async def get_game_metrics(
         user_ids = await _resolve_activity_filter(
             internal_api, guild_id, dimension, tier, days=days
         )
+        if user_ids is not None and len(user_ids) > MAX_GAME_DETAIL_FILTER_USERS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected activity filter matches too many users for game detail. "
+                    "Please narrow your filters."
+                ),
+            )
         result = await internal_api.get_metrics_game(
             guild_id,
             game_name=game_name,
@@ -319,6 +326,8 @@ async def get_game_metrics(
         result["top_players"] = normalized_players
 
         return GameMetricsResponse(data=GameMetrics(**result))
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=502, detail="Game metrics unavailable")
 

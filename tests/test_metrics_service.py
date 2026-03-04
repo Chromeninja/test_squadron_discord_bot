@@ -738,6 +738,41 @@ class TestQueryMethods:
         assert result["top_players"][0]["total_seconds"] == 4800
         assert len(result["timeseries"]) >= 2
 
+    @pytest.mark.asyncio
+    async def test_get_game_metrics_uses_consistent_cutoff(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Excludes sessions started before cutoff from all game-metrics sections."""
+        now = int(time.time())
+        cutoff = now - 86400
+
+        async with MetricsDatabase.get_connection() as db:
+            await db.execute(
+                "INSERT INTO game_sessions (guild_id, user_id, game_name, started_at, ended_at, duration_seconds) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 1, "Star Citizen", cutoff - 30, cutoff + 120, 150),
+            )
+            await db.execute(
+                "INSERT INTO game_sessions (guild_id, user_id, game_name, started_at, ended_at, duration_seconds) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (100, 2, "Star Citizen", cutoff + 30, cutoff + 300, 270),
+            )
+            await db.commit()
+
+        result = await metrics_service.get_game_metrics(
+            guild_id=100,
+            game_name="Star Citizen",
+            days=1,
+            limit=5,
+        )
+
+        assert result["total_seconds"] == 270
+        assert result["session_count"] == 1
+        assert result["unique_players"] == 1
+        assert len(result["top_players"]) == 1
+        assert result["top_players"][0]["user_id"] == 2
+        assert len(result["timeseries"]) == 1
+
 
 # ---------------------------------------------------------------------------
 # Purge old data

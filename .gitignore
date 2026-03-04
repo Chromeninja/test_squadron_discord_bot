@@ -124,6 +124,8 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+*.db.bak_*
+*.sqlite.bak_*
 
 # Environment files (keep .env.example)
 .env
@@ -139,6 +141,7 @@ Thumbs.db
 all_code.txt
 verification_message_id.json
 verification_message_ids.json
+*.bak_*
 
 # Node.js (for mixed projects)
 node_modules/

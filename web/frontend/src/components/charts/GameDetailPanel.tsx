@@ -19,7 +19,7 @@ import {
   metricsApi,
 } from '../../api/endpoints';
 import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
-import { formatDuration, formatTimestamp } from '../../utils/format';
+import { formatDuration } from '../../utils/format';
 import { handleApiError } from '../../utils/toast';
 
 interface GameDetailPanelProps {
@@ -71,23 +71,31 @@ export default function GameDetailPanel({
 
     const byDay = new Map<string, { day: string; total_hours: number; unique_users: number }>();
     for (const point of data.timeseries) {
-      const day = formatTimestamp(point.timestamp);
-      const existing = byDay.get(day);
+      const pointDate = new Date(point.timestamp * 1000);
+      const dayKey = pointDate.toISOString().slice(0, 10);
+      const dayLabel = pointDate.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: '2-digit',
+      });
+      const existing = byDay.get(dayKey);
       const valueHours = (point.value ?? 0) / 3600;
       const uniqueUsers = point.unique_users ?? 0;
       if (existing) {
         existing.total_hours += valueHours;
         existing.unique_users = Math.max(existing.unique_users, uniqueUsers);
       } else {
-        byDay.set(day, {
-          day,
+        byDay.set(dayKey, {
+          day: dayLabel,
           total_hours: valueHours,
           unique_users: uniqueUsers,
         });
       }
     }
 
-    return Array.from(byDay.values());
+    return Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, value]) => value);
   }, [data?.timeseries]);
 
   return (

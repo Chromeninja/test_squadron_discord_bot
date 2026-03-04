@@ -1293,7 +1293,7 @@ class MetricsService(BaseService):
                 "COUNT(DISTINCT user_id) AS unique_users "
                 "FROM game_sessions "
                 "WHERE guild_id = ? AND game_name = ? AND ended_at IS NOT NULL "
-                "AND ended_at >= ? AND duration_seconds IS NOT NULL"
+                "AND started_at >= ? AND duration_seconds IS NOT NULL"
                 f"{uid_filter} "
                 "GROUP BY hour_bucket "
                 "ORDER BY hour_bucket",

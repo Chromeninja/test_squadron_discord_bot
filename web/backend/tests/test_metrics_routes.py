@@ -214,6 +214,33 @@ async def test_game_metrics_detail_internal_error(
     assert response.json()["detail"] == "Game metrics unavailable"
 
 
+@pytest.mark.asyncio
+async def test_game_metrics_detail_filter_too_broad(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Game detail endpoint rejects oversized resolved user filters."""
+    _use_fixture(fake_internal_api)
+
+    async def _resolve_many(*_args, **_kwargs) -> list[int]:
+        return list(range(1, 1005))
+
+    monkeypatch.setattr(
+        "routes.metrics._resolve_activity_filter",
+        _resolve_many,
+    )
+
+    response = await client.get(
+        "/api/metrics/games/detail?game_name=Star%20Citizen&days=7&limit=5"
+        "&dimension=all&tier=regular",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert "too many users" in response.json()["detail"].lower()
+
+
 # ---------------------------------------------------------------------------
 # GET /api/metrics/timeseries
 # ---------------------------------------------------------------------------
