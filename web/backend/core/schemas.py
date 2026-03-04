@@ -729,6 +729,37 @@ class TopGamesResponse(BaseModel):
     games: list[GameStats]
 
 
+class GameTopPlayer(BaseModel):
+    """Top player entry for a specific game."""
+
+    user_id: str
+    total_seconds: int
+    session_count: int
+    avg_seconds: int = 0
+    username: str | None = None
+    avatar_url: str | None = None
+
+
+class GameMetrics(BaseModel):
+    """Detailed metrics for a specific game."""
+
+    game_name: str
+    days: int
+    total_seconds: int
+    session_count: int
+    avg_seconds: int
+    unique_players: int
+    top_players: list[GameTopPlayer]
+    timeseries: list[dict]
+
+
+class GameMetricsResponse(BaseModel):
+    """Response for /api/metrics/games/detail."""
+
+    success: bool = True
+    data: GameMetrics
+
+
 class TimeSeriesPoint(BaseModel):
     """Single data point in a time series."""
 

@@ -185,8 +185,8 @@ export default function ChannelSection({
     <Card className="mb-4">
       <CardBody>
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setExpanded(!expanded)}
               className="p-1 hover:bg-gray-700 rounded transition-colors"
@@ -195,13 +195,13 @@ export default function ChannelSection({
               {expanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
             </button>
             <HashIcon />
-            <h3 className="text-lg font-semibold text-white">{channelName}</h3>
-            <Badge variant="info">
+            <h3 className="text-base sm:text-lg font-semibold text-white truncate">{channelName}</h3>
+            <Badge variant="info" className="whitespace-nowrap">
               {categories.length} {categories.length === 1 ? 'category' : 'categories'}
             </Badge>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0 whitespace-nowrap">
             {!editing && (
               <>
                 <Button
@@ -209,8 +209,10 @@ export default function ChannelSection({
                   size="sm"
                   onClick={() => setEditing(true)}
                   leftIcon={<PencilIcon />}
+                  className="min-h-[34px] sm:min-h-[40px] px-2 sm:px-3 text-[11px] sm:text-sm"
                 >
-                  Edit Panel
+                  <span className="hidden xs:inline">Edit</span>
+                  <span className="hidden sm:inline"> Panel</span>
                 </Button>
                 <Button
                   variant="danger"
@@ -219,7 +221,10 @@ export default function ChannelSection({
                   loading={deleting}
                   leftIcon={<TrashIcon />}
                   disabled={saving}
-                />
+                  className="min-h-[34px] sm:min-h-[40px] px-2 sm:px-3 text-[11px] sm:text-sm"
+                >
+                  <span className="hidden xs:inline">Remove</span>
+                </Button>
               </>
             )}
             {editing && (
@@ -229,15 +234,19 @@ export default function ChannelSection({
                   size="sm"
                   onClick={handleCancel}
                   disabled={saving}
+                  className="min-h-[34px] sm:min-h-[40px] px-2 sm:px-3 text-[11px] sm:text-sm"
                 >
-                  ✕ Cancel
+                  <span className="hidden xs:inline">✕ Cancel</span>
+                  <span className="xs:hidden">✕</span>
                 </Button>
                 <Button
                   size="sm"
                   onClick={handleSave}
                   loading={saving}
+                  className="min-h-[34px] sm:min-h-[40px] px-2 sm:px-3 text-[11px] sm:text-sm"
                 >
-                  💾 Save
+                  <span className="hidden xs:inline">💾 Save</span>
+                  <span className="xs:hidden">💾</span>
                 </Button>
               </>
             )}
@@ -404,11 +413,12 @@ export default function ChannelSection({
 
             {/* Categories */}
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
                 <h4 className="text-sm font-semibold text-gray-300">Categories</h4>
                 <Button
                   size="sm"
                   onClick={() => onAddCategory(config.channel_id)}
+                  className="self-start sm:self-auto"
                 >
                   + Add Category
                 </Button>
@@ -423,23 +433,24 @@ export default function ChannelSection({
                   {categories.map((cat) => (
                     <div
                       key={cat.id}
-                      className="flex items-center justify-between p-3 bg-gray-700/50 rounded border border-gray-600/50"
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-gray-700/50 rounded border border-gray-600/50"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         {cat.emoji && <span className="text-xl">{cat.emoji}</span>}
-                        <div>
-                          <p className="font-medium text-white">{cat.name}</p>
+                        <div className="min-w-0">
+                          <p className="font-medium text-white truncate">{cat.name}</p>
                           {cat.description && (
-                            <p className="text-xs text-gray-400">{cat.description}</p>
+                            <p className="text-xs text-gray-400 truncate">{cat.description}</p>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
                         <Button
                           variant="secondary"
                           size="sm"
                           onClick={() => onOpenFormEditor(cat)}
+                          className="min-h-[36px]"
                         >
                           Form
                         </Button>
@@ -448,13 +459,19 @@ export default function ChannelSection({
                           size="sm"
                           onClick={() => onEditCategory(cat)}
                           leftIcon={<PencilIconSm />}
-                        />
+                          className="min-h-[36px]"
+                        >
+                          Edit
+                        </Button>
                         <Button
                           variant="danger"
                           size="sm"
                           onClick={() => onDeleteCategory(cat)}
                           leftIcon={<TrashIconSm />}
-                        />
+                          className="min-h-[36px]"
+                        >
+                          Delete
+                        </Button>
                       </div>
                     </div>
                   ))}

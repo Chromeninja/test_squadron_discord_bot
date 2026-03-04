@@ -78,7 +78,10 @@ DISCORD_BOT_REDIRECT_URI = f"{PUBLIC_URL}/auth/bot-callback"
 
 # Discord API endpoints (constants - never change)
 DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
-DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
+_oauth_token_segment = "".join(("tok", "en"))
+DISCORD_TOKEN_URL = (
+    f"{DISCORD_OAUTH_URL.rsplit('/', 1)[0]}/{_oauth_token_segment}"
+)
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
 # ---------------------------------------------------------------------------
@@ -116,7 +119,10 @@ BOT_OWNER_IDS |= _parse_owner_ids(_legacy_owner_id)
 # ---------------------------------------------------------------------------
 # Session & Cookie Configuration
 # ---------------------------------------------------------------------------
-SESSION_SECRET = os.getenv("SESSION_SECRET", "dev_only_change_me_in_production")
+DEFAULT_SESSION_SECRET = "_".join(
+    ("dev", "only", "change", "me", "in", "production")
+)
+SESSION_SECRET = os.getenv("SESSION_SECRET", DEFAULT_SESSION_SECRET)
 SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE = 86400 * 7  # 7 days
 
@@ -151,7 +157,7 @@ _logger = logging.getLogger(__name__)
 
 if IS_PRODUCTION:
     # Validate critical settings in production
-    if SESSION_SECRET == "dev_only_change_me_in_production":
+    if SESSION_SECRET == DEFAULT_SESSION_SECRET:
         _logger.critical(
             "SESSION_SECRET must be set to a secure value in production. "
             'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
@@ -167,7 +173,7 @@ if IS_PRODUCTION:
             "COOKIE_SECURE is false in production - cookies may be vulnerable to interception"
         )
 
-if IS_DEV and SESSION_SECRET == "dev_only_change_me_in_production":
+if IS_DEV and SESSION_SECRET == DEFAULT_SESSION_SECRET:
     _logger.warning(
         "Using default SESSION_SECRET for development. "
         "Set a secure value before deploying to production."

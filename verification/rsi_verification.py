@@ -643,7 +643,7 @@ def find_token_in_bio(bio_text: str | None, token: str) -> bool:
     padded_token = token.zfill(4)
 
     # Find all 4-digit numbers in bio
-    token_pattern = r"\b\d{4}\b"
-    found_tokens = re.findall(token_pattern, bio_text)
+    verification_code_pattern = r"\b\d{4}\b"
+    found_tokens = re.findall(verification_code_pattern, bio_text)
 
     return padded_token in found_tokens

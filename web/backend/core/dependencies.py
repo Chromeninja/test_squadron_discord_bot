@@ -1217,6 +1217,26 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_metrics_game(
+        self,
+        guild_id: int,
+        game_name: str,
+        days: int = 7,
+        limit: int = 5,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        """Get detailed metrics for a specific game."""
+        client = await self._get_client()
+        params: dict = {"game_name": game_name, "days": days, "limit": limit}
+        if user_ids is not None:
+            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
+        response = await client.get(
+            f"/guilds/{guild_id}/metrics/games/detail",
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def get_metrics_timeseries(
         self,
         guild_id: int,

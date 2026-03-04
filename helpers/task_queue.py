@@ -1,10 +1,10 @@
 import asyncio
-import random
 import time
 
 import discord
 from aiolimiter import AsyncLimiter
 
+from helpers.secure_random import secure_uniform
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -68,7 +68,7 @@ async def run_task(task) -> None:
             if should_retry and attempt < MAX_RETRIES:
                 delay = BASE_DELAY * (2 ** (attempt - 1))
                 # jitter
-                delay = delay + random.uniform(0, 0.1 * delay)
+                delay = delay + secure_uniform(0, 0.1 * delay)
                 logger.warning(
                     f"Transient error in queued task (attempt {attempt}/{MAX_RETRIES}), retrying in {delay:.2f}s: {e}"
                 )

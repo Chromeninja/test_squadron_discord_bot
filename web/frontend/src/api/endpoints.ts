@@ -527,6 +527,26 @@ export interface UserMetrics {
   last_game_at?: number | null;
 }
 
+export interface GameTopPlayer {
+  user_id: string;
+  total_seconds: number;
+  session_count: number;
+  avg_seconds: number;
+  username?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface GameMetricsDetail {
+  game_name: string;
+  days: number;
+  total_seconds: number;
+  session_count: number;
+  avg_seconds: number;
+  unique_players: number;
+  top_players: GameTopPlayer[];
+  timeseries: TimeSeriesPoint[];
+}
+
 export type ActivityDimension = 'all' | 'voice' | 'chat' | 'game';
 export type ActivityTier = 'hardcore' | 'regular' | 'casual' | 'reserve' | 'inactive';
 
@@ -606,6 +626,23 @@ export const metricsApi = {
     if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; games: GameStatsEntry[] }>(
       '/api/metrics/games/top',
+      { params }
+    );
+    return response.data;
+  },
+
+  getGameMetrics: async (
+    gameName: string,
+    days: number = 7,
+    limit: number = 5,
+    dimension?: ActivityDimension | ActivityDimension[],
+    tier?: ActivityTier | ActivityTier[]
+  ) => {
+    const params: Record<string, any> = { game_name: gameName, days, limit };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
+    const response = await apiClient.get<{ success: boolean; data: GameMetricsDetail }>(
+      '/api/metrics/games/detail',
       { params }
     );
     return response.data;

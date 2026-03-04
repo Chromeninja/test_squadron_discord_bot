@@ -979,7 +979,7 @@ function Users() {
                 <tr>
                   {/* Hide checkbox column in cross-guild mode (no bulk actions) */}
                   {!isCrossGuild && (
-                    <th className="px-3 py-2 text-left w-10">
+                    <th className="px-2 sm:px-3 py-2 text-left w-10">
                       <input
                         ref={headerCheckboxRef}
                         type="checkbox"
@@ -991,20 +991,20 @@ function Users() {
                   )}
                   {/* Show guild column in cross-guild mode */}
                   {isCrossGuild && (
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                    <th className="px-2 sm:px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase hidden sm:table-cell">
                       Guild
                     </th>
                   )}
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="px-2 sm:px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Member
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="px-2 sm:px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Status
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="hidden lg:table-cell px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Main Org
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
+                  <th className="hidden lg:table-cell px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">
                     Affiliate Orgs
                   </th>
                 </tr>
@@ -1022,7 +1022,7 @@ function Users() {
                     >
                     {/* Hide checkbox in cross-guild mode */}
                     {!isCrossGuild && (
-                      <td className="px-3 py-2 w-10">
+                      <td className="px-2 sm:px-3 py-2 w-10">
                         <input
                           type="checkbox"
                           checked={isRowSelected}
@@ -1033,13 +1033,13 @@ function Users() {
                     )}
                     {/* Show guild in cross-guild mode */}
                     {isCrossGuild && (
-                      <td className="px-3 py-2">
+                      <td className="hidden sm:table-cell px-2 sm:px-3 py-2">
                         <Badge variant="purple" className="text-xs">
                           {user.guild_name || user.guild_id || 'Unknown'}
                         </Badge>
                       </td>
                     )}
-                    <td className="px-3 py-2">
+                    <td className="px-2 sm:px-3 py-2">
                       <button
                         type="button"
                         className="w-full text-left rounded px-1 py-1 -mx-1 -my-1 hover:bg-slate-700/40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1054,10 +1054,10 @@ function Users() {
                             <img
                               src={user.avatar_url}
                               alt={user.username}
-                              className="w-8 h-8 rounded-full flex-shrink-0"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex-shrink-0"
                             />
                           ) : (
-                            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-sm font-bold flex-shrink-0">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-700 flex items-center justify-center text-gray-400 text-sm font-bold flex-shrink-0">
                               {user.username.charAt(0).toUpperCase()}
                             </div>
                           )}
@@ -1068,19 +1068,22 @@ function Users() {
                             <div className="text-xs text-gray-400 truncate">
                               {user.username}
                             </div>
+                            <div className="text-[11px] text-gray-500 truncate lg:hidden mt-0.5">
+                              Main: {user.main_orgs?.[0] || '-'} · Aff: {user.affiliate_orgs?.[0] || '-'}
+                            </div>
                           </div>
                         </div>
                       </button>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 sm:px-3 py-2">
                       <Badge variant={getStatusVariant(user.membership_status)} className="text-xs">
                         {user.membership_status || 'unknown'}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-300">
+                    <td className="hidden lg:table-cell px-3 py-2 text-sm text-gray-300">
                       <OrgBadgeList orgs={user.main_orgs} maxVisible={2} colorScheme="blue" />
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-300">
+                    <td className="hidden lg:table-cell px-3 py-2 text-sm text-gray-300">
                       <OrgBadgeList orgs={user.affiliate_orgs} maxVisible={2} colorScheme="green" />
                     </td>
                   </tr>
@@ -1091,7 +1094,7 @@ function Users() {
           </div>
 
           {/* Pagination */}
-          <div className="px-6 py-4 bg-slate-900 border-t border-slate-700">
+          <div className="px-3 sm:px-6 py-4 bg-slate-900 border-t border-slate-700">
             <Pagination
               page={page}
               totalPages={totalPages}

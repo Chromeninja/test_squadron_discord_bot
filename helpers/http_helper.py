@@ -11,11 +11,11 @@ Provides a robust HTTP client wrapper with:
 
 import asyncio
 import os
-import random
 from dataclasses import dataclass
 
 import aiohttp
 
+from helpers.secure_random import secure_uniform
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +75,7 @@ class HTTPRetryPolicy:
         if self.jitter:
             # Add ±25% jitter to prevent thundering herd
             jitter_range = delay * 0.25
-            delay += random.uniform(-jitter_range, jitter_range)
+            delay += secure_uniform(-jitter_range, jitter_range)
 
         return max(0.1, delay)
 

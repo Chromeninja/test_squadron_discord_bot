@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import random
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import discord
 
+from helpers.secure_random import secure_uniform
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -272,7 +272,7 @@ class VerificationBulkService:
 
             # Inter-batch delay
             if processed < total_targets:
-                await asyncio.sleep(random.uniform(1.0, 3.0))
+                await asyncio.sleep(secure_uniform(1.0, 3.0))
 
     async def _fetch_batch_members(
         self, job: BulkVerificationJob, guild: discord.Guild, member_ids: list[int]

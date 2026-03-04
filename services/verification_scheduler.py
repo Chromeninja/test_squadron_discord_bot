@@ -4,10 +4,10 @@ Global scheduler utilities for verification rechecks.
 
 from __future__ import annotations
 
-import random
 import time
 from typing import TYPE_CHECKING, Any
 
+from helpers.secure_random import secure_randint
 from services.db.database import Database
 from utils.logging import get_logger
 
@@ -29,7 +29,7 @@ def _get_jitter(config: dict[str, Any] | None) -> int:
     jitter_h = int(cfg.get("jitter_hours", 0))
     if jitter_h <= 0:
         return 0
-    return random.randint(-jitter_h * 3600, jitter_h * 3600)
+    return secure_randint(-jitter_h * 3600, jitter_h * 3600)
 
 
 def _compute_backoff_seconds(config: dict[str, Any] | None, fail_count: int) -> int:
@@ -37,7 +37,7 @@ def _compute_backoff_seconds(config: dict[str, Any] | None, fail_count: int) -> 
     backoff = cfg.get("backoff", {}) or {}
     base = int(backoff.get("base_minutes", 180)) * 60
     max_s = int(backoff.get("max_minutes", 1440)) * 60
-    jitter = random.randint(0, 600)
+    jitter = secure_randint(0, 600)
     exp = base * (2 ** max(0, fail_count - 1))
     return min(exp + jitter, max_s)
 
