@@ -11,3 +11,5 @@ types-PyYAML
 types-beautifulsoup4
 coverage
 debugpy>=1.8,<2.0
+virtualenv>=20.36.1,<21.0.0
+wheel>=0.46.2,<1.0.0

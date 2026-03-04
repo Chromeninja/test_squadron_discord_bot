@@ -95,7 +95,7 @@ async def snapshot_member_state(
             if getattr(r, "managed", False):
                 continue
         except Exception:
-            pass
+            logger.debug("Failed to check managed attr for role %s", r)
         roles.add(getattr(r, "name", str(r)))
     return MemberSnapshot(
         status=status,

@@ -189,7 +189,10 @@ def _register_logging_shutdown() -> None:
                 _queue_listener.stop()
             except Exception:
                 # Defensive guard; avoid raising during interpreter shutdown
-                pass
+                logging.getLogger(__name__).debug(
+                    "Failed to stop queue listener during shutdown",
+                    exc_info=True,
+                )
             _queue_listener = None
 
     atexit.register(_shutdown_listener)

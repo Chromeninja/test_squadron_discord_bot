@@ -206,7 +206,7 @@ async def unauthorized_handler(request, exc):
             if err_msg:
                 message = err_msg
     except Exception:
-        pass
+        logger.debug("Failed to parse auth exception detail")
 
     response = JSONResponse(
         status_code=401,

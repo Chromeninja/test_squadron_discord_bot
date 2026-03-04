@@ -501,7 +501,7 @@ class VerificationBulkService:
                     org_name_config.strip().lower() if org_name_config else "test"
                 )
             except Exception:
-                pass
+                logger.debug("Failed to read org name config for guild %s", guild_id)
 
         async def check_with_unified_pipeline(row: StatusRow) -> RsiStatusResult:
             """Check using unified pipeline and persist state."""

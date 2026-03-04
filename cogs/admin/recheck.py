@@ -321,7 +321,7 @@ class AutoRecheck(commands.Cog):
             member = await guild.fetch_member(user_id)
             return member
         except discord.NotFound:
-            pass
+            member = None
 
         # Member not found anywhere - prune their data
         await Database.cleanup_all_user_data(int(user_id))

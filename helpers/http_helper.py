@@ -248,7 +248,12 @@ class HTTPClient:
                                             float(retry_after), 60.0
                                         )  # Cap at 60s
                                     except ValueError:
-                                        pass
+                                        logger.debug(
+                                            "Invalid Retry-After header '%s' for %s",
+                                            retry_after,
+                                            url,
+                                            exc_info=True,
+                                        )
                                 logger.info(
                                     f"HTTP {method} {url} rate limited; waiting {delay:.1f}s"
                                 )

@@ -325,7 +325,13 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                             await channel.fetch_message(existing_msg_id)
                             continue  # panel still exists
                         except discord.NotFound:
-                            pass  # panel deleted — re-send
+                            logger.debug(
+                                "Ticket panel %s missing in guild %s channel %s",
+                                existing_msg_id,
+                                guild.id,
+                                chan_id,
+                                exc_info=True,
+                            )
 
                     # Send a new panel
                     await self._send_panel(guild, channel)
@@ -422,7 +428,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Display ticket counts and thread usage."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         data = await self.ticket_service.get_ticket_stats(guild.id)
         health = await self.ticket_service.get_thread_health(guild.id)
@@ -456,7 +467,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Display thread usage status and oldest closed tickets."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         health = await self.ticket_service.get_thread_health(guild.id)
         oldest = await self.ticket_service.get_oldest_closed_tickets(
@@ -532,7 +548,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         candidates = await self.ticket_service.get_cleanup_candidates(
             guild.id, older_than_days=older_than

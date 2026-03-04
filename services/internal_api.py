@@ -316,7 +316,7 @@ class InternalAPIServer:
             if isinstance(payload, dict):
                 source = payload.get("source")
         except Exception:
-            pass
+            logger.debug("No JSON body or invalid JSON in refresh request")
 
         cache_refreshed = False
         roles_refreshed = False
@@ -1177,7 +1177,7 @@ class InternalAPIServer:
             admin_user_id = body.get("admin_user_id")
             log_leadership = body.get("log_leadership", True)
         except Exception:
-            pass  # No body or invalid JSON, proceed without admin_user_id
+            logger.debug("No body or invalid JSON in recheck request, proceeding without admin_user_id")
 
         guild = self.bot.get_guild(guild_id)
         if guild is None:
@@ -1494,7 +1494,7 @@ class InternalAPIServer:
                 if row:
                     entry["username"] = row[0] or row[1] or entry.get("username")
             except Exception:
-                pass
+                logger.debug("DB fallback for leaderboard entry user_id=%s failed", raw_user_id)
 
     async def get_metrics_overview(self, request: web.Request) -> web.Response:
         """

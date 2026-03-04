@@ -60,6 +60,11 @@ async def get_stats_overview(
         try:
             guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
         except Exception:
+            logger.debug(
+                "Failed to fetch guild member IDs for guild %s",
+                guild_id,
+                exc_info=True,
+            )
             guild_member_ids = None
 
     # ---- Total guild member count (for "unknown" calculation) ----
@@ -76,7 +81,11 @@ async def get_stats_overview(
                         )
                         total_guild_members += guild_stats.get("member_count", 0)
                 except Exception:
-                    pass  # Skip individual guild failures
+                    logger.debug(
+                        "Skipping guild stats fetch failure for guild %s",
+                        guild_info.get("guild_id"),
+                        exc_info=True,
+                    )
         except Exception:
             total_guild_members = 0
     elif guild_id:
