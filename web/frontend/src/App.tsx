@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Toaster } from 'react-hot-toast';
-import { authApi, UserProfile } from './api/endpoints';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { DashboardShell } from './components/layout/DashboardShell';
+import { useAuth } from './contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Voice from './pages/Voice';
@@ -8,44 +8,45 @@ import Metrics from './pages/Metrics';
 import SelectServer from './pages/SelectServer';
 import DashboardBotSettings from './pages/DashboardBotSettings';
 import Tickets from './pages/Tickets';
-import { handleApiError } from './utils/toast';
-import { hasPermission, getRoleBadgeColor, getRoleDisplayName, RoleLevel } from './utils/permissions';
+import { hasPermission as hasPermissionFn } from './utils/permissions';
 
-type Tab = 'dashboard' | 'metrics' | 'users' | 'voice' | 'tickets' | 'bot-settings';
+// ---------------------------------------------------------------------------
+// Route guards
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrapper that only renders children when the user meets a minimum role.
+ * Otherwise redirects to the dashboard.
+ */
+function RequireRole({
+  minRole,
+  children,
+}: {
+  minRole: Parameters<ReturnType<typeof useAuth>['userHasPermission']>[0];
+  children: React.ReactNode;
+}) {
+  const { userHasPermission } = useAuth();
+  if (!userHasPermission(minRole)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/**
+ * Wrapper that renders children only when an active guild is selected.
+ */
+function RequireGuild({ children }: { children: (guildId: string) => React.ReactNode }) {
+  const { activeGuildId } = useAuth();
+  if (!activeGuildId || activeGuildId === '*') return <Navigate to="/" replace />;
+  return <>{children(activeGuildId)}</>;
+}
+
+// ---------------------------------------------------------------------------
+// App root
+// ---------------------------------------------------------------------------
 
 function App() {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const { user, loading, setUser, refreshProfile } = useAuth();
 
-  // Helper to get user's permission level in active guild
-  const getUserRoleLevel = useCallback((): RoleLevel => {
-    if (!user?.active_guild_id) return 'user';
-    const permission = user.authorized_guilds[user.active_guild_id];
-    return permission?.role_level || 'user';
-  }, [user]);
-
-  // Helper to check if user has minimum permission level
-  const userHasPermission = useCallback((required: RoleLevel): boolean => {
-    const userRole = getUserRoleLevel();
-    return hasPermission(userRole, required);
-  }, [getUserRoleLevel]);
-
-  const fetchUserProfile = useCallback(() => {
-    return authApi
-      .getMe()
-      .then((data) => {
-        setUser(data.user);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    fetchUserProfile();
-  }, [fetchUserProfile]);
-
+  // ---- Loading state ----
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -54,17 +55,18 @@ function App() {
     );
   }
 
+  // ---- Not authenticated ----
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center">
-        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md">
-          <h1 className="text-3xl font-bold mb-4">Test Squadron Admin</h1>
+      <div className="min-h-screen flex flex-col items-center justify-center px-4">
+        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-4">Test Squadron Admin</h1>
           <p className="text-gray-400 mb-6">
             Admin dashboard for bot management
           </p>
           <a
             href="/auth/login"
-            className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-lg transition"
+            className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-lg transition min-h-[44px]"
           >
             Login with Discord
           </a>
@@ -73,38 +75,27 @@ function App() {
     );
   }
 
-  // Check if user has any permissions
-  // Fallback: if authorized_guilds doesn't exist, fall back to is_admin/is_moderator
+  // ---- Permission check ----
   const hasAnyPermissions = (() => {
-    // Bot owners always have access
-    if (user.is_bot_owner) {
-      return true;
-    }
-
-    // Check for older session format
-    if (user.is_admin || user.is_moderator) {
-      return true;
-    }
-
-    // Check new format: user needs at least staff level in active guild
-    // Skip this check for All Guilds mode (active_guild_id = "*") - bot owner already handled above
-    if (user.active_guild_id && user.active_guild_id !== '*' && user.authorized_guilds) {
+    if (user.is_bot_owner) return true;
+    if (user.is_admin || user.is_moderator) return true;
+    if (
+      user.active_guild_id &&
+      user.active_guild_id !== '*' &&
+      user.authorized_guilds
+    ) {
       const guildPerm = user.authorized_guilds[user.active_guild_id];
-      return guildPerm && hasPermission(guildPerm.role_level, 'staff');
+      return guildPerm && hasPermissionFn(guildPerm.role_level, 'staff');
     }
-
-    // Check if user has permissions in ANY guild (e.g., bot owner)
-    if (user.authorized_guilds && Object.keys(user.authorized_guilds).length > 0) {
+    if (user.authorized_guilds && Object.keys(user.authorized_guilds).length > 0)
       return true;
-    }
-
     return false;
   })();
 
   if (!hasAnyPermissions) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md">
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
           <h1 className="text-2xl font-bold mb-4 text-red-400">Access Denied</h1>
           <p className="text-gray-400 mb-4">
             You do not have permission to access this dashboard.
@@ -117,128 +108,70 @@ function App() {
     );
   }
 
+  // ---- No guild selected ----
   if (!user.active_guild_id) {
-    return <SelectServer onSelected={fetchUserProfile} user={user} />;
+    return <SelectServer onSelected={refreshProfile} user={user} />;
   }
 
-  const canViewMetrics = userHasPermission('discord_manager');
-
-  const handleSwitchServer = async () => {
-    try {
-      await authApi.clearActiveGuild();
-      // Refresh user profile to trigger SelectServer screen
-      await fetchUserProfile();
-    } catch (err) {
-      handleApiError(err, 'Failed to switch server');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await authApi.logout();
-      setUser(null);
-      window.location.href = '/';
-    } catch (err) {
-      handleApiError(err, 'Failed to log out');
-    }
-  };
-
+  // ---- Authenticated + guild selected → routed shell ----
   return (
-    <div className="min-h-screen bg-slate-900">
-      {/* Toast notifications */}
-      <Toaster />
+    <Routes>
+      <Route
+        element={
+          <DashboardShell
+            user={user}
+            onUserChange={setUser}
+            onRefreshProfile={refreshProfile}
+          />
+        }
+      >
+        {/* Dashboard (index route) */}
+        <Route index element={<Dashboard />} />
 
-      {/* Header */}
-      <header className="bg-slate-800 border-b border-slate-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold">Test Squadron Admin</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={handleSwitchServer}
-                className="px-3 py-1 text-sm font-medium bg-slate-700 text-gray-300 rounded hover:bg-slate-600 transition"
-              >
-                🔄 Switch Server
-              </button>
-              <button
-                onClick={handleLogout}
-                className="px-3 py-1 text-sm font-medium bg-red-700 text-white rounded hover:bg-red-600 transition"
-              >
-                🚪 Logout
-              </button>
-              <span className="text-sm text-gray-400">
-                {user.username}#{user.discriminator}
-              </span>
-              {/* Show role badge - new format */}
-              {user.active_guild_id && user.authorized_guilds?.[user.active_guild_id] && (
-                <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                  getRoleBadgeColor(user.authorized_guilds[user.active_guild_id].role_level)
-                }`}>
-                  {getRoleDisplayName(user.authorized_guilds[user.active_guild_id].role_level).toUpperCase()}
-                </span>
-              )}
-              {/* Fallback for sessions without authorized_guilds */}
-              {(!user.authorized_guilds || !user.active_guild_id) && user.is_admin && (
-                <span className="px-2 py-1 text-xs font-semibold bg-red-900 text-red-200 rounded">
-                  ADMIN (FALLBACK)
-                </span>
-              )}
-              {(!user.authorized_guilds || !user.active_guild_id) && user.is_moderator && !user.is_admin && (
-                <span className="px-2 py-1 text-xs font-semibold bg-blue-900 text-blue-200 rounded">
-                  MOD (FALLBACK)
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+        {/* Metrics — discord_manager+ */}
+        <Route
+          path="metrics"
+          element={
+            <RequireRole minRole="discord_manager">
+              <Metrics />
+            </RequireRole>
+          }
+        />
 
-      {/* Tabs */}
-      <div className="bg-slate-800 border-b border-slate-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
-            {([
-              { key: 'dashboard' as Tab, label: 'Dashboard', visible: true },
-              { key: 'metrics' as Tab, label: 'Metrics', visible: canViewMetrics },
-              { key: 'users' as Tab, label: 'Users', visible: true },
-              { key: 'voice' as Tab, label: 'Voice', visible: true },
-              { key: 'tickets' as Tab, label: 'Tickets', visible: userHasPermission('discord_manager') },
-              { key: 'bot-settings' as Tab, label: 'Bot Settings', visible: userHasPermission('bot_admin') },
-            ])
-              .filter((t) => t.visible)
-              .map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setActiveTab(t.key)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition ${
-                    activeTab === t.key
-                      ? 'border-indigo-500 text-indigo-500'
-                      : 'border-transparent text-gray-400 hover:text-gray-300'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-          </nav>
-        </div>
-      </div>
+        {/* Users */}
+        <Route path="users" element={<Users />} />
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'metrics' && canViewMetrics && <Metrics />}
-        {activeTab === 'users' && <Users />}
-        {activeTab === 'voice' && <Voice />}
-        {activeTab === 'tickets' && userHasPermission('discord_manager') && user.active_guild_id && (
-          <Tickets guildId={user.active_guild_id} />
-        )}
-        {activeTab === 'bot-settings' && userHasPermission('bot_admin') && user.active_guild_id && (
-          <DashboardBotSettings guildId={user.active_guild_id} />
-        )}
-      </main>
-    </div>
+        {/* Voice */}
+        <Route path="voice" element={<Voice />} />
+
+        {/* Tickets — discord_manager+ and needs guildId */}
+        <Route
+          path="tickets"
+          element={
+            <RequireRole minRole="discord_manager">
+              <RequireGuild>
+                {(guildId) => <Tickets guildId={guildId} />}
+              </RequireGuild>
+            </RequireRole>
+          }
+        />
+
+        {/* Bot Settings — bot_admin+ and needs guildId */}
+        <Route
+          path="settings"
+          element={
+            <RequireRole minRole="bot_admin">
+              <RequireGuild>
+                {(guildId) => <DashboardBotSettings guildId={guildId} />}
+              </RequireGuild>
+            </RequireRole>
+          }
+        />
+
+        {/* Catch-all → redirect to dashboard */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
   );
 }
 

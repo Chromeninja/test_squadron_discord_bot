@@ -3,6 +3,7 @@ Statistics endpoints for dashboard overview.
 """
 
 import json
+import logging
 
 from core.dependencies import (
     InternalAPIClient,
@@ -22,6 +23,7 @@ from core.schemas import StatsOverview, StatsResponse, StatusCounts, UserProfile
 from fastapi import APIRouter, Depends
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/overview", response_model=StatsResponse)

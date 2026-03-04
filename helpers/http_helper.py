@@ -11,7 +11,7 @@ Provides a robust HTTP client wrapper with:
 
 import asyncio
 import os
-import random
+import secrets
 from dataclasses import dataclass
 
 import aiohttp
@@ -19,6 +19,15 @@ import aiohttp
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _secure_uniform(low: float, high: float) -> float:
+    """Return a cryptographically strong pseudo-uniform float in [low, high)."""
+    if high <= low:
+        return low
+    scale = 1_000_000
+    fraction = secrets.randbelow(scale) / scale
+    return low + ((high - low) * fraction)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +84,7 @@ class HTTPRetryPolicy:
         if self.jitter:
             # Add ±25% jitter to prevent thundering herd
             jitter_range = delay * 0.25
-            delay += random.uniform(-jitter_range, jitter_range)
+            delay += _secure_uniform(-jitter_range, jitter_range)
 
         return max(0.1, delay)
 

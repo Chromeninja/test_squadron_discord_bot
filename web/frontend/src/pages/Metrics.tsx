@@ -32,6 +32,7 @@ import {
   LeaderboardChart,
   GamePieChart,
   UserDetailPanel,
+  GameDetailPanel,
 } from '../components/charts';
 import { COLORS as PIE_COLORS } from '../components/charts/GamePieChart';
 
@@ -61,6 +62,7 @@ export default function Metrics() {
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
+  const [selectedGameName, setSelectedGameName] = useState<string | null>(null);
   const [selectedDimensions, setSelectedDimensions] = useState<ActivityDimension[]>(['all']);
   const [selectedTiers, setSelectedTiers] = useState<ActivityTier[]>([]);
   const [dimensionDropdownOpen, setDimensionDropdownOpen] = useState<boolean>(false);
@@ -160,6 +162,10 @@ export default function Metrics() {
     setSelectedUserId(userId);
   };
 
+  const openGamePanel = (gameName: string) => {
+    setSelectedGameName(gameName);
+  };
+
   // Get the tier counts for the currently selected dimension
   const currentDimensionForCounts: ActivityDimension = selectedDimensions.length === 1 ? selectedDimensions[0] : 'all';
   const currentCounts = activityCounts?.[currentDimensionForCounts] ?? null;
@@ -204,8 +210,8 @@ export default function Metrics() {
   return (
     <div className="space-y-6">
       {/* Header with time range selector */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xl font-bold text-white">Server Metrics</h2>
           <p className="text-sm text-gray-400 mt-1">
             Activity tracking &amp; analytics
@@ -216,12 +222,12 @@ export default function Metrics() {
             ) : null}
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1">
+        <div className="inline-flex w-full sm:w-auto items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1 overflow-x-auto">
           {([7, 30, 90] as TimeRange[]).map((range) => (
             <button
               key={range}
               onClick={() => handleTimeRangeChange(range)}
-              className={`px-3 py-1.5 text-sm font-medium rounded transition ${
+              className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap ${
                 days === range
                   ? 'bg-indigo-600 text-white'
                   : 'text-gray-400 hover:text-white hover:bg-slate-700'
@@ -234,9 +240,9 @@ export default function Metrics() {
       </div>
 
       {/* Activity Group Filter */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-start gap-3">
         {/* Dimension dropdown (Users-page style) */}
-        <div className="flex-1 min-w-[250px] max-w-[420px] relative" ref={dimensionDropdownRef}>
+        <div className="w-full sm:flex-1 sm:min-w-[250px] sm:max-w-[420px] relative" ref={dimensionDropdownRef}>
           <div className="relative">
             <div
               role="combobox"
@@ -298,7 +304,7 @@ export default function Metrics() {
         </div>
 
         {/* Tier chips */}
-        <div className="flex items-center gap-1.5">
+        <div className="grid grid-cols-5 gap-1 w-full">
           {ALL_TIERS
             .map((tier) => {
             const isDisabledReserve = tier === 'reserve' && days === 7;
@@ -313,7 +319,7 @@ export default function Metrics() {
                   onClick={() => !isDisabledReserve && handleTierClick(tier)}
                   title={helpText}
                   disabled={isDisabledReserve}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border transition ${
+                  className={`w-full inline-flex items-center justify-center gap-1 px-1 py-1 text-[10px] sm:text-xs font-medium rounded-full border transition whitespace-nowrap ${
                     isDisabledReserve
                       ? 'border-slate-700 text-slate-600 bg-transparent cursor-not-allowed opacity-50'
                       : isActive
@@ -321,9 +327,20 @@ export default function Metrics() {
                         : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-slate-800'
                   }`}
                 >
-                  {TIER_LABELS[tier]}
+                  <span className="hidden sm:inline">{TIER_LABELS[tier]}</span>
+                  <span className="sm:hidden">
+                    {tier === 'hardcore'
+                      ? 'Hard'
+                      : tier === 'regular'
+                        ? 'Reg'
+                        : tier === 'casual'
+                          ? 'Cas'
+                          : tier === 'reserve'
+                            ? 'Res'
+                            : 'Ina'}
+                  </span>
                   <span
-                    className={`inline-flex items-center justify-center text-[10px] min-w-[18px] h-[18px] rounded-full px-1 ${
+                    className={`inline-flex items-center justify-center text-[9px] sm:text-[10px] min-w-[16px] h-[16px] sm:min-w-[18px] sm:h-[18px] rounded-full px-1 ${
                       isActive ? 'bg-black/25' : 'bg-slate-800'
                     }`}
                   >
@@ -367,7 +384,7 @@ export default function Metrics() {
       )}
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         <MetricCard
           label="Total Messages"
           value={(period?.total_messages ?? 0).toLocaleString()}
@@ -396,7 +413,7 @@ export default function Metrics() {
 
       {/* Live activity row */}
       {live && (live.messages_today > 0 || live.active_game_sessions > 0 || live.top_game) && (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-5 py-3 flex items-center gap-6 text-sm">
+        <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 sm:px-5 py-3 flex flex-wrap items-center gap-3 sm:gap-6 text-sm">
           <span className="text-gray-400">Live:</span>
           <span className="text-gray-300">
             <span className="text-white font-medium">{live.messages_today}</span> messages today
@@ -465,7 +482,55 @@ export default function Metrics() {
           <h3 className="text-sm font-semibold text-gray-300 mb-4">
             🎮 Game Statistics ({days}d)
           </h3>
-          <div className="overflow-x-auto">
+
+          {/* Mobile: compact stacked rows */}
+          <div className="sm:hidden space-y-2">
+            {topGames.map((game, i) => (
+              <div
+                key={game.game_name}
+                className="rounded border border-slate-700 bg-slate-900/30 p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                    />
+                    <span className="text-xs text-gray-400">#{i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => openGamePanel(game.game_name)}
+                      className="text-sm font-medium text-white truncate text-left hover:text-amber-300 underline-offset-2 hover:underline"
+                      title={`View details for ${game.game_name}`}
+                    >
+                      {game.game_name}
+                    </button>
+                  </div>
+                  <span className="text-sm font-semibold text-indigo-400 whitespace-nowrap">
+                    {formatDuration(game.total_seconds)}
+                  </span>
+                </div>
+
+                <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-gray-400">
+                  <div>
+                    <span className="block text-gray-500">Sessions</span>
+                    <span className="text-gray-200">{game.session_count}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Avg</span>
+                    <span className="text-gray-200">{formatDuration(game.avg_seconds)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-gray-500">Players</span>
+                    <span className="text-gray-200">{game.unique_players ?? '—'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop/tablet: full table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 border-b border-slate-700">
@@ -492,7 +557,16 @@ export default function Metrics() {
                         {i + 1}
                       </span>
                     </td>
-                    <td className="py-2 pr-4 font-medium text-white">{game.game_name}</td>
+                    <td className="py-2 pr-4 font-medium text-white">
+                      <button
+                        type="button"
+                        onClick={() => openGamePanel(game.game_name)}
+                        className="hover:text-amber-300 underline-offset-2 hover:underline text-left"
+                        title={`View details for ${game.game_name}`}
+                      >
+                        {game.game_name}
+                      </button>
+                    </td>
                     <td className="py-2 pr-4 text-right text-indigo-400">
                       {formatDuration(game.total_seconds)}
                     </td>
@@ -517,6 +591,14 @@ export default function Metrics() {
             setSelectedUserId(null);
             setSelectedUsername(null);
           }}
+        />
+      )}
+
+      {selectedGameName && (
+        <GameDetailPanel
+          gameName={selectedGameName}
+          days={days}
+          onClose={() => setSelectedGameName(null)}
         />
       )}
     </div>

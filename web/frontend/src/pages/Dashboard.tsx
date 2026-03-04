@@ -155,12 +155,15 @@ function Dashboard() {
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Dashboard Overview</h2>
+    <div className="space-y-6 lg:space-y-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold leading-tight dashboard-section-title">Dashboard Overview</h2>
         <Button
           onClick={handleRefresh}
           loading={refreshing}
+          variant="secondary"
+          size="sm"
+          className="self-start sm:self-auto min-h-[40px] px-3 dashboard-accent-button"
           leftIcon={
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -172,42 +175,42 @@ function Dashboard() {
       </div>
 
       {/* Main Stats - Visible to all authenticated users */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-6">
         {/* Total Verified */}
-        <Card padding="lg">
-          <h3 className="text-sm font-medium text-gray-400 mb-2">
+        <Card padding="none" className="p-3 sm:p-4 lg:p-6 dashboard-panel">
+          <h3 className="text-sm font-medium text-gray-400 mb-1.5">
             Total Verified
           </h3>
-          <p className="text-3xl font-bold">{stats.total_verified}</p>
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold leading-tight text-yellow-200">{stats.total_verified}</p>
         </Card>
 
         {/* Voice Active */}
-        <Card padding="lg">
-          <h3 className="text-sm font-medium text-gray-400 mb-2">
+        <Card padding="none" className="p-3 sm:p-4 lg:p-6 dashboard-panel">
+          <h3 className="text-sm font-medium text-gray-400 mb-1.5">
             Active Voice Channels
           </h3>
-          <p className="text-3xl font-bold">{stats.voice_active_count}</p>
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold leading-tight text-yellow-200">{stats.voice_active_count}</p>
         </Card>
 
         {/* Status Breakdown */}
-        <Card padding="lg" className="md:col-span-2 lg:col-span-1">
-          <h3 className="text-sm font-medium text-gray-400 mb-4">
+        <Card padding="none" className="col-span-2 lg:col-span-1 p-3 sm:p-4 lg:p-6 dashboard-panel">
+          <h3 className="text-sm font-medium text-gray-400 mb-3">
             Membership Status
           </h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
               <span className="text-green-400">Main</span>
               <span className="font-semibold">{stats.by_status.main}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between">
               <span className="text-blue-400">Affiliate</span>
               <span className="font-semibold">{stats.by_status.affiliate}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between">
               <span className="text-yellow-400">Non-Member</span>
               <span className="font-semibold">{stats.by_status.non_member}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between">
               <span className="text-gray-400">Unknown</span>
               <span className="font-semibold">{stats.by_status.unknown}</span>
             </div>
@@ -218,11 +221,11 @@ function Dashboard() {
       {/* Admin Section - Only visible to bot admins and bot owners */}
       {isBotAdmin && (
         <>
-          <h3 className="text-xl font-bold mt-8 mb-4">Admin Monitoring</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <h3 className="text-xl font-bold dashboard-section-title">Admin Monitoring</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {/* Bot Health Card */}
             {health && (
-              <Card padding="lg">
+              <Card padding="none" className="p-4 sm:p-5 lg:p-6 dashboard-panel">
                 <h3 className="text-sm font-medium text-gray-400 mb-3">
                   Bot Health
                 </h3>
@@ -287,7 +290,7 @@ function Dashboard() {
             )}
 
             {/* Last Error Card */}
-            <Card padding="lg">
+            <Card padding="none" className="p-4 sm:p-5 lg:p-6 dashboard-panel">
               <h3 className="text-sm font-medium text-gray-400 mb-3">
                 Last Error
               </h3>
@@ -327,17 +330,18 @@ function Dashboard() {
             </Card>
 
             {/* Admin Actions Card */}
-            <Card padding="lg">
+            <Card padding="none" className="p-4 sm:p-5 lg:p-6 dashboard-panel">
               <h3 className="text-sm font-medium text-gray-400 mb-3">
                 Actions
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {exportActions.map(({ label, action, errorMsg }) => (
                   <Button
                     key={label}
                     variant="secondary"
                     size="sm"
                     fullWidth
+                    className="min-h-[40px] justify-start border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/15"
                     onClick={() => handleExport(action, `${label.replace('Export ', '')} exported successfully`, errorMsg)}
                     leftIcon={
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

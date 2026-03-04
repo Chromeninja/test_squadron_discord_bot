@@ -181,6 +181,39 @@ async def test_top_games_internal_error(
     assert response.status_code == HTTPStatus.BAD_GATEWAY
 
 
+@pytest.mark.asyncio
+async def test_game_metrics_detail(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Game detail endpoint returns per-game overview and top players."""
+    _use_fixture(fake_internal_api)
+    response = await client.get(
+        "/api/metrics/games/detail?game_name=Star%20Citizen&days=7&limit=5",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert "data" in body
+    assert body["data"]["game_name"] == "Star Citizen"
+    assert body["data"]["unique_players"] == 7
+    assert len(body["data"]["top_players"]) == 2
+    assert body["data"]["top_players"][0]["user_id"] == "123456789"
+
+
+@pytest.mark.asyncio
+async def test_game_metrics_detail_internal_error(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+):
+    """Game detail endpoint returns 502 on internal failure."""
+    fake_internal_api._metrics_game_override = RuntimeError("timeout")
+    response = await client.get(
+        "/api/metrics/games/detail?game_name=Star%20Citizen",
+        cookies={"session": mock_admin_session},
+    )
+    assert response.status_code == HTTPStatus.BAD_GATEWAY
+    assert response.json()["detail"] == "Game metrics unavailable"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/metrics/timeseries
 # ---------------------------------------------------------------------------

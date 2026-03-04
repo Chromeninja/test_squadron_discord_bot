@@ -17,6 +17,8 @@ from core.pagination import is_all_guilds_mode
 from core.schemas import (
     ActivityGroupCounts,
     ActivityGroupCountsResponse,
+    GameMetrics,
+    GameMetricsResponse,
     LeaderboardResponse,
     MetricsOverview,
     MetricsOverviewResponse,
@@ -268,6 +270,57 @@ async def get_top_games(
         return TopGamesResponse(games=result.get("games", []))
     except Exception:
         raise HTTPException(status_code=502, detail="Game stats unavailable")
+
+
+@router.get("/games/detail", response_model=GameMetricsResponse)
+async def get_game_metrics(
+    game_name: str = Query(min_length=1, max_length=100),
+    days: int = Query(default=7, ge=1, le=365),
+    limit: int = Query(default=5, ge=1, le=20),
+    dimension: str | None = Query(
+        default=None,
+        pattern="^(all|voice|chat|game|combined)(,(all|voice|chat|game|combined))*$",
+    ),
+    tier: str | None = Query(
+        default=None,
+        pattern="^(hardcore|regular|casual|reserve|inactive)(,(hardcore|regular|casual|reserve|inactive))*$",
+    ),
+    current_user: UserProfile = Depends(require_discord_manager()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """
+    Get detailed metrics for a specific game, including top players.
+
+    Requires: Discord Manager role or higher
+    """
+    guild_id = _resolve_guild_id(current_user)
+
+    try:
+        user_ids = await _resolve_activity_filter(
+            internal_api, guild_id, dimension, tier, days=days
+        )
+        result = await internal_api.get_metrics_game(
+            guild_id,
+            game_name=game_name,
+            days=days,
+            limit=limit,
+            user_ids=user_ids,
+        )
+
+        top_players = result.get("top_players", [])
+        normalized_players: list[dict] = []
+        for entry in top_players:
+            if not isinstance(entry, dict):
+                continue
+            normalized = dict(entry)
+            if "user_id" in normalized:
+                normalized["user_id"] = str(normalized["user_id"])
+            normalized_players.append(normalized)
+        result["top_players"] = normalized_players
+
+        return GameMetricsResponse(data=GameMetrics(**result))
+    except Exception:
+        raise HTTPException(status_code=502, detail="Game metrics unavailable")
 
 
 @router.get("/timeseries", response_model=TimeSeriesResponse)

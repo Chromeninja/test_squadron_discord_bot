@@ -578,8 +578,8 @@ export default function Tickets({ guildId }: TicketsProps) {
       {/* Channels — primary setup area */}
       <AccordionSection title="Channels" defaultOpen>
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-400">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <p className="text-sm text-gray-400 sm:pr-4">
               Each channel gets its own ticket panel with customizable
               appearance. Add categories under each channel for users to
               choose from.
@@ -587,7 +587,7 @@ export default function Tickets({ guildId }: TicketsProps) {
             <Button
               size="sm"
               onClick={() => setChannelAddModalOpen(true)}
-              className="flex-shrink-0 ml-4"
+              className="self-start sm:self-auto flex-shrink-0"
             >
               + Add Channel
             </Button>
@@ -639,12 +639,13 @@ export default function Tickets({ guildId }: TicketsProps) {
           )}
 
           {/* Deploy action */}
-          <div className="flex items-center gap-3 pt-3 border-t border-slate-700">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-3 border-t border-slate-700">
             <Button
               variant="success"
               onClick={handleDeployPanel}
               loading={deploying}
               disabled={channelConfigs.length === 0}
+              className="self-start"
             >
               {deploying ? 'Deploying…' : '🚀 Deploy Panels'}
             </Button>

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import random
+import secrets
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -30,6 +30,15 @@ if TYPE_CHECKING:
 
 
 logger = get_logger(__name__)
+
+
+def _secure_uniform(low: float, high: float) -> float:
+    """Return a cryptographically strong pseudo-uniform float in [low, high)."""
+    if high <= low:
+        return low
+    scale = 1_000_000
+    fraction = secrets.randbelow(scale) / scale
+    return low + ((high - low) * fraction)
 
 
 @dataclass
@@ -272,7 +281,7 @@ class VerificationBulkService:
 
             # Inter-batch delay
             if processed < total_targets:
-                await asyncio.sleep(random.uniform(1.0, 3.0))
+                await asyncio.sleep(_secure_uniform(1.0, 3.0))
 
     async def _fetch_batch_members(
         self, job: BulkVerificationJob, guild: discord.Guild, member_ids: list[int]

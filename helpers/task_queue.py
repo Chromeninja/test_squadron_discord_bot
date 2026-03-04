@@ -1,5 +1,5 @@
 import asyncio
-import random
+import secrets
 import time
 
 import discord
@@ -8,6 +8,15 @@ from aiolimiter import AsyncLimiter
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _secure_uniform(low: float, high: float) -> float:
+    """Return a cryptographically strong pseudo-uniform float in [low, high)."""
+    if high <= low:
+        return low
+    scale = 1_000_000
+    fraction = secrets.randbelow(scale) / scale
+    return low + ((high - low) * fraction)
 
 
 task_queue = asyncio.Queue()
@@ -68,7 +77,7 @@ async def run_task(task) -> None:
             if should_retry and attempt < MAX_RETRIES:
                 delay = BASE_DELAY * (2 ** (attempt - 1))
                 # jitter
-                delay = delay + random.uniform(0, 0.1 * delay)
+                delay = delay + _secure_uniform(0, 0.1 * delay)
                 logger.warning(
                     f"Transient error in queued task (attempt {attempt}/{MAX_RETRIES}), retrying in {delay:.2f}s: {e}"
                 )

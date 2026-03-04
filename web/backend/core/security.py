@@ -8,6 +8,7 @@ that maps to the real payload stored in ``session_store``.
 
 import asyncio
 import copy
+import logging
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -62,6 +63,7 @@ __all__ = [
 ]
 
 _oauth_states: dict[str, float] = {}
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,9 @@ class InternalAPIServer:
             "/guilds/{guild_id}/metrics/games/top", self.get_metrics_top_games
         )
         self.app.router.add_get(
+            "/guilds/{guild_id}/metrics/games/detail", self.get_metrics_game
+        )
+        self.app.router.add_get(
             "/guilds/{guild_id}/metrics/timeseries", self.get_metrics_timeseries
         )
         self.app.router.add_get(
@@ -1694,6 +1697,64 @@ class InternalAPIServer:
         except Exception:
             logger.exception("Error fetching top games")
             return web.json_response({"error": "Failed to fetch top games"}, status=500)
+
+    async def get_metrics_game(self, request: web.Request) -> web.Response:
+        """
+        Get detailed metrics for a specific game.
+
+        Path: GET /guilds/{guild_id}/metrics/games/detail
+        Query params: game_name (required), days (int, default 7), limit (int, default 5)
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        metrics = self._get_metrics_service()
+        if metrics is None:
+            return web.json_response(
+                {"error": "Metrics service unavailable"}, status=503
+            )
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        game_name = str(request.query.get("game_name", "")).strip()
+        if not game_name:
+            return web.json_response({"error": "Missing game_name parameter"}, status=400)
+
+        try:
+            days = int(request.query.get("days", "7"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid days parameter"}, status=400)
+        days = max(1, min(days, 365))
+
+        try:
+            limit = int(request.query.get("limit", "5"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Invalid limit parameter"}, status=400)
+        limit = max(1, min(limit, 20))
+
+        try:
+            data = await metrics.get_game_metrics(
+                guild_id,
+                game_name=game_name,
+                days=days,
+                limit=limit,
+                user_ids=self._parse_user_ids(request),
+            )
+            top_players = data.get("top_players", [])
+            if isinstance(top_players, list):
+                await self._enrich_leaderboard_entries(guild_id, top_players)
+            return web.json_response(data)
+        except web.HTTPBadRequest:
+            raise
+        except Exception:
+            logger.exception("Error fetching game metrics")
+            return web.json_response(
+                {"error": "Failed to fetch game metrics"},
+                status=500,
+            )
 
     async def get_metrics_timeseries(self, request: web.Request) -> web.Response:
         """

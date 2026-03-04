@@ -1219,6 +1219,111 @@ class MetricsService(BaseService):
                 for r in await cursor.fetchall()
             ]
 
+    async def get_game_metrics(
+        self,
+        guild_id: int,
+        game_name: str,
+        days: int = 7,
+        limit: int = 5,
+        user_ids: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Get detailed metrics for a specific game in a guild."""
+        self._ensure_initialized()
+        cutoff = int(time.time()) - (days * 86400)
+
+        uid_filter = ""
+        uid_params: list[Any] = []
+        if user_ids is not None:
+            if not user_ids:
+                return {
+                    "game_name": game_name,
+                    "days": days,
+                    "total_seconds": 0,
+                    "session_count": 0,
+                    "avg_seconds": 0,
+                    "unique_players": 0,
+                    "top_players": [],
+                    "timeseries": [],
+                }
+            placeholders = ",".join("?" for _ in user_ids)
+            uid_filter = f" AND user_id IN ({placeholders})"
+            uid_params = list(user_ids)
+
+        async with MetricsDatabase.get_connection() as db:
+            cursor = await db.execute(
+                "SELECT COALESCE(SUM(duration_seconds), 0), "
+                "COUNT(*), "
+                "COALESCE(AVG(duration_seconds), 0), "
+                "COUNT(DISTINCT user_id) "
+                "FROM game_sessions "
+                "WHERE guild_id = ? AND game_name = ? AND started_at >= ? "
+                "AND duration_seconds IS NOT NULL"
+                f"{uid_filter}",
+                [guild_id, game_name, cutoff, *uid_params],
+            )
+            totals_row = await cursor.fetchone()
+
+            cursor = await db.execute(
+                "SELECT user_id, "
+                "COALESCE(SUM(duration_seconds), 0) AS total_seconds, "
+                "COUNT(*) AS session_count, "
+                "COALESCE(AVG(duration_seconds), 0) AS avg_seconds "
+                "FROM game_sessions "
+                "WHERE guild_id = ? AND game_name = ? AND started_at >= ? "
+                "AND duration_seconds IS NOT NULL"
+                f"{uid_filter} "
+                "GROUP BY user_id "
+                "ORDER BY total_seconds DESC "
+                "LIMIT ?",
+                [guild_id, game_name, cutoff, *uid_params, limit],
+            )
+            top_players = [
+                {
+                    "user_id": r[0],
+                    "total_seconds": r[1],
+                    "session_count": r[2],
+                    "avg_seconds": round(r[3]) if r[3] else 0,
+                }
+                for r in await cursor.fetchall()
+            ]
+
+            cursor = await db.execute(
+                "SELECT (ended_at - (ended_at % 3600)) AS hour_bucket, "
+                "COALESCE(SUM(duration_seconds), 0) AS total_seconds, "
+                "COUNT(DISTINCT user_id) AS unique_users "
+                "FROM game_sessions "
+                "WHERE guild_id = ? AND game_name = ? AND ended_at IS NOT NULL "
+                "AND ended_at >= ? AND duration_seconds IS NOT NULL"
+                f"{uid_filter} "
+                "GROUP BY hour_bucket "
+                "ORDER BY hour_bucket",
+                [guild_id, game_name, cutoff, *uid_params],
+            )
+            timeseries = [
+                {
+                    "timestamp": r[0],
+                    "value": r[1],
+                    "unique_users": r[2],
+                }
+                for r in await cursor.fetchall()
+            ]
+
+        total_seconds = int(totals_row[0]) if totals_row else 0
+        session_count = int(totals_row[1]) if totals_row else 0
+        avg_seconds = round(totals_row[2]) if totals_row and totals_row[2] else 0
+        unique_players = int(totals_row[3]) if totals_row else 0
+
+        return {
+            "game_name": game_name,
+            "days": days,
+            "total_seconds": total_seconds,
+            "session_count": session_count,
+            "avg_seconds": avg_seconds,
+            "unique_players": unique_players,
+            "top_players": top_players,
+            "timeseries": timeseries,
+        }
+
     async def get_user_metrics(
         self, guild_id: int, user_id: int, days: int = 7
     ) -> dict[str, Any]:

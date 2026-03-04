@@ -270,6 +270,7 @@ class FakeInternalAPIClient:
         self._metrics_voice_lb_override = None
         self._metrics_msg_lb_override = None
         self._metrics_top_games_override = None
+        self._metrics_game_override = None
         self._metrics_timeseries_override = None
         self._metrics_user_override = None
         self._metrics_delete_user_override = None
@@ -583,6 +584,48 @@ class FakeInternalAPIClient:
             "data": [
                 {"hour": "2025-01-01T00:00:00", "value": 10.0},
                 {"hour": "2025-01-01T01:00:00", "value": 15.0},
+            ],
+        }
+
+    async def get_metrics_game(
+        self,
+        guild_id: int,
+        game_name: str,
+        days: int = 7,
+        limit: int = 5,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        """Return detailed metrics for one game."""
+        if self._metrics_game_override is not None:
+            if isinstance(self._metrics_game_override, Exception):
+                raise self._metrics_game_override
+            return self._metrics_game_override
+        return {
+            "game_name": game_name,
+            "days": days,
+            "total_seconds": 54000,
+            "session_count": 15,
+            "avg_seconds": 3600,
+            "unique_players": 7,
+            "top_players": [
+                {
+                    "user_id": 123456789,
+                    "total_seconds": 7200,
+                    "session_count": 3,
+                    "avg_seconds": 2400,
+                    "username": "PilotOne",
+                },
+                {
+                    "user_id": 987654321,
+                    "total_seconds": 5400,
+                    "session_count": 2,
+                    "avg_seconds": 2700,
+                    "username": "PilotTwo",
+                },
+            ],
+            "timeseries": [
+                {"timestamp": 1735689600, "value": 3600, "unique_users": 3},
+                {"timestamp": 1735693200, "value": 5400, "unique_users": 4},
             ],
         }
 
