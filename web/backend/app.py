@@ -56,6 +56,7 @@ else:
 
 from core import session_store
 from core.dependencies import initialize_services, shutdown_services
+from core.env_config import DEFAULT_SESSION_SECRET, SESSION_SECRET
 from core.rate_limit import limiter
 from core.request_id import RequestIDMiddleware
 from routes import (
@@ -81,8 +82,8 @@ async def lifespan(app: FastAPI):
     """Initialize and cleanup services on app startup/shutdown."""
     # Security validation: Ensure SESSION_SECRET is properly configured in production
     env = os.getenv("ENV", "development").lower()
-    session_secret = os.getenv("SESSION_SECRET", "")
-    default_secret = "dev_only_change_me_in_production"
+    session_secret = SESSION_SECRET
+    default_secret = DEFAULT_SESSION_SECRET
 
     if env == "production" and (not session_secret or session_secret == default_secret):
         logger.critical(

@@ -12,7 +12,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { GameMetricsDetail, metricsApi } from '../../api/endpoints';
+import {
+  ActivityDimension,
+  ActivityTier,
+  GameMetricsDetail,
+  metricsApi,
+} from '../../api/endpoints';
 import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 import { formatDuration, formatTimestamp } from '../../utils/format';
 import { handleApiError } from '../../utils/toast';
@@ -20,10 +25,18 @@ import { handleApiError } from '../../utils/toast';
 interface GameDetailPanelProps {
   gameName: string;
   days: number;
+  dimension?: ActivityDimension | ActivityDimension[];
+  tier?: ActivityTier | ActivityTier[];
   onClose: () => void;
 }
 
-export default function GameDetailPanel({ gameName, days, onClose }: GameDetailPanelProps) {
+export default function GameDetailPanel({
+  gameName,
+  days,
+  dimension,
+  tier,
+  onClose,
+}: GameDetailPanelProps) {
   const [data, setData] = useState<GameMetricsDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,14 +45,14 @@ export default function GameDetailPanel({ gameName, days, onClose }: GameDetailP
     setLoading(true);
     setError(null);
     metricsApi
-      .getGameMetrics(gameName, days, 5)
+      .getGameMetrics(gameName, days, 5, dimension, tier)
       .then((response) => setData(response.data))
       .catch((err) => {
         setError('Failed to load game metrics');
         handleApiError(err, 'Failed to load game metrics');
       })
       .finally(() => setLoading(false));
-  }, [days, gameName]);
+  }, [days, dimension, gameName, tier]);
 
   useEffect(() => {
     fetchGameMetrics();

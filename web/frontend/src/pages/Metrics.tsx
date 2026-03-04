@@ -48,6 +48,23 @@ const DIMENSIONS: { value: ActivityDimension; label: string }[] = [
 const ALL_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve', 'inactive'];
 const ACTIVE_TIERS: ActivityTier[] = ['hardcore', 'regular', 'casual', 'reserve'];
 
+function deriveMetricsFilters(
+  dims: ActivityDimension[],
+  tiers: ActivityTier[]
+): { filterParam: ActivityDimension[] | undefined; tierParam: ActivityTier[] | undefined } {
+  const hasSpecificDim = dims.some((value) => value !== 'all');
+  const effectiveTiers = tiers.length > 0 ? tiers : (hasSpecificDim ? ACTIVE_TIERS : []);
+  const specificDims: ActivityDimension[] = dims.filter(
+    (value): value is Exclude<ActivityDimension, 'all'> => value !== 'all'
+  );
+  const filterParam: ActivityDimension[] | undefined = hasSpecificDim
+    ? specificDims
+    : (effectiveTiers.length > 0 ? ['all'] : undefined);
+  const tierParam: ActivityTier[] | undefined = effectiveTiers.length > 0 ? effectiveTiers : undefined;
+
+  return { filterParam, tierParam };
+}
+
 // Tier cadence helpers imported from utils/tierHelpers
 
 export default function Metrics() {
@@ -74,19 +91,10 @@ export default function Metrics() {
     setLoading(true);
     setError(null);
 
-    const filterDims = dims ?? selectedDimensions;
-    const hasSpecificDim = filterDims.some((value) => value !== 'all');
-    const effectiveTiers =
-      (tiers ?? selectedTiers).length > 0
-        ? (tiers ?? selectedTiers)
-        : (hasSpecificDim ? ACTIVE_TIERS : []);
-    const specificDims: ActivityDimension[] = filterDims.filter(
-      (value): value is Exclude<ActivityDimension, 'all'> => value !== 'all'
+    const { filterParam, tierParam } = deriveMetricsFilters(
+      dims ?? selectedDimensions,
+      tiers ?? selectedTiers
     );
-    const filterParam: ActivityDimension[] | undefined = hasSpecificDim
-      ? specificDims
-      : (effectiveTiers.length > 0 ? ['all'] : undefined);
-    const tierParam: ActivityTier[] | undefined = effectiveTiers.length > 0 ? effectiveTiers : undefined;
 
     try {
       // Fetch all metrics data in parallel (include activity group counts)
@@ -165,6 +173,8 @@ export default function Metrics() {
   const openGamePanel = (gameName: string) => {
     setSelectedGameName(gameName);
   };
+
+  const modalFilters = deriveMetricsFilters(selectedDimensions, selectedTiers);
 
   // Get the tier counts for the currently selected dimension
   const currentDimensionForCounts: ActivityDimension = selectedDimensions.length === 1 ? selectedDimensions[0] : 'all';
@@ -598,6 +608,8 @@ export default function Metrics() {
         <GameDetailPanel
           gameName={selectedGameName}
           days={days}
+          dimension={modalFilters.filterParam}
+          tier={modalFilters.tierParam}
           onClose={() => setSelectedGameName(null)}
         />
       )}
