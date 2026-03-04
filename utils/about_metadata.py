@@ -38,6 +38,23 @@ USER_RIGHTS_SUMMARY = (
     "through our support system."
 )
 
+PRIVACY_REQUEST_STEPS = [
+    "Open a support ticket in Discord and state 'privacy request'.",
+    "Specify request type: access, correction, deletion, or objection/restriction.",
+    "Staff will verify account ownership before processing.",
+    "Target handling time is within 30 days.",
+]
+
+DATA_RETENTION_SUMMARY = (
+    "Metrics retention defaults to 90 days (configurable). Operational logs are "
+    "retained for short operational windows unless needed for active investigations."
+)
+
+LEGAL_BASIS_SUMMARY = (
+    "Processing basis: Legitimate Interests (GDPR Article 6(1)(f)) for community "
+    "verification, moderation, and automation."
+)
+
 SUPPORT_EMAIL = "Chromeninja@test.gg"
 SUPPORT_TICKET_INFO = "Open a support ticket through the ticketing system in Discord."
 

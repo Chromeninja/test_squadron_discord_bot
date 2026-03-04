@@ -33,10 +33,14 @@ This document explains what personal data TEST Clanker processes, why it is proc
 - Staff verify ownership, then remove verification records, voice channel preferences, metrics records, and related audit entries using the existing admin tooling.
 - Per-user metrics deletion is supported via the admin dashboard API (`DELETE /api/metrics/user/{user_id}`), which purges all voice sessions, game sessions, message counts, and per-user rollup records for the user in the selected guild.
 - Direct messages are not stored; we never archive message content.
+- **Target SLA**: Deletion requests are processed within 30 days of receipt, consistent with GDPR Article 12(3). In practice, most requests are handled within a few business days.
+- **Responsible role**: Discord Manager or higher can execute per-user metric deletions via the dashboard API. Bot Admins handle verification and voice data removal.
+- **Audit**: All deletion actions are logged internally for compliance accountability.
 
 ## Retention
 - Operational logs and audit entries are retained for a short operational window (typically 30–90 days, default ~60 days) unless a longer period is required for an active investigation.
 - Metrics data retention defaults to **90 days** (configurable in `config/config.yaml` under `metrics.retention_days`).
+- **Automatic purge**: A background task runs daily to delete metrics rows older than the configured retention period from all raw and rollup tables (`voice_sessions`, `game_sessions`, `message_counts`, `metrics_hourly`, `metrics_user_hourly`).
 - Retention helpers (manual and schedulable) exist to purge audit/log tables; staff can trigger cleanup after tickets close.
 - The schema is current—there are no legacy migrations or backwards-compatibility tables pending cleanup.
 
@@ -49,7 +53,9 @@ This document explains what personal data TEST Clanker processes, why it is proc
 ## Data Minimization
 - We do not store message content or tokens.
 - Data is kept only to operate verification, role management, and voice automation features.
+- Channel exclusions configured per guild (`metrics.excluded_channel_ids` in guild settings) are enforced during both live event collection and startup backfill, ensuring excluded channels never produce metrics records.
 - Retention helpers are used conservatively to avoid unexpected production changes.
+- The **PRESENCE INTENT** (privileged) is used exclusively for game/activity metrics; if metrics collection is disabled via config, presence data is not processed. The **MESSAGE CONTENT** privileged intent is **not** required or enabled — the bot only counts messages, never reads their content.
 
 ## User Rights
 Subject to applicable law, users may request:

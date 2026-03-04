@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -22,7 +23,6 @@ from helpers.constants import (
 from services.db.repository import BaseRepository
 from services.ticket_form_service import RouteExecutionContext, TicketFormService
 from services.ticket_service import TicketService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -721,11 +721,12 @@ class TestSessionManagement:
     async def test_session_with_interaction_token(
         self, form_svc, category_id
     ) -> None:
+        interaction_token = str(uuid4())
         ctx = await form_svc.create_session(
             GUILD_ID, USER_ID, category_id,
-            interaction_token="test_token_123",
+            interaction_token=interaction_token,
         )
-        assert ctx.interaction_token == "test_token_123"
+        assert ctx.interaction_token == interaction_token
 
     @pytest.mark.asyncio
     async def test_cleanup_expired_sessions(
@@ -858,7 +859,7 @@ class TestSchemaCompatibility:
     ) -> None:
         """Missing columns are added for legacy ticket_form_questions tables."""
 
-        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:  # noqa: ARG001
+        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
             if query.startswith("PRAGMA table_info(ticket_form_questions)"):
                 return [
                     {"name": "id"},
@@ -870,7 +871,7 @@ class TestSchemaCompatibility:
 
         executed_queries: list[str] = []
 
-        async def fake_execute(query: str, params: tuple[Any, ...] = ()) -> int:  # noqa: ARG001
+        async def fake_execute(query: str, params: tuple[Any, ...] = ()) -> int:
             executed_queries.append(query)
             return 1
 
@@ -889,7 +890,7 @@ class TestSchemaCompatibility:
         """Schema compatibility check is idempotent after first successful run."""
         fetch_calls = 0
 
-        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:  # noqa: ARG001
+        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
             nonlocal fetch_calls
             if query.startswith("PRAGMA table_info(ticket_form_questions)"):
                 fetch_calls += 1
@@ -903,7 +904,7 @@ class TestSchemaCompatibility:
                 ]
             return []
 
-        async def fake_execute(query: str, params: tuple[Any, ...] = ()) -> int:  # noqa: ARG001
+        async def fake_execute(query: str, params: tuple[Any, ...] = ()) -> int:
             raise AssertionError("No ALTER TABLE should run when columns exist")
 
         monkeypatch.setattr(BaseRepository, "fetch_all", fake_fetch_all)
@@ -948,15 +949,16 @@ class TestRouteExecutionContext:
         assert ctx.is_expired() is False
 
     def test_to_db_dict(self) -> None:
+        interaction_token = str(uuid4())
         ctx = RouteExecutionContext(
             guild_id=1, user_id=2, category_id=3,
-            interaction_token="tok",
+            interaction_token=interaction_token,
         )
         d = ctx.to_db_dict()
         assert d["guild_id"] == 1
         assert d["user_id"] == 2
         assert d["category_id"] == 3
-        assert d["interaction_token"] == "tok"
+        assert d["interaction_token"] == interaction_token
         assert json.loads(d["collected_data"]) == {}
 
     def test_from_db_row(self) -> None:

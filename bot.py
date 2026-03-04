@@ -114,6 +114,7 @@ initial_extensions = [
     "cogs.admin.verify_bulk",
     "cogs.admin.member_lifecycle",
     "cogs.info.about",
+    "cogs.info.privacy",
     "cogs.info.dashboard",
     "cogs.voice.commands",
     "cogs.voice.events",

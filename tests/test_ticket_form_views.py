@@ -9,7 +9,6 @@ service layer (TicketFormService, TicketService).
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,8 +20,7 @@ from helpers.ticket_form_views import (
     create_ticket_from_route,
 )
 from services.ticket_form_service import RouteExecutionContext
-from tests.conftest import FakeInteraction, FakeUser
-
+from tests.conftest import FakeInteraction
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1498,3 +1498,214 @@ class TestBackfillVoiceStateEligibility:
         assert (100, 1) in metrics_service._voice_sessions
         assert (100, 2) not in metrics_service._voice_sessions
         assert (100, 3) not in metrics_service._voice_sessions
+
+
+# ---------------------------------------------------------------------------
+# Backfill voice state — excluded-channel filtering (GDPR minimization)
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillVoiceExcludedChannels:
+    """Verify that backfill_voice_state honours excluded channel IDs."""
+
+    @staticmethod
+    def _make_bot(members_by_channel: dict) -> MagicMock:
+        """Same helper as TestBackfillVoiceStateEligibility."""
+        from collections import defaultdict as _defaultdict
+
+        guilds_map: dict[int, list] = _defaultdict(list)
+        for (guild_id, channel_id), member_specs in members_by_channel.items():
+            vc = MagicMock()
+            vc.id = channel_id
+            members = []
+            for mid, s_mute, s_deaf in member_specs:
+                m = MagicMock()
+                m.id = mid
+                m.bot = False
+                m.voice = MagicMock()
+                m.voice.self_mute = s_mute
+                m.voice.self_deaf = s_deaf
+                members.append(m)
+            vc.members = members
+            guilds_map[guild_id].append(vc)
+
+        guilds = []
+        for gid, vcs in guilds_map.items():
+            g = MagicMock()
+            g.id = gid
+            g.voice_channels = vcs
+            guilds.append(g)
+
+        bot = MagicMock()
+        bot.guilds = guilds
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_backfill_skips_excluded_voice_channel(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Members in an excluded channel should NOT get a backfilled session."""
+        excluded_channel_id = 10
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=lambda gid, key, default=None: (
+                [excluded_channel_id]
+                if key == "metrics.excluded_channel_ids"
+                else (0 if "min_" in key else default if default is not None else [])
+            )
+        )
+        # Invalidate cache so fresh config is read
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot({(100, excluded_channel_id): [(1, False, False)]})
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 1) not in metrics_service._voice_sessions
+
+    @pytest.mark.asyncio
+    async def test_backfill_includes_non_excluded_channel(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Members in a non-excluded channel should get a session."""
+        excluded_channel_id = 10
+        normal_channel_id = 20
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=lambda gid, key, default=None: (
+                [excluded_channel_id]
+                if key == "metrics.excluded_channel_ids"
+                else (0 if "min_" in key else default if default is not None else [])
+            )
+        )
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot({(100, normal_channel_id): [(2, False, False)]})
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 2) in metrics_service._voice_sessions
+        assert metrics_service._voice_sessions[(100, 2)].channel_id == normal_channel_id
+
+    @pytest.mark.asyncio
+    async def test_backfill_mixed_excluded_and_normal_channels(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """Only non-excluded channels produce backfilled sessions."""
+        excluded_id = 10
+        normal_id = 20
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=lambda gid, key, default=None: (
+                [excluded_id]
+                if key == "metrics.excluded_channel_ids"
+                else (0 if "min_" in key else default if default is not None else [])
+            )
+        )
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot(
+            {
+                (100, excluded_id): [(1, False, False)],  # excluded
+                (100, normal_id): [(2, False, False)],  # allowed
+            }
+        )
+        await metrics_service.backfill_voice_state(bot)
+        assert (100, 1) not in metrics_service._voice_sessions
+        assert (100, 2) in metrics_service._voice_sessions
+
+
+# ---------------------------------------------------------------------------
+# Backfill game state — excluded-channel filtering (GDPR minimization)
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillGameExcludedChannels:
+    """Verify that backfill_game_state skips members in excluded voice channels."""
+
+    @staticmethod
+    def _make_bot(
+        members: list[tuple[int, int, str | None, int | None]],
+    ) -> MagicMock:
+        """Build a Bot mock for game backfill.
+
+        Each entry is ``(guild_id, member_id, game_name, voice_channel_id)``.
+        ``game_name=None`` means no playing activity.
+        ``voice_channel_id=None`` means not in a voice channel.
+        """
+        import discord
+
+        guilds_map: dict[int, list[MagicMock]] = {}
+        for guild_id, member_id, game_name, vc_id in members:
+            m = MagicMock()
+            m.id = member_id
+            m.bot = False
+            if vc_id is not None:
+                m.voice = MagicMock()
+                m.voice.channel = MagicMock()
+                m.voice.channel.id = vc_id
+            else:
+                m.voice = None
+            if game_name is not None:
+                activity = MagicMock()
+                activity.type = discord.ActivityType.playing
+                activity.name = game_name
+                m.activities = [activity]
+            else:
+                m.activities = []
+            guilds_map.setdefault(guild_id, []).append(m)
+
+        guilds = []
+        for gid, mems in guilds_map.items():
+            g = MagicMock()
+            g.id = gid
+            g.members = mems
+            g.voice_channels = []
+            guilds.append(g)
+
+        bot = MagicMock()
+        bot.guilds = guilds
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_game_backfill_skips_excluded_channel_member(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """A member playing a game in an excluded voice channel is NOT backfilled."""
+        excluded_id = 10
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=lambda gid, key, default=None: (
+                [excluded_id]
+                if key == "metrics.excluded_channel_ids"
+                else (0 if "min_" in key else default if default is not None else [])
+            )
+        )
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot([(100, 1, "Star Citizen", excluded_id)])
+        await metrics_service.backfill_game_state(bot)
+        assert (100, 1) not in metrics_service._game_sessions
+
+    @pytest.mark.asyncio
+    async def test_game_backfill_includes_non_excluded_member(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """A member playing in a normal voice channel IS backfilled."""
+        excluded_id = 10
+        normal_id = 20
+        metrics_service._config_service.get_guild_setting = AsyncMock(
+            side_effect=lambda gid, key, default=None: (
+                [excluded_id]
+                if key == "metrics.excluded_channel_ids"
+                else (0 if "min_" in key else default if default is not None else [])
+            )
+        )
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot([(100, 2, "Star Citizen", normal_id)])
+        await metrics_service.backfill_game_state(bot)
+        assert (100, 2) in metrics_service._game_sessions
+
+    @pytest.mark.asyncio
+    async def test_game_backfill_includes_member_not_in_voice(
+        self, metrics_service: MetricsService
+    ) -> None:
+        """A member playing a game but NOT in any voice channel IS backfilled."""
+        metrics_service._excluded_channels_cache.clear()
+
+        bot = self._make_bot([(100, 3, "Star Citizen", None)])
+        await metrics_service.backfill_game_state(bot)
+        assert (100, 3) in metrics_service._game_sessions
