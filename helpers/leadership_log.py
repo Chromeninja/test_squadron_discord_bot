@@ -193,7 +193,7 @@ async def _managed_role_names(bot, guild_id: int) -> list[str]:
                 if role:
                     names.append(role.name)
     except Exception:
-        pass
+        logger.debug("Failed to resolve managed role names for guild %s", guild_id)
 
     return names
 
@@ -426,6 +426,7 @@ async def build_embed(bot, cs: ChangeSet) -> discord.Embed:
         else:
             timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     except Exception:
+        logger.debug("Failed to format timestamp for changeset user_id=%s", cs.user_id)
         timestamp = "Unknown"
     footer_text = f"{cs.user_id} • {handle} • {timestamp}"
     if handle and handle != "No Handle":

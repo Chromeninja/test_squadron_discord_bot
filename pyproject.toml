@@ -181,6 +181,10 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
 ]
 
+[tool.bandit]
+exclude_dirs = [".venv", ".git", "__pycache__", "tests", "web/backend/tests", "web/frontend/node_modules", "cleanup_snapshots"]
+skips = ["B101", "B608", "B311", "B105", "B110", "B603", "B404"]
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true

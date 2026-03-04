@@ -466,7 +466,7 @@ class VoiceService(BaseService):
             if channel and hasattr(channel, "members"):
                 return len(channel.members)  # type: ignore[arg-type]
         except Exception:
-            pass
+            self.logger.debug("Failed to read channel.members for channel %s", channel_id)
 
         if channel_id is not None:
             cached = self._voice_channel_members.get(channel_id)
@@ -1859,7 +1859,7 @@ class VoiceService(BaseService):
                                 "⚠️ Voice channel creation took too long. Please try again.",
                             )
                         except Exception:
-                            pass  # Ignore DM failures
+                            self.logger.debug("DM failure (timeout) for %s", member.id)
                 finally:
                     # Always unmark user as creating, even if creation fails
                     if creation_marked:
@@ -2026,7 +2026,7 @@ class VoiceService(BaseService):
                         "⚠️ Your voice channel was created but you disconnected before it was ready. Please rejoin the Join to Create channel to try again.",
                     )
                 except Exception:
-                    pass  # Ignore DM failures
+                    self.logger.debug("DM failure (disconnect) for %s", member.id)
 
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
@@ -2056,7 +2056,7 @@ class VoiceService(BaseService):
                         "⚠️ Failed to move you to your voice channel. You may have disconnected too quickly. Please try again.",
                     )
                 except Exception:
-                    pass  # Ignore DM failures
+                    self.logger.debug("DM failure (move failed) for %s", member.id)
 
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
@@ -2113,7 +2113,7 @@ class VoiceService(BaseService):
                         "Please ask a server admin to give me the 'Manage Channels' permission in that category."
                     )
                 except Exception:
-                    pass  # Ignore if we can't send DM
+                    self.logger.debug("DM failure (permission denied) for %s", member.id)
                 return None  # Stop execution as channel creation failed
             else:
                 self.logger.exception(
@@ -2130,7 +2130,7 @@ class VoiceService(BaseService):
             if member.activity and hasattr(member.activity, "name"):
                 return member.activity.name
         except Exception:
-            pass
+            self.logger.debug("Failed to read activity for member %s", member.id)
         return None
 
     async def _handle_old_channel_transition(

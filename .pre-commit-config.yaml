@@ -18,6 +18,13 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.0
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, -r, .]
+        exclude: ^(tests/|web/backend/tests/|web/frontend/)
+
   - repo: https://github.com/pre-commit/mypy
     rev: v1.8.0
     hooks:
