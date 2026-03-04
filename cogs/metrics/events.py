@@ -109,8 +109,14 @@ class MetricsEvents(commands.Cog):
                 )
             elif was_eligible and now_eligible:
                 # Still eligible — check for channel move
-                assert before.channel is not None  # guarded by was_eligible
-                assert after.channel is not None  # guarded by now_eligible
+                if before.channel is None or after.channel is None:
+                    logger.debug(
+                        "Voice eligibility mismatch for user %s before=%s after=%s",
+                        user_id,
+                        before.channel,
+                        after.channel,
+                    )
+                    return
                 if before.channel.id != after.channel.id:
                     await self.metrics_service.record_voice_leave(guild_id, user_id)
                     await self.metrics_service.record_voice_join(

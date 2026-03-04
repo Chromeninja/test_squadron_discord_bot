@@ -96,7 +96,7 @@ def _is_private_ip(hostname: str) -> bool:
             return True
         return False
     except ValueError:
-        logger.debug("Hostname '%s' is not a direct IP", hostname, exc_info=True)
+        logger.debug("Provided hostname is not a direct IP", exc_info=True)
 
     # Resolve hostname to IP addresses
     try:

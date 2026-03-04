@@ -428,7 +428,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Display ticket counts and thread usage."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         data = await self.ticket_service.get_ticket_stats(guild.id)
         health = await self.ticket_service.get_thread_health(guild.id)
@@ -462,7 +467,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Display thread usage status and oldest closed tickets."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         health = await self.ticket_service.get_thread_health(guild.id)
         oldest = await self.ticket_service.get_oldest_closed_tickets(
@@ -538,7 +548,12 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        assert guild is not None
+        if guild is None:
+            await interaction.followup.send(
+                "❌ This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
 
         candidates = await self.ticket_service.get_cleanup_candidates(
             guild.id, older_than_days=older_than

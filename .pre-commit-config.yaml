@@ -22,7 +22,8 @@ repos:
     rev: 1.9.0
     hooks:
       - id: bandit
-        args: [-c, pyproject.toml, -r, .]
+        args: [-c, pyproject.toml]
+        types: [python]
         exclude: ^(tests/|web/backend/tests/|web/frontend/)
 
   - repo: https://github.com/pre-commit/mypy
