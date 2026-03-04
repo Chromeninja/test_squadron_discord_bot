@@ -162,7 +162,7 @@ def analyze_response(
         if any(indicator in body_lower for indicator in challenge_indicators):
             warnings.append("Captcha/challenge detected")
     except Exception:
-        pass  # Ignore decode errors for this check
+        warnings.append("Failed to decode response body for challenge detection")
 
     return warnings
 

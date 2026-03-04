@@ -87,7 +87,10 @@ def _cleanup_expired_sessions(now: datetime | None = None) -> None:
         loop = asyncio.get_running_loop()
         loop.create_task(session_store.cleanup_expired())
     except RuntimeError:
-        pass  # no event loop — skip (e.g. test teardown)
+        logger.debug(
+            "Skipping expired session cleanup due to missing event loop",
+            exc_info=True,
+        )
 
 
 def generate_oauth_state() -> str:

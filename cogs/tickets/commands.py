@@ -325,7 +325,13 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                             await channel.fetch_message(existing_msg_id)
                             continue  # panel still exists
                         except discord.NotFound:
-                            pass  # panel deleted — re-send
+                            logger.debug(
+                                "Ticket panel %s missing in guild %s channel %s",
+                                existing_msg_id,
+                                guild.id,
+                                chan_id,
+                                exc_info=True,
+                            )
 
                     # Send a new panel
                     await self._send_panel(guild, channel)

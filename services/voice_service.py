@@ -1859,7 +1859,11 @@ class VoiceService(BaseService):
                                 "⚠️ Voice channel creation took too long. Please try again.",
                             )
                         except Exception:
-                            self.logger.debug("DM failure (timeout) for %s", member.id)
+                            self.logger.debug(
+                                "DM failure (timeout) for %s",
+                                member.id,
+                                exc_info=True,
+                            )
                 finally:
                     # Always unmark user as creating, even if creation fails
                     if creation_marked:
@@ -2026,7 +2030,11 @@ class VoiceService(BaseService):
                         "⚠️ Your voice channel was created but you disconnected before it was ready. Please rejoin the Join to Create channel to try again.",
                     )
                 except Exception:
-                    self.logger.debug("DM failure (disconnect) for %s", member.id)
+                    self.logger.debug(
+                        "DM failure (disconnect) for %s",
+                        member.id,
+                        exc_info=True,
+                    )
 
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
@@ -2056,7 +2064,11 @@ class VoiceService(BaseService):
                         "⚠️ Failed to move you to your voice channel. You may have disconnected too quickly. Please try again.",
                     )
                 except Exception:
-                    self.logger.debug("DM failure (move failed) for %s", member.id)
+                    self.logger.debug(
+                        "DM failure (move failed) for %s",
+                        member.id,
+                        exc_info=True,
+                    )
 
                 # Notify in bot spam channel
                 await self._notify_bot_spam_channel(
@@ -2113,7 +2125,11 @@ class VoiceService(BaseService):
                         "Please ask a server admin to give me the 'Manage Channels' permission in that category."
                     )
                 except Exception:
-                    self.logger.debug("DM failure (permission denied) for %s", member.id)
+                    self.logger.debug(
+                        "DM failure (permission denied) for %s",
+                        member.id,
+                        exc_info=True,
+                    )
                 return None  # Stop execution as channel creation failed
             else:
                 self.logger.exception(

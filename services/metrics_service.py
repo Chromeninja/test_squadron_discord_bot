@@ -186,7 +186,7 @@ class MetricsService(BaseService):
                 try:
                     await task
                 except asyncio.CancelledError:
-                    pass
+                    continue
 
         if not self._enabled:
             return

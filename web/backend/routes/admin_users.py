@@ -336,7 +336,7 @@ async def _execute_bulk_recheck(
                 headers={"Retry-After": str(retry_after)},
             )
     except ImportError:
-        pass  # Circuit breaker not available, proceed anyway
+        logger.debug("Circuit breaker helper unavailable", exc_info=True)
 
     for idx, user_id in enumerate(request.user_ids):
         # Check for circuit breaker open condition from previous failures

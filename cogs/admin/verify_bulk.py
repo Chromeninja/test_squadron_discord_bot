@@ -77,7 +77,10 @@ class VerifyCommands(app_commands.Group):
                     ephemeral=True,
                 )
             except Exception:
-                logger.debug("Failed to send error followup for check-user")
+                logger.debug(
+                    "Failed to send error followup for check-user",
+                    exc_info=True,
+                )
 
     @app_commands.command(
         name="check-members",
@@ -145,7 +148,10 @@ class VerifyCommands(app_commands.Group):
                     ephemeral=True,
                 )
             except Exception:
-                logger.debug("Failed to send error followup for check-members")
+                logger.debug(
+                    "Failed to send error followup for check-members",
+                    exc_info=True,
+                )
 
     @app_commands.command(
         name="check-channel",
@@ -205,7 +211,10 @@ class VerifyCommands(app_commands.Group):
                     ephemeral=True,
                 )
             except Exception:
-                logger.debug("Failed to send error followup for check-channel")
+                logger.debug(
+                    "Failed to send error followup for check-channel",
+                    exc_info=True,
+                )
 
     @app_commands.command(
         name="check-voice",
@@ -261,7 +270,10 @@ class VerifyCommands(app_commands.Group):
                     ephemeral=True,
                 )
             except Exception:
-                logger.debug("Failed to send error followup for check-voice")
+                logger.debug(
+                    "Failed to send error followup for check-voice",
+                    exc_info=True,
+                )
 
     async def _handle_check_action(
         self,

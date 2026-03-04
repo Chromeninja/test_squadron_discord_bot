@@ -57,7 +57,11 @@ def _check_content_size(headers: Mapping[str, str], max_bytes: int) -> None:
                 f"Image too large ({actual_mb:.1f}MB). Maximum size is {max_mb:.0f}MB"
             )
     except ValueError:
-        pass  # Invalid content-length header, skip size check
+        logger.debug(
+            "Invalid content-length header '%s'",
+            content_length,
+            exc_info=True,
+        )
 
 
 def _is_private_ip(hostname: str) -> bool:
@@ -92,7 +96,7 @@ def _is_private_ip(hostname: str) -> bool:
             return True
         return False
     except ValueError:
-        pass  # Not a direct IP address, need to resolve hostname
+        logger.debug("Hostname '%s' is not a direct IP", hostname, exc_info=True)
 
     # Resolve hostname to IP addresses
     try:
