@@ -84,18 +84,32 @@ async def assert_base_permissions(
         owner_overwrite.update(connect=True)
         overwrites[owner_member] = owner_overwrite
 
+        # Remove overwrites for roles at or above the bot's top role.
+        # Discord API rejects channel.edit(overwrites=...) if any target
+        # role is >= the bot role in hierarchy.  We drop those entries so
+        # the remaining (manageable) overwrites can still be applied.
         blocked_roles = _get_hierarchy_blocking_roles(
             overwrites,
             bot_member,
             default_role,
         )
         if blocked_roles:
-            logger.warning(
-                "Skipping base permission update for channel %s due to role hierarchy: %s",
+            logger.debug(
+                "Filtering %d role(s) above bot hierarchy for channel %s: %s",
+                len(blocked_roles),
                 channel.id,
                 ", ".join(blocked_roles),
             )
-            return
+            bot_top_role = bot_member.top_role
+            overwrites = {
+                target: ow
+                for target, ow in overwrites.items()
+                if not (
+                    isinstance(target, discord.Role)
+                    and target != default_role
+                    and target >= bot_top_role
+                )
+            }
 
         # Apply the overwrites
         try:

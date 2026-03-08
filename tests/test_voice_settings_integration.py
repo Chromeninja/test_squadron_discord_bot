@@ -64,6 +64,7 @@ def mock_jtc_channel():
     channel.bitrate = 64000
     channel.user_limit = 0
     channel.category = MagicMock()
+    channel.overwrites = {}
     return channel
 
 
@@ -682,3 +683,111 @@ class TestChannelCreationRoleCheck:
 
         # Verify: returns the channel (success)
         assert result == created_channel
+
+
+class TestJtcOverwriteHandling:
+    """Tests for JTC overwrite copying, filtering, and fallback."""
+
+    @pytest.mark.asyncio
+    async def test_filters_out_roles_above_bot(
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
+    ) -> None:
+        """Test that overwrites for roles at or above bot's top role are excluded."""
+        mock_db_connection.set_fetchone_result(None)
+
+        # Create roles with positions: low_role(1) < bot_role(5) < high_role(10)
+        low_role = MagicMock(spec=discord.Role)
+        low_role.name = "LowRole"
+        low_role.position = 1
+        high_role = MagicMock(spec=discord.Role)
+        high_role.name = "AdminRole"
+        high_role.position = 10
+        bot_role = MagicMock(spec=discord.Role)
+        bot_role.name = "BotRole"
+        bot_role.position = 5
+
+        # Set up __ge__ so `target >= bot_top_role` works correctly
+        low_role.__ge__ = lambda self, other: self.position >= other.position
+        high_role.__ge__ = lambda self, other: self.position >= other.position
+        bot_role.__ge__ = lambda self, other: self.position >= other.position
+
+        low_overwrite = discord.PermissionOverwrite(speak=False)
+        high_overwrite = discord.PermissionOverwrite(move_members=True)
+        mock_jtc_channel.overwrites = {
+            low_role: low_overwrite,
+            high_role: high_overwrite,
+        }
+
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.send = AsyncMock()
+        mock_guild.create_voice_channel.return_value = created_channel
+
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
+
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = bot_role
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        assert result == created_channel
+        call_kwargs = mock_guild.create_voice_channel.call_args.kwargs
+        passed_overwrites = call_kwargs["overwrites"]
+        # low_role should be included, high_role should be filtered out
+        assert low_role in passed_overwrites
+        assert high_role not in passed_overwrites
+
+    @pytest.mark.asyncio
+    async def test_falls_back_without_overwrites_on_forbidden(
+        self,
+        voice_service,
+        mock_guild,
+        mock_jtc_channel,
+        mock_member,
+        mock_db_connection,
+    ) -> None:
+        """Test that channel is still created when Forbidden blocks overwrites."""
+        mock_db_connection.set_fetchone_result(None)
+
+        created_channel = AsyncMock(spec=discord.VoiceChannel)
+        created_channel.id = 99999
+        created_channel.name = "TestUser's Channel"
+        created_channel.send = AsyncMock()
+
+        forbidden = discord.Forbidden(MagicMock(status=403), {"code": 50013})
+        mock_guild.create_voice_channel.side_effect = [forbidden, created_channel]
+
+        mock_member.voice = MagicMock()
+        mock_member.voice.channel = MagicMock()
+        mock_member.move_to = AsyncMock()
+
+        mock_bot_member = MagicMock()
+        mock_bot_member.top_role = MagicMock()
+        mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
+        mock_guild.get_member.return_value = mock_bot_member
+
+        with patch("services.voice_service.enforce_permission_changes"):
+            result = await voice_service._create_user_channel(
+                mock_guild, mock_jtc_channel, mock_member
+            )
+
+        # Verify: channel was created on the fallback (second) call
+        assert result == created_channel
+        assert mock_guild.create_voice_channel.call_count == 2
+
+        # Second call should not include overwrites
+        second_call_kwargs = mock_guild.create_voice_channel.call_args_list[1].kwargs
+        assert "overwrites" not in second_call_kwargs

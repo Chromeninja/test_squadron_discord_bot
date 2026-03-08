@@ -1982,7 +1982,23 @@ class VoiceService(BaseService):
             # JTC channel (e.g. muted roles, restricted access).  Base safety
             # permissions (owner, bot, @everyone) and DB-driven custom
             # settings are merged on top by enforce_permission_changes().
-            jtc_overwrites = dict(jtc_channel.overwrites)
+            #
+            # Discord API restriction: the bot cannot set overwrites for
+            # roles at or above its own highest role, so we filter those out.
+            bot_top_role = bot_member.top_role
+            jtc_overwrites: dict[
+                discord.Role | discord.Member, discord.PermissionOverwrite
+            ] = {}
+            for target, overwrite in jtc_channel.overwrites.items():
+                if isinstance(target, discord.Role) and target >= bot_top_role:
+                    if self.debug_logging_enabled:
+                        self.logger.debug(
+                            "Skipping JTC overwrite for role '%s' (at or above bot role)",
+                            target.name,
+                        )
+                    continue
+                jtc_overwrites[target] = overwrite
+
             if self.debug_logging_enabled:
                 self.logger.debug(
                     "Copying %d permission overwrites from JTC channel %s",
@@ -1990,13 +2006,29 @@ class VoiceService(BaseService):
                     jtc_channel.id,
                 )
 
-            channel = await guild.create_voice_channel(
-                name=channel_name,
-                category=category,
-                bitrate=jtc_channel.bitrate,
-                user_limit=user_limit,
-                overwrites=jtc_overwrites,
-            )
+            try:
+                channel = await guild.create_voice_channel(
+                    name=channel_name,
+                    category=category,
+                    bitrate=jtc_channel.bitrate,
+                    user_limit=user_limit,
+                    overwrites=jtc_overwrites,
+                )
+            except discord.Forbidden:
+                # Even after filtering, the API may reject if the overwrites
+                # grant permissions the bot itself lacks.  Fall back to
+                # category-inherited permissions so creation still succeeds.
+                self.logger.warning(
+                    "Cannot apply JTC overwrites for %s — falling back to "
+                    "category-inherited permissions",
+                    member.display_name,
+                )
+                channel = await guild.create_voice_channel(
+                    name=channel_name,
+                    category=category,
+                    bitrate=jtc_channel.bitrate,
+                    user_limit=user_limit,
+                )
 
             # Apply all saved settings from database after creation
             if self.bot:
@@ -2129,7 +2161,7 @@ class VoiceService(BaseService):
                 try:
                     await member.send(
                         f"❌ I don't have permission to create voice channels in the **{jtc_channel.category.name if jtc_channel.category else 'current'}** category. "
-                        "Please ask a server admin to give me the 'Manage Channels' permission in that category."
+                        "Please ask a server admin to give me the 'Manage Channels' and 'Manage Permissions' permissions in that category."
                     )
                 except Exception:
                     self.logger.debug(
