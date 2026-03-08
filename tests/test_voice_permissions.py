@@ -291,8 +291,10 @@ def test_get_hierarchy_blocking_roles_detects_conflicts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_assert_base_permissions_skips_edit_when_hierarchy_blocks() -> None:
-    """Skip overwrite edits when role hierarchy would cause Forbidden errors."""
+async def test_assert_base_permissions_uses_set_permissions_when_hierarchy_blocks() -> (
+    None
+):
+    """Use per-target set_permissions when blocking roles exist on channel."""
     # Arrange
     channel = AsyncMock(spec=discord.VoiceChannel)
     channel.id = 12345
@@ -306,6 +308,10 @@ async def test_assert_base_permissions_skips_edit_when_hierarchy_blocks() -> Non
     blocking_role.id = 2
     blocking_role.name = "Admins"
     blocking_role.position = 10
+
+    # Make __ge__ work for hierarchy detection
+    default_role.__ge__ = lambda self, other: self.position >= other.position
+    blocking_role.__ge__ = lambda self, other: self.position >= other.position
 
     channel.overwrites = {
         default_role: discord.PermissionOverwrite(),
@@ -323,8 +329,14 @@ async def test_assert_base_permissions_skips_edit_when_hierarchy_blocks() -> Non
     # Act
     await assert_base_permissions(channel, bot_member, owner_member, default_role)
 
-    # Assert
+    # Assert — channel.edit NOT called (would wipe blocking role overwrites)
     channel.edit.assert_not_called()
+    # Instead, set_permissions called for each base target
+    assert channel.set_permissions.call_count == 3
+    targets_set = [call.args[0] for call in channel.set_permissions.call_args_list]
+    assert default_role in targets_set
+    assert bot_member in targets_set
+    assert owner_member in targets_set
 
 
 @pytest.mark.asyncio

@@ -660,11 +660,7 @@ class VoiceService(BaseService):
             if await self._is_on_cooldown(
                 guild_id, jtc_channel_id, user_id, cooldown_seconds
             ):
-                # Return error code with seconds embedded (will be extracted at command layer)
-                return (
-                    False,
-                    f"COOLDOWN:{cooldown_seconds}",
-                )
+                return False, "COOLDOWN"
 
         return True, None
 
@@ -1023,6 +1019,25 @@ class VoiceService(BaseService):
             "cooldown_records": cooldown_records,
             "creation_locks": len(self._creation_locks),
         }
+
+    async def get_jtc_for_owned_channel(
+        self, voice_channel_id: int, owner_id: int
+    ) -> int | None:
+        """Return the JTC channel ID for a managed channel owned by the given user.
+
+        Args:
+            voice_channel_id: The voice channel to look up.
+            owner_id: Expected owner Discord user ID.
+
+        Returns:
+            The JTC channel ID if the channel is active and owned by the user,
+            otherwise ``None``.
+        """
+        return await BaseRepository.fetch_value(
+            "SELECT jtc_channel_id FROM voice_channels "
+            "WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1",
+            (voice_channel_id, owner_id),
+        )
 
     async def get_voice_settings_snapshot(
         self,
@@ -1435,7 +1450,6 @@ class VoiceService(BaseService):
                 after_channel.id if after_channel else None,
             )
 
-        # Update voice channel members cache
         # Skip cache updates when the user stayed in the same channel
         # (mute/deafen/stream toggles still fire voice_state_update)
         same_channel = (
@@ -1444,7 +1458,13 @@ class VoiceService(BaseService):
             and before_channel.id == after_channel.id
         )
 
-        if before_channel and not same_channel:
+        # Fast-path: mute/deafen/stream toggles don't change channels,
+        # so there is nothing to do — avoid DB queries entirely.
+        if same_channel:
+            return
+
+        # Update voice channel members cache
+        if before_channel:
             # Remove user from previous channel
             if before_channel.id in self._voice_channel_members:
                 self._voice_channel_members[before_channel.id].discard(member.id)
@@ -1452,30 +1472,28 @@ class VoiceService(BaseService):
                 if not self._voice_channel_members[before_channel.id]:
                     del self._voice_channel_members[before_channel.id]
 
-        if after_channel and not same_channel:
+        if after_channel:
             # Add user to new channel
             if after_channel.id not in self._voice_channel_members:
                 self._voice_channel_members[after_channel.id] = set()
             self._voice_channel_members[after_channel.id].add(member.id)
 
         # Handle leaving a managed channel - clean up if empty
-        # Skip if the user stayed in the same channel (mute/deafen/stream toggle)
         left_managed = False
-        if not same_channel and before_channel:
+        if before_channel:
             left_managed = await self._is_managed_channel(before_channel.id)
             if left_managed:
                 await self._handle_channel_left(before_channel, member)
 
         # Handle joining a join-to-create channel
         # Treat any move into a JTC (including from another JTC) as a join-to-create
-        # but ignore reconnects to the same channel.
         is_jtc_after = False
         if after_channel:
             is_jtc_after = await self._is_join_to_create_channel(
                 guild_id, after_channel.id
             )
 
-        is_true_join = after_channel is not None and is_jtc_after and not same_channel
+        is_true_join = after_channel is not None and is_jtc_after
 
         # If the user came from a managed channel, allow bypassing cooldown so they can hop back to JTC immediately.
         bypass_cooldown = left_managed
@@ -1545,6 +1563,16 @@ class VoiceService(BaseService):
             member_count = self._get_member_count(channel)
             # Check if channel is now empty
             if member_count == 0:
+                # Double-check: re-read live members right before cleanup.
+                # Between the first count and now a new member may have joined.
+                fresh_count = self._get_member_count(channel)
+                if fresh_count > 0:
+                    self.logger.info(
+                        "Channel %s appeared empty but now has %d member(s) — skipping cleanup",
+                        channel.name,
+                        fresh_count,
+                    )
+                    return
                 self.logger.info(
                     f"Channel {channel.name} (ID: {channel.id}) is now empty, performing immediate cleanup"
                 )
@@ -1708,10 +1736,15 @@ class VoiceService(BaseService):
                 # Channel already deleted - this is fine, no stack trace needed
                 self.logger.info(f"Channel {channel_id} already deleted during cleanup")
             except discord.Forbidden as e:
-                # Insufficient permissions - log warning and continue with cleanup
+                # Insufficient permissions - keep tracking so reconciliation
+                # can retry later instead of leaving an unmanaged orphan.
                 self.logger.warning(
-                    f"Insufficient permissions to delete channel {channel_id}: {e}, removing from tracking"
+                    "Insufficient permissions to delete channel %s: %s — "
+                    "keeping tracking for retry",
+                    channel_id,
+                    e,
                 )
+                return
 
         except Exception as e:
             self.logger.exception(
@@ -1720,7 +1753,9 @@ class VoiceService(BaseService):
                 exc_info=e,
             )
         finally:
-            # Always remove from managed channels set and database
+            # Remove from managed channels set and database only when the
+            # Discord channel was actually deleted (or already gone).
+            # The Forbidden branch returns early to preserve tracking.
             self.managed_voice_channels.discard(channel_id)
 
             try:
@@ -1808,17 +1843,15 @@ class VoiceService(BaseService):
                         member.display_name,
                         error_code,
                     )
-                    # Parse cooldown seconds from error code (format: "COOLDOWN:5")
-                    if error_code and error_code.startswith("COOLDOWN:"):
-                        try:
-                            seconds = int(error_code.split(":")[1])
-                            from helpers.discord_reply import dm_user
-                            from helpers.error_messages import format_user_error
+                    if error_code == "COOLDOWN":
+                        from helpers.discord_reply import dm_user
+                        from helpers.error_messages import format_user_error
 
-                            message = format_user_error("COOLDOWN", seconds=seconds)
-                            await dm_user(member, message)
-                        except (ValueError, IndexError):
-                            pass  # Ignore parsing errors
+                        seconds = await self.config_service.get_guild_setting(
+                            guild.id, "voice.cooldown_seconds", 5
+                        )
+                        message = format_user_error("COOLDOWN", seconds=seconds)
+                        await dm_user(member, message)
                     return
 
                 # Mark user as creating to prevent duplicate events during channel creation
@@ -1982,7 +2015,23 @@ class VoiceService(BaseService):
             # JTC channel (e.g. muted roles, restricted access).  Base safety
             # permissions (owner, bot, @everyone) and DB-driven custom
             # settings are merged on top by enforce_permission_changes().
-            jtc_overwrites = dict(jtc_channel.overwrites)
+            #
+            # Discord API restriction: the bot cannot set overwrites for
+            # roles at or above its own highest role, so we filter those out.
+            bot_top_role = bot_member.top_role
+            jtc_overwrites: dict[
+                discord.Role | discord.Member, discord.PermissionOverwrite
+            ] = {}
+            for target, overwrite in jtc_channel.overwrites.items():
+                if isinstance(target, discord.Role) and target >= bot_top_role:
+                    if self.debug_logging_enabled:
+                        self.logger.debug(
+                            "Skipping JTC overwrite for role '%s' (at or above bot role)",
+                            target.name,
+                        )
+                    continue
+                jtc_overwrites[target] = overwrite
+
             if self.debug_logging_enabled:
                 self.logger.debug(
                     "Copying %d permission overwrites from JTC channel %s",
@@ -1990,13 +2039,29 @@ class VoiceService(BaseService):
                     jtc_channel.id,
                 )
 
-            channel = await guild.create_voice_channel(
-                name=channel_name,
-                category=category,
-                bitrate=jtc_channel.bitrate,
-                user_limit=user_limit,
-                overwrites=jtc_overwrites,
-            )
+            try:
+                channel = await guild.create_voice_channel(
+                    name=channel_name,
+                    category=category,
+                    bitrate=jtc_channel.bitrate,
+                    user_limit=user_limit,
+                    overwrites=jtc_overwrites,
+                )
+            except discord.Forbidden:
+                # Even after filtering, the API may reject if the overwrites
+                # grant permissions the bot itself lacks.  Fall back to
+                # category-inherited permissions so creation still succeeds.
+                self.logger.warning(
+                    "Cannot apply JTC overwrites for %s — falling back to "
+                    "category-inherited permissions",
+                    member.display_name,
+                )
+                channel = await guild.create_voice_channel(
+                    name=channel_name,
+                    category=category,
+                    bitrate=jtc_channel.bitrate,
+                    user_limit=user_limit,
+                )
 
             # Apply all saved settings from database after creation
             if self.bot:
@@ -2080,9 +2145,24 @@ class VoiceService(BaseService):
                 return None
 
             # Only store in database after successful move
-            await self._store_user_channel(
-                guild.id, jtc_channel.id, member.id, channel.id
-            )
+            try:
+                await self._store_user_channel(
+                    guild.id, jtc_channel.id, member.id, channel.id
+                )
+            except Exception as e:
+                # Move succeeded but DB store failed — the channel exists on
+                # Discord but has no tracking record.  Clean it up rather than
+                # leave an unmanaged orphan.
+                self.logger.exception(
+                    "DB store failed after moving %s to channel %s — cleaning up",
+                    member.display_name,
+                    channel.id,
+                    exc_info=e,
+                )
+                await self._delete_channel_safe(
+                    channel, reason="DB store failed after move"
+                )
+                return None
 
             # Update cooldown
             await self._update_cooldown(guild.id, jtc_channel.id, member.id)
@@ -2129,7 +2209,7 @@ class VoiceService(BaseService):
                 try:
                     await member.send(
                         f"❌ I don't have permission to create voice channels in the **{jtc_channel.category.name if jtc_channel.category else 'current'}** category. "
-                        "Please ask a server admin to give me the 'Manage Channels' permission in that category."
+                        "Please ask a server admin to give me the 'Manage Channels' and 'Manage Permissions' permissions in that category."
                     )
                 except Exception:
                     self.logger.debug(
