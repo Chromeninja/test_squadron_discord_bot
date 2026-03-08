@@ -35,30 +35,35 @@ async def assert_base_permissions(
         default_role: The default role for the guild (usually @everyone)
     """
     try:
-        # Set up overwrites for default role (everyone)
-        default_overwrite = discord.PermissionOverwrite(
-            connect=True, use_voice_activation=True
-        )
-
-        # Set up overwrites for bot (bot needs manage_channels to control on behalf of users)
-        bot_overwrite = discord.PermissionOverwrite(manage_channels=True, connect=True)
-
-        # Set up overwrites for owner (connect only - management via bot commands)
-        owner_overwrite = discord.PermissionOverwrite(connect=True)
-
-        # Get existing overwrites
+        # Get existing overwrites (may include JTC-inherited permissions)
         overwrites = dict(channel.overwrites)
 
-        # Update the overwrites
+        # Merge base permissions for default role (@everyone).
+        # Uses update() to preserve existing fields (e.g. speak=False from JTC)
+        # while ensuring connect and use_voice_activation are always True.
+        default_overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
+        default_overwrite.update(connect=True, use_voice_activation=True)
         overwrites[default_role] = default_overwrite
+
+        # Merge base permissions for bot (needs manage_channels + connect)
+        bot_overwrite = overwrites.get(bot_member, discord.PermissionOverwrite())
+        bot_overwrite.update(manage_channels=True, connect=True)
         overwrites[bot_member] = bot_overwrite
+
+        # Merge base permissions for owner (connect only — management via bot commands)
+        owner_overwrite = overwrites.get(owner_member, discord.PermissionOverwrite())
+        owner_overwrite.update(connect=True)
         overwrites[owner_member] = owner_overwrite
 
         # Apply the overwrites
         await channel.edit(overwrites=overwrites)
-        logger.debug(f"Base permissions asserted for channel {channel.id}")
-    except Exception:
-        logger.exception(f"Error asserting base permissions for channel {channel.id}")
+        logger.debug("Base permissions asserted for channel %s", channel.id)
+    except Exception as e:
+        logger.exception(
+            "Error asserting base permissions for channel %s",
+            channel.id,
+            exc_info=e,
+        )
 
 
 async def enforce_permission_changes(
@@ -83,7 +88,7 @@ async def enforce_permission_changes(
     try:
         guild = bot.get_guild(guild_id)
         if not guild:
-            logger.error(f"Could not find guild with ID {guild_id}")
+            logger.error("Could not find guild with ID %s", guild_id)
             return
 
         # Get the owner, bot member, and default role
@@ -94,12 +99,14 @@ async def enforce_permission_changes(
 
         if not owner_member:
             logger.error(
-                f"Could not find owner member with ID {user_id} in guild {guild_id}"
+                "Could not find owner member with ID %s in guild %s",
+                user_id,
+                guild_id,
             )
             return
 
         if not bot_member:
-            logger.error(f"Could not find bot member in guild {guild_id}")
+            logger.error("Could not find bot member in guild %s", guild_id)
             return
 
         # Assert base permissions
@@ -110,8 +117,12 @@ async def enforce_permission_changes(
             channel, guild, user_id, guild_id, jtc_channel_id
         )
 
-    except Exception:
-        logger.exception(f"Error enforcing permission changes for channel {channel.id}")
+    except Exception as e:
+        logger.exception(
+            "Error enforcing permission changes for channel %s",
+            channel.id,
+            exc_info=e,
+        )
 
 
 # FEATURE_CONFIG is imported from helpers.permissions_helper (single source of truth)
@@ -153,10 +164,14 @@ async def _apply_database_settings(
 
         # Apply all changes in one batch
         await channel.edit(overwrites=overwrites)
-        logger.debug(f"Applied database settings to channel {channel.id}")
+        logger.debug("Applied database settings to channel %s", channel.id)
 
-    except Exception:
-        logger.exception(f"Error applying database settings to channel {channel.id}")
+    except Exception as e:
+        logger.exception(
+            "Error applying database settings to channel %s",
+            channel.id,
+            exc_info=e,
+        )
 
 
 async def _apply_permit_reject_settings(
@@ -197,7 +212,7 @@ async def _apply_permit_reject_settings(
                 overwrite.connect = False
 
             overwrites[target] = overwrite
-            logger.debug(f"Applied {permission} for {target_type} {target_id}")
+            logger.debug("Applied %s for %s %s", permission, target_type, target_id)
 
 
 async def _apply_voice_feature_settings(
@@ -243,7 +258,11 @@ async def _apply_voice_feature_settings(
 
                 overwrites[target] = overwrite
                 logger.debug(
-                    f"Applied {feature_name}={enabled} for {target_type} {target_id}"
+                    "Applied %s=%s for %s %s",
+                    feature_name,
+                    enabled,
+                    target_type,
+                    target_id,
                 )
 
 

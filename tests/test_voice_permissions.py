@@ -11,6 +11,7 @@ import discord
 import pytest
 
 from helpers.voice_permissions import (
+    _apply_lock_setting,
     assert_base_permissions,
     enforce_permission_changes,
 )
@@ -163,3 +164,141 @@ async def test_get_user_channel() -> None:
             "ORDER BY created_at DESC LIMIT 1",
             (1001,),
         )
+
+
+@pytest.mark.asyncio
+async def test_assert_base_permissions_merges_existing() -> None:
+    """Test that base permissions merge with existing overwrites.
+
+    When a channel already has JTC-inherited overwrites (e.g. speak=False
+    on @everyone), assert_base_permissions should preserve those while
+    adding the required base fields (connect, use_voice_activation).
+    """
+    # Arrange
+    channel = AsyncMock(spec=discord.VoiceChannel)
+    channel.id = 12345
+
+    bot_member = MagicMock(spec=discord.Member)
+    owner_member = MagicMock(spec=discord.Member)
+    default_role = MagicMock(spec=discord.Role)
+    custom_role = MagicMock(spec=discord.Role)
+
+    # Pre-existing overwrites from JTC channel copy
+    existing_default = discord.PermissionOverwrite(speak=False, stream=False)
+    existing_custom = discord.PermissionOverwrite(connect=False)
+    channel.overwrites = {
+        default_role: existing_default,
+        custom_role: existing_custom,
+    }
+
+    # Act
+    await assert_base_permissions(channel, bot_member, owner_member, default_role)
+
+    # Assert
+    channel.edit.assert_called_once()
+    overwrites = channel.edit.call_args.kwargs["overwrites"]
+
+    # default_role: base fields merged, JTC fields preserved
+    assert overwrites[default_role].connect is True
+    assert overwrites[default_role].use_voice_activation is True
+    assert overwrites[default_role].speak is False  # preserved from JTC
+    assert overwrites[default_role].stream is False  # preserved from JTC
+
+    # bot_member: base fields set
+    assert overwrites[bot_member].manage_channels is True
+    assert overwrites[bot_member].connect is True
+
+    # owner_member: base fields set
+    assert overwrites[owner_member].connect is True
+
+    # custom_role: untouched by assert_base_permissions
+    assert overwrites[custom_role].connect is False
+
+
+@pytest.mark.asyncio
+async def test_assert_base_permissions_empty_channel() -> None:
+    """Test assert_base_permissions on a channel with no existing overwrites."""
+    # Arrange
+    channel = AsyncMock(spec=discord.VoiceChannel)
+    channel.id = 99999
+    channel.overwrites = {}
+
+    bot_member = MagicMock(spec=discord.Member)
+    owner_member = MagicMock(spec=discord.Member)
+    default_role = MagicMock(spec=discord.Role)
+
+    # Act
+    await assert_base_permissions(channel, bot_member, owner_member, default_role)
+
+    # Assert
+    channel.edit.assert_called_once()
+    overwrites = channel.edit.call_args.kwargs["overwrites"]
+
+    assert len(overwrites) == 3
+    assert overwrites[default_role].connect is True
+    assert overwrites[default_role].use_voice_activation is True
+    assert overwrites[bot_member].manage_channels is True
+    assert overwrites[bot_member].connect is True
+    assert overwrites[owner_member].connect is True
+
+
+@pytest.mark.asyncio
+async def test_permission_precedence_lock_overrides_base() -> None:
+    """Test that DB lock setting overrides base connect=True for @everyone.
+
+    Layering: JTC overwrites → base perms (connect=True) → DB lock (connect=False).
+    Final result for @everyone should be connect=False.
+    """
+    # Arrange
+    default_role = MagicMock(spec=discord.Role)
+
+    # Build overwrites dict as it would look after assert_base_permissions
+    overwrites: dict = {
+        default_role: discord.PermissionOverwrite(
+            connect=True, use_voice_activation=True
+        ),
+    }
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.default_role = default_role
+
+    user_id = 1001
+    guild_id = 98765
+    jtc_channel_id = 101
+
+    # Mock DB returning lock=1
+    with patch(
+        "helpers.voice_permissions.BaseRepository.fetch_one",
+        new=AsyncMock(return_value=(1,)),
+    ):
+        # Act
+        await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
+
+    # Assert — lock should override connect to False
+    assert overwrites[default_role].connect is False
+    # use_voice_activation untouched
+    assert overwrites[default_role].use_voice_activation is True
+
+
+@pytest.mark.asyncio
+async def test_permission_precedence_no_lock() -> None:
+    """Test that without a lock row, base connect=True remains."""
+    # Arrange
+    default_role = MagicMock(spec=discord.Role)
+    overwrites: dict = {
+        default_role: discord.PermissionOverwrite(
+            connect=True, use_voice_activation=True
+        ),
+    }
+    guild = MagicMock(spec=discord.Guild)
+    guild.default_role = default_role
+
+    # Mock DB returning no row
+    with patch(
+        "helpers.voice_permissions.BaseRepository.fetch_one",
+        new=AsyncMock(return_value=None),
+    ):
+        await _apply_lock_setting(overwrites, guild, 1001, 98765, 101)
+
+    # Assert — connect stays True
+    assert overwrites[default_role].connect is True

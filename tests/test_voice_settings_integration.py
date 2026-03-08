@@ -589,7 +589,11 @@ class TestChannelCreationRoleCheck:
         mock_member,
         mock_db_connection,
     ):
-        """Test that channel creation continues (skipping permission override) when bot role < member role."""
+        """Test that channel creation continues when bot role < member role.
+
+        Owner permissions are now handled by enforce_permission_changes;
+        the standalone set_permissions call was removed.
+        """
         # Configure database response - no saved settings
         mock_db_connection.set_fetchone_result(None)
 
@@ -597,7 +601,6 @@ class TestChannelCreationRoleCheck:
         created_channel = AsyncMock(spec=discord.VoiceChannel)
         created_channel.id = 99999
         created_channel.name = "TestUser's Channel"
-        created_channel.set_permissions = AsyncMock()
         created_channel.send = AsyncMock()
         mock_guild.create_voice_channel.return_value = created_channel
 
@@ -628,8 +631,6 @@ class TestChannelCreationRoleCheck:
         created_channel.delete.assert_not_called() if hasattr(
             created_channel, "delete"
         ) else None
-        # Verify: set_permissions was NOT called (skipped due to role check)
-        created_channel.set_permissions.assert_not_called()
         # Verify: returns the channel (success, just without owner perms)
         assert result == created_channel
 
@@ -642,7 +643,12 @@ class TestChannelCreationRoleCheck:
         mock_member,
         mock_db_connection,
     ):
-        """Test that channel creation succeeds when bot role > member role."""
+        """Test that channel creation succeeds when bot role > member role.
+
+        Owner permissions are now handled entirely by enforce_permission_changes
+        (assert_base_permissions sets owner connect=True). The standalone
+        set_permissions call was removed as redundant.
+        """
         # Configure database response - no saved settings
         mock_db_connection.set_fetchone_result(None)
 
@@ -650,7 +656,6 @@ class TestChannelCreationRoleCheck:
         created_channel = AsyncMock(spec=discord.VoiceChannel)
         created_channel.id = 99999
         created_channel.name = "TestUser's Channel"
-        created_channel.set_permissions = AsyncMock()
         created_channel.send = AsyncMock()
         mock_guild.create_voice_channel.return_value = created_channel
 
@@ -668,12 +673,12 @@ class TestChannelCreationRoleCheck:
         mock_guild.get_member.return_value = mock_bot_member
 
         # Execute
-        with patch("services.voice_service.enforce_permission_changes"):
+        with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             result = await voice_service._create_user_channel(
                 mock_guild, mock_jtc_channel, mock_member
             )
+            # Verify: enforce_permission_changes was called (handles all perms)
+            mock_enforce.assert_called_once()
 
-        # Verify: permissions were set (not deleted)
-        created_channel.set_permissions.assert_called_once()
         # Verify: returns the channel (success)
         assert result == created_channel

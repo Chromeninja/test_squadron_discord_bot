@@ -78,6 +78,7 @@ def mock_jtc_channel():
     channel.name = "Join to Create"
     channel.bitrate = 64000
     channel.user_limit = 0
+    channel.overwrites = {}
 
     # Mock category
     category = MagicMock(spec=discord.CategoryChannel)
@@ -189,12 +190,14 @@ async def test_concurrent_different_jtc_creates_only_one_channel(
     jtc1.name = "JTC 1"
     jtc1.bitrate = 64000
     jtc1.user_limit = 0
+    jtc1.overwrites = {}
 
     jtc2 = MagicMock(spec=discord.VoiceChannel)
     jtc2.id = 22222
     jtc2.name = "JTC 2"
     jtc2.bitrate = 64000
     jtc2.user_limit = 0
+    jtc2.overwrites = {}
 
     # Setup category for both
     category = MagicMock(spec=discord.CategoryChannel)
