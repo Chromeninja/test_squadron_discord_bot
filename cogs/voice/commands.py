@@ -14,7 +14,6 @@ from discord.ext import commands
 
 from helpers.decorators import require_permission_level
 from helpers.permissions_helper import PermissionLevel
-from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -70,9 +69,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             if voice_channel_id:
                 # Check if this is a managed voice channel
-                jtc_channel_id = await BaseRepository.fetch_value(
-                    "SELECT jtc_channel_id FROM voice_channels WHERE voice_channel_id = ? AND owner_id = ? AND is_active = 1",
-                    (voice_channel_id, user.id),
+                jtc_channel_id = await self.voice_service.get_jtc_for_owned_channel(
+                    voice_channel_id, user.id
                 )
 
             # If no active channel or not managed, check for last used JTC
@@ -118,7 +116,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception:
-            logger.exception("Error in list_permissions command")
+            logger.exception(
+                "Error in list_permissions command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
@@ -157,7 +159,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_error(interaction, error_msg)
 
         except Exception:
-            logger.exception("Error in claim_channel command")
+            logger.exception(
+                "Error in claim_channel command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
@@ -200,7 +206,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_error(interaction, error_msg)
 
         except Exception:
-            logger.exception("Error in transfer_ownership command")
+            logger.exception(
+                "Error in transfer_ownership command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
@@ -323,7 +333,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception:
-            logger.exception("Error in list_owners command")
+            logger.exception(
+                "Error in list_owners command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
@@ -373,7 +387,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_error(interaction, error_msg)
 
         except Exception:
-            logger.exception("Error in setup_voice_system command")
+            logger.exception(
+                "Error in setup_voice_system command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
@@ -458,7 +476,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 await send_user_error(interaction, error_msg)
 
         except Exception:
-            logger.exception("Error in add_jtc_channel command")
+            logger.exception(
+                "Error in add_jtc_channel command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
@@ -522,7 +544,11 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception:
-            logger.exception("Error in admin_list command")
+            logger.exception(
+                "Error in admin_list command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             from helpers.discord_reply import send_user_error
 
             with contextlib.suppress(Exception):
@@ -637,7 +663,11 @@ class AdminCommands(app_commands.Group):
                 await self._reset_all_guild_data(interaction, guild_id)
 
         except Exception:
-            logger.exception("Error in admin_reset command")
+            logger.exception(
+                "Error in admin_reset command (guild=%s user=%s)",
+                interaction.guild_id,
+                interaction.user.id,
+            )
             from helpers.error_messages import format_user_error
 
             await interaction.followup.send(
