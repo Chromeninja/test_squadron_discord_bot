@@ -14,6 +14,35 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _get_hierarchy_blocking_roles(
+    overwrites: dict[object, discord.PermissionOverwrite],
+    bot_member: discord.Member,
+    default_role: discord.Role,
+) -> list[str]:
+    """Return role names that the bot cannot manage due to hierarchy."""
+    bot_top_role = getattr(bot_member, "top_role", None)
+    bot_position = getattr(bot_top_role, "position", None)
+    if not isinstance(bot_position, int):
+        return []
+
+    default_role_id = getattr(default_role, "id", None)
+    blocked_roles: list[str] = []
+
+    for target in overwrites:
+        target_position = getattr(target, "position", None)
+        target_name = getattr(target, "name", None)
+        target_id = getattr(target, "id", None)
+
+        if target_id == default_role_id:
+            continue
+        if not isinstance(target_position, int) or not isinstance(target_name, str):
+            continue
+        if target_position >= bot_position:
+            blocked_roles.append(target_name)
+
+    return sorted(set(blocked_roles))
+
+
 async def assert_base_permissions(
     channel: discord.VoiceChannel,
     bot_member: discord.Member,
@@ -35,30 +64,55 @@ async def assert_base_permissions(
         default_role: The default role for the guild (usually @everyone)
     """
     try:
-        # Set up overwrites for default role (everyone)
-        default_overwrite = discord.PermissionOverwrite(
-            connect=True, use_voice_activation=True
-        )
-
-        # Set up overwrites for bot (bot needs manage_channels to control on behalf of users)
-        bot_overwrite = discord.PermissionOverwrite(manage_channels=True, connect=True)
-
-        # Set up overwrites for owner (connect only - management via bot commands)
-        owner_overwrite = discord.PermissionOverwrite(connect=True)
-
-        # Get existing overwrites
+        # Get existing overwrites (may include JTC-inherited permissions)
         overwrites = dict(channel.overwrites)
 
-        # Update the overwrites
+        # Merge base permissions for default role (@everyone).
+        # Uses update() to preserve existing fields (e.g. speak=False from JTC)
+        # while ensuring connect and use_voice_activation are always True.
+        default_overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
+        default_overwrite.update(connect=True, use_voice_activation=True)
         overwrites[default_role] = default_overwrite
+
+        # Merge base permissions for bot (needs manage_channels + connect)
+        bot_overwrite = overwrites.get(bot_member, discord.PermissionOverwrite())
+        bot_overwrite.update(manage_channels=True, connect=True)
         overwrites[bot_member] = bot_overwrite
+
+        # Merge base permissions for owner (connect only — management via bot commands)
+        owner_overwrite = overwrites.get(owner_member, discord.PermissionOverwrite())
+        owner_overwrite.update(connect=True)
         overwrites[owner_member] = owner_overwrite
 
+        blocked_roles = _get_hierarchy_blocking_roles(
+            overwrites,
+            bot_member,
+            default_role,
+        )
+        if blocked_roles:
+            logger.warning(
+                "Skipping base permission update for channel %s due to role hierarchy: %s",
+                channel.id,
+                ", ".join(blocked_roles),
+            )
+            return
+
         # Apply the overwrites
-        await channel.edit(overwrites=overwrites)
-        logger.debug(f"Base permissions asserted for channel {channel.id}")
+        try:
+            await channel.edit(overwrites=overwrites)
+        except discord.Forbidden:
+            logger.warning(
+                "Skipping base permission update for channel %s due to missing permissions",
+                channel.id,
+            )
+            return
+
+        logger.debug("Base permissions asserted for channel %s", channel.id)
     except Exception:
-        logger.exception(f"Error asserting base permissions for channel {channel.id}")
+        logger.exception(
+            "Error asserting base permissions for channel %s",
+            channel.id,
+        )
 
 
 async def enforce_permission_changes(
@@ -83,7 +137,7 @@ async def enforce_permission_changes(
     try:
         guild = bot.get_guild(guild_id)
         if not guild:
-            logger.error(f"Could not find guild with ID {guild_id}")
+            logger.error("Could not find guild with ID %s", guild_id)
             return
 
         # Get the owner, bot member, and default role
@@ -94,12 +148,14 @@ async def enforce_permission_changes(
 
         if not owner_member:
             logger.error(
-                f"Could not find owner member with ID {user_id} in guild {guild_id}"
+                "Could not find owner member with ID %s in guild %s",
+                user_id,
+                guild_id,
             )
             return
 
         if not bot_member:
-            logger.error(f"Could not find bot member in guild {guild_id}")
+            logger.error("Could not find bot member in guild %s", guild_id)
             return
 
         # Assert base permissions
@@ -111,7 +167,10 @@ async def enforce_permission_changes(
         )
 
     except Exception:
-        logger.exception(f"Error enforcing permission changes for channel {channel.id}")
+        logger.exception(
+            "Error enforcing permission changes for channel %s",
+            channel.id,
+        )
 
 
 # FEATURE_CONFIG is imported from helpers.permissions_helper (single source of truth)
@@ -151,12 +210,38 @@ async def _apply_database_settings(
         # Apply lock setting
         await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
 
+        bot_member = guild.me
+        if bot_member is not None:
+            blocked_roles = _get_hierarchy_blocking_roles(
+                overwrites,
+                bot_member,
+                guild.default_role,
+            )
+            if blocked_roles:
+                logger.warning(
+                    "Skipping database permission update for channel %s due to role hierarchy: %s",
+                    channel.id,
+                    ", ".join(blocked_roles),
+                )
+                return
+
         # Apply all changes in one batch
-        await channel.edit(overwrites=overwrites)
-        logger.debug(f"Applied database settings to channel {channel.id}")
+        try:
+            await channel.edit(overwrites=overwrites)
+        except discord.Forbidden:
+            logger.warning(
+                "Skipping database permission update for channel %s due to missing permissions",
+                channel.id,
+            )
+            return
+
+        logger.debug("Applied database settings to channel %s", channel.id)
 
     except Exception:
-        logger.exception(f"Error applying database settings to channel {channel.id}")
+        logger.exception(
+            "Error applying database settings to channel %s",
+            channel.id,
+        )
 
 
 async def _apply_permit_reject_settings(
@@ -197,7 +282,7 @@ async def _apply_permit_reject_settings(
                 overwrite.connect = False
 
             overwrites[target] = overwrite
-            logger.debug(f"Applied {permission} for {target_type} {target_id}")
+            logger.debug("Applied %s for %s %s", permission, target_type, target_id)
 
 
 async def _apply_voice_feature_settings(
@@ -243,7 +328,11 @@ async def _apply_voice_feature_settings(
 
                 overwrites[target] = overwrite
                 logger.debug(
-                    f"Applied {feature_name}={enabled} for {target_type} {target_id}"
+                    "Applied %s=%s for %s %s",
+                    feature_name,
+                    enabled,
+                    target_type,
+                    target_id,
                 )
 
 

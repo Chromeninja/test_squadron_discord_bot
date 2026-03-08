@@ -49,8 +49,11 @@ class VoiceEvents(commands.Cog):
 
         except Exception as e:
             logger.exception(
-                f"Error handling voice state update for {member} "
-                f"(before: {before.channel}, after: {after.channel}): {e}"
+                "Error handling voice state update for %s (before: %s, after: %s)",
+                member,
+                before.channel,
+                after.channel,
+                exc_info=e,
             )
 
     @commands.Cog.listener()

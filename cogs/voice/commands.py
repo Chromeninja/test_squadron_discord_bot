@@ -117,8 +117,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-        except Exception as e:
-            logger.exception("Error in list_permissions command", exc_info=e)
+        except Exception:
+            logger.exception("Error in list_permissions command")
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
@@ -156,8 +156,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
-        except Exception as e:
-            logger.exception("Error in claim_channel command", exc_info=e)
+        except Exception:
+            logger.exception("Error in claim_channel command")
             with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
@@ -199,8 +199,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
-        except Exception as e:
-            logger.exception("Error in transfer_ownership command", exc_info=e)
+        except Exception:
+            logger.exception("Error in transfer_ownership command")
             with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
@@ -322,8 +322,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             embed.set_footer(text=f"Total: {len(channels)} channels")
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-        except Exception as e:
-            logger.exception("Error in list_owners command", exc_info=e)
+        except Exception:
+            logger.exception("Error in list_owners command")
             from helpers.discord_reply import send_user_error
             from helpers.error_messages import format_user_error
 
@@ -372,8 +372,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 error_msg = format_user_error(result.error, **kwargs)
                 await send_user_error(interaction, error_msg)
 
-        except Exception as e:
-            logger.exception("Error in setup_voice_system command", exc_info=e)
+        except Exception:
+            logger.exception("Error in setup_voice_system command")
             with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
@@ -457,8 +457,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
                 error_msg = format_user_error("UNKNOWN", details=add_error)
                 await send_user_error(interaction, error_msg)
 
-        except Exception as e:
-            logger.exception("Error in add_jtc_channel command", exc_info=e)
+        except Exception:
+            logger.exception("Error in add_jtc_channel command")
             with contextlib.suppress(Exception):
                 from helpers.error_messages import format_user_error
 
@@ -521,8 +521,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-        except Exception as e:
-            logger.exception("Error in admin_list command", exc_info=e)
+        except Exception:
+            logger.exception("Error in admin_list command")
             from helpers.discord_reply import send_user_error
 
             with contextlib.suppress(Exception):
@@ -636,8 +636,8 @@ class AdminCommands(app_commands.Group):
                 # Reset all guild data
                 await self._reset_all_guild_data(interaction, guild_id)
 
-        except Exception as e:
-            logger.exception("Error in admin_reset command", exc_info=e)
+        except Exception:
+            logger.exception("Error in admin_reset command")
             from helpers.error_messages import format_user_error
 
             await interaction.followup.send(

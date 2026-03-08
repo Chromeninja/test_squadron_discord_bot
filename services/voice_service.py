@@ -8,7 +8,7 @@ import sqlite3
 import time
 from collections.abc import Coroutine, Iterable
 from inspect import isawaitable
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import discord  # type: ignore[import-not-found]
 
@@ -58,7 +58,7 @@ class VoiceService(BaseService):
     def __init__(
         self,
         config_service: ConfigService,
-        bot: Optional["discord.Client"] = None,
+        bot: "discord.Client | None" = None,
         test_mode: bool = False,
         auto_start_background: bool = False,
     ) -> None:
@@ -466,7 +466,9 @@ class VoiceService(BaseService):
             if channel and hasattr(channel, "members"):
                 return len(channel.members)  # type: ignore[arg-type]
         except Exception:
-            self.logger.debug("Failed to read channel.members for channel %s", channel_id)
+            self.logger.debug(
+                "Failed to read channel.members for channel %s", channel_id
+            )
 
         if channel_id is not None:
             cached = self._voice_channel_members.get(channel_id)
@@ -1740,7 +1742,9 @@ class VoiceService(BaseService):
         """Handle join-to-create channel logic."""
         try:
             self.logger.info(
-                f"{member.display_name} joined JTC channel {jtc_channel.name}"
+                "%s joined JTC channel %s",
+                member.display_name,
+                jtc_channel.name,
             )
 
             if self.debug_logging_enabled:
@@ -1755,7 +1759,8 @@ class VoiceService(BaseService):
             if self._is_user_creating(guild.id, member.id):
                 if self.debug_logging_enabled:
                     self.logger.debug(
-                        f"Ignoring duplicate event for {member.display_name} - creation already in progress"
+                        "Ignoring duplicate event for %s - creation already in progress",
+                        member.display_name,
                     )
                 return
 
@@ -1764,7 +1769,10 @@ class VoiceService(BaseService):
 
             if self.debug_logging_enabled:
                 self.logger.debug(
-                    f"Acquired per-user lock for {member.display_name} (ID: {member.id}) in guild {guild.id}"
+                    "Acquired per-user lock for %s (ID: %s) in guild %s",
+                    member.display_name,
+                    member.id,
+                    guild.id,
                 )
 
             creation_marked = False
@@ -1773,7 +1781,8 @@ class VoiceService(BaseService):
                 if self._is_user_creating(guild.id, member.id):
                     if self.debug_logging_enabled:
                         self.logger.debug(
-                            f"Skipping creation for {member.display_name}; lock-acquired dedupe"
+                            "Skipping creation for %s; lock-acquired dedupe",
+                            member.display_name,
                         )
                     return
 
@@ -1789,12 +1798,15 @@ class VoiceService(BaseService):
                     if error_code == "CREATING":
                         if self.debug_logging_enabled:
                             self.logger.debug(
-                                f"Ignoring duplicate creation event for {member.display_name} - already creating"
+                                "Ignoring duplicate creation event for %s - already creating",
+                                member.display_name,
                             )
                         return
 
                     self.logger.info(
-                        f"Cooldown prevented channel creation for {member.display_name}: {error_code}"
+                        "Cooldown prevented channel creation for %s: %s",
+                        member.display_name,
+                        error_code,
                     )
                     # Parse cooldown seconds from error code (format: "COOLDOWN:5")
                     if error_code and error_code.startswith("COOLDOWN:"):
@@ -1815,7 +1827,9 @@ class VoiceService(BaseService):
 
                 if self.debug_logging_enabled:
                     self.logger.debug(
-                        f"Marked user {member.id} as creating channel in guild {guild.id}"
+                        "Marked user %s as creating channel in guild %s",
+                        member.id,
+                        guild.id,
                     )
 
                 try:
@@ -1843,7 +1857,9 @@ class VoiceService(BaseService):
                             )
                     except TimeoutError:
                         self.logger.exception(
-                            f"Channel creation timed out for {member.display_name} in JTC {jtc_channel.name}"
+                            "Channel creation timed out for %s in JTC %s",
+                            member.display_name,
+                            jtc_channel.name,
                         )
                         # Notify in bot spam channel
                         await self._notify_bot_spam_channel(
@@ -1896,7 +1912,12 @@ class VoiceService(BaseService):
         """
         try:
             self.logger.info(
-                f"Creating channel for {member.display_name} (ID: {member.id}) in guild {guild.id}, JTC channel {jtc_channel.id} ('{jtc_channel.name}')"
+                "Creating channel for %s (ID: %s) in guild %s, JTC channel %s ('%s')",
+                member.display_name,
+                member.id,
+                guild.id,
+                jtc_channel.id,
+                jtc_channel.name,
             )
 
             # Load saved settings from database
@@ -1908,23 +1929,28 @@ class VoiceService(BaseService):
             if self.debug_logging_enabled:
                 if saved_settings:
                     self.logger.debug(
-                        f"Loaded settings for user {member.id} in JTC {jtc_channel.id}: {len(saved_settings)} settings"
+                        "Loaded settings for user %s in JTC %s: %d settings",
+                        member.id,
+                        jtc_channel.id,
+                        len(saved_settings),
                     )
                 else:
                     self.logger.debug(
-                        f"No saved settings found for user {member.id} in JTC {jtc_channel.id}"
+                        "No saved settings found for user %s in JTC %s",
+                        member.id,
+                        jtc_channel.id,
                     )
 
             # Generate channel name - use saved name if available, otherwise default
             if saved_settings and saved_settings.get("channel_name"):
                 channel_name = saved_settings["channel_name"]
                 if self.debug_logging_enabled:
-                    self.logger.debug(f"Using saved channel name for user {member.id}")
+                    self.logger.debug("Using saved channel name for user %s", member.id)
             else:
                 channel_name = f"{member.display_name}'s Channel"
                 if self.debug_logging_enabled:
                     self.logger.debug(
-                        f"Using default channel name for user {member.id}"
+                        "Using default channel name for user %s", member.id
                     )
 
             # Create the channel in the same category as the JTC channel
@@ -1951,55 +1977,26 @@ class VoiceService(BaseService):
             if bot_member is None:
                 raise RuntimeError("Bot member not found in guild")
 
-            # Create the channel without overwrites to inherit from parent category
+            # Copy permission overwrites from the JTC source channel so
+            # the new channel inherits role/user overrides configured on the
+            # JTC channel (e.g. muted roles, restricted access).  Base safety
+            # permissions (owner, bot, @everyone) and DB-driven custom
+            # settings are merged on top by enforce_permission_changes().
+            jtc_overwrites = dict(jtc_channel.overwrites)
+            if self.debug_logging_enabled:
+                self.logger.debug(
+                    "Copying %d permission overwrites from JTC channel %s",
+                    len(jtc_overwrites),
+                    jtc_channel.id,
+                )
+
             channel = await guild.create_voice_channel(
                 name=channel_name,
                 category=category,
                 bitrate=jtc_channel.bitrate,
                 user_limit=user_limit,
+                overwrites=jtc_overwrites,
             )
-
-            # Set user permissions only if bot's role is higher than member's role
-            try:
-                # For mock objects, top_role comparison may fail - catch and skip
-                try:
-                    role_check = bot_member.top_role > member.top_role
-                except (TypeError, AttributeError):
-                    # Mock objects or missing attributes - assume permission check passes
-                    role_check = True
-
-                if role_check:
-                    set_perms = getattr(channel, "set_permissions", None)
-                    if callable(set_perms):
-                        perm_result = set_perms(
-                            member,
-                            connect=True,
-                        )
-                        if isawaitable(perm_result):
-                            await perm_result
-                        self.logger.debug(
-                            f"Set user permissions for {member.display_name} on channel {channel.name}"
-                        )
-                    else:
-                        self.logger.warning(
-                            "Channel %s has no set_permissions; skipping permission override",
-                            getattr(channel, "id", "unknown"),
-                        )
-                else:
-                    # Bot role is too low to grant owner permissions - skip but continue
-                    self.logger.warning(
-                        f"Skipping permission override for {member.display_name} - bot role '{bot_member.top_role.name}' "
-                        f"is not higher than member role '{member.top_role.name}'"
-                    )
-            except discord.Forbidden as e:
-                # Permission error during set_permissions - log warning but continue
-                self.logger.warning(
-                    f"Could not set permissions for {member.display_name}: {e}"
-                )
-            except Exception as e:
-                self.logger.exception(
-                    f"Unexpected error setting permissions for {member.display_name}: {e}"
-                )
 
             # Apply all saved settings from database after creation
             if self.bot:
@@ -2014,7 +2011,9 @@ class VoiceService(BaseService):
             # Validate user is still connected to voice before moving
             if member.voice is None or member.voice.channel is None:
                 self.logger.warning(
-                    f"User {member.display_name} disconnected before channel creation completed, cleaning up channel {channel.id}"
+                    "User %s disconnected before channel creation completed, cleaning up channel %s",
+                    member.display_name,
+                    channel.id,
                 )
                 # Cleanup the created channel
                 await self._delete_channel_safe(
@@ -2050,7 +2049,10 @@ class VoiceService(BaseService):
                 await member.move_to(channel)
             except discord.HTTPException as e:
                 self.logger.exception(
-                    f"Failed to move {member.display_name} to channel {channel.id}: {e}"
+                    "Failed to move %s to channel %s",
+                    member.display_name,
+                    channel.id,
+                    exc_info=e,
                 )
                 # Cleanup the created channel
                 await self._delete_channel_safe(channel, reason="Failed to move user")
@@ -2092,7 +2094,7 @@ class VoiceService(BaseService):
             self.managed_voice_channels.add(channel.id)
 
             self.logger.info(
-                f"Created channel '{channel.name}' for {member.display_name}"
+                "Created channel '%s' for %s", channel.name, member.display_name
             )
 
             # Send channel settings view message
@@ -2106,9 +2108,10 @@ class VoiceService(BaseService):
                     member=member,
                     view=ChannelSettingsView(self.bot),
                 )
-            except Exception as e:
+            except Exception:
                 self.logger.exception(
-                    f"Error sending settings view to '{channel.name}': {e}"
+                    "Error sending settings view to '%s'",
+                    channel.name,
                 )
 
             return channel
@@ -2117,7 +2120,11 @@ class VoiceService(BaseService):
             # Specific handling for permission errors
             if "50013" in str(e) or "Missing Permissions" in str(e):
                 self.logger.exception(
-                    f"Permission denied creating channel for {member.display_name} in '{jtc_channel.category.name if jtc_channel.category else 'no category'}': {e}"
+                    "Permission denied creating channel for %s in '%s'",
+                    member.display_name,
+                    jtc_channel.category.name
+                    if jtc_channel.category
+                    else "no category",
                 )
                 try:
                     await member.send(
@@ -2132,12 +2139,10 @@ class VoiceService(BaseService):
                     )
                 return None  # Stop execution as channel creation failed
             else:
-                self.logger.exception(
-                    "Discord permission error creating user channel", exc_info=e
-                )
+                self.logger.exception("Discord permission error creating user channel")
                 return None
-        except Exception as e:
-            self.logger.exception("Error creating user channel", exc_info=e)
+        except Exception:
+            self.logger.exception("Error creating user channel")
             return None
 
     def _get_user_game_name(self, member: discord.Member) -> str | None:

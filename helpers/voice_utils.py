@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 
 async def get_user_channel(
-    bot,
+    bot: discord.Client,
     user: discord.abc.User,
     guild_id: int | None = None,
     jtc_channel_id: int | None = None,
@@ -61,8 +61,8 @@ async def get_user_channel(
                     channel = await bot.fetch_channel(channel_id)
                 except discord.NotFound:
                     logger.warning(
-                        f"Channel with ID {channel_id} not found. Removing stale "
-                        f"DB mapping."
+                        "Channel with ID %s not found. Removing stale DB mapping.",
+                        channel_id,
                     )
                     with contextlib.suppress(Exception):
                         # Remove stale mapping so future checks don't keep trying
@@ -75,14 +75,14 @@ async def get_user_channel(
                         await db.execute(delete_query, delete_params)
                     return None
                 except discord.HTTPException:
-                    logger.exception(f"Failed to fetch channel {channel_id}")
+                    logger.exception("Failed to fetch channel %s", channel_id)
                     return None
 
             return channel
     return None
 
 
-def get_user_game_name(member) -> str | None:
+def get_user_game_name(member: discord.Member) -> str | None:
     """
     Retrieves the name of the game the user is currently playing.
     """
@@ -97,7 +97,10 @@ def get_user_game_name(member) -> str | None:
 
 
 async def update_channel_settings(
-    user_id, guild_id=None, jtc_channel_id=None, **kwargs
+    user_id: int,
+    guild_id: int | None = None,
+    jtc_channel_id: int | None = None,
+    **kwargs: str | int | bool,
 ) -> None:
     """
     Updates the channel settings (channel_name, user_limit, lock) for a user in DB.
@@ -155,8 +158,8 @@ async def set_voice_feature_setting(
     target_id: int,
     target_type: str,
     enable: bool,
-    guild_id=None,
-    jtc_channel_id=None,
+    guild_id: int | None = None,
+    jtc_channel_id: int | None = None,
 ) -> None:
     """
     Inserts or updates the setting in the respective DB table for the given feature.
@@ -179,7 +182,7 @@ async def set_voice_feature_setting(
 
     cfg = FEATURE_CONFIG.get(feature)
     if not cfg:
-        logger.error(f"Unknown feature: {feature}")
+        logger.error("Unknown feature: %s", feature)
         return
 
     db_table = cfg["db_table"]
@@ -233,7 +236,7 @@ async def apply_voice_feature_toggle(
     """
     cfg = FEATURE_CONFIG.get(feature)
     if not cfg:
-        logger.error(f"Unknown feature: {feature}")
+        logger.error("Unknown feature: %s", feature)
         return
 
     overwrites = channel.overwrites.copy()
@@ -250,11 +253,14 @@ async def apply_voice_feature_toggle(
     try:
         await edit_channel(channel, overwrites=overwrites)
         logger.info(
-            f"Applied feature '{feature}'={enable} to channel '{channel.name}'."
+            "Applied feature %r=%s to channel %r", feature, enable, channel.name
         )
-    except Exception:
+    except Exception as e:
         logger.exception(
-            f"Failed to apply feature '{feature}' to channel '{channel.name}'"
+            "Failed to apply feature %r to channel %r",
+            feature,
+            channel.name,
+            exc_info=e,
         )
 
         # ------------------------------
