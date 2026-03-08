@@ -14,6 +14,35 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _get_hierarchy_blocking_roles(
+    overwrites: dict[object, discord.PermissionOverwrite],
+    bot_member: discord.Member,
+    default_role: discord.Role,
+) -> list[str]:
+    """Return role names that the bot cannot manage due to hierarchy."""
+    bot_top_role = getattr(bot_member, "top_role", None)
+    bot_position = getattr(bot_top_role, "position", None)
+    if not isinstance(bot_position, int):
+        return []
+
+    default_role_id = getattr(default_role, "id", None)
+    blocked_roles: list[str] = []
+
+    for target in overwrites:
+        target_position = getattr(target, "position", None)
+        target_name = getattr(target, "name", None)
+        target_id = getattr(target, "id", None)
+
+        if target_id == default_role_id:
+            continue
+        if not isinstance(target_position, int) or not isinstance(target_name, str):
+            continue
+        if target_position >= bot_position:
+            blocked_roles.append(target_name)
+
+    return sorted(set(blocked_roles))
+
+
 async def assert_base_permissions(
     channel: discord.VoiceChannel,
     bot_member: discord.Member,
@@ -55,14 +84,34 @@ async def assert_base_permissions(
         owner_overwrite.update(connect=True)
         overwrites[owner_member] = owner_overwrite
 
+        blocked_roles = _get_hierarchy_blocking_roles(
+            overwrites,
+            bot_member,
+            default_role,
+        )
+        if blocked_roles:
+            logger.warning(
+                "Skipping base permission update for channel %s due to role hierarchy: %s",
+                channel.id,
+                ", ".join(blocked_roles),
+            )
+            return
+
         # Apply the overwrites
-        await channel.edit(overwrites=overwrites)
+        try:
+            await channel.edit(overwrites=overwrites)
+        except discord.Forbidden:
+            logger.warning(
+                "Skipping base permission update for channel %s due to missing permissions",
+                channel.id,
+            )
+            return
+
         logger.debug("Base permissions asserted for channel %s", channel.id)
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Error asserting base permissions for channel %s",
             channel.id,
-            exc_info=e,
         )
 
 
@@ -117,11 +166,10 @@ async def enforce_permission_changes(
             channel, guild, user_id, guild_id, jtc_channel_id
         )
 
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Error enforcing permission changes for channel %s",
             channel.id,
-            exc_info=e,
         )
 
 
@@ -162,15 +210,37 @@ async def _apply_database_settings(
         # Apply lock setting
         await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
 
+        bot_member = guild.me
+        if bot_member is not None:
+            blocked_roles = _get_hierarchy_blocking_roles(
+                overwrites,
+                bot_member,
+                guild.default_role,
+            )
+            if blocked_roles:
+                logger.warning(
+                    "Skipping database permission update for channel %s due to role hierarchy: %s",
+                    channel.id,
+                    ", ".join(blocked_roles),
+                )
+                return
+
         # Apply all changes in one batch
-        await channel.edit(overwrites=overwrites)
+        try:
+            await channel.edit(overwrites=overwrites)
+        except discord.Forbidden:
+            logger.warning(
+                "Skipping database permission update for channel %s due to missing permissions",
+                channel.id,
+            )
+            return
+
         logger.debug("Applied database settings to channel %s", channel.id)
 
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Error applying database settings to channel %s",
             channel.id,
-            exc_info=e,
         )
 
 

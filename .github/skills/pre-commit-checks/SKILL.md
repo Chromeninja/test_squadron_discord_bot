@@ -31,7 +31,7 @@ Fix all lint errors. Ruff enforces 40+ rule categories including security (S/ban
 ruff format --check .
 ```
 
-If formatting issues found, fix with `ruff format .` then re-run step 1.
+If formatting issues are found, fix with `ruff format .` then re-run step 1.
 
 ### Step 3: Type Check
 

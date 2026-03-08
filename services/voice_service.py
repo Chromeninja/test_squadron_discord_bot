@@ -2108,11 +2108,10 @@ class VoiceService(BaseService):
                     member=member,
                     view=ChannelSettingsView(self.bot),
                 )
-            except Exception as e:
+            except Exception:
                 self.logger.exception(
                     "Error sending settings view to '%s'",
                     channel.name,
-                    exc_info=e,
                 )
 
             return channel
@@ -2126,7 +2125,6 @@ class VoiceService(BaseService):
                     jtc_channel.category.name
                     if jtc_channel.category
                     else "no category",
-                    exc_info=e,
                 )
                 try:
                     await member.send(
@@ -2141,12 +2139,10 @@ class VoiceService(BaseService):
                     )
                 return None  # Stop execution as channel creation failed
             else:
-                self.logger.exception(
-                    "Discord permission error creating user channel", exc_info=e
-                )
+                self.logger.exception("Discord permission error creating user channel")
                 return None
-        except Exception as e:
-            self.logger.exception("Error creating user channel", exc_info=e)
+        except Exception:
+            self.logger.exception("Error creating user channel")
             return None
 
     def _get_user_game_name(self, member: discord.Member) -> str | None:

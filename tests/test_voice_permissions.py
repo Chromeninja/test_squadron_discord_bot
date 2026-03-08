@@ -12,6 +12,7 @@ import pytest
 
 from helpers.voice_permissions import (
     _apply_lock_setting,
+    _get_hierarchy_blocking_roles,
     assert_base_permissions,
     enforce_permission_changes,
 )
@@ -240,6 +241,90 @@ async def test_assert_base_permissions_empty_channel() -> None:
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
     assert overwrites[owner_member].connect is True
+
+
+def test_get_hierarchy_blocking_roles_detects_conflicts() -> None:
+    """Detect role overwrites blocked by bot role hierarchy."""
+    # Arrange
+    default_role = MagicMock(spec=discord.Role)
+    default_role.id = 1
+    default_role.name = "@everyone"
+    default_role.position = 0
+
+    bot_top_role = MagicMock(spec=discord.Role)
+    bot_top_role.position = 10
+
+    bot_member = MagicMock(spec=discord.Member)
+    bot_member.top_role = bot_top_role
+
+    low_role = MagicMock(spec=discord.Role)
+    low_role.id = 2
+    low_role.name = "LowRole"
+    low_role.position = 2
+
+    equal_role = MagicMock(spec=discord.Role)
+    equal_role.id = 3
+    equal_role.name = "EqualRole"
+    equal_role.position = 10
+
+    high_role = MagicMock(spec=discord.Role)
+    high_role.id = 4
+    high_role.name = "HighRole"
+    high_role.position = 12
+
+    overwrites: dict[object, discord.PermissionOverwrite] = {
+        default_role: discord.PermissionOverwrite(),
+        low_role: discord.PermissionOverwrite(),
+        equal_role: discord.PermissionOverwrite(),
+        high_role: discord.PermissionOverwrite(),
+    }
+
+    # Act
+    blocked_roles = _get_hierarchy_blocking_roles(
+        overwrites,
+        bot_member,
+        default_role,
+    )
+
+    # Assert
+    assert blocked_roles == ["EqualRole", "HighRole"]
+
+
+@pytest.mark.asyncio
+async def test_assert_base_permissions_skips_edit_when_hierarchy_blocks() -> None:
+    """Skip overwrite edits when role hierarchy would cause Forbidden errors."""
+    # Arrange
+    channel = AsyncMock(spec=discord.VoiceChannel)
+    channel.id = 12345
+
+    default_role = MagicMock(spec=discord.Role)
+    default_role.id = 1
+    default_role.name = "@everyone"
+    default_role.position = 0
+
+    blocking_role = MagicMock(spec=discord.Role)
+    blocking_role.id = 2
+    blocking_role.name = "Admins"
+    blocking_role.position = 10
+
+    channel.overwrites = {
+        default_role: discord.PermissionOverwrite(),
+        blocking_role: discord.PermissionOverwrite(),
+    }
+
+    bot_top_role = MagicMock(spec=discord.Role)
+    bot_top_role.position = 10
+
+    bot_member = MagicMock(spec=discord.Member)
+    bot_member.top_role = bot_top_role
+
+    owner_member = MagicMock(spec=discord.Member)
+
+    # Act
+    await assert_base_permissions(channel, bot_member, owner_member, default_role)
+
+    # Assert
+    channel.edit.assert_not_called()
 
 
 @pytest.mark.asyncio
