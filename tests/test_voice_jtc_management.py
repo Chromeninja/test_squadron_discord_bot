@@ -299,11 +299,17 @@ class TestJTCManagement:
         # Create a valid category
         category = MagicMock()
         category.guild = MagicMock()
-        category.guild.get_member = MagicMock(return_value=MagicMock())
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
 
         # Create mock permissions
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = True
+        mock_perms.manage_roles = True
 
         # Mock the permissions_for method
         category.permissions_for = MagicMock(return_value=mock_perms)
@@ -324,12 +330,18 @@ class TestJTCManagement:
         # Create category
         category = MagicMock()
         category.guild = MagicMock()
-        category.guild.get_member = MagicMock(return_value=MagicMock())
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
         category.name = "Test Category"
 
         # Create mock permissions without manage_channels
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = False
+        mock_perms.manage_roles = True
 
         category.permissions_for = MagicMock(return_value=mock_perms)
 
@@ -351,13 +363,17 @@ class TestJTCManagement:
         category = MagicMock()
         category.guild = MagicMock()
         category.guild.id = guild_id
-        category.guild.get_member = MagicMock(
-            return_value=MagicMock()
-        )  # Bot member exists
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
 
         # Mock permissions
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = True
+        mock_perms.manage_roles = True
         category.permissions_for = MagicMock(return_value=mock_perms)
 
         # Mock channel creation

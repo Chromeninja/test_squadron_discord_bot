@@ -3410,6 +3410,7 @@ class VoiceService(BaseService):
         Checks:
         - Category exists
         - Bot instance available
+        - Bot has View Channel permission in category
         - Bot has Manage Channels permission in category
         - Bot has Move Members permission in guild
 
@@ -3447,6 +3448,18 @@ class VoiceService(BaseService):
 
             # Check category-level permissions
             perms = category.permissions_for(bot_member)
+            if not perms.view_channel:
+                self.logger.warning(
+                    "Missing 'View Channel' permission in category '%s' (%s)",
+                    category.name,
+                    category.id,
+                    extra={"guild_id": guild.id, "category_id": category.id},
+                )
+                return (
+                    False,
+                    f"Bot missing 'View Channel' permission in category '{category.name}'",
+                )
+
             if not perms.manage_channels:
                 self.logger.warning(
                     f"Missing 'Manage Channels' permission in category '{category.name}' ({category.id})",

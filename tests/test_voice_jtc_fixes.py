@@ -52,6 +52,7 @@ async def test_validate_jtc_missing_manage_roles() -> None:
 
     # Bot has manage_channels but NOT manage_roles
     perms = MagicMock()
+    perms.view_channel = True
     perms.manage_channels = True
     perms.manage_roles = False
     category.permissions_for.return_value = perms
@@ -71,7 +72,7 @@ async def test_validate_jtc_missing_manage_roles() -> None:
 
 @pytest.mark.asyncio
 async def test_validate_jtc_passes_with_all_perms() -> None:
-    """Should pass when bot has manage_channels, manage_roles, and move_members."""
+    """Should pass when bot has all required category and guild permissions."""
     # Arrange
     service = _make_voice_service()
 
@@ -88,6 +89,7 @@ async def test_validate_jtc_passes_with_all_perms() -> None:
     guild.get_member.return_value = bot_member
 
     perms = MagicMock()
+    perms.view_channel = True
     perms.manage_channels = True
     perms.manage_roles = True
     category.permissions_for.return_value = perms
@@ -122,6 +124,7 @@ async def test_validate_jtc_missing_manage_channels() -> None:
     guild.get_member.return_value = bot_member
 
     perms = MagicMock()
+    perms.view_channel = True
     perms.manage_channels = False
     perms.manage_roles = True
     category.permissions_for.return_value = perms
@@ -133,6 +136,38 @@ async def test_validate_jtc_missing_manage_channels() -> None:
     assert ok is False
     assert error is not None
     assert "Manage Channels" in error
+
+
+@pytest.mark.asyncio
+async def test_validate_jtc_missing_view_channel() -> None:
+    """Should fail when bot lacks view_channel in a private category."""
+    # Arrange
+    service = _make_voice_service()
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.id = 100
+    category.name = "Voice"
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 1
+    category.guild = guild
+
+    bot_member = MagicMock(spec=discord.Member)
+    guild.get_member.return_value = bot_member
+
+    perms = MagicMock()
+    perms.view_channel = False
+    perms.manage_channels = True
+    perms.manage_roles = True
+    category.permissions_for.return_value = perms
+
+    # Act
+    ok, error = await service._validate_jtc_permissions(category)
+
+    # Assert
+    assert ok is False
+    assert error is not None
+    assert "View Channel" in error
 
 
 # ======================================================================
