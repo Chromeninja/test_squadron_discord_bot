@@ -52,6 +52,9 @@ async def test_assert_base_permissions() -> None:
 
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[bot_member].manage_roles is True
 
     # Owner only gets connect - channel management is via bot commands
     assert overwrites[owner_member].connect is True
@@ -113,6 +116,9 @@ async def test_enforce_permission_changes() -> None:
     assert overwrites[default_role].use_voice_activation is True
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[bot_member].manage_roles is True
     assert overwrites[owner_member].connect is True
 
 
@@ -229,6 +235,9 @@ async def test_assert_base_permissions_merges_existing() -> None:
     # bot_member: base fields set
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[bot_member].manage_roles is True
 
     # owner_member: base fields set
     assert overwrites[owner_member].connect is True
@@ -261,6 +270,9 @@ async def test_assert_base_permissions_empty_channel() -> None:
     assert overwrites[default_role].use_voice_activation is True
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[bot_member].manage_roles is True
     assert overwrites[owner_member].connect is True
 
 

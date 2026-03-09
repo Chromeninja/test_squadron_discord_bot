@@ -2056,6 +2056,29 @@ class VoiceService(BaseService):
                 sanitized = self._sanitize_overwrite(overwrite, bot_category_perms)
                 jtc_overwrites[target] = sanitized
 
+            # Ensure the bot always has critical permissions on the new
+            # channel.  This MUST be set before creation to prevent lockout
+            # scenarios where JTC overwrites deny manage_channels,
+            # move_members, or view_channel via @everyone or role denies.
+            bot_creation_overwrite = jtc_overwrites.get(
+                bot_member, discord.PermissionOverwrite()
+            )
+            bot_creation_overwrite.update(
+                view_channel=True,
+                manage_channels=True,
+                connect=True,
+                move_members=True,
+                manage_roles=True,
+            )
+            jtc_overwrites[bot_member] = bot_creation_overwrite
+
+            # Ensure the channel owner can always connect
+            owner_creation_overwrite = jtc_overwrites.get(
+                member, discord.PermissionOverwrite()
+            )
+            owner_creation_overwrite.update(connect=True)
+            jtc_overwrites[member] = owner_creation_overwrite
+
             if self.debug_logging_enabled:
                 self.logger.debug(
                     "Copying %d permission overwrites from JTC channel %s",

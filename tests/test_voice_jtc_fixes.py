@@ -329,3 +329,109 @@ async def test_create_user_channel_falls_back_per_overwrite() -> None:
     # Per-overwrite set_permissions should have been called on the bare channel
     bare_channel.set_permissions.assert_called()
     assert result is not None
+
+
+# ======================================================================
+# Fix: Bot and owner overwrites included in JTC creation to prevent lockout
+# ======================================================================
+
+
+@pytest.mark.asyncio
+async def test_create_user_channel_includes_bot_and_owner_overwrites() -> None:
+    """Bot and owner overwrites must be in create_voice_channel to prevent lockout.
+
+    If JTC source channel has @everyone deny on manage_channels or
+    view_channel, the bot would lose access to the newly created channel
+    unless its own member overwrite is included at creation time.
+    """
+    # Arrange
+    service = _make_voice_service()
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 1
+    guild.name = "TestGuild"
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.id = 100
+    category.name = "Voice"
+    category.guild = guild
+
+    jtc_channel = MagicMock(spec=discord.VoiceChannel)
+    jtc_channel.id = 200
+    jtc_channel.name = "Join to Create"
+    jtc_channel.bitrate = 64000
+    jtc_channel.user_limit = 0
+    jtc_channel.category = category
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 1001
+    member.display_name = "TestUser"
+    member.guild = guild
+    member.voice = MagicMock()
+    member.voice.channel = MagicMock()
+
+    bot_member = MagicMock(spec=discord.Member)
+    bot_top_role = MagicMock(spec=discord.Role)
+    bot_top_role.position = 10
+    bot_member.top_role = bot_top_role
+    guild.get_member.return_value = bot_member
+
+    bot_category_perms = discord.Permissions.all()
+    category.permissions_for.return_value = bot_category_perms
+
+    # JTC channel has @everyone deny on manage_channels — the lockout scenario
+    everyone_role = MagicMock(spec=discord.Role)
+    everyone_role.position = 0
+    everyone_role.name = "@everyone"
+    everyone_role.__ge__ = lambda self, other: self.position >= other.position
+
+    jtc_channel.overwrites = {
+        everyone_role: discord.PermissionOverwrite(manage_channels=False),
+    }
+
+    created_channel = AsyncMock(spec=discord.VoiceChannel)
+    created_channel.id = 9001
+    guild.create_voice_channel = AsyncMock(return_value=created_channel)
+
+    # Act
+    with (
+        patch("services.voice_service.enforce_permission_changes", new=AsyncMock()),
+        patch.object(service, "_store_user_channel", new=AsyncMock()),
+        patch.object(
+            service,
+            "_validate_jtc_permissions",
+            new=AsyncMock(return_value=(True, None)),
+        ),
+        patch.object(
+            service, "_load_channel_settings", new=AsyncMock(return_value=None)
+        ),
+        patch.object(service, "_update_cooldown", new=AsyncMock()),
+        patch.object(service, "_send_settings_message_to_vc", new=AsyncMock()),
+        patch(
+            "services.voice_service.update_last_used_jtc_channel",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await service._create_user_channel(guild, jtc_channel, member)
+
+    # Assert — channel was created
+    assert result is not None
+    guild.create_voice_channel.assert_called_once()
+    call_kwargs = guild.create_voice_channel.call_args.kwargs
+    overwrites = call_kwargs["overwrites"]
+
+    # Bot member must be in the creation overwrites with critical permissions
+    assert bot_member in overwrites
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[bot_member].manage_channels is True
+    assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].manage_roles is True
+
+    # Owner (member) must also be in the creation overwrites with connect
+    assert member in overwrites
+    assert overwrites[member].connect is True
+
+    # @everyone deny from JTC should still be preserved
+    assert everyone_role in overwrites
+    assert overwrites[everyone_role].manage_channels is False

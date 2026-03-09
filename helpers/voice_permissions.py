@@ -73,9 +73,16 @@ async def assert_base_permissions(
         default_overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
         default_overwrite.update(connect=True, use_voice_activation=True)
 
-        # Merge base permissions for bot (needs manage_channels + connect)
+        # Merge base permissions for bot (needs manage_channels, connect,
+        # move_members, manage_roles, and view_channel to prevent lockout)
         bot_overwrite = overwrites.get(bot_member, discord.PermissionOverwrite())
-        bot_overwrite.update(manage_channels=True, connect=True)
+        bot_overwrite.update(
+            view_channel=True,
+            manage_channels=True,
+            connect=True,
+            move_members=True,
+            manage_roles=True,
+        )
 
         # Merge base permissions for owner (connect only — management via bot commands)
         owner_overwrite = overwrites.get(owner_member, discord.PermissionOverwrite())
@@ -189,9 +196,16 @@ async def enforce_permission_changes(
         default_overwrite.update(connect=True, use_voice_activation=True)
         overwrites[default_role] = default_overwrite
 
-        # 2. Base permissions for bot
+        # 2. Base permissions for bot (needs manage_channels, connect,
+        # move_members, manage_roles, and view_channel to prevent lockout)
         bot_overwrite = overwrites.get(bot_member, discord.PermissionOverwrite())
-        bot_overwrite.update(manage_channels=True, connect=True)
+        bot_overwrite.update(
+            view_channel=True,
+            manage_channels=True,
+            connect=True,
+            move_members=True,
+            manage_roles=True,
+        )
         overwrites[bot_member] = bot_overwrite
 
         # 3. Base permissions for owner
