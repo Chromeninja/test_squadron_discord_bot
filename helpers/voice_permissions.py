@@ -143,6 +143,11 @@ async def enforce_permission_changes(
     """
     Enforce all permission changes for a channel based on the database settings.
 
+    Builds a **single** merged overwrite dict containing both base permissions
+    (bot, owner, @everyone) and all DB-driven settings (permit/reject, PTT,
+    priority speaker, soundboard, lock), then pushes them to Discord in one
+    API call to avoid intermediate permission windows and reduce rate-limit usage.
+
     This should be called after any permission change or owner transfer.
 
     Args:
@@ -176,115 +181,78 @@ async def enforce_permission_changes(
             logger.error("Could not find bot member in guild %s", guild_id)
             return
 
-        # Assert base permissions
-        await assert_base_permissions(channel, bot_member, owner_member, default_role)
+        # --- Build a single merged overwrite dict ---
+        overwrites = dict(channel.overwrites)
 
-        # Apply all other permission settings from the database
-        await _apply_database_settings(
-            channel, guild, user_id, guild_id, jtc_channel_id
+        # 1. Base permissions for @everyone
+        default_overwrite = overwrites.get(default_role, discord.PermissionOverwrite())
+        default_overwrite.update(connect=True, use_voice_activation=True)
+        overwrites[default_role] = default_overwrite
+
+        # 2. Base permissions for bot
+        bot_overwrite = overwrites.get(bot_member, discord.PermissionOverwrite())
+        bot_overwrite.update(manage_channels=True, connect=True)
+        overwrites[bot_member] = bot_overwrite
+
+        # 3. Base permissions for owner
+        owner_overwrite = overwrites.get(owner_member, discord.PermissionOverwrite())
+        owner_overwrite.update(connect=True)
+        overwrites[owner_member] = owner_overwrite
+
+        # 4. DB-driven settings (permit/reject, PTT, lock, etc.)
+        await _apply_permit_reject_settings(
+            overwrites, guild, user_id, guild_id, jtc_channel_id
         )
+        await _apply_voice_feature_settings(
+            overwrites, guild, user_id, guild_id, jtc_channel_id
+        )
+        await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
+
+        # --- Push to Discord in one call ---
+        blocked_roles = _get_hierarchy_blocking_roles(
+            overwrites,
+            bot_member,
+            default_role,
+        )
+
+        if blocked_roles:
+            # Higher-role overwrites exist.  Using channel.edit(overwrites=...)
+            # would strip them.  Apply only changed targets individually.
+            logger.debug(
+                "Using per-target set_permissions for channel %s "
+                "(hierarchy-blocked roles: %s)",
+                channel.id,
+                ", ".join(blocked_roles),
+            )
+            for target, overwrite in overwrites.items():
+                # Skip targets whose overwrites haven't changed from what's
+                # already on the channel to avoid unnecessary API calls.
+                existing = channel.overwrites.get(target)
+                if existing == overwrite:
+                    continue
+                try:
+                    await channel.set_permissions(target, overwrite=overwrite)
+                except discord.Forbidden:
+                    logger.warning(
+                        "Cannot set permissions for %s on channel %s",
+                        getattr(target, "name", target),
+                        channel.id,
+                    )
+        else:
+            try:
+                await channel.edit(overwrites=overwrites)
+            except discord.Forbidden:
+                logger.warning(
+                    "Skipping permission update for channel %s due to missing permissions",
+                    channel.id,
+                )
+                return
+
+        logger.debug("Enforced all permissions for channel %s", channel.id)
 
     except Exception:
         logger.exception(
             "Error enforcing permission changes for channel %s",
-            channel.id,
-        )
-
-
-# FEATURE_CONFIG is imported from helpers.permissions_helper (single source of truth)
-
-
-async def _apply_database_settings(
-    channel: discord.VoiceChannel,
-    guild: discord.Guild,
-    user_id: int,
-    guild_id: int,
-    jtc_channel_id: int,
-) -> None:
-    """
-    Apply all database-driven settings to the channel.
-
-    This includes:
-    - Permit/reject settings (connect permissions)
-    - PTT settings (use_voice_activation)
-    - Priority speaker settings
-    - Soundboard settings
-    - Lock state
-    """
-    try:
-        # Get current overwrites to modify
-        overwrites = dict(channel.overwrites)
-
-        # Snapshot keys before DB modifications to detect what changed
-        original_keys = set(overwrites.keys())
-        original_values = {k: overwrites[k] for k in original_keys}
-
-        # Apply permit/reject settings
-        await _apply_permit_reject_settings(
-            overwrites, guild, user_id, guild_id, jtc_channel_id
-        )
-
-        # Apply voice feature settings (PTT, Priority Speaker, Soundboard)
-        await _apply_voice_feature_settings(
-            overwrites, guild, user_id, guild_id, jtc_channel_id
-        )
-
-        # Apply lock setting
-        await _apply_lock_setting(overwrites, guild, user_id, guild_id, jtc_channel_id)
-
-        # Determine which targets were actually modified by DB settings
-        changed_targets: dict[object, discord.PermissionOverwrite] = {}
-        for target, overwrite in overwrites.items():
-            if target not in original_keys or overwrite != original_values.get(target):
-                changed_targets[target] = overwrite
-
-        if not changed_targets:
-            logger.debug("No database settings to apply for channel %s", channel.id)
-            return
-
-        bot_member = guild.me
-        if bot_member is not None:
-            blocked_roles = _get_hierarchy_blocking_roles(
-                overwrites,
-                bot_member,
-                guild.default_role,
-            )
-            if blocked_roles:
-                # Higher-role overwrites exist.  Using channel.edit(overwrites=...)
-                # would strip them.  Apply only the changed targets individually.
-                logger.debug(
-                    "Using per-target set_permissions for channel %s DB settings "
-                    "(hierarchy-blocked roles: %s)",
-                    channel.id,
-                    ", ".join(blocked_roles),
-                )
-                for target, overwrite in changed_targets.items():
-                    try:
-                        await channel.set_permissions(target, overwrite=overwrite)
-                    except discord.Forbidden:
-                        logger.warning(
-                            "Cannot set DB permissions for %s on channel %s",
-                            getattr(target, "name", target),
-                            channel.id,
-                        )
-                logger.debug("Applied database settings to channel %s", channel.id)
-                return
-
-        # No hierarchy conflicts — safe to do a single bulk edit
-        try:
-            await channel.edit(overwrites=overwrites)
-        except discord.Forbidden:
-            logger.warning(
-                "Skipping database permission update for channel %s due to missing permissions",
-                channel.id,
-            )
-            return
-
-        logger.debug("Applied database settings to channel %s", channel.id)
-
-    except Exception:
-        logger.exception(
-            "Error applying database settings to channel %s",
             channel.id,
         )
 

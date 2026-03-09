@@ -487,6 +487,22 @@ class VoiceService(BaseService):
             return "orphan"
         return "delete"
 
+    @staticmethod
+    def _sanitize_overwrite(
+        overwrite: discord.PermissionOverwrite,
+        bot_perms: discord.Permissions,
+    ) -> discord.PermissionOverwrite:
+        """Remove allowed permission bits the bot itself lacks.
+
+        Discord rejects overwrites that grant permissions the bot does not
+        hold in the guild/category.  This strips only the *allow* side of
+        those bits; deny is always safe to set.
+        """
+        allow, deny = overwrite.pair()
+        # Mask: keep only bits the bot has
+        sanitized_allow = discord.Permissions(allow.value & bot_perms.value)
+        return discord.PermissionOverwrite.from_pair(sanitized_allow, deny)
+
     async def _delete_channel_safe(
         self,
         channel_or_id: discord.VoiceChannel | discord.StageChannel | int,
@@ -1563,8 +1579,10 @@ class VoiceService(BaseService):
             member_count = self._get_member_count(channel)
             # Check if channel is now empty
             if member_count == 0:
-                # Double-check: re-read live members right before cleanup.
-                # Between the first count and now a new member may have joined.
+                # Yield to the event loop so any pending voice-state
+                # updates (e.g. a user joining right now) can be processed
+                # before we commit to deletion.
+                await asyncio.sleep(0)
                 fresh_count = self._get_member_count(channel)
                 if fresh_count > 0:
                     self.logger.info(
@@ -2016,9 +2034,13 @@ class VoiceService(BaseService):
             # permissions (owner, bot, @everyone) and DB-driven custom
             # settings are merged on top by enforce_permission_changes().
             #
-            # Discord API restriction: the bot cannot set overwrites for
-            # roles at or above its own highest role, so we filter those out.
+            # Discord API restrictions:
+            # 1. The bot cannot set overwrites for roles at or above its
+            #    own highest role (hierarchy check).
+            # 2. Overwrites cannot grant permissions the bot itself lacks
+            #    in the guild/category (permission value check).
             bot_top_role = bot_member.top_role
+            bot_category_perms = category.permissions_for(bot_member)
             jtc_overwrites: dict[
                 discord.Role | discord.Member, discord.PermissionOverwrite
             ] = {}
@@ -2030,7 +2052,9 @@ class VoiceService(BaseService):
                             target.name,
                         )
                     continue
-                jtc_overwrites[target] = overwrite
+                # Filter out permission values the bot cannot grant
+                sanitized = self._sanitize_overwrite(overwrite, bot_category_perms)
+                jtc_overwrites[target] = sanitized
 
             if self.debug_logging_enabled:
                 self.logger.debug(
@@ -2048,12 +2072,11 @@ class VoiceService(BaseService):
                     overwrites=jtc_overwrites,
                 )
             except discord.Forbidden:
-                # Even after filtering, the API may reject if the overwrites
-                # grant permissions the bot itself lacks.  Fall back to
-                # category-inherited permissions so creation still succeeds.
+                # Bulk creation with all overwrites failed.  Create the
+                # channel first, then apply each overwrite individually so
+                # only the truly problematic ones are skipped.
                 self.logger.warning(
-                    "Cannot apply JTC overwrites for %s — falling back to "
-                    "category-inherited permissions",
+                    "Bulk JTC overwrites rejected for %s — applying individually",
                     member.display_name,
                 )
                 channel = await guild.create_voice_channel(
@@ -2062,6 +2085,15 @@ class VoiceService(BaseService):
                     bitrate=jtc_channel.bitrate,
                     user_limit=user_limit,
                 )
+                for target, overwrite in jtc_overwrites.items():
+                    try:
+                        await channel.set_permissions(target, overwrite=overwrite)
+                    except discord.Forbidden:
+                        self.logger.warning(
+                            "Cannot apply JTC overwrite for %s on new channel %s",
+                            getattr(target, "name", target),
+                            channel.id,
+                        )
 
             # Apply all saved settings from database after creation
             if self.bot:
@@ -3375,6 +3407,20 @@ class VoiceService(BaseService):
                 return (
                     False,
                     f"Bot missing 'Manage Channels' permission in category '{category.name}'",
+                )
+
+            # Check category-level Manage Roles ("Manage Permissions") — required
+            # by Discord to set permission overwrites on created channels.
+            if not perms.manage_roles:
+                self.logger.warning(
+                    "Missing 'Manage Permissions' (manage_roles) in category '%s' (%s)",
+                    category.name,
+                    category.id,
+                    extra={"guild_id": guild.id, "category_id": category.id},
+                )
+                return (
+                    False,
+                    f"Bot missing 'Manage Permissions' permission in category '{category.name}'",
                 )
 
             # Check guild-level Move Members permission

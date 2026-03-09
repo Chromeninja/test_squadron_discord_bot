@@ -64,6 +64,7 @@ def mock_jtc_channel():
     channel.bitrate = 64000
     channel.user_limit = 0
     channel.category = MagicMock()
+    channel.category.permissions_for.return_value = discord.Permissions.all()
     channel.overwrites = {}
     return channel
 
