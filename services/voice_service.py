@@ -2035,20 +2035,23 @@ class VoiceService(BaseService):
             # settings are merged on top by enforce_permission_changes().
             #
             # Discord API restrictions:
-            # 1. The bot cannot set overwrites for roles at or above its
-            #    own highest role (hierarchy check).
+            # 1. The bot cannot set overwrites for its own managed/integration
+            #    role (Discord rejects this with 403 Forbidden).
             # 2. Overwrites cannot grant permissions the bot itself lacks
             #    in the guild/category (permission value check).
-            bot_top_role = bot_member.top_role
             bot_category_perms = category.permissions_for(bot_member)
+            bot_role_ids = {r.id for r in bot_member.roles if not r.is_default()}
             jtc_overwrites: dict[
                 discord.Role | discord.Member, discord.PermissionOverwrite
             ] = {}
             for target, overwrite in jtc_channel.overwrites.items():
-                if isinstance(target, discord.Role) and target >= bot_top_role:
+                # Skip the bot's own roles (excluding @everyone) to prevent
+                # Forbidden errors — Discord rejects overwrites on a bot's
+                # own managed/integration role.
+                if isinstance(target, discord.Role) and target.id in bot_role_ids:
                     if self.debug_logging_enabled:
                         self.logger.debug(
-                            "Skipping JTC overwrite for role '%s' (at or above bot role)",
+                            "Skipping JTC overwrite for bot's own role '%s'",
                             target.name,
                         )
                     continue

@@ -692,7 +692,7 @@ class TestJtcOverwriteHandling:
     """Tests for JTC overwrite copying, filtering, and fallback."""
 
     @pytest.mark.asyncio
-    async def test_filters_out_roles_above_bot(
+    async def test_filters_out_bot_own_roles(
         self,
         voice_service,
         mock_guild,
@@ -700,30 +700,46 @@ class TestJtcOverwriteHandling:
         mock_member,
         mock_db_connection,
     ) -> None:
-        """Test that overwrites for roles at or above bot's top role are excluded."""
+        """Test that overwrites for bot's own assigned roles are excluded.
+
+        AI Notes:
+        - Changed from filtering by role position (>= bot_top_role)
+        - Now filters only roles the bot actually has assigned (in bot.roles)
+        - Allows copying overwrites for high-position roles like YJ Chief
+        """
         mock_db_connection.set_fetchone_result(None)
 
-        # Create roles with positions: low_role(1) < bot_role(5) < high_role(10)
+        # Create roles: @everyone (pos 0), low_role (pos 1), YJ Chief (pos 10),
+        # bot (pos 12)
+        everyone_role = MagicMock(spec=discord.Role)
+        everyone_role.name = "@everyone"
+        everyone_role.id = mock_guild.id  # @everyone role ID == guild ID
+        everyone_role.is_default = MagicMock(return_value=True)
         low_role = MagicMock(spec=discord.Role)
         low_role.name = "LowRole"
+        low_role.id = 11111
         low_role.position = 1
-        high_role = MagicMock(spec=discord.Role)
-        high_role.name = "AdminRole"
-        high_role.position = 10
+        low_role.is_default = MagicMock(return_value=False)
+        yj_chief_role = MagicMock(spec=discord.Role)
+        yj_chief_role.name = "YJ Chief"
+        yj_chief_role.id = 22222
+        yj_chief_role.position = 10
+        yj_chief_role.is_default = MagicMock(return_value=False)
         bot_role = MagicMock(spec=discord.Role)
         bot_role.name = "BotRole"
-        bot_role.position = 5
+        bot_role.id = 33333
+        bot_role.position = 12  # Bot role higher than YJ roles
+        bot_role.is_default = MagicMock(return_value=False)
 
-        # Set up __ge__ so `target >= bot_top_role` works correctly
-        low_role.__ge__ = lambda self, other: self.position >= other.position
-        high_role.__ge__ = lambda self, other: self.position >= other.position
-        bot_role.__ge__ = lambda self, other: self.position >= other.position
-
-        low_overwrite = discord.PermissionOverwrite(speak=False)
-        high_overwrite = discord.PermissionOverwrite(move_members=True)
+        everyone_overwrite = discord.PermissionOverwrite(connect=False)
+        yj_overwrite = discord.PermissionOverwrite(speak=False)
+        bot_overwrite = discord.PermissionOverwrite(move_members=True)
+        low_overwrite = discord.PermissionOverwrite(connect=True)
         mock_jtc_channel.overwrites = {
+            everyone_role: everyone_overwrite,
             low_role: low_overwrite,
-            high_role: high_overwrite,
+            yj_chief_role: yj_overwrite,
+            bot_role: bot_overwrite,  # Bot's own role on JTC channel
         }
 
         created_channel = AsyncMock(spec=discord.VoiceChannel)
@@ -738,7 +754,8 @@ class TestJtcOverwriteHandling:
 
         mock_bot_member = MagicMock()
         mock_bot_member.top_role = bot_role
-        mock_bot_member.top_role.__gt__ = MagicMock(return_value=True)
+        # In discord.py, Member.roles always includes @everyone
+        mock_bot_member.roles = [everyone_role, bot_role]
         mock_guild.get_member.return_value = mock_bot_member
 
         with patch("services.voice_service.enforce_permission_changes"):
@@ -749,9 +766,12 @@ class TestJtcOverwriteHandling:
         assert result == created_channel
         call_kwargs = mock_guild.create_voice_channel.call_args.kwargs
         passed_overwrites = call_kwargs["overwrites"]
-        # low_role should be included, high_role should be filtered out
+        # @everyone, low_role, yj_chief_role should all be included
+        assert everyone_role in passed_overwrites, "@everyone must be copied"
         assert low_role in passed_overwrites
-        assert high_role not in passed_overwrites
+        assert yj_chief_role in passed_overwrites
+        # bot_role should be filtered out (is one of bot's own non-default roles)
+        assert bot_role not in passed_overwrites
 
     @pytest.mark.asyncio
     async def test_falls_back_without_overwrites_on_forbidden(
