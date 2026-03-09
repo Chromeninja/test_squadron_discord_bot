@@ -9,6 +9,7 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 import pytest_asyncio
 
@@ -198,9 +199,10 @@ class TestMultipleChannelsPerOwner:
         # Mock guild methods
         guild.get_member = MagicMock(return_value=bot_member)
 
-        # Mock category permissions
-        jtc_channel.category.permissions_for = MagicMock()
-        jtc_channel.category.permissions_for.return_value.manage_channels = True
+        # Mock category permissions — use real Permissions so _sanitize_overwrite works
+        jtc_channel.category.permissions_for = MagicMock(
+            return_value=discord.Permissions.all()
+        )
 
         # Mock channel creation
         new_channel = MockVoiceChannel(channel_id=77777, name="TestUser's Channel")

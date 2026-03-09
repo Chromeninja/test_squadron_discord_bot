@@ -85,10 +85,10 @@ def mock_jtc_channel():
     category.name = "Voice Channels"
     channel.category = category
 
-    # Mock permissions
-    perms = MagicMock()
-    perms.manage_channels = True
-    category.permissions_for = MagicMock(return_value=perms)
+    # Mock permissions — use real Permissions so _sanitize_overwrite works
+    category.permissions_for = MagicMock(
+        return_value=discord.Permissions.all()
+    )
 
     return channel
 
@@ -202,9 +202,9 @@ async def test_concurrent_different_jtc_creates_only_one_channel(
     # Setup category for both
     category = MagicMock(spec=discord.CategoryChannel)
     category.name = "Voice Channels"
-    perms = MagicMock()
-    perms.manage_channels = True
-    category.permissions_for = MagicMock(return_value=perms)
+    category.permissions_for = MagicMock(
+        return_value=discord.Permissions.all()
+    )
 
     jtc1.category = category
     jtc2.category = category

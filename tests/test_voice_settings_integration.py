@@ -531,6 +531,8 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
     fake_jtc_channel.user_limit = 0
     fake_jtc_channel.category = fake_category
     fake_jtc_channel.bitrate = 64000
+    fake_jtc_channel.overwrites = {}
+    fake_category.permissions_for.return_value = discord.Permissions.all()
 
     fake_created_channel = AsyncMock(spec=discord.VoiceChannel)
     fake_created_channel.id = 99999
@@ -789,6 +791,9 @@ class TestJtcOverwriteHandling:
         assert result == created_channel
         assert mock_guild.create_voice_channel.call_count == 2
 
-        # Second call should not include overwrites
+        # Second call should include essential overwrites only (bot + member)
         second_call_kwargs = mock_guild.create_voice_channel.call_args_list[1].kwargs
-        assert "overwrites" not in second_call_kwargs
+        assert "overwrites" in second_call_kwargs
+        essential_targets = second_call_kwargs["overwrites"]
+        assert mock_bot_member in essential_targets
+        assert mock_member in essential_targets

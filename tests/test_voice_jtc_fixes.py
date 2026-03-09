@@ -243,8 +243,12 @@ async def test_handle_channel_left_skips_yield_when_not_empty() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_user_channel_falls_back_per_overwrite() -> None:
-    """When bulk create raises Forbidden, should create bare then apply each overwrite."""
+async def test_create_user_channel_falls_back_essential_overwrites() -> None:
+    """When bulk create raises Forbidden, should create with essential overwrites only.
+
+    The fallback avoids per-overwrite set_permissions calls that trigger
+    Discord rate limiting and cause timeouts.
+    """
     # Arrange
     service = _make_voice_service()
     service.debug_logging_enabled = True
@@ -292,10 +296,10 @@ async def test_create_user_channel_falls_back_per_overwrite() -> None:
     }
 
     # First create_voice_channel call raises Forbidden, second succeeds
-    bare_channel = AsyncMock(spec=discord.VoiceChannel)
-    bare_channel.id = 9001
+    fallback_channel = AsyncMock(spec=discord.VoiceChannel)
+    fallback_channel.id = 9001
     guild.create_voice_channel = AsyncMock(
-        side_effect=[discord.Forbidden(MagicMock(), "missing perms"), bare_channel]
+        side_effect=[discord.Forbidden(MagicMock(), "missing perms"), fallback_channel]
     )
 
     # Act — call _create_user_channel directly
@@ -319,15 +323,20 @@ async def test_create_user_channel_falls_back_per_overwrite() -> None:
     ):
         result = await service._create_user_channel(guild, jtc_channel, member)
 
-    # Assert — two create_voice_channel calls (first failed, second bare)
+    # Assert — two create_voice_channel calls (first failed, second with essentials)
     assert guild.create_voice_channel.call_count == 2
 
-    # Second call should NOT have overwrites (bare channel)
+    # Second call should have essential overwrites (bot + member only)
     second_call_kwargs = guild.create_voice_channel.call_args_list[1].kwargs
-    assert "overwrites" not in second_call_kwargs
+    assert "overwrites" in second_call_kwargs
+    overwrites = second_call_kwargs["overwrites"]
+    assert bot_member in overwrites
+    assert member in overwrites
+    # JTC role_a should NOT be in essential overwrites
+    assert role_a not in overwrites
 
-    # Per-overwrite set_permissions should have been called on the bare channel
-    bare_channel.set_permissions.assert_called()
+    # No per-overwrite set_permissions should have been called on the channel
+    fallback_channel.set_permissions.assert_not_called()
     assert result is not None
 
 
@@ -426,7 +435,6 @@ async def test_create_user_channel_includes_bot_and_owner_overwrites() -> None:
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
     assert overwrites[bot_member].move_members is True
-    assert overwrites[bot_member].manage_roles is True
 
     # Owner (member) must also be in the creation overwrites with connect
     assert member in overwrites

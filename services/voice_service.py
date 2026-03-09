@@ -2060,6 +2060,11 @@ class VoiceService(BaseService):
             # channel.  This MUST be set before creation to prevent lockout
             # scenarios where JTC overwrites deny manage_channels,
             # move_members, or view_channel via @everyone or role denies.
+            # Sanitize through bot category permissions to avoid including
+            # bits the bot cannot grant (which would cause Forbidden).
+            # Note: manage_roles is NOT included — the bot has it from its
+            # guild role and cannot grant it via overwrite if the category
+            # denies it (chicken-and-egg problem).
             bot_creation_overwrite = jtc_overwrites.get(
                 bot_member, discord.PermissionOverwrite()
             )
@@ -2068,16 +2073,19 @@ class VoiceService(BaseService):
                 manage_channels=True,
                 connect=True,
                 move_members=True,
-                manage_roles=True,
             )
-            jtc_overwrites[bot_member] = bot_creation_overwrite
+            jtc_overwrites[bot_member] = self._sanitize_overwrite(
+                bot_creation_overwrite, bot_category_perms
+            )
 
             # Ensure the channel owner can always connect
             owner_creation_overwrite = jtc_overwrites.get(
                 member, discord.PermissionOverwrite()
             )
             owner_creation_overwrite.update(connect=True)
-            jtc_overwrites[member] = owner_creation_overwrite
+            jtc_overwrites[member] = self._sanitize_overwrite(
+                owner_creation_overwrite, bot_category_perms
+            )
 
             if self.debug_logging_enabled:
                 self.logger.debug(
@@ -2095,28 +2103,42 @@ class VoiceService(BaseService):
                     overwrites=jtc_overwrites,
                 )
             except discord.Forbidden:
-                # Bulk creation with all overwrites failed.  Create the
-                # channel first, then apply each overwrite individually so
-                # only the truly problematic ones are skipped.
+                # Bulk creation with all JTC overwrites failed — likely due
+                # to stale/deleted role overwrites on the JTC source channel.
+                # Create with bot + owner overwrites only (1 API call);
+                # the channel inherits other permissions from the category
+                # and enforce_permission_changes() handles DB-driven settings.
+                # This avoids the per-overwrite set_permissions loop that
+                # triggers Discord rate limiting and causes timeouts.
                 self.logger.warning(
-                    "Bulk JTC overwrites rejected for %s — applying individually",
+                    "Bulk JTC overwrites rejected for %s — creating with essential overwrites only",
                     member.display_name,
                 )
-                channel = await guild.create_voice_channel(
-                    name=channel_name,
-                    category=category,
-                    bitrate=jtc_channel.bitrate,
-                    user_limit=user_limit,
-                )
-                for target, overwrite in jtc_overwrites.items():
-                    try:
-                        await channel.set_permissions(target, overwrite=overwrite)
-                    except discord.Forbidden:
-                        self.logger.warning(
-                            "Cannot apply JTC overwrite for %s on new channel %s",
-                            getattr(target, "name", target),
-                            channel.id,
-                        )
+                essential_overwrites: dict[
+                    discord.Role | discord.Member, discord.PermissionOverwrite
+                ] = {
+                    bot_member: jtc_overwrites[bot_member],
+                    member: jtc_overwrites[member],
+                }
+                try:
+                    channel = await guild.create_voice_channel(
+                        name=channel_name,
+                        category=category,
+                        bitrate=jtc_channel.bitrate,
+                        user_limit=user_limit,
+                        overwrites=essential_overwrites,
+                    )
+                except discord.Forbidden:
+                    self.logger.warning(
+                        "Essential overwrites also rejected for %s — creating bare channel",
+                        member.display_name,
+                    )
+                    channel = await guild.create_voice_channel(
+                        name=channel_name,
+                        category=category,
+                        bitrate=jtc_channel.bitrate,
+                        user_limit=user_limit,
+                    )
 
             # Apply all saved settings from database after creation
             if self.bot:
