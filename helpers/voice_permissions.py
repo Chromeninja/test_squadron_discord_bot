@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 
 def _get_hierarchy_blocking_roles(
-    overwrites: dict[object, discord.PermissionOverwrite],
+    overwrites: dict[discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite],
     bot_member: discord.Member,
     default_role: discord.Role,
 ) -> list[str]:
@@ -247,6 +247,8 @@ async def enforce_permission_changes(
                 # already on the channel to avoid unnecessary API calls.
                 existing = channel.overwrites.get(target)
                 if existing == overwrite:
+                    continue
+                if not isinstance(target, (discord.Member, discord.Role)):
                     continue
                 try:
                     await channel.set_permissions(target, overwrite=overwrite)

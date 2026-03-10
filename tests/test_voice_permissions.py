@@ -301,7 +301,9 @@ def test_get_hierarchy_blocking_roles_detects_conflicts() -> None:
     high_role.name = "HighRole"
     high_role.position = 12
 
-    overwrites: dict[object, discord.PermissionOverwrite] = {
+    overwrites: dict[
+        discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
+    ] = {
         default_role: discord.PermissionOverwrite(),
         low_role: discord.PermissionOverwrite(),
         equal_role: discord.PermissionOverwrite(),

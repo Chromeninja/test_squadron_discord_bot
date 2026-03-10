@@ -116,6 +116,7 @@ initial_extensions = [
     "cogs.info.about",
     "cogs.info.privacy",
     "cogs.info.dashboard",
+    "cogs.info.help",
     "cogs.voice.commands",
     "cogs.voice.events",
     "cogs.voice.service_bridge",

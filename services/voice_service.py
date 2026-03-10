@@ -2042,7 +2042,7 @@ class VoiceService(BaseService):
             bot_category_perms = category.permissions_for(bot_member)
             bot_role_ids = {r.id for r in bot_member.roles if not r.is_default()}
             jtc_overwrites: dict[
-                discord.Role | discord.Member, discord.PermissionOverwrite
+                discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
             ] = {}
             for target, overwrite in jtc_channel.overwrites.items():
                 # Skip the bot's own roles (excluding @everyone) to prevent
@@ -2118,7 +2118,7 @@ class VoiceService(BaseService):
                     member.display_name,
                 )
                 essential_overwrites: dict[
-                    discord.Role | discord.Member, discord.PermissionOverwrite
+                    discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
                 ] = {
                     bot_member: jtc_overwrites[bot_member],
                     member: jtc_overwrites[member],
