@@ -426,6 +426,7 @@ async def require_is_bot_owner(
 
 # Fresh role validation (TTL-based) against Internal API
 ROLE_VALIDATION_TTL = int(os.getenv("ROLE_VALIDATION_TTL", "30"))
+INTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("INTERNAL_API_TIMEOUT_SECONDS", "15"))
 
 
 def _now_ts() -> int:
@@ -843,7 +844,9 @@ class InternalAPIClient:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
             self._client = httpx.AsyncClient(
-                base_url=self.base_url, headers=headers, timeout=10.0
+                base_url=self.base_url,
+                headers=headers,
+                timeout=INTERNAL_API_TIMEOUT_SECONDS,
             )
         return self._client
 

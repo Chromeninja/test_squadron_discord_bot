@@ -7,6 +7,7 @@ message counts, leaderboards, and time-series data for charting.
 
 import contextlib
 import logging
+import time
 
 from core.dependencies import (
     InternalAPIClient,
@@ -138,6 +139,7 @@ async def get_metrics_overview(
     Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
+    started_at = time.perf_counter()
 
     try:
         user_ids = await _resolve_activity_filter(
@@ -149,6 +151,14 @@ async def get_metrics_overview(
         return MetricsOverviewResponse(data=MetricsOverview(**result))
     except Exception:
         raise HTTPException(status_code=502, detail="Metrics unavailable")
+    finally:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "metrics.overview completed guild_id=%s days=%s elapsed_ms=%s",
+            guild_id,
+            days,
+            elapsed_ms,
+        )
 
 
 @router.get("/voice/leaderboard", response_model=LeaderboardResponse)
@@ -355,6 +365,7 @@ async def get_timeseries(
     Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
+    started_at = time.perf_counter()
 
     try:
         user_ids = await _resolve_activity_filter(
@@ -370,6 +381,15 @@ async def get_timeseries(
         )
     except Exception:
         raise HTTPException(status_code=502, detail="Timeseries unavailable")
+    finally:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "metrics.timeseries completed guild_id=%s metric=%s days=%s elapsed_ms=%s",
+            guild_id,
+            metric,
+            days,
+            elapsed_ms,
+        )
 
 
 @router.get("/activity-groups", response_model=ActivityGroupCountsResponse)
@@ -395,6 +415,7 @@ async def get_activity_groups(
     Requires: Discord Manager role or higher
     """
     guild_id = _resolve_guild_id(current_user)
+    started_at = time.perf_counter()
 
     try:
         user_ids = await _resolve_activity_filter(
@@ -406,6 +427,14 @@ async def get_activity_groups(
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
     except Exception:
         raise HTTPException(status_code=502, detail="Activity groups unavailable")
+    finally:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "metrics.activity_groups completed guild_id=%s days=%s elapsed_ms=%s",
+            guild_id,
+            days,
+            elapsed_ms,
+        )
 
 
 @router.get("/user/{user_id}", response_model=UserMetricsResponse)

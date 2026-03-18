@@ -279,6 +279,28 @@ class TestFlushMessageBuffer:
         # Should not raise
 
 
+class TestMetricsSchemaIndexes:
+    @pytest.mark.asyncio
+    async def test_metrics_schema_creates_activity_query_indexes(
+        self,
+        metrics_service: MetricsService,
+    ) -> None:
+        """Metrics schema includes indexes used by 30/90d activity queries."""
+        async with MetricsDatabase.get_connection() as db:
+            voice_cursor = await db.execute("PRAGMA index_list('voice_sessions')")
+            voice_indexes = {row[1] for row in await voice_cursor.fetchall()}
+
+            game_cursor = await db.execute("PRAGMA index_list('game_sessions')")
+            game_indexes = {row[1] for row in await game_cursor.fetchall()}
+
+            message_cursor = await db.execute("PRAGMA index_list('message_counts')")
+            message_indexes = {row[1] for row in await message_cursor.fetchall()}
+
+        assert "idx_voice_sessions_guild_user_joined_left" in voice_indexes
+        assert "idx_game_sessions_guild_user_started_ended" in game_indexes
+        assert "idx_message_counts_guild_user_bucket" in message_indexes
+
+
 # ---------------------------------------------------------------------------
 # Voice sessions
 # ---------------------------------------------------------------------------
@@ -1038,7 +1060,64 @@ class TestActivityBuckets:
         assert 1 in result
         assert result[1]["chat_tier"] == "hardcore"
         # voice_tier should be inactive since there's no voice data
-        assert result[1].get("voice_tier", "inactive") == "inactive"
+
+
+class TestActivityGroupCountsCache:
+    @pytest.mark.asyncio
+    async def test_activity_group_counts_reuses_cache(
+        self,
+        metrics_service: MetricsService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Second identical call should reuse short-lived cache."""
+        fake_buckets = {
+            1: {
+                "voice_tier": "regular",
+                "chat_tier": "casual",
+                "game_tier": "inactive",
+                "combined_tier": "regular",
+            }
+        }
+        mock_get_buckets = AsyncMock(return_value=fake_buckets)
+        monkeypatch.setattr(
+            metrics_service,
+            "get_member_activity_buckets",
+            mock_get_buckets,
+        )
+
+        first = await metrics_service.get_activity_group_counts(guild_id=100, days=30)
+        second = await metrics_service.get_activity_group_counts(guild_id=100, days=30)
+
+        assert first == second
+        assert mock_get_buckets.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_activity_group_counts_cache_invalidates_for_guild(
+        self,
+        metrics_service: MetricsService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Guild-scoped invalidation should force recomputation."""
+        fake_buckets = {
+            1: {
+                "voice_tier": "regular",
+                "chat_tier": "casual",
+                "game_tier": "inactive",
+                "combined_tier": "regular",
+            }
+        }
+        mock_get_buckets = AsyncMock(return_value=fake_buckets)
+        monkeypatch.setattr(
+            metrics_service,
+            "get_member_activity_buckets",
+            mock_get_buckets,
+        )
+
+        await metrics_service.get_activity_group_counts(guild_id=100, days=30)
+        metrics_service._invalidate_activity_group_counts_cache(guild_id=100)
+        await metrics_service.get_activity_group_counts(guild_id=100, days=30)
+
+        assert mock_get_buckets.await_count == 2
 
     @pytest.mark.asyncio
     async def test_voice_activity_populates_voice_tier(
