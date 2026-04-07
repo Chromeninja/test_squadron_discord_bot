@@ -413,22 +413,29 @@ def parse_rsi_org_sids(html_content: str) -> dict:
             main_orgs.append("REDACTED")
             logger.debug("Main organization is redacted/hidden")
         else:
-            # Try to find SID in the info section
-            sid_entry = main_org_div.select_one("p.entry:has(span.label)")
-            if sid_entry:
+            # Try to find SID in the info section — iterate ALL entries,
+            # not just the first, because label order may vary.
+            sid_entries = main_org_div.select("p.entry")
+            main_sid_found = False
+            for sid_entry in sid_entries:
                 label = sid_entry.select_one("span.label")
-                if label and "Spectrum Identification" in label.get_text():
-                    sid_value = sid_entry.select_one("strong.value")
-                    if sid_value:
-                        sid = sid_value.get_text(strip=True)
-                        if sid:
-                            main_orgs.append(sid)
-                            logger.debug(f"Main organization SID: {sid}")
-                        else:
-                            main_orgs.append("REDACTED")
-                            logger.debug(
-                                "Main organization SID is empty, treating as REDACTED"
-                            )
+                if label:
+                    label_text = label.get_text(strip=True)
+                    if "Spectrum" in label_text or "SID" in label_text:
+                        sid_value = sid_entry.select_one("strong.value")
+                        if sid_value:
+                            sid = sid_value.get_text(strip=True)
+                            if sid and sid not in ("\xa0", ""):
+                                main_orgs.append(sid)
+                                logger.debug("Main organization SID: %s", sid)
+                                main_sid_found = True
+                                break
+
+            if not main_sid_found and sid_entries:
+                main_orgs.append("REDACTED")
+                logger.debug(
+                    "Main organization SID not found in entries, treating as REDACTED"
+                )
 
     # Parse affiliate organization SIDs
     affiliate_divs = soup.select(".box-content.org.affiliation")
@@ -455,12 +462,10 @@ def parse_rsi_org_sids(html_content: str) -> dict:
                         sid_value = entry.select_one("strong.value")
                         if sid_value:
                             sid = sid_value.get_text(strip=True)
-                            if sid and sid not in [
-                                "\xa0",
-                                "",
-                            ]:  # Filter out nbsp and empty
+                            # Filter out nbsp, empty, and whitespace-only values
+                            if sid and sid not in ("\xa0", "") and sid.strip():
                                 affiliate_orgs.append(sid)
-                                logger.debug(f"Affiliate organization SID: {sid}")
+                                logger.debug("Affiliate organization SID: %s", sid)
                                 sid_found = True
                                 break
 

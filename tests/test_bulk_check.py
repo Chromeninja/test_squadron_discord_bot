@@ -8,6 +8,7 @@ from helpers.bulk_check import (
     MENTION_RE,
     StatusRow,
     _format_detail_line,
+    _get_effective_status,
     build_summary_embed,
     collect_targets,
     parse_members_text,
@@ -450,7 +451,7 @@ def test_format_detail_line_without_rsi_recheck():
 
 
 def test_format_detail_line_with_rsi_recheck():
-    """Test formatting a detail line with RSI recheck data."""
+    """Test formatting a detail line with RSI recheck data showing status transition."""
     row = StatusRow(
         user_id=123456789,
         username="TestUser",
@@ -465,10 +466,10 @@ def test_format_detail_line_with_rsi_recheck():
 
     detail_line = _format_detail_line(row)
 
-    # Verify the enhanced format with RSI recheck
+    # Verify the transition format (DB status → effective RSI status)
     assert "<@123456789>" in detail_line
-    assert "DB: Verified/Main" in detail_line  # DB status
-    assert "RSI: Affiliate" in detail_line  # RSI status
+    assert "Verified/Main" in detail_line  # DB status shown in transition
+    assert "**Affiliate**" in detail_line  # Effective status bolded
     assert "Handle: test_handle" in detail_line
     assert "VC: General" in detail_line
     assert "RSI Checked:" in detail_line
@@ -492,7 +493,107 @@ def test_format_detail_line_with_rsi_error():
 
     # Verify error case formatting
     assert "<@123456789>" in detail_line
-    assert "DB: Unverified" in detail_line
-    assert "RSI: Unverified" in detail_line
-    # Note: Error is in rsi_error field but not displayed in detail line
-    # It's available in CSV export
+    assert "Unverified" in detail_line
+    assert "\u26a0\ufe0f RSI error" in detail_line  # Error indicator shown
+
+
+# --- Regression tests for effective status and source-of-truth fixes ---
+
+
+def test_get_effective_status_prefers_rsi_on_success() -> None:
+    """Effective status should use rsi_status when available and no error."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="affiliate",
+        rsi_checked_at=2,
+        rsi_error=None,
+    )
+    assert _get_effective_status(row) == "affiliate"
+
+
+def test_get_effective_status_falls_back_on_error() -> None:
+    """Effective status should fall back to DB when RSI check had an error."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="non_member",
+        rsi_checked_at=2,
+        rsi_error="RSI fetch failed",
+    )
+    assert _get_effective_status(row) == "main"
+
+
+def test_get_effective_status_falls_back_when_no_rsi() -> None:
+    """Effective status should use DB when no RSI data present."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="affiliate",
+        last_updated=1,
+        voice_channel=None,
+    )
+    assert _get_effective_status(row) == "affiliate"
+
+
+def test_count_uses_effective_status_from_rsi() -> None:
+    """Summary counts must use live RSI status, not stale DB status."""
+    from helpers.bulk_check import _count_membership_statuses
+
+    rows = [
+        # DB says main, RSI says affiliate → should count as affiliate
+        StatusRow(1, "u1", "h1", "main", 1, None, "affiliate", 2, None),
+        # DB says affiliate, RSI says non_member → should count as non_member
+        StatusRow(2, "u2", "h2", "affiliate", 1, None, "non_member", 2, None),
+        # No RSI data → should count as DB status (main)
+        StatusRow(3, "u3", "h3", "main", 1, None),
+    ]
+
+    counts = _count_membership_statuses(rows)
+    assert counts["Verified/Main"] == 1  # User 3 (DB-only)
+    assert counts["Affiliate"] == 1  # User 1 (RSI effective)
+    assert counts["Non-Member"] == 1  # User 2 (RSI effective)
+
+
+def test_count_falls_back_to_db_on_rsi_error() -> None:
+    """Summary counts must fall back to DB status when RSI errored."""
+    from helpers.bulk_check import _count_membership_statuses
+
+    rows = [
+        StatusRow(1, "u1", "h1", "affiliate", 1, None, "non_member", 2, "fetch error"),
+    ]
+
+    counts = _count_membership_statuses(rows)
+    # RSI error → effective falls back to DB → affiliate
+    assert counts["Affiliate"] == 1
+    assert counts["Non-Member"] == 0
+
+
+def test_format_detail_line_unchanged_status() -> None:
+    """Detail line shows simple format when DB and RSI status match."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="handle",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="main",
+        rsi_checked_at=2,
+        rsi_error=None,
+    )
+
+    line = _format_detail_line(row)
+    assert "Verified/Main" in line
+    # No transition arrow when status unchanged
+    assert "\u2192" not in line
+    assert "**" not in line

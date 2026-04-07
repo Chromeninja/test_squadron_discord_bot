@@ -482,8 +482,10 @@ class VerificationBulkService:
         and trigger recheck scheduling.
         """
         from helpers.bulk_check import StatusRow
+        from services.guild_sync import sync_user_to_all_guilds
         from services.verification_scheduler import (
             compute_next_retry,
+            handle_recheck_failure,
             schedule_user_recheck,
         )
         from services.verification_state import compute_global_state, store_global_state
@@ -521,12 +523,63 @@ class VerificationBulkService:
                     force_refresh=True,  # Admin bulk checks want fresh data
                 )
 
-                # Persist state
+                # Handle error states via failure path (do NOT persist)
+                if global_state.error:
+                    logger.info(
+                        "Skipping persistence for user %s: state has error: %s",
+                        row.user_id,
+                        global_state.error,
+                    )
+                    try:
+                        config = getattr(self.bot, "config", None)
+                        from services.db.database import Database
+
+                        fail_count = await Database.get_auto_recheck_fail_count(
+                            row.user_id
+                        )
+                        await handle_recheck_failure(
+                            row.user_id,
+                            global_state.error,
+                            fail_count=fail_count + 1,
+                            config=config,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to record recheck failure for user %s: %s",
+                            row.user_id,
+                            e,
+                        )
+                    return RsiStatusResult(
+                        status=global_state.status,
+                        checked_at=global_state.checked_at,
+                        main_orgs=global_state.main_orgs,
+                        affiliate_orgs=global_state.affiliate_orgs,
+                        error=global_state.error,
+                    )
+
+                # Apply state to all guilds BEFORE persisting so
+                # "before" snapshots capture pre-update DB state.
+                try:
+                    await sync_user_to_all_guilds(
+                        global_state,
+                        self.bot,
+                        max_concurrency=2,  # Conservative for bulk
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Guild sync failed for user %s: %s",
+                        row.user_id,
+                        e,
+                    )
+
+                # Persist state (only for non-error states)
                 try:
                     await store_global_state(global_state)
                 except Exception as e:
                     logger.warning(
-                        f"Failed to store global state for user {row.user_id}: {e}"
+                        "Failed to store global state for user %s: %s",
+                        row.user_id,
+                        e,
                     )
 
                 # Schedule recheck
@@ -536,7 +589,9 @@ class VerificationBulkService:
                     await schedule_user_recheck(row.user_id, next_retry)
                 except Exception as e:
                     logger.warning(
-                        f"Failed to schedule recheck for user {row.user_id}: {e}"
+                        "Failed to schedule recheck for user %s: %s",
+                        row.user_id,
+                        e,
                     )
 
                 # Return result
