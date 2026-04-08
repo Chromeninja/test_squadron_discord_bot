@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   statsApi,
   StatsOverview,
@@ -9,6 +9,7 @@ import {
   logsApi,
 } from '../api/endpoints';
 import { useAuth } from '../contexts/AuthContext';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import { handleApiError, showSuccess } from '../utils/toast';
 import { hasPermission, RoleLevel } from '../utils/permissions';
 import { Button, Card, Alert } from '../components/ui';
@@ -21,7 +22,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const requestSequenceRef = useRef(0);
+  const requestSequence = useRequestSequence();
 
   const isBotAdmin = useMemo(() => {
     if (!user) {
@@ -40,8 +41,7 @@ function Dashboard() {
   }, [user]);
 
   const fetchData = useCallback(async () => {
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
+    const requestId = requestSequence.next();
 
     try {
       setRefreshing(true);
@@ -53,7 +53,7 @@ function Dashboard() {
           : Promise.resolve([] as PromiseSettledResult<unknown>[]),
       ]);
 
-      if (requestId !== requestSequenceRef.current) {
+      if (!requestSequence.isCurrent(requestId)) {
         return;
       }
 
@@ -79,17 +79,17 @@ function Dashboard() {
 
       setError(null);
     } catch (err) {
-      if (requestId !== requestSequenceRef.current) {
+      if (!requestSequence.isCurrent(requestId)) {
         return;
       }
       setError('Failed to load dashboard data');
     } finally {
-      if (requestId === requestSequenceRef.current) {
+      if (requestSequence.isCurrent(requestId)) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [isBotAdmin]);
+  }, [isBotAdmin, requestSequence]);
 
   useEffect(() => {
     void fetchData();

@@ -23,7 +23,7 @@ def _extract_id_from_match(match) -> int:
     return int(match.group("raw"))
 
 
-def test_mention_regex():
+def test_mention_regex() -> None:
     """Test the mention regular expression."""
     text = "@user1 <@123456789012345678> <@!987654321098765432> 111222333444555666 not_a_mention 123"
 
@@ -38,7 +38,7 @@ def test_mention_regex():
 
 
 @pytest.mark.asyncio
-async def test_parse_members_text():
+async def test_parse_members_text() -> None:
     """Test parsing member text with mentions and IDs."""
     # Mock guild and members
     guild = Mock()
@@ -66,14 +66,43 @@ async def test_parse_members_text():
     members = await parse_members_text(guild, text)
 
     assert len(members) == 3
-    # Members can be in any order since we use sets internally
-    member_ids = {member.id for member in members}
-    expected_ids = {123456789012345678, 987654321098765432, 111222333444555666}
+    member_ids = [member.id for member in members]
+    expected_ids = [123456789012345678, 987654321098765432, 111222333444555666]
     assert member_ids == expected_ids
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_users():
+async def test_parse_members_text_deduplicates_while_preserving_order() -> None:
+    """Duplicate mentions should be collapsed without reordering first appearance."""
+    # Arrange
+    guild = Mock()
+
+    member1 = Mock()
+    member1.id = 123456789012345678
+
+    member2 = Mock()
+    member2.id = 987654321098765432
+
+    guild.get_member.side_effect = lambda user_id: {
+        123456789012345678: member1,
+        987654321098765432: member2,
+    }.get(user_id)
+    guild.fetch_member = AsyncMock()
+
+    text = "<@987654321098765432> <@123456789012345678> <@!987654321098765432>"
+
+    # Act
+    members = await parse_members_text(guild, text)
+
+    # Assert
+    assert [member.id for member in members] == [
+        987654321098765432,
+        123456789012345678,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_targets_users() -> None:
     """Test collecting targets in users mode."""
     guild = Mock()
 
@@ -90,7 +119,7 @@ async def test_collect_targets_users():
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_voice_channel():
+async def test_collect_targets_voice_channel() -> None:
     """Test collecting targets in voice channel mode."""
     guild = Mock()
 
@@ -107,13 +136,16 @@ async def test_collect_targets_voice_channel():
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_active_voice():
+async def test_collect_targets_active_voice() -> None:
     """Test collecting targets in active voice mode."""
     guild = Mock()
 
     member1 = Mock()
+    member1.id = 1
     member2 = Mock()
+    member2.id = 2
     member3 = Mock()
+    member3.id = 3
 
     # Mock voice channels
     vc1 = Mock()
@@ -129,14 +161,39 @@ async def test_collect_targets_active_voice():
 
     members = await collect_targets("active_voice", guild, None, None)
 
-    # Should get unique members from non-empty channels
-    assert len(members) == 3
-    assert member1 in members
-    assert member2 in members
-    assert member3 in members
+    # Should get unique members from non-empty channels in channel/member order
+    assert members == [member1, member2, member3]
 
 
-def test_status_row():
+@pytest.mark.asyncio
+async def test_collect_targets_active_voice_deduplicates_without_reordering() -> None:
+    """Members in multiple channels should keep their first-seen position."""
+    # Arrange
+    guild = Mock()
+
+    member1 = Mock()
+    member1.id = 1
+    member2 = Mock()
+    member2.id = 2
+    member3 = Mock()
+    member3.id = 3
+
+    vc1 = Mock()
+    vc1.members = [member2, member1]
+
+    vc2 = Mock()
+    vc2.members = [member1, member3]
+
+    guild.voice_channels = [vc1, vc2]
+
+    # Act
+    members = await collect_targets("active_voice", guild, None, None)
+
+    # Assert
+    assert members == [member2, member1, member3]
+
+
+def test_status_row() -> None:
     """Test StatusRow structure."""
     row = StatusRow(
         user_id=123,
@@ -155,7 +212,7 @@ def test_status_row():
     assert row.voice_channel == "General"
 
 
-def test_build_summary_embed():
+def test_build_summary_embed() -> None:
     """Test building the summary embed."""
     invoker = Mock()
     invoker.mention = "<@12345>"
@@ -189,8 +246,45 @@ def test_build_summary_embed():
     assert "**Unverified:** 1" in desc
 
 
+def test_build_summary_embed_sets_footer_when_details_are_truncated() -> None:
+    """Embed footer should surface when detail rows exceed the field budget."""
+    # Arrange
+    invoker = Mock()
+    invoker.mention = "<@12345>"
+    invoker.display_name = "TestAdmin"
+
+    rows = [
+        StatusRow(
+            index,
+            f"User{index}",
+            f"handle_{index}",
+            "main",
+            1609459200,
+            "General",
+        )
+        for index in range(1, 20)
+    ]
+
+    # Act
+    embed = build_summary_embed(
+        invoker=invoker,
+        members=[],  # type: ignore[arg-type]
+        rows=rows,
+        truncated_count=0,
+    )
+
+    # Assert
+    assert embed.footer.text is not None
+    assert "see CSV for full results" in embed.footer.text
+    assert embed.fields
+    detail_value = embed.fields[0].value
+    assert detail_value is not None
+    detail_lines = detail_value.split("\n")
+    assert len(detail_lines) < len(rows)
+
+
 @pytest.mark.asyncio
-async def test_write_csv():
+async def test_write_csv() -> None:
     """Test CSV writing functionality."""
     rows = [
         StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
@@ -223,7 +317,7 @@ async def test_write_csv():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_empty():
+async def test_write_csv_empty() -> None:
     """Test CSV writing with empty rows."""
     filename, content_bytes = await write_csv(
         [], guild_name="TestGuild", invoker_name="TestAdmin"
@@ -240,7 +334,7 @@ async def test_write_csv_empty():
     )
 
 
-def test_status_row_with_rsi_recheck():
+def test_status_row_with_rsi_recheck() -> None:
     """Test StatusRow with RSI recheck fields."""
     row = StatusRow(
         user_id=123,
@@ -264,7 +358,7 @@ def test_status_row_with_rsi_recheck():
     assert row.rsi_checked_at == 1609459300
 
 
-def test_build_summary_embed_with_rsi_recheck():
+def test_build_summary_embed_with_rsi_recheck() -> None:
     """Test building the summary embed with RSI recheck data."""
     invoker = Mock()
     invoker.mention = "<@12345>"
@@ -307,7 +401,7 @@ def test_build_summary_embed_with_rsi_recheck():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_with_rsi_recheck():
+async def test_write_csv_with_rsi_recheck() -> None:
     """Test CSV writing with RSI recheck data."""
     rows = [
         StatusRow(
@@ -373,7 +467,7 @@ async def test_write_csv_with_rsi_recheck():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_with_org_data():
+async def test_write_csv_with_org_data() -> None:
     """Test CSV writing with organization data."""
     rows = [
         StatusRow(
@@ -428,7 +522,7 @@ async def test_write_csv_with_org_data():
     )
 
 
-def test_format_detail_line_without_rsi_recheck():
+def test_format_detail_line_without_rsi_recheck() -> None:
     """Test formatting a detail line without RSI recheck data."""
     row = StatusRow(
         user_id=123456789,
@@ -450,7 +544,7 @@ def test_format_detail_line_without_rsi_recheck():
     assert "RSI:" in detail_line  # RSI handle label still present
 
 
-def test_format_detail_line_with_rsi_recheck():
+def test_format_detail_line_with_rsi_recheck() -> None:
     """Test formatting a detail line with RSI recheck data showing status transition."""
     row = StatusRow(
         user_id=123456789,
@@ -475,7 +569,7 @@ def test_format_detail_line_with_rsi_recheck():
     assert "RSI Checked:" in detail_line
 
 
-def test_format_detail_line_with_rsi_error():
+def test_format_detail_line_with_rsi_error() -> None:
     """Test formatting a detail line when RSI recheck fails."""
     row = StatusRow(
         user_id=123456789,

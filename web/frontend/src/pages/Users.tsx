@@ -11,6 +11,7 @@ import {
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { UserDetailsModal } from '../components/users/UserDetailsModal';
 import { useAuth } from '../contexts/AuthContext';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import { OrgBadgeList } from '../components/users/OrgBadgeList';
 import { hasPermission } from '../utils/permissions';
 import { getStatusVariant } from '../utils/statusHelpers';
@@ -48,8 +49,8 @@ function Users() {
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const usersRequestSequenceRef = useRef(0);
-  const modalRefreshSequenceRef = useRef(0);
+  const usersRequestSequence = useRequestSequence();
+  const modalRefreshSequence = useRequestSequence();
 
   // Admin actions
   const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
@@ -343,8 +344,7 @@ function Users() {
 
   // Fetch users
   const fetchUsers = useCallback(async () => {
-    const requestId = usersRequestSequenceRef.current + 1;
-    usersRequestSequenceRef.current = requestId;
+    const requestId = usersRequestSequence.next();
 
     if (!activeGuildId) {
       setUsers([]);
@@ -364,14 +364,14 @@ function Users() {
         debouncedSearch || null,
         selectedOrgs.length > 0 ? selectedOrgs : null,
       );
-      if (requestId !== usersRequestSequenceRef.current) {
+      if (!usersRequestSequence.isCurrent(requestId)) {
         return;
       }
       setUsers(data.items);
       setTotal(data.total);
       setTotalPages(data.total_pages);
     } catch (err: any) {
-      if (requestId !== usersRequestSequenceRef.current) {
+      if (!usersRequestSequence.isCurrent(requestId)) {
         return;
       }
       setError(err.response?.data?.detail || 'Failed to load users');
@@ -379,11 +379,11 @@ function Users() {
       setTotal(0);
       setTotalPages(0);
     } finally {
-      if (requestId === usersRequestSequenceRef.current) {
+      if (usersRequestSequence.isCurrent(requestId)) {
         setLoading(false);
       }
     }
-  }, [activeGuildId, page, pageSize, normalizedStatusFilters, debouncedSearch, selectedOrgs]);
+  }, [activeGuildId, page, pageSize, normalizedStatusFilters, debouncedSearch, selectedOrgs, usersRequestSequence]);
 
   // Load users on mount and when filters/pagination change
   useEffect(() => {
@@ -417,8 +417,7 @@ function Users() {
       return;
     }
 
-    const requestId = modalRefreshSequenceRef.current + 1;
-    modalRefreshSequenceRef.current = requestId;
+    const requestId = modalRefreshSequence.next();
 
     let cancelled = false;
 
@@ -427,7 +426,7 @@ function Users() {
         const response = await usersApi.getUserDetails(selectedUser.discord_id);
         const refreshedUser = response.data;
 
-        if (cancelled || requestId !== modalRefreshSequenceRef.current) {
+        if (cancelled || !modalRefreshSequence.isCurrent(requestId)) {
           return;
         }
 
@@ -463,7 +462,7 @@ function Users() {
     return () => {
       cancelled = true;
     };
-  }, [showUserModal, selectedUser?.discord_id]);
+  }, [showUserModal, selectedUser?.discord_id, modalRefreshSequence]);
 
   const isCrossGuild = activeGuildId === ALL_GUILDS_SENTINEL;
 

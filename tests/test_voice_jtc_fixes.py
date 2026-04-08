@@ -470,6 +470,7 @@ async def test_create_user_channel_includes_bot_and_owner_overwrites() -> None:
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
     assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].manage_roles is None
 
     # Owner (member) must also be in the creation overwrites with connect
     assert member in overwrites

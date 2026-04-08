@@ -123,8 +123,20 @@ async def _resolve_activity_filter(
 
 
 def _coerce_metric_value(raw_value: object) -> int | None:
-    """Coerce leaderboard metric values to integers when possible."""
+    """
+    Coerce leaderboard metric values to integers when possible.
+
+    AI Notes:
+        Leaderboard metrics are expected to be numeric counts/durations, but
+        upstream payloads may occasionally contain loosely typed values in the
+        generic ``value`` field. The boolean case is defensive normalization so
+        unexpected ``true``/``false`` values become ``1``/``0`` instead of
+        being rejected during response shaping.
+    """
     if isinstance(raw_value, bool):
+        # Defensive handling for inconsistent upstream payloads; booleans are
+        # not an expected leaderboard metric type, but some serializers may
+        # emit them in the generic "value" field.
         return int(raw_value)
     if isinstance(raw_value, int):
         return raw_value
@@ -243,12 +255,7 @@ async def get_metrics_overview(
         raise HTTPException(status_code=502, detail="Metrics unavailable")
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
-            "metrics.overview completed guild_id=%s days=%s elapsed_ms=%s",
-            guild_id,
-            days,
-            elapsed_ms,
-        )
+        logger.info("metrics.overview completed elapsed_ms=%s", elapsed_ms)
 
 
 @router.get("/dashboard", response_model=DashboardMetricsResponse)
@@ -321,22 +328,13 @@ async def get_dashboard_metrics(
             )
         )
     except Exception as exc:
-        logger.exception(
-            "Bundled dashboard metrics unavailable for guild_id=%s",
-            guild_id,
-            exc_info=exc,
-        )
+        logger.exception("Bundled dashboard metrics unavailable", exc_info=exc)
         raise HTTPException(
             status_code=502, detail="Bundled dashboard metrics unavailable"
         ) from exc
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
-            "metrics.dashboard completed guild_id=%s days=%s elapsed_ms=%s",
-            guild_id,
-            days,
-            elapsed_ms,
-        )
+        logger.info("metrics.dashboard completed elapsed_ms=%s", elapsed_ms)
 
 
 @router.get("/voice/leaderboard", response_model=LeaderboardResponse)
@@ -549,13 +547,7 @@ async def get_timeseries(
         raise HTTPException(status_code=502, detail="Timeseries unavailable")
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
-            "metrics.timeseries completed guild_id=%s metric=%s days=%s elapsed_ms=%s",
-            guild_id,
-            metric,
-            days,
-            elapsed_ms,
-        )
+        logger.info("metrics.timeseries completed elapsed_ms=%s", elapsed_ms)
 
 
 @router.get("/activity-groups", response_model=ActivityGroupCountsResponse)
@@ -595,12 +587,7 @@ async def get_activity_groups(
         raise HTTPException(status_code=502, detail="Activity groups unavailable")
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
-            "metrics.activity_groups completed guild_id=%s days=%s elapsed_ms=%s",
-            guild_id,
-            days,
-            elapsed_ms,
-        )
+        logger.info("metrics.activity_groups completed elapsed_ms=%s", elapsed_ms)
 
 
 @router.get("/user/{user_id}", response_model=UserMetricsResponse)
@@ -631,9 +618,7 @@ async def get_user_metrics(
 
         return UserMetricsResponse(data=UserMetrics(**result))
     except Exception as exc:
-        logger.exception(
-            "User metrics fetch failed for user_id=%s guild_id=%s", user_id, guild_id
-        )
+        logger.exception("User metrics fetch failed", exc_info=exc)
         raise HTTPException(status_code=502, detail="User metrics unavailable") from exc
 
 
@@ -665,11 +650,7 @@ async def delete_user_metrics(
         )
         return result
     except Exception as exc:
-        logger.exception(
-            "Delete user metrics failed for guild_id=%s user_id=%s",
-            guild_id,
-            user_id,
-        )
+        logger.exception("Delete user metrics failed", exc_info=exc)
         with contextlib.suppress(Exception):
             await log_admin_action(
                 admin_user_id=admin_user_id,

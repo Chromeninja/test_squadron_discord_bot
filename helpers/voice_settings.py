@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+VOICE_SETTINGS_FEATURE_SOURCES: tuple[tuple[str, str, str], ...] = (
+    ("permissions", "channel_permissions", "permission"),
+    ("ptt_settings", "channel_ptt_settings", "ptt_enabled"),
+    (
+        "priority_settings",
+        "channel_priority_speaker_settings",
+        "priority_enabled",
+    ),
+    (
+        "soundboard_settings",
+        "channel_soundboard_settings",
+        "soundboard_enabled",
+    ),
+)
+
+
 async def resolve_target_names(
     guild: discord.Guild,
     snapshot: "VoiceSettingsSnapshot",
@@ -261,80 +277,79 @@ async def fetch_channel_settings(
                             )
                             result["embeds"].append(embed)
 
-        # If not active or allow_inactive is True, also check for saved settings
-        if not result["is_active"] or allow_inactive:
-            if target_user:
-                # For admin_list: get all JTC channels for this user
-                if guild_id is not None:
-                    all_settings = await _get_all_user_jtc_settings(guild_id, user.id)
-                    for jtc_channel_id, settings in all_settings.items():
-                        if (
-                            settings
-                            and interaction.guild
-                            and isinstance(user, discord.Member)
-                        ):
-                            embed = await _create_settings_embed(
-                                user,
-                                settings,
-                                interaction.guild,
-                                None,
-                                is_active=False,
-                                jtc_channel_id=jtc_channel_id,
-                            )
-                            result["embeds"].append(embed)
-                            if not result["settings"]:  # Set the first one as primary
-                                result["settings"] = settings
-                                result["jtc_channel_id"] = jtc_channel_id
-            # For user list: get saved settings using last used JTC for deterministic behavior
-            elif guild_id is not None:
-                available_jtcs: list[int] = []
-                last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
-                if last_used_jtc:
-                    # Load settings for last used JTC
-                    settings = await _get_all_user_settings(
-                        guild_id, last_used_jtc, user.id
-                    )
-                    if (
-                        settings
-                        and interaction.guild
-                        and isinstance(user, discord.Member)
-                    ):
-                        result["settings"] = settings
-                        result["jtc_channel_id"] = last_used_jtc
+        active_jtc_channel_id = result["jtc_channel_id"]
 
-                        embed = await _create_settings_embed(
-                            user,
-                            settings,
-                            interaction.guild,
-                            None,
-                            is_active=False,
-                            jtc_channel_id=last_used_jtc,
-                        )
-                        result["embeds"].append(embed)
-                else:
-                    # No last used JTC found, get available JTCs for selection
-                    available_jtcs = await _get_available_jtc_channels(
-                        guild_id, user.id
-                    )
-                if available_jtcs:
-                    # Create an informative embed prompting user to select a JTC
-                    embed = discord.Embed(
-                        title="🎙️ Multiple JTC Channels Found",
-                        description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
-                        color=discord.Color.orange(),
-                    )
+        if target_user and allow_inactive and guild_id is not None:
+            # Admin list should surface stored settings across JTCs, but skip the
+            # currently active JTC because it is already represented by the active embed.
+            all_settings = await _get_all_user_jtc_settings(guild_id, user.id)
+            for jtc_channel_id, settings in all_settings.items():
+                if jtc_channel_id == active_jtc_channel_id:
+                    continue
 
-                    jtc_list = []
-                    for jtc_id in available_jtcs:
-                        jtc_list.append(f"• JTC Channel ID: {jtc_id}")
-
-                    embed.add_field(
-                        name="Available JTC Channels",
-                        value="\n".join(jtc_list),
-                        inline=False,
+                if settings and interaction.guild and isinstance(user, discord.Member):
+                    embed = await _create_settings_embed(
+                        user,
+                        settings,
+                        interaction.guild,
+                        None,
+                        is_active=False,
+                        jtc_channel_id=jtc_channel_id,
                     )
                     result["embeds"].append(embed)
-                    # If no available JTCs, result stays empty (no settings)
+                    if not result["settings"]:  # Set the first one as primary
+                        result["settings"] = settings
+                        result["jtc_channel_id"] = jtc_channel_id
+
+        elif result["settings"] is None and allow_inactive and guild_id is not None:
+            # For normal user list flows, saved settings are a fallback when the
+            # current voice state does not resolve to managed channel settings.
+            available_jtcs: list[int] = []
+            last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
+
+            if last_used_jtc:
+                settings = await _get_all_user_settings(guild_id, last_used_jtc, user.id)
+                if settings and interaction.guild and isinstance(user, discord.Member):
+                    result["settings"] = settings
+                    result["jtc_channel_id"] = last_used_jtc
+
+                    embed = await _create_settings_embed(
+                        user,
+                        settings,
+                        interaction.guild,
+                        None,
+                        is_active=False,
+                        jtc_channel_id=last_used_jtc,
+                    )
+                    result["embeds"].append(embed)
+                else:
+                    available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
+            else:
+                available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
+
+            if last_used_jtc and available_jtcs:
+                available_jtcs = [
+                    jtc_id for jtc_id in available_jtcs if jtc_id != last_used_jtc
+                ]
+
+            if available_jtcs:
+                embed = discord.Embed(
+                    title="🎙️ Multiple JTC Channels Found",
+                    description=f"{user.display_name} has settings in multiple Join-to-Create channels. Please use a specific JTC channel or create/join a channel to set preference.",
+                    color=discord.Color.orange(),
+                )
+
+                jtc_list = []
+                for jtc_id in available_jtcs:
+                    jtc_list.append(f"• JTC Channel ID: {jtc_id}")
+
+                embed.add_field(
+                    name="Available JTC Channels",
+                    value="\n".join(jtc_list),
+                    inline=False,
+                )
+                result["embeds"].append(embed)
+                # If no available JTCs, result stays empty (no settings)
 
         return result
 
@@ -360,6 +375,23 @@ async def _get_all_user_jtc_settings(
 ) -> dict[int, dict[str, Any]]:
     """Get all settings for a user across all JTC channels."""
     return await _fetch_user_settings_map(guild_id, user_id)
+
+
+def _build_feature_union_query(where_clause: str) -> str:
+    """Build the UNION ALL query used to fetch all per-target voice settings."""
+    select_clauses = [
+        (
+            "SELECT jtc_channel_id, "
+            f"'{setting_group}' AS setting_group, "
+            "target_id, "
+            "target_type, "
+            f"{value_column} AS setting_value "
+            f"FROM {table_name} "
+            f"WHERE {where_clause}"
+        )
+        for setting_group, table_name, value_column in VOICE_SETTINGS_FEATURE_SOURCES
+    ]
+    return "\nUNION ALL\n".join(select_clauses) + "\nORDER BY jtc_channel_id"
 
 
 def _build_user_settings_scope(
@@ -413,25 +445,8 @@ async def _fetch_user_settings_map(
                     "lock": bool(lock),
                 }
 
-            union_query = f"""
-                SELECT jtc_channel_id, 'permissions' AS setting_group, target_id, target_type, permission AS setting_value
-                FROM channel_permissions
-                WHERE {where_clause}
-                UNION ALL
-                SELECT jtc_channel_id, 'ptt_settings' AS setting_group, target_id, target_type, ptt_enabled AS setting_value
-                FROM channel_ptt_settings
-                WHERE {where_clause}
-                UNION ALL
-                SELECT jtc_channel_id, 'priority_settings' AS setting_group, target_id, target_type, priority_enabled AS setting_value
-                FROM channel_priority_speaker_settings
-                WHERE {where_clause}
-                UNION ALL
-                SELECT jtc_channel_id, 'soundboard_settings' AS setting_group, target_id, target_type, soundboard_enabled AS setting_value
-                FROM channel_soundboard_settings
-                WHERE {where_clause}
-                ORDER BY jtc_channel_id
-            """
-            union_params = params + params + params + params
+            union_query = _build_feature_union_query(where_clause)
+            union_params = params * len(VOICE_SETTINGS_FEATURE_SOURCES)
             feature_cursor = await db.execute(union_query, union_params)
             feature_rows = await feature_cursor.fetchall()
 
@@ -566,7 +581,7 @@ async def _create_settings_embed(
         limit = settings["user_limit"]
         limit_text = str(limit) if limit > 0 else "No limit"
         basic_settings.append(f"**User Limit:** {limit_text}")
-    if settings.get("lock"):
+    if "lock" in settings:
         basic_settings.append(
             f"**Lock:** {'🔒 Locked' if settings['lock'] else '🔓 Unlocked'}"
         )

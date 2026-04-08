@@ -57,16 +57,22 @@ MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
 
 async def parse_members_text(guild: discord.Guild, text: str) -> list[discord.Member]:
     """Parse multiple mentions/IDs from a single string; dedupe; return members present in guild."""
-    member_ids = set()
+    member_ids: list[int] = []
+    seen_ids: set[int] = set()
 
     # Extract all user IDs from mentions and raw numbers
     for match in MENTION_RE.finditer(text):
+        user_id: int | None = None
         if match.group("id"):
-            member_ids.add(int(match.group("id")))
+            user_id = int(match.group("id"))
         elif match.group("raw"):
-            member_ids.add(int(match.group("raw")))
+            user_id = int(match.group("raw"))
 
-    members = []
+        if user_id is not None and user_id not in seen_ids:
+            seen_ids.add(user_id)
+            member_ids.append(user_id)
+
+    members: list[discord.Member] = []
     for user_id in member_ids:
         try:
             # Try to get member from cache first
@@ -130,11 +136,16 @@ async def collect_targets(
 
     elif targets == "active_voice":
         # Collect all members from all non-empty voice channels
-        all_members = set()
+        all_members: list[discord.Member] = []
+        seen_ids: set[int] = set()
         for voice_channel in guild.voice_channels:
             if voice_channel.members:  # Skip empty channels
-                all_members.update(voice_channel.members)
-        return list(all_members)
+                for member in voice_channel.members:
+                    if member.id in seen_ids:
+                        continue
+                    seen_ids.add(member.id)
+                    all_members.append(member)
+        return all_members
 
     else:
         return []
@@ -298,7 +309,7 @@ def _truncate_text(text: str, max_length: int = 20) -> str:
 
 def _format_timestamp(timestamp: int | None) -> str:
     """Format Unix timestamp for Discord display."""
-    if timestamp and timestamp > 0:
+    if timestamp is not None and timestamp > 0:
         return f"<t:{timestamp}:R>"
     return "Never"
 
@@ -349,7 +360,7 @@ def _format_detail_line(row: StatusRow) -> str:
     effective = _get_effective_status(row)
     effective_display = _format_status_display(effective or "unknown")
     db_status = _format_status_display(row.membership_status or "unknown")
-    rsi_status_display = _format_status_display(row.rsi_status)
+    rsi_status_display = _format_status_display(row.rsi_status or "unknown")
     rsi_checked_display = _format_timestamp(row.rsi_checked_at)
 
     if row.rsi_error:

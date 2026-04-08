@@ -11,6 +11,7 @@ import discord
 import pytest
 
 from helpers.voice_settings import (
+    _create_settings_embed,
     _get_all_user_settings,
     fetch_channel_settings,
     get_voice_settings_snapshots,
@@ -98,6 +99,90 @@ class TestVoiceSettingsHelper:
     """Tests for the voice settings helper functions."""
 
     @pytest.mark.asyncio
+    async def test_fetch_channel_settings_active_voice_does_not_load_saved_fallback(
+        self, mock_bot, mock_interaction, mock_voice_channel
+    ) -> None:
+        """Active managed channel settings should remain authoritative."""
+        mock_interaction.user.voice = MagicMock()
+        mock_interaction.user.voice.channel = mock_voice_channel
+
+        active_settings = {
+            "channel_name": "Active Channel",
+            "user_limit": 5,
+            "lock": True,
+        }
+
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                return_value=(55555,),
+            ),
+            patch(
+                "helpers.voice_settings._get_all_user_settings",
+                new_callable=AsyncMock,
+                return_value=active_settings,
+            ) as mock_get_settings,
+            patch(
+                "helpers.voice_settings._get_last_used_jtc_channel",
+                new_callable=AsyncMock,
+            ) as mock_last_used,
+        ):
+            result = await fetch_channel_settings(
+                mock_bot, mock_interaction, allow_inactive=True
+            )
+
+            assert result["is_active"] is True
+            assert result["jtc_channel_id"] == 55555
+            assert result["settings"] == active_settings
+            assert len(result["embeds"]) == 1
+            mock_get_settings.assert_awaited_once_with(12345, 55555, 67890)
+            mock_last_used.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_settings_active_unmanaged_voice_uses_saved_fallback(
+        self, mock_bot, mock_interaction, mock_voice_channel
+    ) -> None:
+        """Users in unmanaged voice channels should still see saved settings."""
+        mock_interaction.user.voice = MagicMock()
+        mock_interaction.user.voice.channel = mock_voice_channel
+        mock_interaction.guild = Mock(spec=discord.Guild)
+
+        saved_settings = {
+            "channel_name": "Saved Channel",
+            "user_limit": 8,
+            "lock": False,
+        }
+
+        with (
+            patch(
+                "services.db.repository.BaseRepository.fetch_one",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "helpers.voice_settings._get_last_used_jtc_channel",
+                new_callable=AsyncMock,
+                return_value=77777,
+            ),
+            patch(
+                "helpers.voice_settings._get_all_user_settings",
+                new_callable=AsyncMock,
+                return_value=saved_settings,
+            ) as mock_get_settings,
+        ):
+            result = await fetch_channel_settings(
+                mock_bot, mock_interaction, allow_inactive=True
+            )
+
+            assert result["is_active"] is True
+            assert result["active_channel"] == mock_voice_channel
+            assert result["settings"] == saved_settings
+            assert result["jtc_channel_id"] == 77777
+            assert len(result["embeds"]) == 1
+            mock_get_settings.assert_awaited_once_with(12345, 77777, 67890)
+
+    @pytest.mark.asyncio
     async def test_fetch_channel_settings_no_voice_no_saved(
         self, mock_bot, mock_interaction
     ):
@@ -128,6 +213,44 @@ class TestVoiceSettingsHelper:
             assert result["is_active"] is False
             assert result["jtc_channel_id"] is None
             assert result["embeds"] == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_settings_stale_last_used_shows_available_jtcs(
+        self, mock_bot, mock_interaction
+    ) -> None:
+        """A stale last-used JTC preference should fall back to current saved options."""
+        with (
+            patch(
+                "helpers.voice_settings._get_last_used_jtc_channel",
+                new_callable=AsyncMock,
+                return_value=11111,
+            ),
+            patch(
+                "helpers.voice_settings._get_all_user_settings",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "helpers.voice_settings._get_available_jtc_channels",
+                new_callable=AsyncMock,
+                return_value=[11111, 22222, 33333],
+            ),
+        ):
+            result = await fetch_channel_settings(
+                mock_bot, mock_interaction, allow_inactive=True
+            )
+
+            assert result["settings"] is None
+            assert result["jtc_channel_id"] is None
+            assert len(result["embeds"]) == 1
+
+            embed = result["embeds"][0]
+            assert embed.title == "🎙️ Multiple JTC Channels Found"
+            assert embed.fields
+            field_value = embed.fields[0].value or ""
+            assert "11111" not in field_value
+            assert "22222" in field_value
+            assert "33333" in field_value
 
     @pytest.mark.asyncio
     async def test_fetch_channel_settings_active_voice_with_settings(
@@ -236,6 +359,24 @@ class TestVoiceSettingsHelper:
             assert snapshots[1].channel_name == "Channel Two"
             assert len(snapshots[1].soundboard_settings) == 1
             assert mock_conn.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_create_settings_embed_shows_unlocked_state(
+        self, mock_guild, mock_member
+    ) -> None:
+        """Unlocked channels should render their lock state explicitly."""
+        settings = {
+            "channel_name": "Open Channel",
+            "user_limit": 0,
+            "lock": False,
+        }
+
+        embed = await _create_settings_embed(mock_member, settings, mock_guild)
+
+        channel_settings_field = next(
+            field for field in embed.fields if field.name == "Channel Settings"
+        )
+        assert "🔓 Unlocked" in (channel_settings_field.value or "")
 
 
 class TestVoiceServiceChannelCreation:

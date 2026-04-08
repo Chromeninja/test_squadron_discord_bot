@@ -12,6 +12,7 @@
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import {
   metricsApi,
   MetricsOverview,
@@ -88,14 +89,13 @@ export default function Metrics() {
   const dimensionDropdownRef = useRef<HTMLDivElement | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const requestSequenceRef = useRef(0);
+  const requestSequence = useRequestSequence();
 
   const fetchData = useCallback(async (range: TimeRange, dims?: ActivityDimension[], tiers?: ActivityTier[]) => {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
+    const requestId = requestSequence.next();
 
     setLoading(true);
     setError(null);
@@ -113,7 +113,7 @@ export default function Metrics() {
         controller.signal,
       );
 
-      if (controller.signal.aborted || requestId !== requestSequenceRef.current) {
+      if (controller.signal.aborted || !requestSequence.isCurrent(requestId)) {
         return;
       }
 
@@ -128,17 +128,17 @@ export default function Metrics() {
       if (axios.isCancel(err)) {
         return;
       }
-      if (requestId !== requestSequenceRef.current) {
+      if (!requestSequence.isCurrent(requestId)) {
         return;
       }
       setError('Failed to load metrics data');
       handleApiError(err, 'Failed to load metrics');
     } finally {
-      if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+      if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
         setLoading(false);
       }
     }
-  }, [selectedDimensions, selectedTiers]);
+  }, [selectedDimensions, selectedTiers, requestSequence]);
 
   useEffect(() => {
     // Debounce rapid filter toggles to avoid request churn while preserving responsiveness.

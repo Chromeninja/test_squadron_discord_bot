@@ -6,6 +6,7 @@ import {
   GameMetricsDetail,
   metricsApi,
 } from '../api/endpoints';
+import { useRequestSequence } from './useRequestSequence';
 
 interface UseGameMetricsOptions {
   gameName: string | null;
@@ -33,7 +34,7 @@ export function useGameMetrics({
   const [gameMetricsLoading, setGameMetricsLoading] = useState(false);
   const [gameMetricsError, setGameMetricsError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const requestSequenceRef = useRef(0);
+  const requestSequence = useRequestSequence();
 
   const fetchMetrics = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -47,8 +48,7 @@ export function useGameMetrics({
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
+    const requestId = requestSequence.next();
 
     setGameMetrics(null);
     setGameMetricsError(null);
@@ -57,7 +57,7 @@ export function useGameMetrics({
     metricsApi
       .getGameMetrics(gameName, days, 5, dimension, tier, controller.signal)
       .then((response) => {
-        if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
           setGameMetrics(response.data);
         }
       })
@@ -65,13 +65,13 @@ export function useGameMetrics({
         if (axios.isCancel(error) || controller.signal.aborted) {
           return;
         }
-        if (requestId === requestSequenceRef.current) {
+        if (requestSequence.isCurrent(requestId)) {
           setGameMetrics(null);
           setGameMetricsError('Metrics are currently unavailable for this game.');
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
           setGameMetricsLoading(false);
         }
       });
@@ -79,7 +79,7 @@ export function useGameMetrics({
     return () => {
       controller.abort();
     };
-  }, [days, dimension, enabled, gameName, tier]);
+  }, [days, dimension, enabled, gameName, tier, requestSequence]);
 
   useEffect(() => {
     const cleanup = fetchMetrics();

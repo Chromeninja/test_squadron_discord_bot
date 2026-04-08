@@ -61,6 +61,7 @@ class BulkVerificationJob:
     recheck_rsi: bool = False  # If True, verify RSI org status for each user
 
     # Tracking
+    queued_ahead: int = 0
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
     completed_at: float | None = None
@@ -149,6 +150,8 @@ class VerificationBulkService:
         if guild_id is None:
             raise RuntimeError("Guild ID unavailable for bulk verification job")
 
+        queued_ahead = self.queue.qsize()
+
         job = BulkVerificationJob(
             job_id=job_id,
             guild_id=guild_id,
@@ -158,6 +161,7 @@ class VerificationBulkService:
             scope_label=scope_label,
             scope_channel=scope_channel,
             recheck_rsi=recheck_rsi,
+            queued_ahead=queued_ahead,
         )
 
         await self.queue.put(job)
@@ -231,10 +235,9 @@ class VerificationBulkService:
 
     async def _notify_job_start(self, job: BulkVerificationJob) -> discord.Guild | None:
         """Send initial notification and validate guild. Returns guild or None if invalid."""
-        queue_size = self.queue_size()
-        if queue_size > 0:
+        if job.queued_ahead > 0:
             await job.interaction.followup.send(
-                f"⏳ Processing started (queued behind {queue_size} other job(s)). Checking {len(job.target_member_ids)} users...",
+                f"⏳ Processing started (queued behind {job.queued_ahead} other job(s)). Checking {len(job.target_member_ids)} users...",
                 ephemeral=True,
             )
 
@@ -247,11 +250,36 @@ class VerificationBulkService:
 
     def _get_batch_size(self) -> int:
         """Get configured batch size for processing."""
-        return (
-            self.bot.config.get("auto_recheck", {})
-            .get("batch", {})
-            .get("max_users_per_run", 50)
+        return self._get_batch_config_int("max_users_per_run", 50)
+
+    def _get_member_fetch_concurrency(self) -> int:
+        """Get configured member fetch concurrency for Discord API lookups."""
+        return self._get_batch_config_int(
+            "member_fetch_concurrency", self.MEMBER_FETCH_CONCURRENCY
         )
+
+    def _get_batch_config_int(self, key: str, default: int) -> int:
+        """Read a positive integer from auto_recheck.batch config with fallback."""
+        config = getattr(self.bot, "config", {})
+        batch_config: dict[str, Any] = {}
+        if isinstance(config, dict):
+            auto_recheck_config = config.get("auto_recheck", {})
+            if isinstance(auto_recheck_config, dict):
+                candidate = auto_recheck_config.get("batch", {})
+                if isinstance(candidate, dict):
+                    batch_config = candidate
+
+        raw_value = batch_config.get(key, default)
+        try:
+            return max(1, int(raw_value))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid bulk verification batch config for %s: %r; using default %s",
+                key,
+                raw_value,
+                default,
+            )
+            return default
 
     async def _process_batches(
         self, job: BulkVerificationJob, guild: discord.Guild, batch_size: int
@@ -281,7 +309,7 @@ class VerificationBulkService:
     ) -> list[discord.Member]:
         """Fetch Discord members for a batch of member IDs."""
         members: list[discord.Member] = []
-        fetch_semaphore = asyncio.Semaphore(self.MEMBER_FETCH_CONCURRENCY)
+        fetch_semaphore = asyncio.Semaphore(self._get_member_fetch_concurrency())
 
         async def fetch_single_member(
             member_id: int,

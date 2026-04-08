@@ -10,6 +10,7 @@
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { metricsApi, UserMetrics } from '../api/endpoints';
+import { useRequestSequence } from './useRequestSequence';
 
 interface UseUserMetricsOptions {
   /** Discord user ID to fetch metrics for. Pass `null` to skip. */
@@ -37,7 +38,7 @@ export function useUserMetrics({
   const [userMetricsLoading, setUserMetricsLoading] = useState(false);
   const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const requestSequenceRef = useRef(0);
+  const requestSequence = useRequestSequence();
 
   const fetchMetrics = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -51,8 +52,7 @@ export function useUserMetrics({
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
+    const requestId = requestSequence.next();
 
     setUserMetrics(null);
     setUserMetricsError(null);
@@ -61,7 +61,7 @@ export function useUserMetrics({
     metricsApi
       .getUserMetrics(userId, days, controller.signal)
       .then((resp) => {
-        if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
           setUserMetrics(resp.data);
         }
       })
@@ -69,13 +69,13 @@ export function useUserMetrics({
         if (axios.isCancel(error) || controller.signal.aborted) {
           return;
         }
-        if (requestId === requestSequenceRef.current) {
+        if (requestSequence.isCurrent(requestId)) {
           setUserMetrics(null);
           setUserMetricsError('Metrics are currently unavailable for this member.');
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
           setUserMetricsLoading(false);
         }
       });
@@ -83,7 +83,7 @@ export function useUserMetrics({
     return () => {
       controller.abort();
     };
-  }, [userId, days, enabled]);
+  }, [userId, days, enabled, requestSequence]);
 
   useEffect(() => {
     const cleanup = fetchMetrics();

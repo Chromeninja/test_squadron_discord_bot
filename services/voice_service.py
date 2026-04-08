@@ -8,7 +8,7 @@ import sqlite3
 import time
 from collections.abc import Coroutine, Iterable
 from inspect import isawaitable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import discord  # type: ignore[import-not-found]
 
@@ -54,6 +54,21 @@ class VoiceService(BaseService):
     CHANNEL_CREATION_TIMEOUT_SECONDS = 10.0
     # Days before inactive voice channels are purged (7 days)
     INACTIVE_CHANNEL_PURGE_DAYS = 7
+    # Critical bot permissions that must be present on a newly created channel
+    # to avoid lockout while still inheriting JTC/category permissions.
+    #
+    # `manage_roles` is intentionally omitted. Discord requires the bot to already
+    # have category/guild-level Manage Permissions during channel creation, and a
+    # channel overwrite cannot bootstrap that capability if the category denies it.
+    BOT_CREATION_OVERWRITE_PERMISSIONS: ClassVar[dict[str, bool]] = {
+        "view_channel": True,
+        "manage_channels": True,
+        "connect": True,
+        "move_members": True,
+    }
+    OWNER_CREATION_OVERWRITE_PERMISSIONS: ClassVar[dict[str, bool]] = {
+        "connect": True
+    }
 
     def __init__(
         self,
@@ -2059,23 +2074,13 @@ class VoiceService(BaseService):
                 sanitized = self._sanitize_overwrite(overwrite, bot_category_perms)
                 jtc_overwrites[target] = sanitized
 
-            # Ensure the bot always has critical permissions on the new
-            # channel.  This MUST be set before creation to prevent lockout
-            # scenarios where JTC overwrites deny manage_channels,
-            # move_members, or view_channel via @everyone or role denies.
-            # Sanitize through bot category permissions to avoid including
-            # bits the bot cannot grant (which would cause Forbidden).
-            # Note: manage_roles is NOT included — the bot has it from its
-            # guild role and cannot grant it via overwrite if the category
-            # denies it (chicken-and-egg problem).
+            # Ensure the bot always has the documented critical creation
+            # permissions on the new channel before Discord applies JTC denies.
             bot_creation_overwrite = jtc_overwrites.get(
                 bot_member, discord.PermissionOverwrite()
             )
             bot_creation_overwrite.update(
-                view_channel=True,
-                manage_channels=True,
-                connect=True,
-                move_members=True,
+                **self.BOT_CREATION_OVERWRITE_PERMISSIONS
             )
             jtc_overwrites[bot_member] = self._sanitize_overwrite(
                 bot_creation_overwrite, bot_category_perms
@@ -2085,7 +2090,9 @@ class VoiceService(BaseService):
             owner_creation_overwrite = jtc_overwrites.get(
                 member, discord.PermissionOverwrite()
             )
-            owner_creation_overwrite.update(connect=True)
+            owner_creation_overwrite.update(
+                **self.OWNER_CREATION_OVERWRITE_PERMISSIONS
+            )
             jtc_overwrites[member] = self._sanitize_overwrite(
                 owner_creation_overwrite, bot_category_perms
             )
@@ -2499,8 +2506,12 @@ class VoiceService(BaseService):
                 exc,
             )
 
-    async def _schedule_channel_cleanup(self, channel_id: int) -> None:
-        """Schedule cleanup of an empty channel after a delay (fallback for ambiguous cases)."""
+    async def _schedule_channel_cleanup(self, channel_id: int) -> asyncio.Task:
+        """Schedule cleanup of an empty channel after a delay.
+
+        Returns the spawned background task so callers and tests can await the
+        full cleanup lifecycle when needed.
+        """
 
         # Get configurable delay from config, default to 10 seconds
         delete_delay = await self.config_service.get_global_setting(
@@ -2543,7 +2554,7 @@ class VoiceService(BaseService):
                 logger.exception("Error during scheduled cleanup", exc_info=e)
 
         # Schedule the cleanup
-        self._spawn_background_task(
+        return self._spawn_background_task(
             cleanup_after_delay(),
             name=f"voice.cleanup_after_delay.{channel_id}",
         )
@@ -3473,8 +3484,9 @@ class VoiceService(BaseService):
                     f"Bot missing 'Manage Channels' permission in category '{category.name}'",
                 )
 
-            # Check category-level Manage Roles ("Manage Permissions") — required
-            # by Discord to set permission overwrites on created channels.
+            # Category-level Manage Roles remains required even though
+            # BOT_CREATION_OVERWRITE_PERMISSIONS omits it; overwrites cannot
+            # bootstrap manage_roles when the category itself denies it.
             if not perms.manage_roles:
                 self.logger.warning(
                     "Missing 'Manage Permissions' (manage_roles) in category '%s' (%s)",

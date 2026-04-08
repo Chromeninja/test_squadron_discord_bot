@@ -2,18 +2,18 @@
 Test configuration and fixtures for backend tests.
 """
 
+import contextlib
 import os
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient, Cookies, Response
+from httpx import ASGITransport, AsyncClient
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
-import sys
 
 sys.path.insert(0, str(project_root))
 
@@ -21,36 +21,11 @@ sys.path.insert(0, str(project_root))
 backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
 
-import contextlib
-
 from core import dependencies
 
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
-
-
-class BackendTestClient(AsyncClient):
-    """AsyncClient variant that preserves legacy per-request cookie semantics."""
-
-    async def request(
-        self,
-        method: str,
-        url: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Response:
-        request_cookies = kwargs.pop("cookies", None)
-        if request_cookies is None:
-            return await super().request(method, url, *args, **kwargs)
-
-        original_cookies = Cookies(self.cookies)
-        self.cookies.update(request_cookies)
-        try:
-            return await super().request(method, url, *args, **kwargs)
-        finally:
-            self.cookies.clear()
-            self.cookies.update(original_cookies)
 
 
 @pytest_asyncio.fixture
@@ -167,7 +142,7 @@ async def client(temp_db):
 
     transport = ASGITransport(app=app)
 
-    async with BackendTestClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     await session_store.close()

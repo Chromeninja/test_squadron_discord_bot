@@ -636,7 +636,9 @@ async def select_active_guild(
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
         logger.warning(
-            "Internal API guild fetch failed during selection; falling back to session guilds",
+            "Internal API guild fetch failed during selection; falling back "
+            "to session guilds, which may be stale and not reflect current "
+            "guild membership",
             exc_info=exc,
             extra={
                 "user_id": current_user.user_id,
@@ -653,8 +655,7 @@ async def select_active_guild(
 
     if not allowed_ids:
         logger.warning(
-            "internal API returned no guilds during selection; accepting guild_id=%s",
-            payload.guild_id,
+            "internal API returned no guilds during selection; accepting requested guild",
         )
     elif payload.guild_id not in allowed_ids:
         raise HTTPException(status_code=404, detail="Guild not found")
@@ -739,7 +740,7 @@ async def bot_authorization_callback(
 
     # Success - redirect to SelectServer page
     # Frontend will automatically refresh the guild list
-    logger.info(f"Bot successfully added to guild {guild_id}")
+    logger.info("Bot authorization completed successfully")
     return RedirectResponse(
         url=f"{FRONTEND_URL}/select-server?bot_added=true",
         status_code=302,

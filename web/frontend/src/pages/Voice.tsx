@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { voiceApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { useAuth } from '../contexts/AuthContext';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import { hasPermission } from '../utils/permissions';
 import { UserDetailsModal } from '../components/users/UserDetailsModal';
 import {
@@ -64,9 +65,9 @@ function Voice() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
   const [userDetailError, setUserDetailError] = useState<string | null>(null);
-  const loadRequestSequenceRef = useRef(0);
-  const searchRequestSequenceRef = useRef(0);
-  const userDetailRequestSequenceRef = useRef(0);
+  const loadRequestSequence = useRequestSequence();
+  const searchRequestSequence = useRequestSequence();
+  const userDetailRequestSequence = useRequestSequence();
   const resetSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Check if in cross-guild (All Guilds) mode
@@ -86,8 +87,7 @@ function Voice() {
   }, [isCrossGuildMode, userProfile]);
 
   const loadActiveChannels = useCallback(async () => {
-    const requestId = loadRequestSequenceRef.current + 1;
-    loadRequestSequenceRef.current = requestId;
+    const requestId = loadRequestSequence.next();
 
     setActiveLoading(true);
     setActiveError(null);
@@ -98,7 +98,7 @@ function Voice() {
         voiceApi.getIntegrity(),
       ]);
 
-      if (requestId !== loadRequestSequenceRef.current) {
+      if (!loadRequestSequence.isCurrent(requestId)) {
         return;
       }
 
@@ -122,34 +122,34 @@ function Voice() {
     } catch (err) {
       setActiveError('Failed to load active channels');
     } finally {
-      if (requestId === loadRequestSequenceRef.current) {
+      if (loadRequestSequence.isCurrent(requestId)) {
         setActiveLoading(false);
       }
     }
-  }, []);
+  }, [loadRequestSequence]);
 
   useEffect(() => {
     void loadActiveChannels();
   }, [loadActiveChannels]);
 
+  const toggleSetItem = (value: string, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    setter((previous) => {
+      const next = new Set(previous);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
+  };
+
   const toggleChannel = (channelId: string) => {
-    const newExpanded = new Set(expandedChannels);
-    if (newExpanded.has(channelId)) {
-      newExpanded.delete(channelId);
-    } else {
-      newExpanded.add(channelId);
-    }
-    setExpandedChannels(newExpanded);
+    toggleSetItem(channelId, setExpandedChannels);
   };
 
   const toggleUser = (userId: string) => {
-    const newExpanded = new Set(expandedUsers);
-    if (newExpanded.has(userId)) {
-      newExpanded.delete(userId);
-    } else {
-      newExpanded.add(userId);
-    }
-    setExpandedUsers(newExpanded);
+    toggleSetItem(userId, setExpandedUsers);
   };
 
   const handleSearch = async (page = 1) => {
@@ -158,8 +158,7 @@ function Voice() {
       return;
     }
 
-    const requestId = searchRequestSequenceRef.current + 1;
-    searchRequestSequenceRef.current = requestId;
+    const requestId = searchRequestSequence.next();
 
     setSearchLoading(true);
     setSearchError(null);
@@ -167,7 +166,7 @@ function Voice() {
 
     try {
       const data = await voiceApi.getUserSettings(searchQuery.trim(), page, pageSize);
-      if (requestId !== searchRequestSequenceRef.current) {
+      if (!searchRequestSequence.isCurrent(requestId)) {
         return;
       }
       setSearchResults(data.items);
@@ -177,7 +176,7 @@ function Voice() {
         setSearchError(data.message);
       }
     } catch (err) {
-      if (requestId !== searchRequestSequenceRef.current) {
+      if (!searchRequestSequence.isCurrent(requestId)) {
         return;
       }
       setSearchError('Failed to search user voice settings');
@@ -185,7 +184,7 @@ function Voice() {
       setTotalResults(0);
       setSearchGuildGroups(null);
     } finally {
-      if (requestId === searchRequestSequenceRef.current) {
+      if (searchRequestSequence.isCurrent(requestId)) {
         setSearchLoading(false);
       }
     }
@@ -210,7 +209,7 @@ function Voice() {
   };
 
   const closeUserModal = () => {
-    userDetailRequestSequenceRef.current += 1;
+    userDetailRequestSequence.invalidate();
     setShowUserModal(false);
     setSelectedUser(null);
     setUserDetailLoading(false);
@@ -238,8 +237,7 @@ function Voice() {
   });
 
   const openUserDetailsModal = async (member: VoiceChannelMember) => {
-    const requestId = userDetailRequestSequenceRef.current + 1;
-    userDetailRequestSequenceRef.current = requestId;
+    const requestId = userDetailRequestSequence.next();
     const userId = member.user_id;
     setShowUserModal(true);
     setSelectedUser(null);
@@ -248,17 +246,17 @@ function Voice() {
 
     try {
       const response = await usersApi.getUserDetails(userId);
-      if (requestId !== userDetailRequestSequenceRef.current) {
+      if (!userDetailRequestSequence.isCurrent(requestId)) {
         return;
       }
       setSelectedUser(response.data || buildFallbackUserFromVoiceMember(member));
     } catch (err) {
-      if (requestId !== userDetailRequestSequenceRef.current) {
+      if (!userDetailRequestSequence.isCurrent(requestId)) {
         return;
       }
       setSelectedUser(buildFallbackUserFromVoiceMember(member));
     } finally {
-      if (requestId === userDetailRequestSequenceRef.current) {
+      if (userDetailRequestSequence.isCurrent(requestId)) {
         setUserDetailLoading(false);
       }
     }

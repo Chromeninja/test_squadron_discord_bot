@@ -384,9 +384,9 @@ class TestVoiceCleanup:
             ),
             patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
         ):
-            # Schedule cleanup and wait
-            await voice_service._schedule_channel_cleanup(channel.id)
-            await asyncio.sleep(0.2)  # Wait for cleanup to complete
+            # Schedule cleanup and await the full fallback task deterministically
+            cleanup_task = await voice_service._schedule_channel_cleanup(channel.id)
+            await cleanup_task
 
             # Verify channel was deleted
             mock_delete.assert_called_once()
@@ -422,13 +422,13 @@ class TestVoiceCleanup:
             patch.object(channel, "delete", new_callable=AsyncMock) as mock_delete,
         ):
             # Schedule cleanup
-            await voice_service._schedule_channel_cleanup(channel.id)
+            cleanup_task = await voice_service._schedule_channel_cleanup(channel.id)
 
             # Add a member before cleanup occurs
             mock_member = MagicMock()
             channel.members.append(mock_member)
 
-            await asyncio.sleep(0.2)  # Wait for cleanup attempt
+            await cleanup_task
 
             # Verify channel was NOT deleted
             mock_delete.assert_not_called()
