@@ -1,13 +1,19 @@
 # tests/test_verification_bulk_rsi_recheck.py
 """Tests for bulk verification RSI recheck using the unified pipeline."""
 
+import asyncio
 import time
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
+import discord
 import pytest
 
 from helpers.bulk_check import StatusRow
+from services.verification_bulk_service import (
+    BulkVerificationJob,
+    VerificationBulkService,
+)
 from services.verification_state import GlobalVerificationState, VerificationStatus
 
 
@@ -326,6 +332,46 @@ async def test_perform_rsi_recheck_with_error_in_state():
     assert len(result_rows) == 1
     assert result_rows[0].rsi_status == "non_member"
     assert result_rows[0].rsi_error == "RSI fetch failed"
+
+
+@pytest.mark.asyncio
+async def test_fetch_batch_members_fetches_cache_misses_concurrently() -> None:
+    """Cache misses should fetch concurrently within the batch."""
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    guild = Mock(spec=discord.Guild)
+    guild.get_member.return_value = None
+
+    started_fetches: list[int] = []
+    all_started = asyncio.Event()
+
+    async def fetch_member(member_id: int) -> Mock:
+        started_fetches.append(member_id)
+        if len(started_fetches) == 2:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=0.1)
+        member = Mock(spec=discord.Member)
+        member.id = member_id
+        return member
+
+    guild.fetch_member = AsyncMock(side_effect=fetch_member)
+    job = BulkVerificationJob(
+        job_id=1,
+        guild_id=123,
+        target_member_ids=[1, 2],
+        invoker_id=999,
+        interaction=Mock(),
+        scope_label="specific users",
+    )
+
+    members = await service._fetch_batch_members(job, guild, [1, 2])
+
+    assert [member.id for member in members] == [1, 2]
+    assert started_fetches == [1, 2]
+    assert job.errors == []
 
 
 @pytest.mark.asyncio

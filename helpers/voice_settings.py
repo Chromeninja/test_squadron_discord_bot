@@ -106,8 +106,6 @@ async def get_voice_settings_snapshots(
     using guild role/member lookups).
     """
 
-    # Lazy import to avoid circular dependency through services/__init__.py
-    from services.db.repository import BaseRepository
     from utils.types import (
         PermissionOverride,
         PrioritySpeakerSetting,
@@ -118,18 +116,9 @@ async def get_voice_settings_snapshots(
 
     snapshots: list[VoiceSettingsSnapshot] = []
 
-    jtc_rows = await BaseRepository.fetch_all(
-        """
-        SELECT DISTINCT jtc_channel_id
-        FROM channel_settings
-        WHERE guild_id = ? AND user_id = ?
-        ORDER BY jtc_channel_id
-        """,
-        (guild_id, user_id),
-    )
+    all_settings = await _get_all_user_jtc_settings(guild_id, user_id)
 
-    for (jtc_channel_id,) in jtc_rows:
-        settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
+    for jtc_channel_id, settings in all_settings.items():
         if not settings:
             continue
 
@@ -358,120 +347,109 @@ async def _get_all_user_settings(
     guild_id: int, jtc_channel_id: int, user_id: int
 ) -> dict[str, Any]:
     """Get all settings for a user's channel in a specific JTC."""
-    # Lazy import to avoid circular dependency
-    from services.db.repository import BaseRepository
-
-    settings = {}
-
-    try:
-        async with BaseRepository.transaction() as db:
-            # Get basic channel settings
-            cursor = await db.execute(
-                """
-                SELECT channel_name, user_limit, lock
-                FROM channel_settings
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-            """,
-                (guild_id, jtc_channel_id, user_id),
-            )
-            row = await cursor.fetchone()
-
-            if row:
-                channel_name, user_limit, lock = row
-                settings.update(
-                    {
-                        "channel_name": channel_name,
-                        "user_limit": user_limit,
-                        "lock": bool(lock),
-                    }
-                )
-
-            # Get permissions
-            cursor = await db.execute(
-                """
-                SELECT target_id, target_type, permission
-                FROM channel_permissions
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-            """,
-                (guild_id, jtc_channel_id, user_id),
-            )
-            permissions = await cursor.fetchall()
-            if permissions:
-                settings["permissions"] = permissions
-
-            # Get PTT settings
-            cursor = await db.execute(
-                """
-                SELECT target_id, target_type, ptt_enabled
-                FROM channel_ptt_settings
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-            """,
-                (guild_id, jtc_channel_id, user_id),
-            )
-            ptt_settings = await cursor.fetchall()
-            if ptt_settings:
-                settings["ptt_settings"] = ptt_settings
-
-            # Get priority speaker settings
-            cursor = await db.execute(
-                """
-                SELECT target_id, target_type, priority_enabled
-                FROM channel_priority_speaker_settings
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-            """,
-                (guild_id, jtc_channel_id, user_id),
-            )
-            priority_settings = await cursor.fetchall()
-            if priority_settings:
-                settings["priority_settings"] = priority_settings
-
-            # Get soundboard settings
-            cursor = await db.execute(
-                """
-                SELECT target_id, target_type, soundboard_enabled
-                FROM channel_soundboard_settings
-                WHERE guild_id = ? AND jtc_channel_id = ? AND user_id = ?
-            """,
-                (guild_id, jtc_channel_id, user_id),
-            )
-            soundboard_settings = await cursor.fetchall()
-            if soundboard_settings:
-                settings["soundboard_settings"] = soundboard_settings
-
-    except Exception as e:
-        logger.exception("Error getting user settings", exc_info=e)
-
-    return settings
+    all_settings = await _fetch_user_settings_map(
+        guild_id,
+        user_id,
+        jtc_channel_id=jtc_channel_id,
+    )
+    return all_settings.get(jtc_channel_id, {})
 
 
 async def _get_all_user_jtc_settings(
     guild_id: int, user_id: int
 ) -> dict[int, dict[str, Any]]:
     """Get all settings for a user across all JTC channels."""
-    # Lazy import to avoid circular dependency
+    return await _fetch_user_settings_map(guild_id, user_id)
+
+
+def _build_user_settings_scope(
+    guild_id: int,
+    user_id: int,
+    jtc_channel_id: int | None = None,
+) -> tuple[str, tuple[Any, ...]]:
+    """Build a shared WHERE clause and parameters for voice settings queries."""
+    where_clause = "guild_id = ? AND user_id = ?"
+    params: tuple[Any, ...] = (guild_id, user_id)
+    if jtc_channel_id is not None:
+        where_clause += " AND jtc_channel_id = ?"
+        params += (jtc_channel_id,)
+    return where_clause, params
+
+
+async def _fetch_user_settings_map(
+    guild_id: int,
+    user_id: int,
+    jtc_channel_id: int | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Fetch voice settings grouped by JTC channel with minimal query fan-out."""
     from services.db.repository import BaseRepository
 
-    all_settings = {}
+    settings_map: dict[int, dict[str, Any]] = {}
+
+    where_clause, params = _build_user_settings_scope(
+        guild_id,
+        user_id,
+        jtc_channel_id,
+    )
 
     try:
-        jtc_rows = await BaseRepository.fetch_all(
-            """
-            SELECT DISTINCT jtc_channel_id
-            FROM channel_settings
-            WHERE guild_id = ? AND user_id = ?
-            """,
-            (guild_id, user_id),
-        )
+        async with BaseRepository.transaction() as db:
+            basic_cursor = await db.execute(
+                f"""
+                SELECT jtc_channel_id, channel_name, user_limit, lock
+                FROM channel_settings
+                WHERE {where_clause}
+                ORDER BY jtc_channel_id
+                """,
+                params,
+            )
+            basic_rows = await basic_cursor.fetchall()
 
-        for (jtc_channel_id,) in jtc_rows:
-            settings = await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
-            if settings:
-                all_settings[jtc_channel_id] = settings
+            for row in basic_rows:
+                current_jtc_channel_id, channel_name, user_limit, lock = row
+                settings_map[current_jtc_channel_id] = {
+                    "channel_name": channel_name,
+                    "user_limit": user_limit,
+                    "lock": bool(lock),
+                }
+
+            union_query = f"""
+                SELECT jtc_channel_id, 'permissions' AS setting_group, target_id, target_type, permission AS setting_value
+                FROM channel_permissions
+                WHERE {where_clause}
+                UNION ALL
+                SELECT jtc_channel_id, 'ptt_settings' AS setting_group, target_id, target_type, ptt_enabled AS setting_value
+                FROM channel_ptt_settings
+                WHERE {where_clause}
+                UNION ALL
+                SELECT jtc_channel_id, 'priority_settings' AS setting_group, target_id, target_type, priority_enabled AS setting_value
+                FROM channel_priority_speaker_settings
+                WHERE {where_clause}
+                UNION ALL
+                SELECT jtc_channel_id, 'soundboard_settings' AS setting_group, target_id, target_type, soundboard_enabled AS setting_value
+                FROM channel_soundboard_settings
+                WHERE {where_clause}
+                ORDER BY jtc_channel_id
+            """
+            union_params = params + params + params + params
+            feature_cursor = await db.execute(union_query, union_params)
+            feature_rows = await feature_cursor.fetchall()
+
+            for row in feature_rows:
+                current_jtc_channel_id, setting_group, target_id, target_type, value = row
+                if current_jtc_channel_id not in settings_map:
+                    if jtc_channel_id is None:
+                        continue
+                    settings_map[current_jtc_channel_id] = {}
+
+                settings_map.setdefault(current_jtc_channel_id, {}).setdefault(
+                    setting_group, []
+                ).append((target_id, target_type, value))
 
     except Exception as e:
-        logger.exception("Error getting all user JTC settings", exc_info=e)
+        logger.exception("Error getting user settings", exc_info=e)
 
-    return all_settings
+    return settings_map
 
 
 async def _get_last_used_jtc_channel(guild_id: int, user_id: int) -> int | None:

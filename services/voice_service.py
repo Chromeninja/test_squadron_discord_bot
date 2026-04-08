@@ -2263,10 +2263,13 @@ class VoiceService(BaseService):
                 # (views imports voice utilities which depend on voice_service)
                 from helpers.views import ChannelSettingsView
 
-                await self._send_settings_message_to_vc(
-                    voice_channel=channel,
-                    member=member,
-                    view=ChannelSettingsView(self.bot),
+                self._spawn_background_task(
+                    self._send_settings_message_to_vc(
+                        voice_channel=channel,
+                        member=member,
+                        view=ChannelSettingsView(self.bot),
+                    ),
+                    name=f"voice.settings_message.{channel.id}",
                 )
             except Exception:
                 self.logger.exception(

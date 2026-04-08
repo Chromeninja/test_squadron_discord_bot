@@ -82,6 +82,8 @@ class VerificationBulkService:
     Signals auto-recheck to pause when manual checks are running.
     """
 
+    MEMBER_FETCH_CONCURRENCY = 10
+
     def __init__(self, bot: MyBot):
         self.name = "verification_bulk"
         self.bot = bot
@@ -278,23 +280,41 @@ class VerificationBulkService:
         self, job: BulkVerificationJob, guild: discord.Guild, member_ids: list[int]
     ) -> list[discord.Member]:
         """Fetch Discord members for a batch of member IDs."""
-        members = []
-        for member_id in member_ids:
+        members: list[discord.Member] = []
+        fetch_semaphore = asyncio.Semaphore(self.MEMBER_FETCH_CONCURRENCY)
+
+        async def fetch_single_member(
+            member_id: int,
+        ) -> tuple[int, discord.Member | None, Exception | None]:
             try:
                 member = guild.get_member(member_id)
                 if member is None:
-                    member = await guild.fetch_member(member_id)
-                if member:
-                    members.append(member)
+                    async with fetch_semaphore:
+                        member = await guild.fetch_member(member_id)
+                return member_id, member, None
             except (discord.NotFound, discord.HTTPException) as e:
-                job.errors.append(
-                    (
-                        member_id,
-                        f"User_{member_id}",
-                        f"Member fetch failed: {e!s}"[:200],
-                    )
+                return member_id, None, e
+
+        results = await asyncio.gather(
+            *(fetch_single_member(member_id) for member_id in member_ids)
+        )
+
+        for member_id, member, error in results:
+            if member is not None:
+                members.append(member)
+                continue
+
+            if error is None:
+                continue
+
+            job.errors.append(
+                (
+                    member_id,
+                    f"User_{member_id}",
+                    f"Member fetch failed: {error!s}"[:200],
                 )
-                logger.debug(f"Failed to fetch member {member_id}: {e}")
+            )
+            logger.debug(f"Failed to fetch member {member_id}: {error}")
 
         return members
 

@@ -1304,8 +1304,12 @@ class TestActivityThresholds:
         # Record 5 messages 3+ minutes apart — exactly at threshold
         for i in range(5):
             ts = base_now + (i * 181)
-            monkeypatch.setattr("services.metrics_service.time.time", lambda ts=ts: ts)
-            metrics_service.record_message(guild_id=100, user_id=2, channel_id=10)
+            with monkeypatch.context() as scoped_patch:
+                scoped_patch.setattr(
+                    "services.metrics_service.time.time",
+                    lambda ts=ts: ts,
+                )
+                metrics_service.record_message(guild_id=100, user_id=2, channel_id=10)
         await metrics_service._flush_message_buffer()
 
         result = await metrics_service.get_member_activity_buckets(
@@ -1354,10 +1358,10 @@ class TestActivityThresholds:
 
     @pytest.mark.asyncio
     async def test_voice_below_threshold_excluded(
-        self, metrics_service: MetricsService
+        self, metrics_service: MetricsService, monkeypatch
     ) -> None:
         """Voice sessions shorter than min_voice_minutes are not counted."""
-        now = int(time.time())
+        now = 1775649600  # 2026-04-07 12:00:00 UTC
 
         async def _high_voice_threshold(
             guild_id: int,
@@ -1376,15 +1380,25 @@ class TestActivityThresholds:
         metrics_service._activity_thresholds_cache.clear()
 
         # Record a quick 5-minute voice session (< 60 min threshold)
-        await metrics_service.record_voice_join(
-            guild_id=100,
-            user_id=3,
-            channel_id=10,
-        )
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(
+                "services.metrics_service.time.time",
+                lambda: now,
+            )
+            await metrics_service.record_voice_join(
+                guild_id=100,
+                user_id=3,
+                channel_id=10,
+            )
         # Manually set the join time to 5 minutes ago
         session = metrics_service._voice_sessions[(100, 3)]
         session.joined_at = now - 300  # 5 minutes
-        await metrics_service.record_voice_leave(guild_id=100, user_id=3)
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(
+                "services.metrics_service.time.time",
+                lambda: now,
+            )
+            await metrics_service.record_voice_leave(guild_id=100, user_id=3)
 
         result = await metrics_service.get_member_activity_buckets(
             guild_id=100,
@@ -1395,10 +1409,10 @@ class TestActivityThresholds:
 
     @pytest.mark.asyncio
     async def test_voice_above_threshold_included(
-        self, metrics_service: MetricsService
+        self, metrics_service: MetricsService, monkeypatch
     ) -> None:
         """Voice sessions meeting min_voice_minutes are counted."""
-        now = int(time.time())
+        now = 1775649600  # 2026-04-07 12:00:00 UTC
 
         async def _threshold_15(
             guild_id: int,
@@ -1417,14 +1431,24 @@ class TestActivityThresholds:
         metrics_service._activity_thresholds_cache.clear()
 
         # Record a 20-minute voice session (> 15 min threshold)
-        await metrics_service.record_voice_join(
-            guild_id=100,
-            user_id=4,
-            channel_id=10,
-        )
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(
+                "services.metrics_service.time.time",
+                lambda: now,
+            )
+            await metrics_service.record_voice_join(
+                guild_id=100,
+                user_id=4,
+                channel_id=10,
+            )
         session = metrics_service._voice_sessions[(100, 4)]
         session.joined_at = now - 1200  # 20 minutes ago
-        await metrics_service.record_voice_leave(guild_id=100, user_id=4)
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(
+                "services.metrics_service.time.time",
+                lambda: now,
+            )
+            await metrics_service.record_voice_leave(guild_id=100, user_id=4)
 
         result = await metrics_service.get_member_activity_buckets(
             guild_id=100,

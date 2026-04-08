@@ -5,12 +5,16 @@ This file contains tests for the new voice settings helper functions
 and the updated channel creation with settings loading.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import discord
 import pytest
 
-from helpers.voice_settings import _get_all_user_settings, fetch_channel_settings
+from helpers.voice_settings import (
+    _get_all_user_settings,
+    fetch_channel_settings,
+    get_voice_settings_snapshots,
+)
 from services.config_service import ConfigService
 from services.voice_service import VoiceService
 
@@ -136,21 +140,14 @@ class TestVoiceSettingsHelper:
 
         # Mock Database.get_connection for the transaction in _get_all_user_settings
         mock_conn = AsyncMock()
-        cursor = AsyncMock()
-        # The queries:
-        # 1. channel_settings query - fetchone
-        # 2. permissions query - fetchall
-        # 3. ptt_settings query - fetchall
-        # 4. priority_speaker_settings query - fetchall
-        # 5. soundboard_settings query - fetchall
-        cursor.fetchone.return_value = ("Test Channel", 5, 1)  # channel_settings
-        cursor.fetchall.side_effect = [
-            [(1001, "user", "permit")],  # permissions
-            [(1001, "user", 1)],  # ptt_settings
-            [],  # priority_settings
-            [],  # soundboard_settings
+        basic_cursor = AsyncMock()
+        basic_cursor.fetchall.return_value = [(55555, "Test Channel", 5, 1)]
+        feature_cursor = AsyncMock()
+        feature_cursor.fetchall.return_value = [
+            (55555, "permissions", 1001, "user", "permit"),
+            (55555, "ptt_settings", 1001, "user", 1),
         ]
-        mock_conn.execute.return_value = cursor
+        mock_conn.execute.side_effect = [basic_cursor, feature_cursor]
 
         # Return jtc_channel_id from voice_channels lookup
         async def mock_fetch_one(query, params=None):
@@ -183,15 +180,17 @@ class TestVoiceSettingsHelper:
     async def test_get_all_user_settings_comprehensive(self):
         """Test _get_all_user_settings returns comprehensive settings."""
         mock_conn = AsyncMock()
-        cursor = AsyncMock()
-        cursor.fetchone.return_value = ("Custom Channel", 8, 1)  # channel_settings
-        cursor.fetchall.side_effect = [
-            [(1001, "user", "permit"), (1002, "role", "reject")],  # permissions
-            [(1001, "user", 1)],  # ptt_settings
-            [(1001, "user", 1)],  # priority_settings
-            [(1002, "role", 0)],  # soundboard_settings
+        basic_cursor = AsyncMock()
+        basic_cursor.fetchall.return_value = [(55555, "Custom Channel", 8, 1)]
+        feature_cursor = AsyncMock()
+        feature_cursor.fetchall.return_value = [
+            (55555, "permissions", 1001, "user", "permit"),
+            (55555, "permissions", 1002, "role", "reject"),
+            (55555, "ptt_settings", 1001, "user", 1),
+            (55555, "priority_settings", 1001, "user", 1),
+            (55555, "soundboard_settings", 1002, "role", 0),
         ]
-        mock_conn.execute.return_value = cursor
+        mock_conn.execute.side_effect = [basic_cursor, feature_cursor]
 
         with patch("services.db.database.Database.get_connection") as mock_db:
             mock_db.return_value.__aenter__.return_value = mock_conn
@@ -205,6 +204,38 @@ class TestVoiceSettingsHelper:
             assert len(settings["ptt_settings"]) == 1
             assert len(settings["priority_settings"]) == 1
             assert len(settings["soundboard_settings"]) == 1
+            assert mock_conn.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_voice_settings_snapshots_batches_jtc_reads(self):
+        """Snapshot generation should fetch all JTC settings with grouped queries."""
+        mock_conn = AsyncMock()
+        basic_cursor = AsyncMock()
+        basic_cursor.fetchall.return_value = [
+            (100, "Channel One", 5, 1),
+            (200, "Channel Two", 0, 0),
+        ]
+        feature_cursor = AsyncMock()
+        feature_cursor.fetchall.return_value = [
+            (100, "permissions", 1001, "user", "permit"),
+            (100, "ptt_settings", 1001, "user", 1),
+            (200, "soundboard_settings", 1002, "role", 0),
+        ]
+        mock_conn.execute.side_effect = [basic_cursor, feature_cursor]
+
+        with patch("services.db.database.Database.get_connection") as mock_db:
+            mock_db.return_value.__aenter__.return_value = mock_conn
+
+            snapshots = await get_voice_settings_snapshots(12345, 67890)
+
+            assert [snapshot.jtc_channel_id for snapshot in snapshots] == [100, 200]
+            assert snapshots[0].channel_name == "Channel One"
+            assert snapshots[0].is_locked is True
+            assert len(snapshots[0].permissions) == 1
+            assert len(snapshots[0].ptt_settings) == 1
+            assert snapshots[1].channel_name == "Channel Two"
+            assert len(snapshots[1].soundboard_settings) == 1
+            assert mock_conn.execute.await_count == 2
 
 
 class TestVoiceServiceChannelCreation:
@@ -363,6 +394,18 @@ class TestVoiceServiceChannelCreation:
 
         # Mock enforce_permission_changes
         created_channel.send = AsyncMock()
+        spawned_task_names: list[str] = []
+
+        def capture_background_task(coro, *, name: str) -> Mock:
+            spawned_task_names.append(name)
+            coro.close()
+            return Mock()
+
+        voice_service._send_settings_message_to_vc = AsyncMock()
+        voice_service._spawn_background_task = Mock(
+            side_effect=capture_background_task
+        )
+
         with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
 
@@ -380,8 +423,12 @@ class TestVoiceServiceChannelCreation:
             # Verify settings were applied
             mock_enforce.assert_called_once()
 
-            # Verify the settings message was sent via voice_channel.send()
-            created_channel.send.assert_called_once()
+            # Verify the settings message is scheduled off the hot path
+            voice_service._send_settings_message_to_vc.assert_called_once()
+            assert (
+                f"voice.settings_message.{created_channel.id}" in spawned_task_names
+            )
+            created_channel.send.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_create_user_channel_uses_defaults_no_saved_settings(
@@ -553,8 +600,20 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
     # Set up database mock - no saved settings for this test
     mock_db_connection.set_fetchone_result(None)
 
-    # Mock permission enforcement and messaging (voice_channel.send() instead of channel_send_message)
+    # Mock permission enforcement and schedule the settings message off the hot path
     fake_created_channel.send = AsyncMock()
+    spawned_task_names: list[str] = []
+
+    def capture_background_task(coro, *, name: str) -> MagicMock:
+        spawned_task_names.append(name)
+        coro.close()
+        return MagicMock()
+
+    voice_service._send_settings_message_to_vc = AsyncMock()
+    voice_service._spawn_background_task = MagicMock(
+        side_effect=capture_background_task
+    )
+
     with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
         mock_enforce.return_value = None
 
@@ -577,8 +636,10 @@ async def test_voice_command_integration(voice_service, mock_db_connection):
         # 3. Permissions were enforced
         mock_enforce.assert_called_once()
 
-        # 4. Settings view is sent to the voice channel via send()
-        fake_created_channel.send.assert_called_once()
+        # 4. Settings view is queued in the background instead of blocking creation
+        voice_service._send_settings_message_to_vc.assert_called_once()
+        assert f"voice.settings_message.{fake_created_channel.id}" in spawned_task_names
+        fake_created_channel.send.assert_not_called()
 
 
 class TestChannelCreationRoleCheck:

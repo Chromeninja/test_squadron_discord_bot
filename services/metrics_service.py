@@ -461,7 +461,7 @@ class MetricsService(BaseService):
         async def _fetch_chat_activity() -> tuple[dict[int, set[int]], dict[int, int]]:
             """Fetch per-user active chat day buckets and last chat timestamp."""
             sql_msg = (
-                "SELECT user_id, hour_bucket / 86400 AS day_bucket, "
+                "SELECT user_id, CAST(hour_bucket / 86400 AS INTEGER) AS day_bucket, "
                 "SUM(message_count) AS day_message_count, MAX(hour_bucket) "
                 "FROM message_counts "
                 f"WHERE guild_id = ? {user_filter_sql} "
