@@ -10,50 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from services.config_service import ConfigService
 from services.db.database import Database
-from services.voice_service import VoiceService
-
-
-class MockVoiceChannel:
-    """Mock Discord voice channel."""
-
-    def __init__(
-        self, channel_id: int, name: str = "test-channel", members: list | None = None
-    ):
-        self.id = channel_id
-        self.name = name
-        self.members = members or []
-        self.guild = MagicMock()
-        self.guild.id = 12345
-
-    async def delete(self, reason: str | None = None):
-        """Mock channel deletion."""
-        pass
-
-
-class MockBot:
-    """Mock Discord bot."""
-
-    def __init__(self):
-        self._channels = {}
-        self.guilds = []  # Add missing guilds attribute
-
-    async def wait_until_ready(self):
-        """Mock wait_until_ready method."""
-        pass
-
-    def get_channel(self, channel_id: int):
-        """Get mock channel by ID."""
-        return self._channels.get(channel_id)
-
-    def add_channel(self, channel: MockVoiceChannel):
-        """Add mock channel."""
-        self._channels[channel.id] = channel
-
-    def remove_channel(self, channel_id: int):
-        """Remove mock channel."""
-        self._channels.pop(channel_id, None)
+from tests.voice_test_helpers import (
+    MockVoiceChannel,
+    create_voice_service_with_bot,
+    shutdown_voice_service_with_bot,
+)
 
 
 class TestVoiceCleanup:
@@ -62,17 +24,11 @@ class TestVoiceCleanup:
     @pytest_asyncio.fixture
     async def voice_service_with_bot(self, temp_db):
         """Create voice service with mock bot for testing."""
-        config_service = ConfigService()
-        await config_service.initialize()
-
-        mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
-        await voice_service.initialize()
+        voice_service, mock_bot, config_service = await create_voice_service_with_bot()
 
         yield voice_service, mock_bot
 
-        await voice_service.shutdown()
-        await config_service.shutdown()
+        await shutdown_voice_service_with_bot(voice_service, config_service)
 
     @pytest.mark.asyncio
     async def test_immediate_cleanup_when_empty(self, voice_service_with_bot):

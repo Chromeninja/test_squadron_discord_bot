@@ -11,6 +11,7 @@ dashboard.  This cog handles:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING
 
@@ -119,7 +120,13 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         # Track last alert level per guild to avoid duplicate alerts
         self._last_alert_level: dict[int, str] = {}
         # Ensure panels exist on startup
-        spawn(self._wait_and_ensure_panels())
+        panel_bootstrap = self._wait_and_ensure_panels()
+        panel_task = spawn(panel_bootstrap)
+        if isinstance(panel_task, asyncio.Task):
+            self._panel_bootstrap_task: asyncio.Task[None] | None = panel_task
+        else:
+            panel_bootstrap.close()
+            self._panel_bootstrap_task = None
         # Start periodic session cleanup
         self._session_cleanup_task.start()  # pylint: disable=no-member
         # Start periodic thread health monitoring

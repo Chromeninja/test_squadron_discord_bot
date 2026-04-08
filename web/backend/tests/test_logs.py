@@ -47,6 +47,37 @@ async def test_logs_export_with_max_bytes(
 
 
 @pytest.mark.asyncio
+async def test_logs_export_with_custom_lines(
+    client, mock_admin_session, fake_internal_api
+):
+    """Test logs/export endpoint respects custom line count parameter."""
+    fake_internal_api._export_logs_override = (
+        b"2025-11-10 12:00:00 INFO Test log line\n" * 50
+    )
+
+    response = await client.get(
+        "/api/logs/export?lines=50",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_logs_export_empty_logs(client, mock_admin_session, fake_internal_api):
+    """Test logs/export endpoint handles empty log content."""
+    fake_internal_api._export_logs_override = b""
+
+    response = await client.get(
+        "/api/logs/export",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b""
+
+
+@pytest.mark.asyncio
 async def test_logs_export_unauthorized(client):
     """Test logs/export endpoint returns 401 without session."""
     response = await client.get("/api/logs/export")
@@ -60,6 +91,7 @@ async def test_logs_export_forbidden_moderator(client, mock_moderator_session):
         "/api/logs/export", cookies={"session": mock_moderator_session}
     )
     assert response.status_code == 403
+    assert response.json()["success"] is False
 
 
 @pytest.mark.asyncio
