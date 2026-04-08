@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { voiceApi, authApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, UserProfile, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { voiceApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
+import { useAuth } from '../contexts/AuthContext';
 import { hasPermission } from '../utils/permissions';
-import { handleApiError } from '../utils/toast';
 import { UserDetailsModal } from '../components/users/UserDetailsModal';
 import {
   Button,
@@ -25,7 +25,7 @@ import {
 } from '../components/ui';
 
 function Voice() {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const { user: userProfile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserJTCSettings[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -64,14 +64,17 @@ function Voice() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
   const [userDetailError, setUserDetailError] = useState<string | null>(null);
+  const loadRequestSequenceRef = useRef(0);
+  const searchRequestSequenceRef = useRef(0);
+  const userDetailRequestSequenceRef = useRef(0);
+  const resetSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Check if in cross-guild (All Guilds) mode
   const isCrossGuildMode = userProfile?.active_guild_id === ALL_GUILDS_SENTINEL;
 
   // Check if user has moderator access (required for reset operations)
   // Disabled in cross-guild mode for safety
-  const canReset = (() => {
-    // Disable reset actions in cross-guild mode for safety
+  const canReset = useMemo(() => {
     if (isCrossGuildMode) {
       return false;
     }
@@ -80,54 +83,54 @@ function Voice() {
     }
     const guildPerm = userProfile.authorized_guilds[userProfile.active_guild_id];
     return guildPerm && hasPermission(guildPerm.role_level, 'moderator');
-  })();
+  }, [isCrossGuildMode, userProfile]);
 
-  // Load user profile on mount
-  useEffect(() => {
-    const loadUserProfile = async () => {
-      try {
-        const response = await authApi.getMe();
-        setUserProfile(response.user);
-      } catch (err) {
-        handleApiError(err, 'Failed to load user profile.');
-      }
-    };
-    loadUserProfile();
-  }, []);
+  const loadActiveChannels = useCallback(async () => {
+    const requestId = loadRequestSequenceRef.current + 1;
+    loadRequestSequenceRef.current = requestId;
 
-  // Load active channels on mount
-  useEffect(() => {
-    loadActiveChannels();
-  }, []);
-
-  // Fetch integrity issues from backend
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const data = await voiceApi.getIntegrity();
-        setIntegrityIssues({ count: data.count, details: data.details || [] });
-      } catch (e) {
-        // If it fails, keep banner hidden
-        setIntegrityIssues({ count: 0, details: [] });
-      }
-    };
-    run();
-  }, []);
-
-  const loadActiveChannels = async () => {
     setActiveLoading(true);
     setActiveError(null);
 
     try {
-      const data = await voiceApi.getActive();
-      setActiveChannels(data.items);
-      setActiveGuildGroups(data.guild_groups || null);
+      const [activeResult, integrityResult] = await Promise.allSettled([
+        voiceApi.getActive(),
+        voiceApi.getIntegrity(),
+      ]);
+
+      if (requestId !== loadRequestSequenceRef.current) {
+        return;
+      }
+
+      if (activeResult.status === 'fulfilled') {
+        setActiveChannels(activeResult.value.items);
+        setActiveGuildGroups(activeResult.value.guild_groups || null);
+      } else {
+        setActiveError('Failed to load active channels');
+        setActiveChannels([]);
+        setActiveGuildGroups(null);
+      }
+
+      if (integrityResult.status === 'fulfilled') {
+        setIntegrityIssues({
+          count: integrityResult.value.count,
+          details: integrityResult.value.details || [],
+        });
+      } else {
+        setIntegrityIssues({ count: 0, details: [] });
+      }
     } catch (err) {
       setActiveError('Failed to load active channels');
     } finally {
-      setActiveLoading(false);
+      if (requestId === loadRequestSequenceRef.current) {
+        setActiveLoading(false);
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadActiveChannels();
+  }, [loadActiveChannels]);
 
   const toggleChannel = (channelId: string) => {
     const newExpanded = new Set(expandedChannels);
@@ -155,12 +158,18 @@ function Voice() {
       return;
     }
 
+    const requestId = searchRequestSequenceRef.current + 1;
+    searchRequestSequenceRef.current = requestId;
+
     setSearchLoading(true);
     setSearchError(null);
     setCurrentPage(page);
 
     try {
       const data = await voiceApi.getUserSettings(searchQuery.trim(), page, pageSize);
+      if (requestId !== searchRequestSequenceRef.current) {
+        return;
+      }
       setSearchResults(data.items);
       setTotalResults(data.total);
       setSearchGuildGroups(data.guild_groups || null);
@@ -168,12 +177,17 @@ function Voice() {
         setSearchError(data.message);
       }
     } catch (err) {
+      if (requestId !== searchRequestSequenceRef.current) {
+        return;
+      }
       setSearchError('Failed to search user voice settings');
       setSearchResults([]);
       setTotalResults(0);
       setSearchGuildGroups(null);
     } finally {
-      setSearchLoading(false);
+      if (requestId === searchRequestSequenceRef.current) {
+        setSearchLoading(false);
+      }
     }
   };
 
@@ -196,6 +210,7 @@ function Voice() {
   };
 
   const closeUserModal = () => {
+    userDetailRequestSequenceRef.current += 1;
     setShowUserModal(false);
     setSelectedUser(null);
     setUserDetailLoading(false);
@@ -223,6 +238,8 @@ function Voice() {
   });
 
   const openUserDetailsModal = async (member: VoiceChannelMember) => {
+    const requestId = userDetailRequestSequenceRef.current + 1;
+    userDetailRequestSequenceRef.current = requestId;
     const userId = member.user_id;
     setShowUserModal(true);
     setSelectedUser(null);
@@ -231,11 +248,19 @@ function Voice() {
 
     try {
       const response = await usersApi.getUserDetails(userId);
+      if (requestId !== userDetailRequestSequenceRef.current) {
+        return;
+      }
       setSelectedUser(response.data || buildFallbackUserFromVoiceMember(member));
     } catch (err) {
+      if (requestId !== userDetailRequestSequenceRef.current) {
+        return;
+      }
       setSelectedUser(buildFallbackUserFromVoiceMember(member));
     } finally {
-      setUserDetailLoading(false);
+      if (requestId === userDetailRequestSequenceRef.current) {
+        setUserDetailLoading(false);
+      }
     }
   };
 
@@ -260,9 +285,12 @@ function Voice() {
       setResetSuccess(response);
 
       // Refresh search results after successful reset
-      setTimeout(() => {
+      if (resetSuccessTimerRef.current) {
+        clearTimeout(resetSuccessTimerRef.current);
+      }
+      resetSuccessTimerRef.current = setTimeout(() => {
         closeResetModal();
-        handleSearch(currentPage);
+        void handleSearch(currentPage);
       }, 3000);
     } catch (err: any) {
       const status = err.response?.status;
@@ -272,6 +300,15 @@ function Voice() {
       setResetLoading(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (resetSuccessTimerRef.current) {
+        clearTimeout(resetSuccessTimerRef.current);
+        resetSuccessTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const formatTargetName = (entry: { target_id: string; target_name?: string | null; is_everyone: boolean; target_type: string; unknown_role?: boolean }) => {
     if (entry.is_everyone) {

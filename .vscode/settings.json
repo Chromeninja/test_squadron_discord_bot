@@ -1,21 +1,26 @@
 {
-  "python.defaultInterpreterPath": ".venv/bin/python",
-  "python.envFile": ".env",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.envFile": "${workspaceFolder}/.env",
 
-  // Test configuration - pytest discovers tests from pyproject.toml testpaths
+  // Test configuration for the repository root.
+  // Keep discovery centralized here so a single-folder workspace and the
+  // provided multi-root workspace both use the same test adapter entrypoint.
   //
   // Run tests via:
   //   1. Testing Explorer (left sidebar) → Run Tests
   //   2. Command Palette (Cmd+Shift+P) → "Test: Run All Tests"
   //   3. Right-click test file/function → Run/Debug
   //
-  // pytest config is in pyproject.toml [tool.pytest.ini_options]
-  // Includes: tests/ and web/backend/tests/
+  // Discover both bot and backend tests explicitly from the repository root.
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestPath": ".venv/bin/pytest",
+  "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
+  "python.testing.pytestArgs": [
+    "tests",
+    "web/backend/tests"
+  ],
   "python.testing.autoTestDiscoverOnSaveEnabled": true,
-  "python.testing.cwd": ".",
+  "python.testing.cwd": "${workspaceFolder}",
 
   // Pylance type checking configuration
   "python.analysis.typeCheckingMode": "basic",
@@ -42,12 +47,5 @@
   "terminal.integrated.env.linux": {
     "VIRTUAL_ENV": ".venv",
     "PATH": ".venv/bin:${env:PATH}"
-  },
-  "python.testing.unittestArgs": [
-    "-v",
-    "-s",
-    "./tests",
-    "-p",
-    "*test*.py"
-  ]
+  }
 }

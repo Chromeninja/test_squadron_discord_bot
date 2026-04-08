@@ -635,13 +635,21 @@ async def select_active_guild(
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
-        raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
-
-    allowed_ids: set[str] = set()
-    for guild in guilds:
-        normalized = _normalize_guild_id(guild.get("guild_id"))
-        if normalized:
-            allowed_ids.add(normalized)
+        logger.warning(
+            "Internal API guild fetch failed during selection; falling back to session guilds",
+            exc_info=exc,
+            extra={
+                "user_id": current_user.user_id,
+                "authorized_guild_count": len(current_user.authorized_guilds),
+            },
+        )
+        allowed_ids = set(current_user.authorized_guilds)
+    else:
+        allowed_ids: set[str] = set()
+        for guild in guilds:
+            normalized = _normalize_guild_id(guild.get("guild_id"))
+            if normalized:
+                allowed_ids.add(normalized)
 
     if not allowed_ids:
         logger.warning(

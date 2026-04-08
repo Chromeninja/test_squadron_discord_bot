@@ -853,6 +853,25 @@ class ActivityGroupCountsResponse(BaseModel):
     data: ActivityGroupCounts
 
 
+class DashboardMetricsBundle(BaseModel):
+    """Bundled metrics payload for the dashboard page."""
+
+    overview: MetricsOverview
+    voice_leaderboard: list[VoiceLeaderboardEntry] = Field(default_factory=list)
+    message_leaderboard: list[MessageLeaderboardEntry] = Field(default_factory=list)
+    top_games: list[GameStats] = Field(default_factory=list)
+    message_timeseries: list[dict] = Field(default_factory=list)
+    voice_timeseries: list[dict] = Field(default_factory=list)
+    activity_counts: ActivityGroupCounts = Field(default_factory=ActivityGroupCounts)
+
+
+class DashboardMetricsResponse(BaseModel):
+    """Response for the bundled dashboard metrics endpoint."""
+
+    success: bool = True
+    data: DashboardMetricsBundle
+
+
 # ---------------------------------------------------------------------------
 # Ticket schemas
 # ---------------------------------------------------------------------------

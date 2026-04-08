@@ -570,11 +570,42 @@ export interface ActivityGroupCountsResponse {
   data: ActivityGroupCounts;
 }
 
+export interface DashboardMetricsBundle {
+  overview: MetricsOverview;
+  voice_leaderboard: VoiceLeaderboardEntry[];
+  message_leaderboard: MessageLeaderboardEntry[];
+  top_games: GameStatsEntry[];
+  message_timeseries: TimeSeriesPoint[];
+  voice_timeseries: TimeSeriesPoint[];
+  activity_counts: ActivityGroupCounts;
+}
+
+export interface DashboardMetricsResponse {
+  success: boolean;
+  data: DashboardMetricsBundle;
+}
+
 // ============================================================================
 // Metrics API
 // ============================================================================
 
 export const metricsApi = {
+  getDashboardBundle: async (
+    days: number = 7,
+    dimension?: ActivityDimension | ActivityDimension[],
+    tier?: ActivityTier | ActivityTier[],
+    signal?: AbortSignal,
+  ) => {
+    const params: Record<string, any> = { days };
+    if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
+    if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
+    const response = await apiClient.get<DashboardMetricsResponse>('/api/metrics/dashboard', {
+      params,
+      signal,
+    });
+    return response.data;
+  },
+
   getOverview: async (days: number = 7, dimension?: ActivityDimension | ActivityDimension[], tier?: ActivityTier | ActivityTier[]) => {
     const params: Record<string, any> = { days };
     if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
@@ -599,6 +630,7 @@ export const metricsApi = {
       entries: (response.data.entries || []).map((entry) => ({
         ...entry,
         user_id: String((entry as any).user_id),
+        total_seconds: Number((entry as any).total_seconds ?? (entry as any).value ?? 0),
       })),
     };
   },
@@ -616,6 +648,7 @@ export const metricsApi = {
       entries: (response.data.entries || []).map((entry) => ({
         ...entry,
         user_id: String((entry as any).user_id),
+        total_messages: Number((entry as any).total_messages ?? (entry as any).value ?? 0),
       })),
     };
   },
@@ -636,14 +669,15 @@ export const metricsApi = {
     days: number = 7,
     limit: number = 5,
     dimension?: ActivityDimension | ActivityDimension[],
-    tier?: ActivityTier | ActivityTier[]
+    tier?: ActivityTier | ActivityTier[],
+    signal?: AbortSignal,
   ) => {
     const params: Record<string, any> = { game_name: gameName, days, limit };
     if (dimension) params.dimension = Array.isArray(dimension) ? dimension.join(',') : dimension;
     if (tier) params.tier = Array.isArray(tier) ? tier.join(',') : tier;
     const response = await apiClient.get<{ success: boolean; data: GameMetricsDetail }>(
       '/api/metrics/games/detail',
-      { params }
+      { params, signal }
     );
     return response.data;
   },
@@ -659,10 +693,10 @@ export const metricsApi = {
     return response.data;
   },
 
-  getUserMetrics: async (userId: string, days: number = 7) => {
+  getUserMetrics: async (userId: string, days: number = 7, signal?: AbortSignal) => {
     const response = await apiClient.get<{ success: boolean; data: UserMetrics }>(
       `/api/metrics/user/${userId}`,
-      { params: { days } }
+      { params: { days }, signal }
     );
     return response.data;
   },

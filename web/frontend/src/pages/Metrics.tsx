@@ -9,6 +9,7 @@
  * - Per-user drill-down on click
  */
 
+import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../hooks/useClickOutside';
 import {
@@ -86,8 +87,16 @@ export default function Metrics() {
   const [activityCounts, setActivityCounts] = useState<ActivityGroupCounts | null>(null);
   const dimensionDropdownRef = useRef<HTMLDivElement | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestSequenceRef = useRef(0);
 
   const fetchData = useCallback(async (range: TimeRange, dims?: ActivityDimension[], tiers?: ActivityTier[]) => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+
     setLoading(true);
     setError(null);
 
@@ -97,43 +106,56 @@ export default function Metrics() {
     );
 
     try {
-      // Fetch all metrics data in parallel (include activity group counts)
-      const [overviewResp, voiceResp, msgResp, gamesResp, msgTsResp, voiceTsResp, groupsResp] =
-        await Promise.all([
-          metricsApi.getOverview(range, filterParam, tierParam),
-          metricsApi.getVoiceLeaderboard(range, 10, filterParam, tierParam),
-          metricsApi.getMessageLeaderboard(range, 10, filterParam, tierParam),
-          metricsApi.getTopGames(range, 10, filterParam, tierParam),
-          metricsApi.getTimeSeries('messages', range, filterParam, tierParam),
-          metricsApi.getTimeSeries('voice', range, filterParam, tierParam),
-          metricsApi.getActivityGroups(range, filterParam, tierParam),
-        ]);
+      const bundleResp = await metricsApi.getDashboardBundle(
+        range,
+        filterParam,
+        tierParam,
+        controller.signal,
+      );
 
-      setOverview(overviewResp.data);
-      setVoiceLeaderboard(voiceResp.entries);
-      setMessageLeaderboard(msgResp.entries);
-      setTopGames(gamesResp.games);
-      setMessageTimeSeries(msgTsResp.data);
-      setVoiceTimeSeries(voiceTsResp.data);
-      setActivityCounts(groupsResp.data);
+      if (controller.signal.aborted || requestId !== requestSequenceRef.current) {
+        return;
+      }
+
+      setOverview(bundleResp.data.overview);
+      setVoiceLeaderboard(bundleResp.data.voice_leaderboard);
+      setMessageLeaderboard(bundleResp.data.message_leaderboard);
+      setTopGames(bundleResp.data.top_games);
+      setMessageTimeSeries(bundleResp.data.message_timeseries);
+      setVoiceTimeSeries(bundleResp.data.voice_timeseries);
+      setActivityCounts(bundleResp.data.activity_counts);
     } catch (err) {
+      if (axios.isCancel(err)) {
+        return;
+      }
+      if (requestId !== requestSequenceRef.current) {
+        return;
+      }
       setError('Failed to load metrics data');
       handleApiError(err, 'Failed to load metrics');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted && requestId === requestSequenceRef.current) {
+        setLoading(false);
+      }
     }
   }, [selectedDimensions, selectedTiers]);
 
   useEffect(() => {
-    // Debounce rapid filter toggles to avoid hammering 7 API calls per click
+    // Debounce rapid filter toggles to avoid request churn while preserving responsiveness.
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      fetchData(days);
+      void fetchData(days);
     }, 300);
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, [days, selectedDimensions, selectedTiers, fetchData]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   useClickOutside([dimensionDropdownRef], () => setDimensionDropdownOpen(false));
 
@@ -196,7 +218,9 @@ export default function Metrics() {
       <div className="bg-red-900/30 border border-red-700 rounded-lg p-6 text-center">
         <p className="text-red-400 mb-3">{error}</p>
         <button
-          onClick={() => fetchData(days)}
+          onClick={() => {
+            void fetchData(days);
+          }}
           className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-600 transition text-sm"
         >
           Retry

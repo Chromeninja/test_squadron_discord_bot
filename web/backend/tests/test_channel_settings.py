@@ -41,12 +41,11 @@ async def admin_user_token():
 async def test_get_bot_channel_settings_defaults(admin_user_token, temp_db):
     """Test GET /api/guilds/{guild_id}/settings/bot-channels returns defaults."""
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"session": admin_user_token},
     ) as client:
-        response = await client.get(
-            "/api/guilds/123/settings/bot-channels",
-            cookies={"session": admin_user_token},
-        )
+        response = await client.get("/api/guilds/123/settings/bot-channels")
 
     assert response.status_code == 200
     data = response.json()
@@ -67,13 +66,14 @@ async def test_put_bot_channel_settings_persists_values(admin_user_token, temp_d
     }
 
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"session": admin_user_token},
     ) as client:
         # PUT new settings
         put_response = await client.put(
             "/api/guilds/123/settings/bot-channels",
             json=payload,
-            cookies={"session": admin_user_token},
         )
         assert put_response.status_code == 200
         put_data = put_response.json()
@@ -83,10 +83,7 @@ async def test_put_bot_channel_settings_persists_values(admin_user_token, temp_d
         assert put_data["leadership_announcement_channel_id"] == "4444444444444444444"
 
         # GET to verify persistence
-        get_response = await client.get(
-            "/api/guilds/123/settings/bot-channels",
-            cookies={"session": admin_user_token},
-        )
+        get_response = await client.get("/api/guilds/123/settings/bot-channels")
         assert get_response.status_code == 200
         get_data = get_response.json()
         # Compare only the channel fields, not the verification_message_updated field from PUT
@@ -126,12 +123,11 @@ async def test_get_discord_channels_proxies_internal_api(
     ]
 
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"session": admin_user_token},
     ) as client:
-        response = await client.get(
-            "/api/guilds/123/channels/discord",
-            cookies={"session": admin_user_token},
-        )
+        response = await client.get("/api/guilds/123/channels/discord")
 
     assert response.status_code == 200
     data = response.json()
@@ -154,12 +150,13 @@ async def test_put_bot_channel_settings_allows_nulls(admin_user_token, temp_db):
     }
 
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"session": admin_user_token},
     ) as client:
         response = await client.put(
             "/api/guilds/123/settings/bot-channels",
             json=payload,
-            cookies={"session": admin_user_token},
         )
 
     assert response.status_code == 200
@@ -190,12 +187,13 @@ async def test_put_bot_channel_settings_resend_failure(
     }
 
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"session": admin_user_token},
     ) as client:
         response = await client.put(
             "/api/guilds/123/settings/bot-channels",
             json=payload,
-            cookies={"session": admin_user_token},
         )
 
     # API should still return 200, but indicate failure in the flag
