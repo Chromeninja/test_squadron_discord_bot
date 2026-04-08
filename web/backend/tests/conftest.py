@@ -52,19 +52,23 @@ async def temp_db():
                 (123, 'roles.bot_admins', '[\"999111222\"]'),
                 (123, 'roles.discord_managers', '[\"999111225\"]'),
                 (123, 'roles.moderators', '[\"999111223\"]'),
+                (123, 'roles.event_coordinators', '[\"999111226\"]'),
                 (123, 'roles.staff', '[\"999111224\"]'),
                 (123, 'organization.sid', '\"TEST\"'),
                 (1, 'roles.bot_admins', '[\"999111222\"]'),
                 (1, 'roles.discord_managers', '[\"999111225\"]'),
                 (1, 'roles.moderators', '[\"999111223\"]'),
+                (1, 'roles.event_coordinators', '[\"999111226\"]'),
                 (1, 'roles.staff', '[\"999111224\"]'),
                 (2, 'roles.bot_admins', '[\"999111222\"]'),
                 (2, 'roles.discord_managers', '[\"999111225\"]'),
                 (2, 'roles.moderators', '[\"999111223\"]'),
+                (2, 'roles.event_coordinators', '[\"999111226\"]'),
                 (2, 'roles.staff', '[\"999111224\"]'),
                 (999, 'roles.bot_admins', '[\"999111222\"]'),
                 (999, 'roles.discord_managers', '[\"999111225\"]'),
                 (999, 'roles.moderators', '[\"999111223\"]'),
+                (999, 'roles.event_coordinators', '[\"999111226\"]'),
                 (999, 'roles.staff', '[\"999111224\"]')
             """
         )
@@ -228,6 +232,52 @@ async def mock_discord_manager_session():
 
 
 @pytest_asyncio.fixture
+async def mock_event_coordinator_session():
+    """Create a mock session token for an event coordinator user."""
+    from core.security import create_session_token_async
+
+    return await create_session_token_async(
+        {
+            "user_id": "444333222",
+            "username": "TestEventCoordinator",
+            "discriminator": "0005",
+            "avatar": None,
+            "active_guild_id": "123",
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "event_coordinator",
+                    "source": "event_coordinator_role",
+                },
+            },
+        }
+    )
+
+
+@pytest_asyncio.fixture
+async def mock_staff_session():
+    """Create a mock session token for a staff user."""
+    from core.security import create_session_token_async
+
+    return await create_session_token_async(
+        {
+            "user_id": "111222444",
+            "username": "TestStaff",
+            "discriminator": "0006",
+            "avatar": None,
+            "active_guild_id": "123",
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "staff",
+                    "source": "staff_role",
+                },
+            },
+        }
+    )
+
+
+@pytest_asyncio.fixture
 async def mock_unauthorized_session():
     """Create a mock session token for an unauthorized user."""
     from core.security import create_session_token_async
@@ -256,6 +306,7 @@ class FakeInternalAPIClient:
         ] = {}  # (guild_id, user_id) -> member_data
         self.refresh_calls: list[dict] = []
         self.channels_by_guild: dict[int, list[dict]] = {}
+        self.scheduled_events_by_guild: dict[int, list[dict]] = {}
         self.occupied_voice_channels: dict[int, list[dict]] = {}
         self.health_data: dict | None = None
         self.error_logs: list[dict] = []
@@ -313,6 +364,10 @@ class FakeInternalAPIClient:
             return "999111223"
         if user_id == 333222111:
             return "999111225"
+        if user_id == 444333222:
+            return "999111226"
+        if user_id == 111222444:
+            return "999111224"
         return "999111222"
 
     @staticmethod
@@ -320,7 +375,9 @@ class FakeInternalAPIClient:
         role_names = {
             "999111222": "Bot Admin",
             "999111223": "Moderator",
+            "999111224": "Staff",
             "999111225": "Discord Manager",
+            "999111226": "Event Coordinator",
         }
         return role_names.get(role_id, "Bot Admin")
 
@@ -416,6 +473,58 @@ class FakeInternalAPIClient:
     async def get_guild_channels(self, guild_id: int) -> list[dict]:
         """Return text channels for a guild."""
         return self.channels_by_guild.get(guild_id, [])
+
+    async def get_guild_scheduled_events(self, guild_id: int) -> list[dict]:
+        """Return scheduled events for a guild."""
+        return self.scheduled_events_by_guild.get(guild_id, [])
+
+    async def create_guild_scheduled_event(self, guild_id: int, payload: dict) -> dict:
+        """Create and store a mock scheduled event for a guild."""
+        event = {
+            "id": str(900000000000000000 + len(self.scheduled_events_by_guild.get(guild_id, []))),
+            "name": payload.get("name"),
+            "description": payload.get("description"),
+            "scheduled_start_time": payload.get("scheduled_start_time"),
+            "scheduled_end_time": payload.get("scheduled_end_time"),
+            "status": "scheduled",
+            "entity_type": payload.get("entity_type"),
+            "channel_id": payload.get("channel_id"),
+            "channel_name": "Mock Event Channel",
+            "location": payload.get("location"),
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": None,
+        }
+        self.scheduled_events_by_guild.setdefault(guild_id, []).append(event)
+        return event
+
+    async def update_guild_scheduled_event(
+        self, guild_id: int, event_id: int, payload: dict
+    ) -> dict:
+        """Update and return a mock scheduled event for a guild."""
+        events = self.scheduled_events_by_guild.setdefault(guild_id, [])
+        event_id_str = str(event_id)
+
+        for index, event in enumerate(events):
+            if event.get("id") != event_id_str:
+                continue
+
+            updated_event = {
+                **event,
+                "name": payload.get("name"),
+                "description": payload.get("description"),
+                "scheduled_start_time": payload.get("scheduled_start_time"),
+                "scheduled_end_time": payload.get("scheduled_end_time"),
+                "entity_type": payload.get("entity_type"),
+                "channel_id": payload.get("channel_id"),
+                "channel_name": "Mock Event Channel" if payload.get("channel_id") else None,
+                "location": payload.get("location"),
+            }
+            events[index] = updated_event
+            return updated_event
+
+        raise RuntimeError("Scheduled event not found")
 
     async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
         """Return member IDs in a voice channel (mock)."""

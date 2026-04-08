@@ -1,5 +1,4 @@
-"""
-Internal API server for bot-to-web communication.
+"""Internal API server for bot-to-web communication.
 
 Provides HTTP endpoints for the web dashboard to query bot state
 without hitting Discord API rate limits.
@@ -9,8 +8,9 @@ import base64
 import os
 import secrets
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
+import discord
 from aiohttp import web
 
 from helpers.announcement import send_admin_bulk_check_summary
@@ -78,6 +78,18 @@ class InternalAPIServer:
         self.app.router.add_get("/guilds", self.get_guilds)
         self.app.router.add_get("/guilds/{guild_id}/roles", self.get_guild_roles)
         self.app.router.add_get("/guilds/{guild_id}/channels", self.get_guild_channels)
+        self.app.router.add_get(
+            "/guilds/{guild_id}/events/scheduled",
+            self.get_guild_scheduled_events,
+        )
+        self.app.router.add_post(
+            "/guilds/{guild_id}/events/scheduled",
+            self.create_guild_scheduled_event,
+        )
+        self.app.router.add_put(
+            "/guilds/{guild_id}/events/scheduled/{event_id}",
+            self.update_guild_scheduled_event,
+        )
         self.app.router.add_get("/guilds/{guild_id}/stats", self.get_guild_stats)
         self.app.router.add_get("/guilds/{guild_id}/members", self.get_guild_members)
         self.app.router.add_get(
@@ -899,6 +911,398 @@ class InternalAPIServer:
         channels_payload.sort(key=lambda c: c["position"])
 
         return web.json_response({"channels": channels_payload})
+
+    async def get_guild_scheduled_events(self, request: web.Request) -> web.Response:
+        """Return scheduled events for a guild."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            scheduled_events = await guild.fetch_scheduled_events()
+        except Exception as e:
+            logger.exception(
+                "Failed to fetch scheduled events for guild %s",
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to fetch scheduled events"}, status=500
+            )
+
+        events_payload = []
+        for event in sorted(
+            scheduled_events,
+            key=lambda item: getattr(item, "start_time", None)
+            or datetime.min.replace(tzinfo=UTC),
+        ):
+            events_payload.append(self._serialize_scheduled_event(event, guild))
+
+        return web.json_response({"events": events_payload})
+
+    @staticmethod
+    def _serialize_scheduled_event(
+        event: discord.ScheduledEvent, guild: discord.Guild | None = None
+    ) -> dict[str, str | int | None]:
+        """Convert a Discord scheduled event into a dashboard-safe payload."""
+        channel = getattr(event, "channel", None)
+        creator = getattr(event, "creator", None)
+        location = getattr(event, "location", None)
+        scheduled_start_time = getattr(event, "start_time", None)
+        scheduled_end_time = getattr(event, "end_time", None)
+        cover_image = getattr(event, "cover_image", None)
+
+        if channel is None:
+            channel_id = getattr(event, "channel_id", None)
+            if guild is not None and channel_id is not None:
+                channel = guild.get_channel(channel_id)
+
+        try:
+            cover_image_url = str(getattr(cover_image, "url", None)) if cover_image else None
+        except Exception:
+            cover_image_url = None
+
+        return {
+            "id": str(event.id),
+            "name": event.name,
+            "description": event.description,
+            "scheduled_start_time": scheduled_start_time.isoformat()
+            if scheduled_start_time
+            else None,
+            "scheduled_end_time": scheduled_end_time.isoformat()
+            if scheduled_end_time
+            else None,
+            "status": event.status.name,
+            "entity_type": event.entity_type.name,
+            "channel_id": str(channel.id) if channel else None,
+            "channel_name": channel.name if channel else None,
+            "location": location,
+            "user_count": getattr(event, "user_count", 0) or 0,
+            "creator_id": str(creator.id) if creator else None,
+            "creator_name": getattr(creator, "display_name", None)
+            or getattr(creator, "name", None),
+            "image_url": cover_image_url,
+        }
+
+    async def _load_scheduled_event_request(
+        self, request: web.Request
+    ) -> tuple[
+        discord.Guild,
+        dict[str, object],
+        str,
+        discord.EntityType,
+        datetime,
+        datetime | None,
+        discord.abc.GuildChannel | None,
+        str | None,
+        str | None,
+    ] | web.Response:
+        """Parse and validate a scheduled event request body."""
+        try:
+            guild_id = int(request.match_info["guild_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id) if self.bot else None
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        name = str(payload.get("name") or "").strip()
+        entity_type_name = str(payload.get("entity_type") or "").strip()
+        if not name:
+            return web.json_response({"error": "Event name is required"}, status=400)
+
+        entity_type_map = {
+            "voice": discord.EntityType.voice,
+            "stage_instance": discord.EntityType.stage_instance,
+            "external": discord.EntityType.external,
+        }
+        entity_type = entity_type_map.get(entity_type_name)
+        if entity_type is None:
+            return web.json_response({"error": "Invalid event type"}, status=400)
+
+        try:
+            start_time = self._parse_iso_datetime(payload.get("scheduled_start_time"))
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        end_time_raw = payload.get("scheduled_end_time")
+        try:
+            end_time = (
+                self._parse_iso_datetime(end_time_raw) if end_time_raw else None
+            )
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        if end_time is not None and end_time <= start_time:
+            return web.json_response(
+                {"error": "Event end time must be after the start time"},
+                status=400,
+            )
+
+        channel_id = payload.get("channel_id")
+        channel = None
+        if channel_id is not None:
+            try:
+                channel = guild.get_channel(int(channel_id))
+            except (TypeError, ValueError):
+                return web.json_response({"error": "Invalid channel ID"}, status=400)
+
+        location = str(payload.get("location") or "").strip() or None
+        description = str(payload.get("description") or "").strip() or None
+
+        if entity_type == discord.EntityType.external and not location:
+            return web.json_response(
+                {"error": "External events require a location"}, status=400
+            )
+
+        if entity_type in {
+            discord.EntityType.voice,
+            discord.EntityType.stage_instance,
+        } and channel is None:
+            return web.json_response(
+                {"error": "Voice and stage events require a channel"}, status=400
+            )
+
+        if entity_type == discord.EntityType.voice and not isinstance(
+            channel, discord.VoiceChannel
+        ):
+            return web.json_response(
+                {"error": "Voice events require a voice channel"}, status=400
+            )
+
+        if entity_type == discord.EntityType.stage_instance and not isinstance(
+            channel, discord.StageChannel
+        ):
+            return web.json_response(
+                {"error": "Stage events require a stage channel"}, status=400
+            )
+
+        return (
+            guild,
+            payload,
+            name,
+            entity_type,
+            start_time,
+            end_time,
+            channel,
+            location,
+            description,
+        )
+
+    async def create_guild_scheduled_event(self, request: web.Request) -> web.Response:
+        """Create a scheduled event for a guild."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        event_request = await self._load_scheduled_event_request(request)
+        if isinstance(event_request, web.Response):
+            return event_request
+
+        (
+            guild,
+            _payload,
+            name,
+            entity_type,
+            start_time,
+            end_time,
+            channel,
+            location,
+            description,
+        ) = event_request
+
+        guild_id = guild.id
+
+        try:
+            guild_any = cast(Any, guild)
+            if entity_type == discord.EntityType.external:
+                create_kwargs: dict[str, object] = {
+                    "name": name,
+                    "start_time": start_time,
+                    "entity_type": entity_type,
+                    "privacy_level": discord.PrivacyLevel.guild_only,
+                    "location": location or "External event",
+                }
+                if end_time is not None:
+                    create_kwargs["end_time"] = end_time
+                if description is not None:
+                    create_kwargs["description"] = description
+                event = await guild_any.create_scheduled_event(**create_kwargs)
+            else:
+                create_kwargs = {
+                    "name": name,
+                    "start_time": start_time,
+                    "entity_type": entity_type,
+                    "privacy_level": discord.PrivacyLevel.guild_only,
+                    "channel": cast(discord.abc.Snowflake, channel),
+                }
+                if end_time is not None:
+                    create_kwargs["end_time"] = end_time
+                if description is not None:
+                    create_kwargs["description"] = description
+                event = await guild_any.create_scheduled_event(**create_kwargs)
+        except discord.Forbidden:
+            return web.json_response(
+                {
+                    "error": "Bot is missing Discord permissions to manage scheduled events in this server"
+                },
+                status=403,
+            )
+        except discord.HTTPException as e:
+            logger.exception(
+                "Discord rejected scheduled event creation for guild %s",
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": str(e)},
+                status=getattr(e, "status", 500),
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to create scheduled event for guild %s",
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to create scheduled event"}, status=500
+            )
+        return web.json_response({"event": self._serialize_scheduled_event(event, guild)})
+
+    async def update_guild_scheduled_event(self, request: web.Request) -> web.Response:
+        """Update a scheduled event for a guild."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        event_request = await self._load_scheduled_event_request(request)
+        if isinstance(event_request, web.Response):
+            return event_request
+
+        (
+            guild,
+            _payload,
+            name,
+            entity_type,
+            start_time,
+            end_time,
+            channel,
+            location,
+            description,
+        ) = event_request
+
+        try:
+            event_id = int(request.match_info["event_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid event ID"}, status=400)
+
+        try:
+            scheduled_event = await guild.fetch_scheduled_event(event_id)
+        except discord.NotFound:
+            return web.json_response({"error": "Scheduled event not found"}, status=404)
+        except Exception as e:
+            logger.exception(
+                "Failed to fetch scheduled event %s for guild %s",
+                event_id,
+                guild.id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to fetch scheduled event"}, status=500
+            )
+
+        try:
+            event_any = cast(Any, scheduled_event)
+            if entity_type == discord.EntityType.external:
+                edit_kwargs: dict[str, object] = {
+                    "name": name,
+                    "description": description,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "entity_type": entity_type,
+                    "location": location,
+                }
+                updated_event = await event_any.edit(**edit_kwargs)
+            else:
+                edit_kwargs = {
+                    "name": name,
+                    "description": description,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "entity_type": entity_type,
+                    "channel": cast(discord.abc.Snowflake, channel),
+                    "location": None,
+                }
+                updated_event = await event_any.edit(**edit_kwargs)
+        except discord.Forbidden:
+            return web.json_response(
+                {
+                    "error": "Bot is missing Discord permissions to manage scheduled events in this server"
+                },
+                status=403,
+            )
+        except discord.HTTPException as e:
+            logger.exception(
+                "Discord rejected scheduled event update for guild %s event %s",
+                guild.id,
+                event_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": str(e)},
+                status=getattr(e, "status", 500),
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to update scheduled event %s for guild %s",
+                event_id,
+                guild.id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to update scheduled event"}, status=500
+            )
+
+        return web.json_response(
+            {"event": self._serialize_scheduled_event(updated_event, guild)}
+        )
+
+    @staticmethod
+    def _parse_iso_datetime(value: object) -> datetime:
+        """Parse an ISO datetime string into a timezone-aware datetime."""
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Scheduled start time is required")
+
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("Invalid datetime format") from exc
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed
 
     async def get_guild_stats(self, request: web.Request) -> web.Response:
         """

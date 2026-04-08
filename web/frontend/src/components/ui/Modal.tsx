@@ -188,7 +188,7 @@ export interface ModalFooterProps extends React.HTMLAttributes<HTMLDivElement> {
 export function ModalFooter({ className, children, ...props }: ModalFooterProps) {
   return (
     <div
-      className={cn('px-6 py-4 border-t border-slate-700 flex justify-end gap-3', className)}
+      className={cn('flex justify-end gap-3 border-t border-[#ffbb00]/15 px-6 py-4', className)}
       {...props}
     >
       {children}
@@ -290,28 +290,28 @@ export function ConfirmationModal({
       headerVariant={headerVariant}
     >
       <div className="space-y-4">
-        <div className="text-gray-300">{message}</div>
+        <div className="text-[#d4c39b]">{message}</div>
 
         {confirmationText && (
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
-              Type <span className="font-mono text-white">{confirmationText}</span> to confirm:
+            <label className="mb-2 block text-sm font-medium text-[#a89465]">
+              Type <span className="font-mono text-[#fff4cc]">{confirmationText}</span> to confirm:
             </label>
             <input
               type="text"
               value={confirmationValue || ''}
               onChange={(e) => onConfirmationChange?.(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              className="w-full rounded border border-[#ffbb00]/18 bg-[#120d00] px-4 py-2 text-[#fff4cc] placeholder-[#7d6c43] focus:border-[#ffbb00]/45 focus:outline-none"
               placeholder={confirmationText}
             />
           </div>
         )}
       </div>
 
-      <ModalFooter className="border-t border-slate-700 mt-4 -mx-6 -mb-4 px-6 py-4">
+      <ModalFooter className="-mx-6 -mb-4 mt-4 border-t border-[#ffbb00]/15 px-6 py-4">
         <button
           onClick={onClose}
-          className="px-4 py-2 bg-slate-700 rounded hover:bg-slate-600 transition"
+          className="rounded border border-[#ffbb00]/18 bg-[#120d00] px-4 py-2 text-[#d6c7a3] transition hover:bg-[#1a1304] hover:text-[#fff1bf]"
           disabled={loading}
         >
           {cancelText}
@@ -323,7 +323,7 @@ export function ConfirmationModal({
             'px-4 py-2 rounded transition font-medium',
             buttonVariant === 'danger' && 'bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 disabled:opacity-50',
             buttonVariant === 'warning' && 'bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 disabled:opacity-50',
-            buttonVariant === 'primary' && 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-600 disabled:text-gray-400',
+            buttonVariant === 'primary' && 'border border-[#ffbb00]/45 bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] text-[#fff1bf] disabled:bg-[#17120a] disabled:text-[#7d6c43] hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))]',
           )}
         >
           {loading ? 'Processing...' : confirmText}

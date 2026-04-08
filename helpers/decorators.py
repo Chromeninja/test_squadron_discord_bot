@@ -47,11 +47,12 @@ def _resolve_bot(self) -> discord.Client | None:
 def require_permission_level(min_level: PermissionLevel) -> Callable[[F], F]:
     """Decorator factory that limits commands to users with minimum permission level.
 
-    Uses new hierarchy system with support for all 6 role levels:
-    - PermissionLevel.BOT_OWNER (6): Bot owner only
-    - PermissionLevel.BOT_ADMIN (5): Bot admins + owner
-    - PermissionLevel.DISCORD_MANAGER (4): Discord managers + higher
-    - PermissionLevel.MODERATOR (3): Moderators + higher
+    Uses new hierarchy system with support for all 7 role levels:
+    - PermissionLevel.BOT_OWNER (7): Bot owner only
+    - PermissionLevel.BOT_ADMIN (6): Bot admins + owner
+    - PermissionLevel.DISCORD_MANAGER (5): Discord managers + higher
+    - PermissionLevel.MODERATOR (4): Moderators + higher
+    - PermissionLevel.EVENT_COORDINATOR (3): Event coordinators + higher
     - PermissionLevel.STAFF (2): Staff + higher
     - PermissionLevel.USER (1): All users (no restriction)
 
@@ -150,6 +151,11 @@ def require_moderator() -> Callable[[F], F]:
     return require_permission_level(PermissionLevel.MODERATOR)
 
 
+def require_event_coordinator() -> Callable[[F], F]:
+    """Decorator that limits a command to event coordinators or higher."""
+    return require_permission_level(PermissionLevel.EVENT_COORDINATOR)
+
+
 def require_staff() -> Callable[[F], F]:
     """Decorator that limits a command to staff or higher."""
     return require_permission_level(PermissionLevel.STAFF)
@@ -160,6 +166,7 @@ __all__ = [
     "require_bot_admin",
     "require_bot_owner",
     "require_discord_manager",
+    "require_event_coordinator",
     "require_moderator",
     "require_permission_level",
     "require_staff",

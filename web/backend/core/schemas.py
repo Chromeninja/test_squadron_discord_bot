@@ -15,6 +15,7 @@ class GuildPermission(BaseModel):
     - bot_owner: Bot owner (global access)
     - bot_admin: Bot administrator
     - discord_manager: Discord manager (can reset verification, manage voice)
+    - event_coordinator: Event operations access above staff, below moderator
     - moderator: Moderator (read-only access)
     - staff: Staff member (basic privileges)
     - user: Regular user (no special privileges)
@@ -22,9 +23,9 @@ class GuildPermission(BaseModel):
 
     guild_id: str
     role_level: (
-        str  # One of: bot_owner, bot_admin, discord_manager, moderator, staff, user
+        str  # One of: bot_owner, bot_admin, discord_manager, event_coordinator, moderator, staff, user
     )
-    source: str  # How permission was granted: bot_owner, discord_owner, discord_administrator, bot_admin_role, discord_manager_role, moderator_role, staff_role
+    source: str  # How permission was granted: bot_owner, discord_owner, discord_administrator, bot_admin_role, discord_manager_role, event_coordinator_role, moderator_role, staff_role
 
 
 class UserProfile(BaseModel):
@@ -432,6 +433,7 @@ class BotRoleSettings(BaseModel):
     Permission roles (managed via web admin):
     - bot_admins: Full bot administration access
     - discord_managers: Can reset verification, manage voice, view all users
+    - event_coordinators: Event management access above staff, below moderator
     - moderators: Read-only access to user/voice info
     - staff: Basic staff privileges
 
@@ -446,6 +448,7 @@ class BotRoleSettings(BaseModel):
     bot_admins: list[str] = Field(default_factory=list)
     discord_managers: list[str] = Field(default_factory=list)
     moderators: list[str] = Field(default_factory=list)
+    event_coordinators: list[str] = Field(default_factory=list)
     staff: list[str] = Field(default_factory=list)
     bot_verified_role: list[str] = Field(default_factory=list)
     main_role: list[str] = Field(default_factory=list)
@@ -453,6 +456,15 @@ class BotRoleSettings(BaseModel):
     nonmember_role: list[str] = Field(default_factory=list)
 
     delegation_policies: list[RoleDelegationPolicy] = Field(default_factory=list)
+
+
+class EventModuleSettings(BaseModel):
+    """Guild-scoped event module configuration."""
+
+    enabled: bool = True
+    default_native_sync: bool = True
+    default_announcement_channel_id: str | None = None
+    default_voice_channel_id: str | None = None
 
 
 class VoiceSelectableRoles(BaseModel):
@@ -514,6 +526,7 @@ class DiscordChannel(BaseModel):
     name: str
     category: str | None = None
     position: int
+    type: int | None = None
 
 
 class GuildChannelsResponse(BaseModel):
@@ -521,6 +534,55 @@ class GuildChannelsResponse(BaseModel):
 
     success: bool = True
     channels: list[DiscordChannel]
+
+
+class ScheduledEventSummary(BaseModel):
+    """Normalized Discord scheduled event metadata."""
+
+    id: str
+    name: str
+    description: str | None = None
+    scheduled_start_time: str | None = None
+    scheduled_end_time: str | None = None
+    status: str
+    entity_type: str
+    channel_id: str | None = None
+    channel_name: str | None = None
+    location: str | None = None
+    user_count: int = 0
+    creator_id: str | None = None
+    creator_name: str | None = None
+    image_url: str | None = None
+
+
+class ScheduledEventsResponse(BaseModel):
+    """Response for /api/guilds/{guild_id}/events/scheduled."""
+
+    success: bool = True
+    events: list[ScheduledEventSummary]
+
+
+class ScheduledEventCreateRequest(BaseModel):
+    """Create request for a Discord scheduled event."""
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    scheduled_start_time: str
+    scheduled_end_time: str | None = None
+    entity_type: Literal["voice", "stage_instance", "external"]
+    channel_id: str | None = None
+    location: str | None = Field(default=None, max_length=100)
+
+
+class ScheduledEventUpdateRequest(ScheduledEventCreateRequest):
+    """Update request for a Discord scheduled event."""
+
+
+class ScheduledEventResponse(BaseModel):
+    """Single scheduled event response wrapper."""
+
+    success: bool = True
+    event: ScheduledEventSummary
 
 
 class BotChannelSettings(BaseModel):
@@ -626,6 +688,7 @@ class GuildConfigData(BaseModel):
     voice: VoiceSelectableRoles
     metrics: MetricsSettings
     organization: OrganizationSettings
+    events: EventModuleSettings
     read_only: ReadOnlyYamlConfig | None = None
 
 
@@ -644,6 +707,7 @@ class GuildConfigUpdateRequest(BaseModel):
     voice: VoiceSelectableRoles | None = None
     metrics: MetricsSettings | None = None
     organization: OrganizationSettings | None = None
+    events: EventModuleSettings | None = None
 
 
 # ============================================================================

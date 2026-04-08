@@ -4,17 +4,18 @@
  * Matches backend permission levels from core/dependencies.py
  */
 
-export type RoleLevel = 'bot_owner' | 'bot_admin' | 'discord_manager' | 'moderator' | 'staff' | 'user';
+export type RoleLevel = 'bot_owner' | 'bot_admin' | 'discord_manager' | 'moderator' | 'event_coordinator' | 'staff' | 'user';
 
 /**
  * Role hierarchy values (higher = more privilege).
  * Must match backend ROLE_HIERARCHY in core/dependencies.py.
  */
 export const ROLE_HIERARCHY: Record<RoleLevel, number> = {
-  bot_owner: 6,
-  bot_admin: 5,
-  discord_manager: 4,
-  moderator: 3,
+  bot_owner: 7,
+  bot_admin: 6,
+  discord_manager: 5,
+  moderator: 4,
+  event_coordinator: 3,
   staff: 2,
   user: 1,
 };
@@ -45,6 +46,7 @@ export function getRoleDisplayName(role: RoleLevel): string {
     bot_admin: 'Bot Admin',
     discord_manager: 'Discord Manager',
     moderator: 'Moderator',
+    event_coordinator: 'Event Coordinator',
     staff: 'Staff',
     user: 'User',
   };
@@ -60,6 +62,7 @@ export function getRoleBadgeColor(role: RoleLevel): string {
     bot_admin: 'bg-red-900 text-red-200',
     discord_manager: 'bg-orange-900 text-orange-200',
     moderator: 'bg-blue-900 text-blue-200',
+    event_coordinator: 'bg-cyan-900 text-cyan-200',
     staff: 'bg-green-900 text-green-200',
     user: 'bg-gray-700 text-gray-300',
   };

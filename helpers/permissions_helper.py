@@ -322,10 +322,11 @@ class PermissionLevel(IntEnum):
 
     USER = 1
     STAFF = 2
-    MODERATOR = 3
-    DISCORD_MANAGER = 4
-    BOT_ADMIN = 5
-    BOT_OWNER = 6
+    EVENT_COORDINATOR = 3
+    MODERATOR = 4
+    DISCORD_MANAGER = 5
+    BOT_ADMIN = 6
+    BOT_OWNER = 7
 
 
 def _resolve_guild(
@@ -474,8 +475,9 @@ async def get_permission_level(
     3. Bot admin role
     4. Discord manager role
     5. Moderator role
-    6. Staff role
-    7. Regular user (default)
+    6. Event coordinator role
+    7. Staff role
+    8. Regular user (default)
 
     Args:
         bot: Bot instance with owner_id and services
@@ -520,6 +522,12 @@ async def get_permission_level(
     moderator_ids = await _get_configured_role_ids(bot, guild.id, "roles.moderators")
     if user_role_ids & moderator_ids:
         return PermissionLevel.MODERATOR
+
+    event_coordinator_ids = await _get_configured_role_ids(
+        bot, guild.id, "roles.event_coordinators"
+    )
+    if user_role_ids & event_coordinator_ids:
+        return PermissionLevel.EVENT_COORDINATOR
 
     staff_ids = await _get_configured_role_ids(bot, guild.id, "roles.staff")
     if user_role_ids & staff_ids:
@@ -593,6 +601,16 @@ async def is_moderator(
     return level >= PermissionLevel.MODERATOR
 
 
+async def is_event_coordinator(
+    bot,
+    member: discord.Member,
+    guild: discord.Guild | None = None,
+) -> bool:
+    """Check if user has event coordinator privileges or higher."""
+    level = await get_permission_level(bot, member, guild)
+    return level >= PermissionLevel.EVENT_COORDINATOR
+
+
 async def is_staff(
     bot,
     member: discord.Member,
@@ -634,6 +652,7 @@ __all__ = [
     "is_bot_admin",
     "is_bot_owner",
     "is_discord_manager",
+    "is_event_coordinator",
     "is_moderator",
     "is_staff",
     "reset_channel_permissions",

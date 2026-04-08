@@ -675,6 +675,6 @@ async def test_bot_invite_url_uses_least_privilege_permissions(client: AsyncClie
     query = parse_qs(parsed.query)
 
     assert query.get("scope") == ["bot applications.commands"]
-    assert query.get("permissions") == ["4400715255056"]
+    assert query.get("permissions") == ["4409305189648"]
     assert query.get("redirect_uri")
     assert query["redirect_uri"][0].endswith("/auth/bot-callback")

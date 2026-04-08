@@ -289,10 +289,11 @@ def get_user_authorized_guilds(user: UserProfile) -> list[int]:
 # Role hierarchy for permission checking
 # Higher number = higher privilege
 ROLE_HIERARCHY = {
-    "bot_owner": 6,
-    "bot_admin": 5,
-    "discord_manager": 4,
-    "moderator": 3,
+    "bot_owner": 7,
+    "bot_admin": 6,
+    "discord_manager": 5,
+    "moderator": 4,
+    "event_coordinator": 3,
     "staff": 2,
     "user": 1,
 }
@@ -320,7 +321,7 @@ def require_guild_permission(min_role: str):
     Bot owners always pass regardless of guild membership.
 
     Args:
-        min_role: Minimum required role level (bot_owner, bot_admin, discord_manager, moderator, staff)
+        min_role: Minimum required role level (bot_owner, bot_admin, discord_manager, moderator, event_coordinator, staff)
 
     Returns:
         Dependency function that validates permissions
@@ -398,8 +399,13 @@ def require_moderator():
     return require_guild_permission("moderator")
 
 
+def require_event_coordinator():
+    """Require event_coordinator level or higher."""
+    return require_guild_permission("event_coordinator")
+
+
 def require_staff():
-    """Require staff level or higher (bot_owner, bot_admin, discord_manager, moderator, staff)."""
+    """Require staff level or higher (bot_owner, bot_admin, discord_manager, moderator, event_coordinator, staff)."""
     return require_guild_permission("staff")
 
 
@@ -514,6 +520,9 @@ async def _validate_guild_membership(
     bot_admin_ids = {int(r) for r in role_settings.get("bot_admins", [])}
     discord_manager_ids = {int(r) for r in role_settings.get("discord_managers", [])}
     moderator_ids = {int(r) for r in role_settings.get("moderators", [])}
+    event_coordinator_ids = {
+        int(r) for r in role_settings.get("event_coordinators", [])
+    }
     staff_ids = {int(r) for r in role_settings.get("staff", [])}
 
     computed_level = None
@@ -523,6 +532,8 @@ async def _validate_guild_membership(
         computed_level = "discord_manager"
     elif user_roles_int & moderator_ids:
         computed_level = "moderator"
+    elif user_roles_int & event_coordinator_ids:
+        computed_level = "event_coordinator"
     elif user_roles_int & staff_ids:
         computed_level = "staff"
 
@@ -925,6 +936,36 @@ class InternalAPIClient:
         response.raise_for_status()
         payload = response.json()
         return payload.get("channels", [])
+
+    async def get_guild_scheduled_events(self, guild_id: int) -> list[dict]:
+        """Fetch scheduled events for a guild from the internal API."""
+        client = await self._get_client()
+        response = await client.get(f"/guilds/{guild_id}/events/scheduled")
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("events", [])
+
+    async def create_guild_scheduled_event(
+        self, guild_id: int, payload: dict
+    ) -> dict:
+        """Create a scheduled event for a guild through the internal API."""
+        client = await self._get_client()
+        response = await client.post(
+            f"/guilds/{guild_id}/events/scheduled", json=payload
+        )
+        response.raise_for_status()
+        return response.json().get("event", {})
+
+    async def update_guild_scheduled_event(
+        self, guild_id: int, event_id: int, payload: dict
+    ) -> dict:
+        """Update a scheduled event for a guild through the internal API."""
+        client = await self._get_client()
+        response = await client.put(
+            f"/guilds/{guild_id}/events/scheduled/{event_id}", json=payload
+        )
+        response.raise_for_status()
+        return response.json().get("event", {})
 
     async def get_guild_roles(self, guild_id: int) -> list[dict]:
         """Fetch Discord roles for a guild."""

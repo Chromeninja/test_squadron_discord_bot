@@ -12,6 +12,7 @@ from core.dependencies import (
     get_db,
     get_internal_api_client,
     require_bot_admin,
+    require_event_coordinator,
     require_fresh_guild_access,
     require_is_bot_owner,
     require_moderator,
@@ -25,6 +26,11 @@ from core.guild_settings import (
     BOT_VERIFIED_ROLE_KEY,
     DELEGATION_POLICIES_KEY,
     DISCORD_MANAGERS_KEY,
+    EVENT_COORDINATORS_KEY,
+    EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY,
+    EVENTS_DEFAULT_NATIVE_SYNC_KEY,
+    EVENTS_DEFAULT_VOICE_CHANNEL_KEY,
+    EVENTS_ENABLED_KEY,
     LEADERSHIP_ANNOUNCEMENT_CHANNEL_KEY,
     MAIN_ROLE_KEY,
     METRICS_EXCLUDED_CHANNEL_IDS_KEY,
@@ -45,9 +51,11 @@ from core.guild_settings import (
     get_metrics_settings,
     get_new_member_role_settings,
     get_organization_settings,
+    get_event_module_settings,
     get_voice_selectable_roles,
     set_bot_channel_settings,
     set_bot_role_settings,
+    set_event_module_settings,
     set_metrics_settings,
     set_new_member_role_settings,
     set_organization_settings,
@@ -60,6 +68,7 @@ from core.schemas import (
     BotRoleSettings,
     DiscordChannel,
     DiscordRole,
+    EventModuleSettings,
     GuildChannelsResponse,
     GuildConfigData,
     GuildConfigResponse,
@@ -80,11 +89,17 @@ from core.schemas import (
     OrganizationValidationResponse,
     ReadOnlyYamlConfig,
     RoleDelegationPolicy,
+    ScheduledEventCreateRequest,
+    ScheduledEventResponse,
+    ScheduledEventSummary,
+    ScheduledEventsResponse,
+    ScheduledEventUpdateRequest,
     UserProfile,
     VoiceSelectableRoles,
 )
 from core.validation import (
     ensure_guild_match,
+    parse_snowflake_id_optional,
     safe_int,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -186,10 +201,110 @@ async def get_discord_channels(
                     name=channel.get("name", "Unknown"),
                     category=channel.get("category"),
                     position=channel.get("position", 0),
+                    type=safe_int(channel.get("type")),
                 )
             )
 
     return GuildChannelsResponse(channels=channels)
+
+
+@router.get(
+    "/{guild_id}/events/scheduled",
+    response_model=ScheduledEventsResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def get_discord_scheduled_events(
+    guild_id: int,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Return Discord scheduled events for a guild sourced from the bot."""
+    ensure_guild_match(guild_id, current_user)
+    try:
+        events_payload = await internal_api.get_guild_scheduled_events(guild_id)
+    except Exception as exc:  # pragma: no cover - transport errors
+        raise translate_internal_api_error(
+            exc, "Failed to fetch scheduled events"
+        ) from exc
+
+    return ScheduledEventsResponse(
+        events=[ScheduledEventSummary(**event) for event in events_payload]
+    )
+
+
+@router.post(
+    "/{guild_id}/events/scheduled",
+    response_model=ScheduledEventResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def create_discord_scheduled_event(
+    guild_id: int,
+    payload: ScheduledEventCreateRequest,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Create a Discord scheduled event for a guild."""
+    ensure_guild_match(guild_id, current_user)
+
+    channel_id = parse_snowflake_id_optional(payload.channel_id)
+    create_payload = {
+        "name": payload.name,
+        "description": payload.description,
+        "scheduled_start_time": payload.scheduled_start_time,
+        "scheduled_end_time": payload.scheduled_end_time,
+        "entity_type": payload.entity_type,
+        "channel_id": str(channel_id) if channel_id is not None else None,
+        "location": payload.location,
+    }
+
+    try:
+        event_payload = await internal_api.create_guild_scheduled_event(
+            guild_id, create_payload
+        )
+    except Exception as exc:  # pragma: no cover - transport errors
+        raise translate_internal_api_error(
+            exc, "Failed to create scheduled event"
+        ) from exc
+
+    return ScheduledEventResponse(event=ScheduledEventSummary(**event_payload))
+
+
+@router.put(
+    "/{guild_id}/events/scheduled/{event_id}",
+    response_model=ScheduledEventResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def update_discord_scheduled_event(
+    guild_id: int,
+    event_id: int,
+    payload: ScheduledEventUpdateRequest,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Update a Discord scheduled event for a guild."""
+    ensure_guild_match(guild_id, current_user)
+
+    channel_id = parse_snowflake_id_optional(payload.channel_id)
+    update_payload = {
+        "name": payload.name,
+        "description": payload.description,
+        "scheduled_start_time": payload.scheduled_start_time,
+        "scheduled_end_time": payload.scheduled_end_time,
+        "entity_type": payload.entity_type,
+        "channel_id": str(channel_id) if channel_id is not None else None,
+        "location": payload.location,
+    }
+
+    try:
+        event_payload = await internal_api.update_guild_scheduled_event(
+            guild_id, event_id, update_payload
+        )
+    except Exception as exc:  # pragma: no cover - transport errors
+        raise translate_internal_api_error(
+            exc, "Failed to update scheduled event"
+        ) from exc
+
+    return ScheduledEventResponse(event=ScheduledEventSummary(**event_payload))
 
 
 @router.get(
@@ -213,6 +328,7 @@ async def get_bot_roles_settings(
         bot_admins=settings.get("bot_admins", []),  # type: ignore[arg-type]
         discord_managers=settings.get("discord_managers", []),  # type: ignore[arg-type]
         moderators=settings.get("moderators", []),  # type: ignore[arg-type]
+        event_coordinators=settings.get("event_coordinators", []),  # type: ignore[arg-type]
         staff=settings.get("staff", []),  # type: ignore[arg-type]
         bot_verified_role=settings.get("bot_verified_role", []),  # type: ignore[arg-type]
         main_role=settings.get("main_role", []),  # type: ignore[arg-type]
@@ -249,6 +365,7 @@ async def update_bot_roles_settings(
         payload.bot_admins,
         payload.discord_managers,
         payload.moderators,
+        payload.event_coordinators,
         payload.staff,
         payload.bot_verified_role,
         payload.main_role,
@@ -274,6 +391,7 @@ async def update_bot_roles_settings(
         bot_admins=updated.get("bot_admins", []),  # type: ignore[arg-type]
         discord_managers=updated.get("discord_managers", []),  # type: ignore[arg-type]
         moderators=updated.get("moderators", []),  # type: ignore[arg-type]
+        event_coordinators=updated.get("event_coordinators", []),  # type: ignore[arg-type]
         staff=updated.get("staff", []),  # type: ignore[arg-type]
         bot_verified_role=updated.get("bot_verified_role", []),  # type: ignore[arg-type]
         main_role=updated.get("main_role", []),  # type: ignore[arg-type]
@@ -718,6 +836,7 @@ async def get_guild_config(
     voice_roles = await get_voice_selectable_roles(db, guild_id)
     metrics = await get_metrics_settings(db, guild_id)
     org = await get_organization_settings(db, guild_id)
+    events = await get_event_module_settings(db, guild_id)
 
     ro = _read_only_yaml_snapshot(config_loader)
 
@@ -731,6 +850,7 @@ async def get_guild_config(
             bot_admins=roles.get("bot_admins", []),  # type: ignore[arg-type]
             discord_managers=roles.get("discord_managers", []),  # type: ignore[arg-type]
             moderators=roles.get("moderators", []),  # type: ignore[arg-type]
+            event_coordinators=roles.get("event_coordinators", []),  # type: ignore[arg-type]
             staff=roles.get("staff", []),  # type: ignore[arg-type]
             bot_verified_role=roles.get("bot_verified_role", []),  # type: ignore[arg-type]
             main_role=roles.get("main_role", []),  # type: ignore[arg-type]
@@ -742,6 +862,7 @@ async def get_guild_config(
         voice=VoiceSelectableRoles(selectable_roles=voice_roles),
         metrics=MetricsSettings(**metrics),
         organization=OrganizationSettings(**org),
+        events=EventModuleSettings(**events),
         read_only=ReadOnlyYamlConfig(**ro),
     )
 
@@ -794,6 +915,7 @@ async def patch_guild_config(
     current_voice = await get_voice_selectable_roles(db, guild_id)
     current_metrics = await get_metrics_settings(db, guild_id)
     current_org = await get_organization_settings(db, guild_id)
+    current_events = await get_event_module_settings(db, guild_id)
 
     # Track whether verification channel changed for resend trigger
     verification_channel_changed = False
@@ -813,6 +935,7 @@ async def patch_guild_config(
             payload.roles.bot_admins,
             payload.roles.discord_managers,
             payload.roles.moderators,
+            payload.roles.event_coordinators,
             payload.roles.staff,
             payload.roles.bot_verified_role,
             payload.roles.main_role,
@@ -847,6 +970,15 @@ async def patch_guild_config(
                 MODERATORS_KEY,
                 current_roles.get("moderators"),
                 payload.roles.moderators,
+                actor_user_id,
+            )
+        if current_roles.get("event_coordinators") != payload.roles.event_coordinators:
+            await _audit_change(
+                db,
+                guild_id,
+                EVENT_COORDINATORS_KEY,
+                current_roles.get("event_coordinators"),
+                payload.roles.event_coordinators,
                 actor_user_id,
             )
         if current_roles.get("staff") != payload.roles.staff:
@@ -1056,6 +1188,62 @@ async def patch_guild_config(
                 ORGANIZATION_LOGO_URL_KEY,
                 current_org.get("organization_logo_url"),
                 validated_logo_url,
+                actor_user_id,
+            )
+
+    if payload.events is not None:
+        await set_event_module_settings(
+            db,
+            guild_id,
+            enabled=payload.events.enabled,
+            default_native_sync=payload.events.default_native_sync,
+            default_announcement_channel_id=payload.events.default_announcement_channel_id,
+            default_voice_channel_id=payload.events.default_voice_channel_id,
+        )
+
+        if current_events.get("enabled") != payload.events.enabled:
+            await _audit_change(
+                db,
+                guild_id,
+                EVENTS_ENABLED_KEY,
+                current_events.get("enabled"),
+                payload.events.enabled,
+                actor_user_id,
+            )
+        if (
+            current_events.get("default_native_sync")
+            != payload.events.default_native_sync
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                EVENTS_DEFAULT_NATIVE_SYNC_KEY,
+                current_events.get("default_native_sync"),
+                payload.events.default_native_sync,
+                actor_user_id,
+            )
+        if (
+            current_events.get("default_announcement_channel_id")
+            != payload.events.default_announcement_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY,
+                current_events.get("default_announcement_channel_id"),
+                payload.events.default_announcement_channel_id,
+                actor_user_id,
+            )
+        if (
+            current_events.get("default_voice_channel_id")
+            != payload.events.default_voice_channel_id
+        ):
+            await _audit_change(
+                db,
+                guild_id,
+                EVENTS_DEFAULT_VOICE_CHANNEL_KEY,
+                current_events.get("default_voice_channel_id"),
+                payload.events.default_voice_channel_id,
                 actor_user_id,
             )
 

@@ -55,11 +55,12 @@ ADMINISTRATOR_PERMISSION = 0x0000000000000008
 # Least-privilege permission bitfield covering every Discord permission
 # the bot exercises at runtime (guild-level grants required for channel
 # overwrite escalation per Discord API rules):
-#   manage_roles, manage_channels, change_nickname, manage_nicknames,
-#   view_channel, send_messages, embed_links, attach_files,
-#   read_message_history, use_application_commands, connect,
-#   move_members, priority_speaker, use_voice_activation, use_soundboard
-DEFAULT_BOT_INVITE_PERMISSIONS = 4400715255056
+#   manage_roles, manage_channels, manage_events, change_nickname,
+#   manage_nicknames, view_channel, send_messages, embed_links,
+#   attach_files, read_message_history, use_application_commands,
+#   connect, move_members, priority_speaker, use_voice_activation,
+#   use_soundboard
+DEFAULT_BOT_INVITE_PERMISSIONS = 4409305189648
 
 _BOT_CALLBACK_ALLOWED_ERRORS = {
     "access_denied",

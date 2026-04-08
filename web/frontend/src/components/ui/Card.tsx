@@ -41,7 +41,7 @@ export function Card({
         cardVariants.base,
         cardVariants.variant[variant],
         cardVariants.padding[padding],
-        hoverable && 'hover:bg-slate-700/50 transition-colors cursor-pointer',
+        hoverable && 'hover:border-[#ffbb00]/28 hover:bg-[#ffbb00]/8 transition-colors cursor-pointer',
         className
       )}
       {...props}
@@ -78,7 +78,7 @@ export function CardHeader({
   // If children are provided, render them directly
   if (children) {
     return (
-      <div className={cn('px-6 py-4 border-b border-slate-700', className)} {...props}>
+      <div className={cn('px-6 py-4 border-b border-[#ffbb00]/15', className)} {...props}>
         {children}
       </div>
     );
@@ -86,12 +86,12 @@ export function CardHeader({
 
   return (
     <div
-      className={cn('px-6 py-4 border-b border-slate-700 flex items-center justify-between', className)}
+        className={cn('px-6 py-4 border-b border-[#ffbb00]/15 flex items-center justify-between', className)}
       {...props}
     >
       <div>
         {title && <h3 className="text-lg font-semibold">{title}</h3>}
-        {subtitle && <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 text-sm text-[#a89465]">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
@@ -118,7 +118,7 @@ export interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {}
  */
 export function CardFooter({ className, children, ...props }: CardFooterProps) {
   return (
-    <div className={cn('px-6 py-4 border-t border-slate-700', className)} {...props}>
+    <div className={cn('px-6 py-4 border-t border-[#ffbb00]/15', className)} {...props}>
       {children}
     </div>
   );
@@ -166,7 +166,7 @@ export function CollapsibleCard({
     <Card variant={variant} padding="none" className={cn('overflow-hidden', className)} {...props}>
       <button
         onClick={onToggle}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-700/50 transition"
+        className="w-full px-6 py-4 flex items-center justify-between transition hover:bg-[#ffbb00]/8"
       >
         <div className="flex items-center gap-4">
           <ChevronIcon expanded={expanded} />
@@ -176,7 +176,7 @@ export function CollapsibleCard({
       </button>
 
       {expanded && (
-        <div className="px-6 py-4 bg-slate-900/50 border-t border-slate-700">
+        <div className="border-t border-[#ffbb00]/15 bg-[#120d00]/90 px-6 py-4">
           {children}
         </div>
       )}
@@ -188,7 +188,7 @@ export function CollapsibleCard({
 function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg
-      className={cn('w-5 h-5 text-gray-400 transition-transform', expanded && 'rotate-90')}
+      className={cn('h-5 w-5 text-[#ffbb00]/55 transition-transform', expanded && 'rotate-90')}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"

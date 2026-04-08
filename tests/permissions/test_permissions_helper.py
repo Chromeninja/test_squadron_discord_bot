@@ -59,10 +59,12 @@ def patch_discord_types(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_permission_level_handles_invalid_roles():
+    """Invalid configured roles should fall back to USER."""
     role_map = {
         "roles.bot_admins": ["not-a-number", None],
         "roles.discord_managers": ["abc"],
         "roles.moderators": ["nan"],
+        "roles.event_coordinators": ["oops"],
         "roles.staff": ["zzz"],
     }
     bot = DummyBot(role_map)
@@ -79,10 +81,12 @@ async def test_permission_level_handles_invalid_roles():
 
 @pytest.mark.asyncio
 async def test_permission_level_uses_db_roles_only():
+    """Configured Discord manager roles should map to the correct level."""
     role_map = {
         "roles.bot_admins": [],
         "roles.discord_managers": ["42", "42"],
         "roles.moderators": [],
+        "roles.event_coordinators": [],
         "roles.staff": [],
     }
     bot = DummyBot(role_map)
@@ -96,3 +100,28 @@ async def test_permission_level_uses_db_roles_only():
     )
 
     assert level == ph.PermissionLevel.DISCORD_MANAGER
+
+
+@pytest.mark.asyncio
+async def test_permission_level_resolves_event_coordinator_between_staff_and_moderator() -> None:
+    """Event coordinators should rank above staff and below moderators."""
+    role_map = {
+        "roles.bot_admins": [],
+        "roles.discord_managers": [],
+        "roles.moderators": ["99"],
+        "roles.event_coordinators": ["42"],
+        "roles.staff": ["7"],
+    }
+    bot = DummyBot(role_map)
+    guild = DummyGuild()
+    member = DummyMember(role_ids=[42], guild=guild)
+
+    level = await ph.get_permission_level(
+        bot,
+        cast("discord.Member", member),
+        cast("discord.Guild", guild),
+    )
+
+    assert level == ph.PermissionLevel.EVENT_COORDINATOR
+    assert level > ph.PermissionLevel.STAFF
+    assert level < ph.PermissionLevel.MODERATOR

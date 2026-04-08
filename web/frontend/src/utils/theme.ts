@@ -30,28 +30,28 @@ export const colors = {
     border: 'border-red-800',
   },
   info: {
-    bg: 'bg-blue-900',
-    bgLight: 'bg-blue-900/20',
-    text: 'text-blue-200',
-    border: 'border-blue-800',
+    bg: 'bg-[#3a2a00]',
+    bgLight: 'bg-[#ffbb00]/12',
+    text: 'text-[#ffe08a]',
+    border: 'border-[#ffbb00]/30',
   },
   neutral: {
-    bg: 'bg-gray-700',
-    bgLight: 'bg-gray-800',
-    text: 'text-gray-300',
-    border: 'border-gray-700',
+    bg: 'bg-[#17120a]',
+    bgLight: 'bg-[#120d00]',
+    text: 'text-[#d4c39b]',
+    border: 'border-[#ffbb00]/15',
   },
   primary: {
-    bg: 'bg-indigo-900',
-    bgLight: 'bg-indigo-900/30',
-    text: 'text-indigo-200',
-    border: 'border-indigo-700',
+    bg: 'bg-[#3a2a00]',
+    bgLight: 'bg-[#ffbb00]/14',
+    text: 'text-[#ffdd73]',
+    border: 'border-[#ffbb00]/35',
   },
   purple: {
-    bg: 'bg-purple-900',
-    bgLight: 'bg-purple-900/20',
-    text: 'text-purple-200',
-    border: 'border-purple-800',
+    bg: 'bg-[#241a00]',
+    bgLight: 'bg-[#ffbb00]/10',
+    text: 'text-[#ffe08a]',
+    border: 'border-[#ffbb00]/28',
   },
   orange: {
     bg: 'bg-orange-900',
@@ -67,17 +67,17 @@ export const colors = {
 
 export const buttonVariants = {
   // Base styles applied to all buttons
-  base: 'inline-flex items-center justify-center font-medium rounded transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed',
+  base: 'inline-flex items-center justify-center font-medium rounded transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed',
   
   // Variant styles
   variant: {
-    primary: 'bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-indigo-500 disabled:bg-slate-600',
-    secondary: 'bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500 disabled:bg-slate-800 disabled:text-gray-600',
+    primary: 'border border-[#ffbb00]/45 bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] text-[#fff1bf] focus:ring-[#ffbb00]/45 hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))] disabled:bg-[#17120a] disabled:text-[#7d6c43]',
+    secondary: 'border border-[#ffbb00]/18 bg-[#120d00] hover:bg-[#1a1304] text-[#f5deb3] focus:ring-[#ffbb00]/30 disabled:bg-black disabled:text-[#6e6143]',
     danger: 'bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 focus:ring-red-500',
     warning: 'bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 focus:ring-yellow-500',
     success: 'bg-green-900/30 hover:bg-green-900/50 text-green-200 border border-green-700 focus:ring-green-500',
-    ghost: 'bg-transparent hover:bg-slate-700 text-gray-300 focus:ring-slate-500',
-    link: 'bg-transparent text-indigo-400 hover:text-indigo-300 underline-offset-4 hover:underline focus:ring-indigo-500',
+    ghost: 'bg-transparent hover:bg-[#ffbb00]/8 text-[#d6c7a3] focus:ring-[#ffbb00]/30',
+    link: 'bg-transparent text-[#ffcc4d] hover:text-[#fff1bf] underline-offset-4 hover:underline focus:ring-[#ffbb00]/45',
   },
   
   // Size styles
@@ -101,17 +101,17 @@ export const badgeVariants = {
     success: 'bg-green-900 text-green-200',
     warning: 'bg-yellow-900 text-yellow-200',
     error: 'bg-red-900 text-red-200',
-    info: 'bg-blue-900 text-blue-200',
-    neutral: 'bg-gray-700 text-gray-300',
-    primary: 'bg-indigo-900 text-indigo-200',
-    purple: 'bg-purple-900 text-purple-200',
+    info: 'bg-[#ffbb00]/12 text-[#ffe08a] border border-[#ffbb00]/25',
+    neutral: 'bg-[#17120a] text-[#d4c39b] border border-[#ffbb00]/15',
+    primary: 'bg-[#ffbb00]/14 text-[#ffdd73] border border-[#ffbb00]/30',
+    purple: 'bg-[#241a00] text-[#ffe08a] border border-[#ffbb00]/25',
     orange: 'bg-orange-900 text-orange-200',
     // With border variants (for less prominent badges)
-    'primary-outline': 'bg-indigo-900/50 text-indigo-200 border border-indigo-700',
+    'primary-outline': 'bg-[#ffbb00]/12 text-[#ffdd73] border border-[#ffbb00]/30',
     'warning-outline': 'bg-yellow-900/30 text-yellow-300 border border-yellow-700',
     'error-outline': 'bg-red-900/30 text-red-300 border border-red-700',
     'success-outline': 'bg-green-900/30 text-green-300 border border-green-700',
-    'neutral-outline': 'bg-gray-800 text-gray-400 border border-gray-700',
+    'neutral-outline': 'bg-[#120d00] text-[#a89465] border border-[#ffbb00]/15',
   },
 } as const;
 
@@ -126,8 +126,8 @@ export const alertVariants = {
     success: 'bg-green-900/20 border-green-800 text-green-200',
     warning: 'bg-yellow-900/20 border-yellow-800 text-yellow-200',
     error: 'bg-red-900/20 border-red-800 text-red-400',
-    info: 'bg-blue-900/20 border-blue-800 text-blue-200',
-    neutral: 'bg-slate-800 border-slate-700 text-gray-300',
+    info: 'bg-[#ffbb00]/12 border-[#ffbb00]/28 text-[#ffe08a]',
+    neutral: 'bg-[#120d00] border-[#ffbb00]/15 text-[#d4c39b]',
   },
 } as const;
 
@@ -136,12 +136,12 @@ export const alertVariants = {
 // ============================================================================
 
 export const cardVariants = {
-  base: 'rounded-lg border',
+  base: 'rounded-lg border shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_0_0_1px_rgba(255,187,0,0.04)]',
   
   variant: {
-    default: 'bg-slate-800 border-slate-700',
-    dark: 'bg-slate-900/50 border-slate-700',
-    ghost: 'bg-slate-800/50 border-slate-700',
+    default: 'bg-[linear-gradient(180deg,rgba(20,23,31,0.95),rgba(14,17,24,0.95))] border-[#ffbb00]/18 text-[#f5deb3]',
+    dark: 'bg-[linear-gradient(180deg,rgba(12,14,18,0.96),rgba(8,9,12,0.96))] border-[#ffbb00]/14 text-[#f5deb3]',
+    ghost: 'bg-[#120d00]/80 border-[#ffbb00]/14 text-[#d6c7a3]',
   },
   
   padding: {
@@ -157,7 +157,7 @@ export const cardVariants = {
 // ============================================================================
 
 export const inputVariants = {
-  base: 'w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-800 disabled:text-gray-500 disabled:cursor-not-allowed',
+  base: 'w-full bg-[#120d00] border border-[#ffbb00]/18 rounded px-4 py-2 text-[#fff4cc] placeholder-[#7d6c43] focus:outline-none focus:border-[#ffbb00]/45 focus:ring-1 focus:ring-[#ffbb00]/35 disabled:bg-black disabled:text-[#6e6143] disabled:cursor-not-allowed',
   
   variant: {
     default: '',
@@ -170,8 +170,8 @@ export const inputVariants = {
 // ============================================================================
 
 export const modalVariants = {
-  overlay: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4',
-  container: 'bg-slate-800 rounded-lg border border-slate-700 w-full overflow-hidden',
+  overlay: 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4',
+  container: 'bg-[linear-gradient(180deg,rgba(18,13,0,0.96),rgba(7,7,7,0.98))] rounded-lg border border-[#ffbb00]/18 w-full overflow-hidden text-[#f5deb3]',
   
   size: {
     sm: 'max-w-md',
@@ -183,11 +183,11 @@ export const modalVariants = {
   
   header: {
     base: 'px-6 py-4 border-b',
-    default: 'border-slate-700',
+    default: 'border-[#ffbb00]/15 bg-[#120d00]',
     warning: 'bg-yellow-900/20 border-yellow-800',
     error: 'bg-red-900/20 border-red-800',
     success: 'bg-green-900/20 border-green-800',
-    info: 'bg-blue-900/20 border-blue-800',
+    info: 'bg-[#ffbb00]/12 border-[#ffbb00]/30',
   },
 } as const;
 
@@ -196,12 +196,12 @@ export const modalVariants = {
 // ============================================================================
 
 export const tableVariants = {
-  wrapper: 'bg-slate-800/50 rounded border border-slate-700 overflow-hidden',
+  wrapper: 'bg-[#120d00]/80 rounded border border-[#ffbb00]/15 overflow-hidden',
   table: 'w-full text-sm',
-  thead: 'bg-slate-800/80 text-xs text-gray-400',
+  thead: 'bg-[#17120a] text-xs text-[#a89465]',
   th: 'text-left px-3 py-2 font-medium',
-  tbody: 'divide-y divide-slate-700',
-  tr: 'hover:bg-slate-700/30 transition-colors',
+  tbody: 'divide-y divide-[#ffbb00]/12',
+  tr: 'hover:bg-[#ffbb00]/6 transition-colors',
   td: 'px-3 py-2',
 } as const;
 
@@ -211,7 +211,7 @@ export const tableVariants = {
 
 export const membershipStatusColors: Record<string, { bg: string; text: string }> = {
   main: { bg: 'bg-green-900', text: 'text-green-200' },
-  affiliate: { bg: 'bg-blue-900', text: 'text-blue-200' },
+  affiliate: { bg: 'bg-[#3a2a00]', text: 'text-[#ffe08a]' },
   non_member: { bg: 'bg-gray-700', text: 'text-gray-300' },
   unknown: { bg: 'bg-gray-800', text: 'text-gray-400' },
   not_verified: { bg: 'bg-gray-800', text: 'text-gray-500' },

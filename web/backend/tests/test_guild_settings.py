@@ -44,6 +44,7 @@ async def test_get_bot_role_settings_defaults(
     assert response.status_code == 200
     data = response.json()
     assert data["bot_admins"] == []
+    assert data["event_coordinators"] == []
     assert data["moderators"] == []
     assert data["main_role"] == []
     assert data["affiliate_role"] == []
@@ -59,6 +60,7 @@ async def test_put_bot_role_settings_persists_values(
     # Include 999111222 (the admin's current role) so validation passes on follow-up GET
     payload = {
         "bot_admins": ["999111222", "5", "5", "2"],
+        "event_coordinators": ["21", "20", "21"],
         "moderators": ["8"],
         "main_role": ["10"],
         "affiliate_role": ["11", "12"],
@@ -75,6 +77,7 @@ async def test_put_bot_role_settings_persists_values(
     data = response.json()
     # Response should be sorted string role IDs
     assert data["bot_admins"] == ["2", "5", "999111222"]
+    assert data["event_coordinators"] == ["20", "21"]
     assert data["moderators"] == ["8"]
     assert data["main_role"] == ["10"]
     assert data["affiliate_role"] == ["11", "12"]
@@ -101,6 +104,7 @@ async def test_put_bot_role_settings_updates_version_marker(
 ):
     payload = {
         "bot_admins": ["5"],
+        "event_coordinators": ["6"],
         "moderators": ["7"],
         "main_role": ["10"],
         "affiliate_role": [],
@@ -129,6 +133,64 @@ async def test_put_bot_role_settings_updates_version_marker(
     payload = json.loads(serialized)
     assert payload["source"] == "bot_roles"
     assert "version" in payload
+
+
+@pytest.mark.asyncio
+async def test_get_guild_config_includes_default_event_settings(
+    client: AsyncClient, mock_admin_session: str
+) -> None:
+    """Guild config should expose default event module settings."""
+    response = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["events"] == {
+        "enabled": True,
+        "default_native_sync": True,
+        "default_announcement_channel_id": None,
+        "default_voice_channel_id": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_config_persists_event_settings(
+    client: AsyncClient, mock_admin_session: str, fake_internal_api
+) -> None:
+    """Guild config PATCH should persist event module settings."""
+    response = await client.patch(
+        "/api/guilds/123/config",
+        json={
+            "events": {
+                "enabled": False,
+                "default_native_sync": False,
+                "default_announcement_channel_id": "1183902241694949386",
+                "default_voice_channel_id": "1182812153271558255",
+            }
+        },
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["events"] == {
+        "enabled": False,
+        "default_native_sync": False,
+        "default_announcement_channel_id": "1183902241694949386",
+        "default_voice_channel_id": "1182812153271558255",
+    }
+
+    follow_up = await client.get(
+        "/api/guilds/123/config",
+        cookies={"session": mock_admin_session},
+    )
+    assert follow_up.status_code == 200
+    assert follow_up.json()["data"]["events"] == data["events"]
+
+    assert fake_internal_api.refresh_calls
+    assert fake_internal_api.refresh_calls[-1]["source"] == "guild_config_patch"
 
 
 @pytest.mark.asyncio
@@ -206,6 +268,135 @@ async def test_get_discord_roles_rejects_mismatched_guild(
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_discord_scheduled_events_proxies_internal_api(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Scheduled events endpoint should return data from the internal API."""
+    fake_internal_api.scheduled_events_by_guild[123] = [
+        {
+            "id": "555666777888999000",
+            "name": "Fleet Night",
+            "description": "Weekly operation",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "status": "scheduled",
+            "entity_type": "voice",
+            "channel_id": "1182812153271558255",
+            "channel_name": "Operation Voice",
+            "location": None,
+            "user_count": 18,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": None,
+        }
+    ]
+
+    response = await client.get(
+        "/api/guilds/123/events/scheduled",
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert len(data["events"]) == 1
+    assert data["events"][0]["name"] == "Fleet Night"
+    assert data["events"][0]["entity_type"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_get_discord_scheduled_events_requires_event_coordinator(
+    client: AsyncClient,
+    mock_staff_session: str,
+) -> None:
+    """Staff users should not be allowed to access scheduled events."""
+    response = await client.get(
+        "/api/guilds/123/events/scheduled",
+        cookies={"session": mock_staff_session},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_discord_scheduled_event_proxies_internal_api(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Scheduled event creation should proxy through the internal API."""
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Create route test",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "external",
+            "location": "Spectrum Briefing Room",
+            "channel_id": None,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["event"]["name"] == "Ops Night"
+    assert fake_internal_api.scheduled_events_by_guild[123][-1]["name"] == "Ops Night"
+
+
+@pytest.mark.asyncio
+async def test_update_discord_scheduled_event_proxies_internal_api(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Scheduled event updates should proxy through the internal API."""
+    fake_internal_api.scheduled_events_by_guild[123] = [
+        {
+            "id": "900000000000000000",
+            "name": "Ops Night",
+            "description": "Initial description",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "status": "scheduled",
+            "entity_type": "voice",
+            "channel_id": "1182812153271558255",
+            "channel_name": "Mock Event Channel",
+            "location": None,
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": None,
+        }
+    ]
+
+    response = await client.put(
+        "/api/guilds/123/events/scheduled/900000000000000000",
+        json={
+            "name": "Ops Night Updated",
+            "description": "Updated description",
+            "scheduled_start_time": "2026-04-10T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-10T22:00:00+00:00",
+            "entity_type": "external",
+            "location": "Updated Briefing Room",
+            "channel_id": None,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["event"]["name"] == "Ops Night Updated"
+    assert data["event"]["location"] == "Updated Briefing Room"
+    assert fake_internal_api.scheduled_events_by_guild[123][0]["entity_type"] == "external"
 
 
 @pytest.mark.asyncio

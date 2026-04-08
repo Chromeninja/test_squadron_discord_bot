@@ -11,11 +11,15 @@ const Metrics = lazy(() => import('./pages/Metrics'));
 const SelectServer = lazy(() => import('./pages/SelectServer'));
 const DashboardBotSettings = lazy(() => import('./pages/DashboardBotSettings'));
 const Tickets = lazy(() => import('./pages/Tickets'));
+const Events = lazy(() => import('./pages/Events'));
+const EventEditor = lazy(() => import('./pages/EventEditor'));
+const EventDrafts = lazy(() => import('./pages/EventDrafts'));
+const EventRecurring = lazy(() => import('./pages/EventRecurring'));
 
 function PageFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-xl">Loading...</div>
+    <div className="dashboard-theme flex min-h-screen items-center justify-center">
+      <div className="text-xl text-[#f5deb3]">Loading...</div>
     </div>
   );
 }
@@ -68,15 +72,15 @@ function App() {
   // ---- Not authenticated ----
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4">
-        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-4">Test Squadron Admin</h1>
-          <p className="text-gray-400 mb-6">
+      <div className="dashboard-theme flex min-h-screen flex-col items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-2xl border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(20,23,31,0.96),rgba(8,9,12,0.98))] p-8 text-center shadow-[0_0_30px_rgba(255,187,0,0.08)]">
+          <h1 className="mb-4 text-2xl font-bold text-[#fff4cc] sm:text-3xl">TEST Squadron Command</h1>
+          <p className="mb-6 text-[#a89465]">
             Admin dashboard for bot management
           </p>
           <a
             href="/auth/login"
-            className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-lg transition min-h-[44px]"
+            className="inline-block min-h-[44px] rounded-lg border border-[#ffbb00]/45 bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] px-6 py-3 font-semibold text-[#fff1bf] transition hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))]"
           >
             Login with Discord
           </a>
@@ -104,13 +108,13 @@ function App() {
 
   if (!hasAnyPermissions) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="bg-slate-800 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
-          <h1 className="text-2xl font-bold mb-4 text-red-400">Access Denied</h1>
-          <p className="text-gray-400 mb-4">
+      <div className="dashboard-theme flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-2xl border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(20,23,31,0.96),rgba(8,9,12,0.98))] p-8 text-center shadow-[0_0_30px_rgba(255,187,0,0.08)]">
+          <h1 className="mb-4 text-2xl font-bold text-[#ffdd73]">Access Denied</h1>
+          <p className="mb-4 text-[#d6c7a3]">
             You do not have permission to access this dashboard.
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-[#a89465]">
             Contact a bot administrator if you believe this is an error.
           </p>
         </div>
@@ -158,6 +162,62 @@ function App() {
 
           {/* Voice */}
           <Route path="voice" element={<Voice />} />
+
+          {/* Events - event_coordinator+ and needs guildId */}
+          <Route
+            path="events"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <Events guildId={guildId} />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
+
+          <Route
+            path="events/new"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <EventEditor guildId={guildId} mode="create" />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
+
+          <Route
+            path="events/:eventId/edit"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <EventEditor guildId={guildId} mode="edit" />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
+
+          <Route
+            path="events/drafts"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <EventDrafts guildId={guildId} />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
+
+          <Route
+            path="events/recurring"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <EventRecurring guildId={guildId} />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
 
           {/* Tickets — discord_manager+ and needs guildId */}
           <Route

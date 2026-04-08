@@ -31,6 +31,7 @@ CONFIG_NONMEMBER_ROLE = "roles.non_member_role"
 CONFIG_BOT_ADMINS = "roles.bot_admins"
 CONFIG_DISCORD_MANAGERS = "roles.discord_managers"
 CONFIG_MODERATORS = "roles.moderators"
+CONFIG_EVENT_COORDINATORS = "roles.event_coordinators"
 CONFIG_STAFF = "roles.staff"
 
 # New-member role settings
@@ -47,6 +48,14 @@ CONFIG_LEADERSHIP_ANNOUNCE_CHANNEL = "channels.leadership_announcement_channel_i
 
 # Voice settings
 CONFIG_JTC_CHANNELS = "voice.jtc_channels"
+
+# Event module settings
+CONFIG_EVENTS_ENABLED = "events.enabled"
+CONFIG_EVENTS_DEFAULT_NATIVE_SYNC = "events.default_native_sync"
+CONFIG_EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL = (
+    "events.default_announcement_channel_id"
+)
+CONFIG_EVENTS_DEFAULT_VOICE_CHANNEL = "events.default_voice_channel_id"
 
 
 class ConfigService(BaseService):
@@ -337,6 +346,12 @@ class ConfigService(BaseService):
         admin_roles = await self.get_guild_setting(guild_id, "roles.bot_admins", [])
         if admin_roles:
             roles["bot_admin_role_ids"] = admin_roles
+
+        event_coordinator_roles = await self.get_guild_setting(
+            guild_id, "roles.event_coordinators", []
+        )
+        if event_coordinator_roles:
+            roles["event_coordinator_role_ids"] = event_coordinator_roles
 
         selectable_roles = await self.get_guild_setting(
             guild_id, "selectable_roles", []

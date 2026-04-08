@@ -17,6 +17,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [botAdmins, setBotAdmins] = useState<string[]>([]);
   const [discordManagers, setDiscordManagers] = useState<string[]>([]);
   const [moderators, setModerators] = useState<string[]>([]);
+  const [eventCoordinators, setEventCoordinators] = useState<string[]>([]);
   const [staff, setStaff] = useState<string[]>([]);
   const [botVerifiedRole, setBotVerifiedRole] = useState<string[]>([]);
   const [mainRole, setMainRole] = useState<string[]>([]);
@@ -36,6 +37,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
   const [botSpamChannelId, setBotSpamChannelId] = useState<string | null>(null);
   const [publicAnnouncementChannelId, setPublicAnnouncementChannelId] = useState<string | null>(null);
   const [leadershipAnnouncementChannelId, setLeadershipAnnouncementChannelId] = useState<string | null>(null);
+  const [eventsEnabled, setEventsEnabled] = useState(true);
+  const [eventsDefaultNativeSync, setEventsDefaultNativeSync] = useState(true);
+  const [eventsAnnouncementChannelId, setEventsAnnouncementChannelId] = useState<string | null>(null);
+  const [eventsVoiceChannelId, setEventsVoiceChannelId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -83,6 +88,18 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         name: channel.name,
         category: channel.category ?? undefined,
       })),
+    [channels]
+  );
+
+  const voiceChannelOptions: SelectOption[] = useMemo(
+    () =>
+      channels
+        .filter((channel) => channel.type === 2)
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          category: channel.category ?? undefined,
+        })),
     [channels]
   );
 
@@ -165,6 +182,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setBotAdmins(settingsResponse.bot_admins);
         setDiscordManagers(settingsResponse.discord_managers || []);
         setModerators(settingsResponse.moderators || []);
+        setEventCoordinators(settingsResponse.event_coordinators || []);
         setStaff(settingsResponse.staff || []);
         setBotVerifiedRole(settingsResponse.bot_verified_role || []);
         setMainRole(settingsResponse.main_role || []);
@@ -189,6 +207,10 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setBotSpamChannelId(channelSettingsResponse.bot_spam_channel_id);
         setPublicAnnouncementChannelId(channelSettingsResponse.public_announcement_channel_id);
         setLeadershipAnnouncementChannelId(channelSettingsResponse.leadership_announcement_channel_id);
+        setEventsEnabled(configResponse.data.events?.enabled ?? true);
+        setEventsDefaultNativeSync(configResponse.data.events?.default_native_sync ?? true);
+        setEventsAnnouncementChannelId(configResponse.data.events?.default_announcement_channel_id ?? null);
+        setEventsVoiceChannelId(configResponse.data.events?.default_voice_channel_id ?? null);
         setOrganizationSid(orgSettingsResponse.organization_sid || '');
         setOrganizationName(orgSettingsResponse.organization_name || '');
         setOrgSidInput(orgSettingsResponse.organization_sid || '');
@@ -251,6 +273,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           bot_admins: botAdmins,
           discord_managers: discordManagers,
           moderators: moderators,
+          event_coordinators: eventCoordinators,
           staff: staff,
           bot_verified_role: botVerifiedRole,
           main_role: mainRole,
@@ -278,6 +301,12 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           organization_name: organizationName || null,
           organization_logo_url: orgLogoUrl.trim() || null,
         },
+        events: {
+          enabled: eventsEnabled,
+          default_native_sync: eventsDefaultNativeSync,
+          default_announcement_channel_id: eventsAnnouncementChannelId,
+          default_voice_channel_id: eventsVoiceChannelId,
+        },
       };
 
       const response = await guildApi.patchGuildConfig(guildId, requestPayload);
@@ -287,6 +316,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setBotAdmins(updated.roles.bot_admins || []);
       setDiscordManagers(updated.roles.discord_managers || []);
       setModerators(updated.roles.moderators || []);
+      setEventCoordinators(updated.roles.event_coordinators || []);
       setStaff(updated.roles.staff || []);
       setBotVerifiedRole(updated.roles.bot_verified_role || []);
       setMainRole(updated.roles.main_role || []);
@@ -317,6 +347,11 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setMinVoiceMinutes(updated.metrics.min_voice_minutes ?? 15);
       setMinGameMinutes(updated.metrics.min_game_minutes ?? 15);
       setMinMessages(updated.metrics.min_messages ?? 5);
+
+      setEventsEnabled(updated.events?.enabled ?? true);
+      setEventsDefaultNativeSync(updated.events?.default_native_sync ?? true);
+      setEventsAnnouncementChannelId(updated.events?.default_announcement_channel_id ?? null);
+      setEventsVoiceChannelId(updated.events?.default_voice_channel_id ?? null);
 
       // Organization
       setOrganizationSid(updated.organization.organization_sid || '');
@@ -627,7 +662,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   Discord Managers can manage users, Moderators handle moderation, and Staff have basic access.
                 </p>
                 <div className="mt-2 text-xs text-indigo-200 font-mono">
-                  Bot Owner &gt; Bot Admin &gt; Discord Manager &gt; Moderator &gt; Staff &gt; User
+                  Bot Owner &gt; Bot Admin &gt; Discord Manager &gt; Moderator &gt; Event Coordinator &gt; Staff &gt; User
                 </div>
               </Alert>
 
@@ -670,6 +705,20 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                   onChange={setModerators}
                   placeholder="Search and select moderator roles"
                   componentId="moderators"
+                />
+              </div>
+
+              <div>
+                <h5 className="text-sm font-semibold text-white mb-1">Event Coordinator Roles</h5>
+                <p className="text-xs text-gray-400 mb-2">
+                  Event operations access. Can use the Events dashboard and native Discord event connector without broader moderator powers.
+                </p>
+                <SearchableMultiSelect
+                  options={roleOptions}
+                  selected={eventCoordinators}
+                  onChange={setEventCoordinators}
+                  placeholder="Search and select event coordinator roles"
+                  componentId="event-coordinators"
                 />
               </div>
 
@@ -776,6 +825,75 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
               </div>
             </div>
           </AccordionSection>
+        </div>
+      </AccordionSection>
+
+      <AccordionSection title="📅 Event Module" level={1}>
+        <div className="space-y-4">
+          <Alert variant="info" className="mb-4">
+            <h5 className="text-sm font-semibold text-indigo-200 mb-1">Event coordination flow</h5>
+            <p className="text-xs text-indigo-100">
+              These settings control whether the event module is active for this guild and how the dashboard connects to native Discord scheduled events by default.
+            </p>
+          </Alert>
+
+          <label className="flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm text-gray-200">
+            <input
+              type="checkbox"
+              checked={eventsEnabled}
+              onChange={(e) => setEventsEnabled(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+            />
+            <span>
+              <span className="block font-semibold text-white">Enable event module</span>
+              <span className="block text-xs text-gray-400">
+                Enabled by default. When disabled, coordinator-facing event tools are hidden while existing data remains intact.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm text-gray-200">
+            <input
+              type="checkbox"
+              checked={eventsDefaultNativeSync}
+              onChange={(e) => setEventsDefaultNativeSync(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+            />
+            <span>
+              <span className="block font-semibold text-white">Default native Discord event sync</span>
+              <span className="block text-xs text-gray-400">
+                Use Discord scheduled events as the visible connector by default for future coordinator workflows.
+              </span>
+            </span>
+          </label>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div>
+              <h5 className="text-sm font-semibold text-white mb-1">Default Event Announcement Channel</h5>
+              <p className="text-xs text-gray-400 mb-2">
+                Preferred channel for event announcements and reminder broadcasts.
+              </p>
+              <SearchableSelect
+                options={channelOptions}
+                selected={eventsAnnouncementChannelId}
+                onChange={setEventsAnnouncementChannelId}
+                placeholder="Search and select event announcement channel"
+              />
+            </div>
+
+            <div>
+              <h5 className="text-sm font-semibold text-white mb-1">Default Event Voice Channel</h5>
+              <p className="text-xs text-gray-400 mb-2">
+                Voice channel used for participation tracking and event attendance metrics.
+              </p>
+              <SearchableSelect
+                options={voiceChannelOptions}
+                selected={eventsVoiceChannelId}
+                onChange={setEventsVoiceChannelId}
+                placeholder="Search and select default event voice channel"
+              />
+            </div>
+          </div>
         </div>
       </AccordionSection>
 

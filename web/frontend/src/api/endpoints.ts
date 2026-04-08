@@ -48,6 +48,7 @@ export interface DiscordChannel {
   name: string;
   category: string | null;
   position: number;
+  type?: number | null;
 }
 
 export interface RoleDelegationPolicyPayload {
@@ -64,6 +65,7 @@ export interface BotRoleSettingsPayload {
   bot_admins: string[];  // Bot admin roles
   discord_managers: string[];  // Discord manager roles (new)
   moderators: string[];  // Moderator roles
+  event_coordinators: string[];  // Event coordinator roles
   staff: string[];  // Staff roles (new)
   bot_verified_role: string[];  // Base verification role (all verified users)
   main_role: string[];  // Verification role: full members
@@ -110,6 +112,42 @@ export interface OrganizationSettingsPayload {
   organization_logo_url: string | null;
 }
 
+export interface EventModuleSettingsPayload {
+  enabled: boolean;
+  default_native_sync: boolean;
+  default_announcement_channel_id: string | null;
+  default_voice_channel_id: string | null;
+}
+
+export interface ScheduledEventSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  scheduled_start_time: string | null;
+  scheduled_end_time: string | null;
+  status: string;
+  entity_type: string;
+  channel_id: string | null;
+  channel_name: string | null;
+  location: string | null;
+  user_count: number;
+  creator_id: string | null;
+  creator_name: string | null;
+  image_url: string | null;
+}
+
+export interface ScheduledEventCreateRequest {
+  name: string;
+  description: string | null;
+  scheduled_start_time: string;
+  scheduled_end_time: string | null;
+  entity_type: 'voice' | 'stage_instance' | 'external';
+  channel_id: string | null;
+  location: string | null;
+}
+
+export interface ScheduledEventUpdateRequest extends ScheduledEventCreateRequest {}
+
 export interface OrganizationValidationRequest {
   sid: string;
 }
@@ -145,6 +183,7 @@ export interface GuildConfigData {
   voice: VoiceSelectableRolesPayload;
   metrics: MetricsSettingsPayload;
   organization: OrganizationSettingsPayload;
+  events: EventModuleSettingsPayload;
   read_only?: ReadOnlyYamlConfig | null;
 }
 
@@ -154,6 +193,7 @@ export interface GuildConfigUpdateRequest {
   voice?: VoiceSelectableRolesPayload;
   metrics?: MetricsSettingsPayload;
   organization?: OrganizationSettingsPayload;
+  events?: EventModuleSettingsPayload;
 }
 
 export interface StatsOverview {
@@ -1116,6 +1156,29 @@ export const guildApi = {
     const response = await apiClient.post<LogoValidationResponse>(
       `/api/guilds/${guildId}/organization/validate-logo`,
       { url }
+    );
+    return response.data;
+  },
+};
+
+export const eventsApi = {
+  getScheduledEvents: async (guildId: string) => {
+    const response = await apiClient.get<{ success: boolean; events: ScheduledEventSummary[] }>(
+      `/api/guilds/${guildId}/events/scheduled`
+    );
+    return response.data;
+  },
+  createScheduledEvent: async (guildId: string, payload: ScheduledEventCreateRequest) => {
+    const response = await apiClient.post<{ success: boolean; event: ScheduledEventSummary }>(
+      `/api/guilds/${guildId}/events/scheduled`,
+      payload,
+    );
+    return response.data;
+  },
+  updateScheduledEvent: async (guildId: string, eventId: string, payload: ScheduledEventUpdateRequest) => {
+    const response = await apiClient.put<{ success: boolean; event: ScheduledEventSummary }>(
+      `/api/guilds/${guildId}/events/scheduled/${eventId}`,
+      payload,
     );
     return response.data;
   },

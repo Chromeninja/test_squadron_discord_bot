@@ -3,21 +3,30 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: "Segoe UI", "Trebuchet MS", Verdana, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   --org-yellow: #ffbb00;
+  --org-yellow-bright: #ffdd73;
+  --org-yellow-pale: #fff1bf;
   --org-yellow-soft: rgba(255, 187, 0, 0.18);
   --org-yellow-glow: rgba(255, 187, 0, 0.35);
   --org-black-1: #050608;
   --org-black-2: #0b0d12;
+  --org-panel: #120d00;
+  --org-panel-2: #17120a;
+  --org-copy: #f5deb3;
+  --org-copy-soft: #d6c7a3;
+  --org-copy-muted: #a89465;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  background:
+    radial-gradient(circle at top center, rgba(255, 187, 0, 0.08), transparent 28%),
+    linear-gradient(180deg, #070707 0%, #020202 100%);
+  color: var(--org-copy);
 }
 
 #root {
@@ -109,4 +118,134 @@ body {
 
 .dashboard-divider {
   border-color: rgba(255, 187, 0, 0.2) !important;
+}
+
+.dashboard-theme .bg-slate-950,
+.dashboard-theme .bg-slate-900,
+.dashboard-theme .bg-slate-900\/95,
+.dashboard-theme .bg-slate-900\/90,
+.dashboard-theme .bg-slate-900\/85,
+.dashboard-theme .bg-slate-900\/80,
+.dashboard-theme .bg-slate-900\/50,
+.dashboard-theme .bg-slate-800,
+.dashboard-theme .bg-slate-800\/80,
+.dashboard-theme .bg-slate-800\/60,
+.dashboard-theme .bg-slate-800\/50,
+.dashboard-theme .bg-slate-800\/40,
+.dashboard-theme .bg-slate-700 {
+  background-color: var(--org-panel) !important;
+}
+
+.dashboard-theme .border-slate-700,
+.dashboard-theme .border-slate-700\/70,
+.dashboard-theme .border-slate-700\/80,
+.dashboard-theme .border-slate-600 {
+  border-color: rgba(255, 187, 0, 0.16) !important;
+}
+
+.dashboard-theme .text-white {
+  color: #fff4cc !important;
+}
+
+.dashboard-theme .text-gray-300,
+.dashboard-theme .text-slate-300 {
+  color: var(--org-copy-soft) !important;
+}
+
+.dashboard-theme .text-gray-400,
+.dashboard-theme .text-gray-500,
+.dashboard-theme .text-slate-400,
+.dashboard-theme .text-slate-500 {
+  color: var(--org-copy-muted) !important;
+}
+
+.dashboard-theme .text-indigo-100,
+.dashboard-theme .text-indigo-200,
+.dashboard-theme .text-indigo-300,
+.dashboard-theme .text-indigo-400,
+.dashboard-theme .text-blue-100,
+.dashboard-theme .text-blue-200,
+.dashboard-theme .text-blue-300,
+.dashboard-theme .text-blue-400,
+.dashboard-theme .text-cyan-100,
+.dashboard-theme .text-cyan-200,
+.dashboard-theme .text-cyan-300,
+.dashboard-theme .text-purple-200,
+.dashboard-theme .text-purple-300,
+.dashboard-theme .text-purple-400 {
+  color: var(--org-yellow-bright) !important;
+}
+
+.dashboard-theme .bg-indigo-900,
+.dashboard-theme .bg-indigo-900\/50,
+.dashboard-theme .bg-indigo-900\/30,
+.dashboard-theme .bg-indigo-900\/20,
+.dashboard-theme .bg-indigo-600,
+.dashboard-theme .bg-blue-900,
+.dashboard-theme .bg-blue-900\/50,
+.dashboard-theme .bg-blue-900\/30,
+.dashboard-theme .bg-blue-900\/20,
+.dashboard-theme .bg-blue-600,
+.dashboard-theme .bg-cyan-500\/10,
+.dashboard-theme .bg-cyan-400\/20,
+.dashboard-theme .bg-purple-900,
+.dashboard-theme .bg-purple-900\/20,
+.dashboard-theme .bg-purple-900\/30,
+.dashboard-theme .bg-purple-700 {
+  background-color: rgba(255, 187, 0, 0.12) !important;
+}
+
+.dashboard-theme .border-indigo-700,
+.dashboard-theme .border-indigo-700\/40,
+.dashboard-theme .border-indigo-700\/50,
+.dashboard-theme .border-indigo-500,
+.dashboard-theme .border-blue-700,
+.dashboard-theme .border-blue-700\/40,
+.dashboard-theme .border-blue-700\/50,
+.dashboard-theme .border-blue-500,
+.dashboard-theme .border-cyan-500\/20,
+.dashboard-theme .border-cyan-400\/60,
+.dashboard-theme .border-cyan-300,
+.dashboard-theme .border-purple-700,
+.dashboard-theme .border-purple-800\/50,
+.dashboard-theme .border-purple-500 {
+  border-color: rgba(255, 187, 0, 0.28) !important;
+}
+
+.dashboard-theme .focus\:border-indigo-500:focus,
+.dashboard-theme .focus\:border-blue-500:focus,
+.dashboard-theme .focus\:border-cyan-500:focus,
+.dashboard-theme .focus-within\:border-indigo-400:focus-within,
+.dashboard-theme .focus-within\:border-indigo-500:focus-within {
+  border-color: rgba(255, 187, 0, 0.45) !important;
+}
+
+.dashboard-theme .focus\:ring-indigo-500:focus,
+.dashboard-theme .focus\:ring-blue-500:focus,
+.dashboard-theme .focus\:ring-blue-500\/40:focus,
+.dashboard-theme .focus\:ring-indigo-500\/40:focus {
+  --tw-ring-color: rgba(255, 187, 0, 0.35) !important;
+}
+
+.dashboard-theme .hover\:bg-slate-900\/80:hover,
+.dashboard-theme .hover\:bg-slate-800:hover,
+.dashboard-theme .hover\:bg-slate-700:hover,
+.dashboard-theme .hover\:bg-slate-700\/50:hover,
+.dashboard-theme .hover\:bg-slate-700\/30:hover,
+.dashboard-theme .hover\:bg-indigo-700:hover,
+.dashboard-theme .hover\:bg-blue-700:hover,
+.dashboard-theme .hover\:bg-indigo-900\/50:hover {
+  background-color: rgba(255, 187, 0, 0.08) !important;
+}
+
+.dashboard-theme .hover\:text-white:hover,
+.dashboard-theme .hover\:text-indigo-100:hover,
+.dashboard-theme .hover\:text-indigo-200:hover,
+.dashboard-theme .hover\:text-indigo-300:hover {
+  color: var(--org-yellow-pale) !important;
+}
+
+.dashboard-theme .hover\:border-slate-700:hover,
+.dashboard-theme .hover\:border-slate-500:hover {
+  border-color: rgba(255, 187, 0, 0.24) !important;
 }

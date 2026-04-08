@@ -282,6 +282,7 @@ async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PL
 BOT_ADMINS_KEY = "roles.bot_admins"
 MODERATORS_KEY = "roles.moderators"
 DISCORD_MANAGERS_KEY = "roles.discord_managers"
+EVENT_COORDINATORS_KEY = "roles.event_coordinators"
 STAFF_KEY = "roles.staff"
 BOT_VERIFIED_ROLE_KEY = "roles.bot_verified_role"
 MAIN_ROLE_KEY = "roles.main_role"
@@ -305,6 +306,10 @@ METRICS_TRACKED_GAMES_KEY = "metrics.tracked_games"
 METRICS_MIN_VOICE_MINUTES_KEY = "metrics.min_voice_minutes"
 METRICS_MIN_GAME_MINUTES_KEY = "metrics.min_game_minutes"
 METRICS_MIN_MESSAGES_KEY = "metrics.min_messages"
+EVENTS_ENABLED_KEY = "events.enabled"
+EVENTS_DEFAULT_NATIVE_SYNC_KEY = "events.default_native_sync"
+EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY = "events.default_announcement_channel_id"
+EVENTS_DEFAULT_VOICE_CHANNEL_KEY = "events.default_voice_channel_id"
 
 ORGANIZATION_SID_KEY = "organization.sid"
 ORGANIZATION_NAME_KEY = "organization.name"
@@ -459,14 +464,15 @@ def _coerce_policy_list(value: Any) -> list[dict]:
 async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
     """Fetch bot role settings for a guild with sensible defaults.
 
-    Returns dict with keys: bot_admins, discord_managers, moderators, staff,
+    Returns dict with keys: bot_admins, discord_managers, moderators,
+    event_coordinators, staff,
     main_role, affiliate_role, nonmember_role (all list[str]), and
     delegation_policies (list[dict]).
     """
     query = """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = await db.execute(
         query,
@@ -475,6 +481,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
             BOT_ADMINS_KEY,
             MODERATORS_KEY,
             DISCORD_MANAGERS_KEY,
+            EVENT_COORDINATORS_KEY,
             STAFF_KEY,
             BOT_VERIFIED_ROLE_KEY,
             MAIN_ROLE_KEY,
@@ -489,6 +496,7 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
         "bot_admins": [],
         "discord_managers": [],
         "moderators": [],
+        "event_coordinators": [],
         "staff": [],
         "bot_verified_role": [],
         "main_role": [],
@@ -503,6 +511,8 @@ async def get_bot_role_settings(db: Connection, guild_id: int) -> dict:
             result["moderators"] = _coerce_role_list(value)
         elif key == DISCORD_MANAGERS_KEY:
             result["discord_managers"] = _coerce_role_list(value)
+        elif key == EVENT_COORDINATORS_KEY:
+            result["event_coordinators"] = _coerce_role_list(value)
         elif key == STAFF_KEY:
             result["staff"] = _coerce_role_list(value)
         elif key == BOT_VERIFIED_ROLE_KEY:
@@ -562,6 +572,7 @@ async def set_bot_role_settings(
     bot_admins: list[str],
     discord_managers: list[str],
     moderators: list[str],
+    event_coordinators: list[str],
     staff: list[str],
     bot_verified_role: list[str],
     main_role: list[str],
@@ -589,6 +600,7 @@ async def set_bot_role_settings(
         (BOT_ADMINS_KEY, json.dumps(_normalize_role_ids(bot_admins))),
         (DISCORD_MANAGERS_KEY, json.dumps(_normalize_role_ids(discord_managers))),
         (MODERATORS_KEY, json.dumps(_normalize_role_ids(moderators))),
+        (EVENT_COORDINATORS_KEY, json.dumps(_normalize_role_ids(event_coordinators))),
         (STAFF_KEY, json.dumps(_normalize_role_ids(staff))),
         (BOT_VERIFIED_ROLE_KEY, json.dumps(_normalize_role_ids(bot_verified_role))),
         (MAIN_ROLE_KEY, json.dumps(_normalize_role_ids(main_role))),
@@ -996,14 +1008,15 @@ async def fetch_bot_role_settings(guild_id: int) -> dict:
 
     Standalone version that doesn't require a db connection parameter.
 
-    Returns dict with keys: bot_admins, discord_managers, moderators, staff,
+    Returns dict with keys: bot_admins, discord_managers, moderators,
+    event_coordinators, staff,
     main_role, affiliate_role, nonmember_role (all list[str]), and
     delegation_policies (list[dict]).
     """
     query = """
         SELECT key, value
         FROM guild_settings
-        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     rows = await BaseRepository.fetch_all(
         query,
@@ -1012,6 +1025,7 @@ async def fetch_bot_role_settings(guild_id: int) -> dict:
             BOT_ADMINS_KEY,
             MODERATORS_KEY,
             DISCORD_MANAGERS_KEY,
+            EVENT_COORDINATORS_KEY,
             STAFF_KEY,
             BOT_VERIFIED_ROLE_KEY,
             MAIN_ROLE_KEY,
@@ -1025,6 +1039,7 @@ async def fetch_bot_role_settings(guild_id: int) -> dict:
         "bot_admins": [],
         "discord_managers": [],
         "moderators": [],
+        "event_coordinators": [],
         "staff": [],
         "bot_verified_role": [],
         "main_role": [],
@@ -1039,6 +1054,8 @@ async def fetch_bot_role_settings(guild_id: int) -> dict:
             result["moderators"] = _coerce_role_list(value)
         elif key == DISCORD_MANAGERS_KEY:
             result["discord_managers"] = _coerce_role_list(value)
+        elif key == EVENT_COORDINATORS_KEY:
+            result["event_coordinators"] = _coerce_role_list(value)
         elif key == STAFF_KEY:
             result["staff"] = _coerce_role_list(value)
         elif key == BOT_VERIFIED_ROLE_KEY:
@@ -1171,4 +1188,98 @@ async def set_new_member_role_settings(
     await _touch_settings_version(
         db, guild_id, source=SETTINGS_VERSION_NEW_MEMBER_ROLE_SOURCE
     )
+    await db.commit()
+
+
+async def get_event_module_settings(db: Connection, guild_id: int) -> dict[str, Any]:
+    """Fetch event module settings for a guild."""
+    cursor = await db.execute(
+        """
+        SELECT key, value
+        FROM guild_settings
+        WHERE guild_id = ? AND key IN (?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            EVENTS_ENABLED_KEY,
+            EVENTS_DEFAULT_NATIVE_SYNC_KEY,
+            EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY,
+            EVENTS_DEFAULT_VOICE_CHANNEL_KEY,
+        ),
+    )
+    rows = await cursor.fetchall()
+
+    result: dict[str, Any] = {
+        "enabled": True,
+        "default_native_sync": True,
+        "default_announcement_channel_id": None,
+        "default_voice_channel_id": None,
+    }
+
+    for key, value in rows:
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+        if key == EVENTS_ENABLED_KEY:
+            result["enabled"] = bool(parsed)
+        elif key == EVENTS_DEFAULT_NATIVE_SYNC_KEY:
+            result["default_native_sync"] = bool(parsed)
+        elif key == EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY:
+            if parsed is not None:
+                try:
+                    result["default_announcement_channel_id"] = str(int(parsed))
+                except (TypeError, ValueError):
+                    result["default_announcement_channel_id"] = None
+        elif key == EVENTS_DEFAULT_VOICE_CHANNEL_KEY:
+            if parsed is not None:
+                try:
+                    result["default_voice_channel_id"] = str(int(parsed))
+                except (TypeError, ValueError):
+                    result["default_voice_channel_id"] = None
+
+    return result
+
+
+async def set_event_module_settings(
+    db: Connection,
+    guild_id: int,
+    *,
+    enabled: bool,
+    default_native_sync: bool,
+    default_announcement_channel_id: str | None,
+    default_voice_channel_id: str | None,
+) -> None:
+    """Persist event module settings for a guild."""
+
+    def _normalize_channel_id(value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return str(int(value))
+        except (TypeError, ValueError):
+            return None
+
+    payloads = [
+        (EVENTS_ENABLED_KEY, json.dumps(enabled)),
+        (EVENTS_DEFAULT_NATIVE_SYNC_KEY, json.dumps(default_native_sync)),
+        (
+            EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL_KEY,
+            json.dumps(_normalize_channel_id(default_announcement_channel_id)),
+        ),
+        (
+            EVENTS_DEFAULT_VOICE_CHANNEL_KEY,
+            json.dumps(_normalize_channel_id(default_voice_channel_id)),
+        ),
+    ]
+
+    await db.executemany(
+        """
+        INSERT OR REPLACE INTO guild_settings (guild_id, key, value)
+        VALUES (?, ?, ?)
+        """,
+        [(guild_id, key, value) for key, value in payloads],
+    )
+    await _touch_settings_version(db, guild_id, source="event_module")
     await db.commit()

@@ -129,17 +129,17 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-xl text-gray-300">Loading your servers...</div>
+      <div className="dashboard-theme flex min-h-screen items-center justify-center">
+        <div className="text-xl text-[#d6c7a3]">Loading your servers...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    <div className="dashboard-theme min-h-screen text-[#f5deb3]">
       <div className="max-w-4xl mx-auto py-16 px-4">
-        <h1 className="text-3xl font-bold mb-4">Select a Server</h1>
-        <p className="text-gray-400 mb-8">
+        <h1 className="dashboard-title mb-4 text-3xl font-bold">Select a Server</h1>
+        <p className="mb-8 text-[#a89465]">
           Choose the Discord server you want to manage. Only servers where the bot is installed are shown.
         </p>
 
@@ -177,7 +177,7 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
         )}
 
         {guilds.length === 0 ? (
-          <Card variant="ghost" padding="lg" className="text-center text-gray-400">
+          <Card variant="ghost" padding="lg" className="text-center text-[#a89465]">
             <p className="mb-4">No servers available. Make sure the bot is installed in your Discord server.</p>
             <p className="text-sm">Click "Add Bot to Server" above to invite the bot to your server.</p>
           </Card>
@@ -188,15 +188,15 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
               <Card
                 padding="lg"
                 hoverable
-                className="shadow hover:border-purple-500 border-2 border-purple-700 bg-purple-900/20"
+                className="border-2 border-[#ffbb00]/35 bg-[#ffbb00]/10 shadow-[0_0_26px_rgba(255,187,0,0.08)]"
               >
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="h-16 w-16 rounded-full bg-purple-700 flex items-center justify-center text-2xl text-white">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-[#ffbb00]/25 bg-[#ffbb00]/14 text-2xl text-[#fff1bf]">
                     🌐
                   </div>
                   <div className="flex-1">
-                    <h2 className="text-xl font-semibold text-purple-300">All Guilds</h2>
-                    <p className="text-sm text-purple-400">View all users & voice data across all servers</p>
+                    <h2 className="text-xl font-semibold text-[#ffdd73]">All Guilds</h2>
+                    <p className="text-sm text-[#c9b789]">View all users & voice data across all servers</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -210,7 +210,7 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
                     {selectingAllGuilds ? 'Entering...' : '🔍 View All Guilds'}
                   </Button>
                 </div>
-                <p className="text-xs text-purple-400 mt-2 text-center">
+                <p className="mt-2 text-center text-xs text-[#a89465]">
                   Bot Owner Only • Read-only cross-guild view
                 </p>
               </Card>
@@ -221,23 +221,23 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
                 key={guild.guild_id}
                 padding="lg"
                 hoverable
-                className="shadow hover:border-indigo-500"
+                className="shadow-[0_0_24px_rgba(0,0,0,0.22)]"
               >
                 <div className="flex items-center gap-4 mb-4">
                   {guild.icon_url ? (
                     <img
                       src={guild.icon_url}
                       alt={guild.guild_name}
-                      className="h-16 w-16 rounded-full border border-slate-600 object-cover"
+                      className="h-16 w-16 rounded-full border border-[#ffbb00]/18 object-cover"
                     />
                   ) : (
-                    <div className="h-16 w-16 rounded-full bg-slate-700 flex items-center justify-center text-2xl text-gray-300">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#17120a] text-2xl text-[#d6c7a3]">
                       {guild.guild_name.charAt(0).toUpperCase()}
                     </div>
                   )}
                   <div className="flex-1">
-                    <h2 className="text-xl font-semibold">{guild.guild_name}</h2>
-                    <p className="text-sm text-gray-400">Guild ID: {guild.guild_id}</p>
+                    <h2 className="text-xl font-semibold text-[#fff4cc]">{guild.guild_name}</h2>
+                    <p className="text-sm text-[#a89465]">Guild ID: {guild.guild_id}</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
