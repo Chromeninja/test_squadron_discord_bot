@@ -56,7 +56,9 @@ def compute_next_retry(
     status = global_state.status
     days = _get_cadence_days(config, status)
     jitter = _get_jitter(config)
-    return now + days * 86400 + jitter
+    # Ensure retry is always in the future (jitter can be negative)
+    min_future = 3600  # At least 1 hour from now
+    return max(now + min_future, now + days * 86400 + jitter)
 
 
 async def schedule_user_recheck(user_id: int, next_retry: int) -> None:

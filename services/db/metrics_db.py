@@ -139,6 +139,10 @@ async def init_metrics_schema(db: aiosqlite.Connection) -> None:
         "ON voice_sessions(guild_id, joined_at)"
     )
     await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_voice_sessions_guild_user_joined_left "
+        "ON voice_sessions(guild_id, user_id, joined_at, left_at)"
+    )
+    await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_voice_sessions_open "
         "ON voice_sessions(left_at) WHERE left_at IS NULL"
     )
@@ -167,6 +171,10 @@ async def init_metrics_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_game_sessions_guild_started "
         "ON game_sessions(guild_id, started_at)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_game_sessions_guild_user_started_ended "
+        "ON game_sessions(guild_id, user_id, started_at, ended_at)"
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_game_sessions_game "
@@ -213,6 +221,10 @@ async def init_metrics_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_message_counts_guild_bucket_seconds "
         "ON message_counts(guild_id, bucket_seconds, hour_bucket)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_message_counts_guild_user_bucket "
+        "ON message_counts(guild_id, user_id, bucket_seconds, hour_bucket)"
     )
 
     # -----------------------------------------------------------------------

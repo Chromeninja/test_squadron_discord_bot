@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   statsApi,
   StatsOverview,
@@ -7,90 +7,96 @@ import {
   errorsApi,
   StructuredError,
   logsApi,
-  authApi
 } from '../api/endpoints';
+import { useAuth } from '../contexts/AuthContext';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import { handleApiError, showSuccess } from '../utils/toast';
 import { hasPermission, RoleLevel } from '../utils/permissions';
 import { Button, Card, Alert } from '../components/ui';
 
 function Dashboard() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<StatsOverview | null>(null);
   const [health, setHealth] = useState<HealthOverview | null>(null);
   const [lastError, setLastError] = useState<StructuredError | null>(null);
-  const [isBotAdmin, setIsBotAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const requestSequence = useRequestSequence();
 
-  const fetchData = async () => {
+  const isBotAdmin = useMemo(() => {
+    if (!user) {
+      return false;
+    }
+    if (user.is_admin || user.is_bot_owner) {
+      return true;
+    }
+    if (user.active_guild_id && user.authorized_guilds?.[user.active_guild_id]) {
+      const roleLevel = user.authorized_guilds[user.active_guild_id].role_level as RoleLevel;
+      return hasPermission(roleLevel, 'bot_admin');
+    }
+    return Object.values(user.authorized_guilds ?? {}).some((guildPerm) =>
+      hasPermission(guildPerm.role_level as RoleLevel, 'bot_admin')
+    );
+  }, [user]);
+
+  const fetchData = useCallback(async () => {
+    const requestId = requestSequence.next();
+
     try {
       setRefreshing(true);
 
-      // Fetch user profile to check admin status
-      const userResponse = await authApi.getMe();
-      const user = userResponse.user;
+      const [statsResponse, adminResults] = await Promise.all([
+        statsApi.getOverview(),
+        isBotAdmin
+          ? Promise.allSettled([healthApi.getOverview(), errorsApi.getLast(1)])
+          : Promise.resolve([] as PromiseSettledResult<unknown>[]),
+      ]);
 
-      // Check if user has bot_admin level or higher (includes bot_owner)
-      let userIsBotAdmin = false;
-      if (user) {
-        // Fallback for sessions without authorized_guilds
-        if (user.is_admin) {
-          userIsBotAdmin = true;
-        }
-        // New permission system - check if user has bot_admin in active guild or any guild
-        if (user.active_guild_id && user.authorized_guilds?.[user.active_guild_id]) {
-          const roleLevel = user.authorized_guilds[user.active_guild_id].role_level as RoleLevel;
-          userIsBotAdmin = hasPermission(roleLevel, 'bot_admin');
-        } else if (user.authorized_guilds) {
-          // Check any guild for bot owner
-          for (const guildPerm of Object.values(user.authorized_guilds)) {
-            const roleLevel = guildPerm.role_level as RoleLevel;
-            if (hasPermission(roleLevel, 'bot_admin')) {
-              userIsBotAdmin = true;
-              break;
-            }
-          }
-        }
+      if (!requestSequence.isCurrent(requestId)) {
+        return;
       }
-      setIsBotAdmin(userIsBotAdmin);
 
-      // Fetch stats (available to all authenticated users)
-      const statsResponse = await statsApi.getOverview();
       setStats(statsResponse.data);
 
-      // Fetch admin-only data
-      if (userIsBotAdmin) {
-        try {
-          const healthResponse = await healthApi.getOverview();
-          setHealth(healthResponse.data);
-        } catch (err) {
-          // Health data is optional, log but don't show toast
-        }
-
-        try {
-          const errorsResponse = await errorsApi.getLast(1);
-          setLastError(errorsResponse.errors[0] || null);
-        } catch (err) {
-          // Error data is optional, log but don't show toast
-        }
+      if (isBotAdmin) {
+        const [healthResult, errorsResult] = adminResults as [
+          PromiseSettledResult<{ data: HealthOverview }>,
+          PromiseSettledResult<{ errors: StructuredError[] }>,
+        ];
+        setHealth(
+          healthResult?.status === 'fulfilled' ? healthResult.value.data : null,
+        );
+        setLastError(
+          errorsResult?.status === 'fulfilled'
+            ? errorsResult.value.errors[0] || null
+            : null,
+        );
+      } else {
+        setHealth(null);
+        setLastError(null);
       }
 
-      setLoading(false);
       setError(null);
     } catch (err) {
+      if (!requestSequence.isCurrent(requestId)) {
+        return;
+      }
       setError('Failed to load dashboard data');
-      setLoading(false);
     } finally {
-      setRefreshing(false);
+      if (requestSequence.isCurrent(requestId)) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  };
+  }, [isBotAdmin, requestSequence]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [fetchData]);
 
   const handleRefresh = () => {
-    fetchData();
+    void fetchData();
   };
 
   const exportActions: { label: string; action: () => Promise<void>; errorMsg: string }[] = [

@@ -61,6 +61,7 @@ class BulkVerificationJob:
     recheck_rsi: bool = False  # If True, verify RSI org status for each user
 
     # Tracking
+    queued_ahead: int = 0
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
     completed_at: float | None = None
@@ -81,6 +82,8 @@ class VerificationBulkService:
     Processes jobs sequentially with batching and rate limiting.
     Signals auto-recheck to pause when manual checks are running.
     """
+
+    MEMBER_FETCH_CONCURRENCY = 10
 
     def __init__(self, bot: MyBot):
         self.name = "verification_bulk"
@@ -147,6 +150,8 @@ class VerificationBulkService:
         if guild_id is None:
             raise RuntimeError("Guild ID unavailable for bulk verification job")
 
+        queued_ahead = self.queue.qsize()
+
         job = BulkVerificationJob(
             job_id=job_id,
             guild_id=guild_id,
@@ -156,6 +161,7 @@ class VerificationBulkService:
             scope_label=scope_label,
             scope_channel=scope_channel,
             recheck_rsi=recheck_rsi,
+            queued_ahead=queued_ahead,
         )
 
         await self.queue.put(job)
@@ -229,10 +235,9 @@ class VerificationBulkService:
 
     async def _notify_job_start(self, job: BulkVerificationJob) -> discord.Guild | None:
         """Send initial notification and validate guild. Returns guild or None if invalid."""
-        queue_size = self.queue_size()
-        if queue_size > 0:
+        if job.queued_ahead > 0:
             await job.interaction.followup.send(
-                f"⏳ Processing started (queued behind {queue_size} other job(s)). Checking {len(job.target_member_ids)} users...",
+                f"⏳ Processing started (queued behind {job.queued_ahead} other job(s)). Checking {len(job.target_member_ids)} users...",
                 ephemeral=True,
             )
 
@@ -245,11 +250,36 @@ class VerificationBulkService:
 
     def _get_batch_size(self) -> int:
         """Get configured batch size for processing."""
-        return (
-            self.bot.config.get("auto_recheck", {})
-            .get("batch", {})
-            .get("max_users_per_run", 50)
+        return self._get_batch_config_int("max_users_per_run", 50)
+
+    def _get_member_fetch_concurrency(self) -> int:
+        """Get configured member fetch concurrency for Discord API lookups."""
+        return self._get_batch_config_int(
+            "member_fetch_concurrency", self.MEMBER_FETCH_CONCURRENCY
         )
+
+    def _get_batch_config_int(self, key: str, default: int) -> int:
+        """Read a positive integer from auto_recheck.batch config with fallback."""
+        config = getattr(self.bot, "config", {})
+        batch_config: dict[str, Any] = {}
+        if isinstance(config, dict):
+            auto_recheck_config = config.get("auto_recheck", {})
+            if isinstance(auto_recheck_config, dict):
+                candidate = auto_recheck_config.get("batch", {})
+                if isinstance(candidate, dict):
+                    batch_config = candidate
+
+        raw_value = batch_config.get(key, default)
+        try:
+            return max(1, int(raw_value))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid bulk verification batch config for %s: %r; using default %s",
+                key,
+                raw_value,
+                default,
+            )
+            return default
 
     async def _process_batches(
         self, job: BulkVerificationJob, guild: discord.Guild, batch_size: int
@@ -278,23 +308,41 @@ class VerificationBulkService:
         self, job: BulkVerificationJob, guild: discord.Guild, member_ids: list[int]
     ) -> list[discord.Member]:
         """Fetch Discord members for a batch of member IDs."""
-        members = []
-        for member_id in member_ids:
+        members: list[discord.Member] = []
+        fetch_semaphore = asyncio.Semaphore(self._get_member_fetch_concurrency())
+
+        async def fetch_single_member(
+            member_id: int,
+        ) -> tuple[int, discord.Member | None, Exception | None]:
             try:
                 member = guild.get_member(member_id)
                 if member is None:
-                    member = await guild.fetch_member(member_id)
-                if member:
-                    members.append(member)
+                    async with fetch_semaphore:
+                        member = await guild.fetch_member(member_id)
+                return member_id, member, None
             except (discord.NotFound, discord.HTTPException) as e:
-                job.errors.append(
-                    (
-                        member_id,
-                        f"User_{member_id}",
-                        f"Member fetch failed: {e!s}"[:200],
-                    )
+                return member_id, None, e
+
+        results = await asyncio.gather(
+            *(fetch_single_member(member_id) for member_id in member_ids)
+        )
+
+        for member_id, member, error in results:
+            if member is not None:
+                members.append(member)
+                continue
+
+            if error is None:
+                continue
+
+            job.errors.append(
+                (
+                    member_id,
+                    f"User_{member_id}",
+                    f"Member fetch failed: {error!s}"[:200],
                 )
-                logger.debug(f"Failed to fetch member {member_id}: {e}")
+            )
+            logger.debug(f"Failed to fetch member {member_id}: {error}")
 
         return members
 
@@ -482,8 +530,10 @@ class VerificationBulkService:
         and trigger recheck scheduling.
         """
         from helpers.bulk_check import StatusRow
+        from services.guild_sync import sync_user_to_all_guilds
         from services.verification_scheduler import (
             compute_next_retry,
+            handle_recheck_failure,
             schedule_user_recheck,
         )
         from services.verification_state import compute_global_state, store_global_state
@@ -521,12 +571,63 @@ class VerificationBulkService:
                     force_refresh=True,  # Admin bulk checks want fresh data
                 )
 
-                # Persist state
+                # Handle error states via failure path (do NOT persist)
+                if global_state.error:
+                    logger.info(
+                        "Skipping persistence for user %s: state has error: %s",
+                        row.user_id,
+                        global_state.error,
+                    )
+                    try:
+                        config = getattr(self.bot, "config", None)
+                        from services.db.database import Database
+
+                        fail_count = await Database.get_auto_recheck_fail_count(
+                            row.user_id
+                        )
+                        await handle_recheck_failure(
+                            row.user_id,
+                            global_state.error,
+                            fail_count=fail_count + 1,
+                            config=config,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to record recheck failure for user %s: %s",
+                            row.user_id,
+                            e,
+                        )
+                    return RsiStatusResult(
+                        status=global_state.status,
+                        checked_at=global_state.checked_at,
+                        main_orgs=global_state.main_orgs,
+                        affiliate_orgs=global_state.affiliate_orgs,
+                        error=global_state.error,
+                    )
+
+                # Apply state to all guilds BEFORE persisting so
+                # "before" snapshots capture pre-update DB state.
+                try:
+                    await sync_user_to_all_guilds(
+                        global_state,
+                        self.bot,
+                        max_concurrency=2,  # Conservative for bulk
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Guild sync failed for user %s: %s",
+                        row.user_id,
+                        e,
+                    )
+
+                # Persist state (only for non-error states)
                 try:
                     await store_global_state(global_state)
                 except Exception as e:
                     logger.warning(
-                        f"Failed to store global state for user {row.user_id}: {e}"
+                        "Failed to store global state for user %s: %s",
+                        row.user_id,
+                        e,
                     )
 
                 # Schedule recheck
@@ -536,7 +637,9 @@ class VerificationBulkService:
                     await schedule_user_recheck(row.user_id, next_retry)
                 except Exception as e:
                     logger.warning(
-                        f"Failed to schedule recheck for user {row.user_id}: {e}"
+                        "Failed to schedule recheck for user %s: %s",
+                        row.user_id,
+                        e,
                     )
 
                 # Return result

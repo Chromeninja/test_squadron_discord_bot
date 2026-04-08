@@ -2,7 +2,9 @@
 Test configuration and fixtures for backend tests.
 """
 
+import contextlib
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -12,15 +14,12 @@ from httpx import ASGITransport, AsyncClient
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
-import sys
 
 sys.path.insert(0, str(project_root))
 
 # Add backend directory to path so we can import app
 backend_root = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_root))
-
-import contextlib
 
 from core import dependencies
 

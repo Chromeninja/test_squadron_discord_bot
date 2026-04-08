@@ -192,13 +192,16 @@ class TestStrictScoping:
 
         with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
-            mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
-            mock_conn.execute.return_value = mock_cursor
-
-            # Mock all queries return data for exact match only
-            mock_cursor.fetchone.return_value = ("Test Channel", 10, 1)
-            mock_cursor.fetchall.return_value = [(user_id, "user", "permit")]
+            basic_cursor = AsyncMock()
+            basic_cursor.fetchall.return_value = [
+                (jtc_channel_id, "Test Channel", 10, 1)
+            ]
+            feature_cursor = AsyncMock()
+            feature_cursor.fetchall.return_value = [
+                (jtc_channel_id, "permissions", user_id, "user", "permit")
+            ]
+            mock_conn.execute.side_effect = [basic_cursor, feature_cursor]
 
             await _get_all_user_settings(guild_id, jtc_channel_id, user_id)
 
@@ -276,21 +279,27 @@ class TestStrictScoping:
 
         with patch("services.db.database.Database.get_connection") as mock_db:
             mock_conn = AsyncMock()
-            mock_cursor = AsyncMock()
             mock_db.return_value.__aenter__.return_value = mock_conn
-            mock_conn.execute.return_value = mock_cursor
-
-            # Mock query for JTC 1 returns settings
-            mock_cursor.fetchone.return_value = ("JTC1 Channel", 10, 1)
-            mock_cursor.fetchall.return_value = [(user_id, "user", "permit")]
+            basic_cursor_1 = AsyncMock()
+            basic_cursor_1.fetchall.return_value = [
+                (jtc_channel_id_1, "JTC1 Channel", 10, 1)
+            ]
+            feature_cursor_1 = AsyncMock()
+            feature_cursor_1.fetchall.return_value = [
+                (jtc_channel_id_1, "permissions", user_id, "user", "permit")
+            ]
+            mock_conn.execute.side_effect = [basic_cursor_1, feature_cursor_1]
 
             settings_jtc1 = await _get_all_user_settings(
                 guild_id, jtc_channel_id_1, user_id
             )
 
             # Mock query for JTC 2 returns no settings (None/empty)
-            mock_cursor.fetchone.return_value = None
-            mock_cursor.fetchall.return_value = []
+            basic_cursor_2 = AsyncMock()
+            basic_cursor_2.fetchall.return_value = []
+            feature_cursor_2 = AsyncMock()
+            feature_cursor_2.fetchall.return_value = []
+            mock_conn.execute.side_effect = [basic_cursor_2, feature_cursor_2]
 
             settings_jtc2 = await _get_all_user_settings(
                 guild_id, jtc_channel_id_2, user_id

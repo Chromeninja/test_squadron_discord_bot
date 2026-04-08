@@ -7,8 +7,10 @@
  * inputs change.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import axios from 'axios';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { metricsApi, UserMetrics } from '../api/endpoints';
+import { useRequestSequence } from './useRequestSequence';
 
 interface UseUserMetricsOptions {
   /** Discord user ID to fetch metrics for. Pass `null` to skip. */
@@ -35,8 +37,12 @@ export function useUserMetrics({
   const [userMetrics, setUserMetrics] = useState<UserMetrics | null>(null);
   const [userMetricsLoading, setUserMetricsLoading] = useState(false);
   const [userMetricsError, setUserMetricsError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestSequence = useRequestSequence();
 
   const fetchMetrics = useCallback(() => {
+    abortControllerRef.current?.abort();
+
     if (!userId || !enabled) {
       setUserMetrics(null);
       setUserMetricsError(null);
@@ -44,31 +50,40 @@ export function useUserMetrics({
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const requestId = requestSequence.next();
+
     setUserMetrics(null);
     setUserMetricsError(null);
     setUserMetricsLoading(true);
 
     metricsApi
-      .getUserMetrics(userId, days)
+      .getUserMetrics(userId, days, controller.signal)
       .then((resp) => {
-        if (!cancelled) setUserMetrics(resp.data);
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
+          setUserMetrics(resp.data);
+        }
       })
-      .catch(() => {
-        if (!cancelled) {
+      .catch((error) => {
+        if (axios.isCancel(error) || controller.signal.aborted) {
+          return;
+        }
+        if (requestSequence.isCurrent(requestId)) {
           setUserMetrics(null);
           setUserMetricsError('Metrics are currently unavailable for this member.');
         }
       })
       .finally(() => {
-        if (!cancelled) setUserMetricsLoading(false);
+        if (!controller.signal.aborted && requestSequence.isCurrent(requestId)) {
+          setUserMetricsLoading(false);
+        }
       });
 
-    // Return cleanup for the effect
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [userId, days, enabled]);
+  }, [userId, days, enabled, requestSequence]);
 
   useEffect(() => {
     const cleanup = fetchMetrics();
@@ -78,6 +93,12 @@ export function useUserMetrics({
   const refetch = useCallback(() => {
     fetchMetrics();
   }, [fetchMetrics]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   return { userMetrics, userMetricsLoading, userMetricsError, refetch };
 }

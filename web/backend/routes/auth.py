@@ -214,7 +214,10 @@ async def callback(request: Request, code: str, state: str | None = None):
             )
             bot_guild_ids = {row[0] for row in rows}
 
-            logger.debug(f"Bot is installed in guilds (from DB): {bot_guild_ids}")
+            logger.debug(
+                "Bot installation lookup completed for %d guild(s)",
+                len(bot_guild_ids),
+            )
 
             # Check if user is bot owner (global permission) via internal API
             # This supports single owner, team owners, and env overrides
@@ -228,13 +231,14 @@ async def callback(request: Request, code: str, state: str | None = None):
                 is_bot_owner = int(user_id_from_data) in bot_owner_ids
             except Exception as e:
                 # Fallback to centralized BOT_OWNER_IDS from env_config
-                logger.warning(f"Could not fetch bot owner IDs from internal API: {e}")
+                logger.warning(
+                    "Could not fetch bot owner IDs from internal API",
+                    exc_info=e,
+                )
                 is_bot_owner = int(user_id_from_data) in BOT_OWNER_IDS
 
             if is_bot_owner:
-                logger.info(
-                    f"User {user_id_from_data} identified as BOT OWNER - granting global access"
-                )
+                logger.info("Bot owner authenticated; granting global access")
 
             # Track per-guild permissions using new GuildPermission model
             from core.schemas import GuildPermission
@@ -270,9 +274,7 @@ async def callback(request: Request, code: str, state: str | None = None):
                         permissions_str
                     )
 
-                    logger.debug(
-                        f"Guild {guild_id}: owner={is_owner}, admin={has_admin_permission}"
-                    )
+                    logger.debug("Resolved guild access mode from Discord permissions")
 
                     # Guild owner gets bot_admin level
                     if is_owner:
@@ -284,7 +286,7 @@ async def callback(request: Request, code: str, state: str | None = None):
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         logger.info(
-                            f"User granted bot_admin access to guild {guild_id} via discord_owner"
+                            "Granted guild access via Discord owner status"
                         )
                         continue
 
@@ -298,14 +300,14 @@ async def callback(request: Request, code: str, state: str | None = None):
                         )
                         authorized_guild_id_set.add(guild_id_str)
                         logger.info(
-                            f"User granted bot_admin access to guild {guild_id} via discord_administrator"
+                            "Granted guild access via Discord administrator permission"
                         )
                         continue
 
                     # Only check role-based permissions if guild is in the database
                     if int(guild_id) not in bot_guild_ids:
                         logger.debug(
-                            f"Guild {guild_id} not in bot database, skipping role-based check"
+                            "Skipping role-based access check for guild outside bot database"
                         )
                         continue
 
@@ -317,7 +319,7 @@ async def callback(request: Request, code: str, state: str | None = None):
 
                     if guild_member_response.status_code == 429:
                         logger.warning(
-                            f"Rate limited while checking guild {guild_id}, skipping remaining guilds"
+                            "Rate limited during guild role validation; skipping remaining guilds"
                         )
                         break
 
@@ -370,15 +372,10 @@ async def callback(request: Request, code: str, state: str | None = None):
                             guild_id=guild_id_str, role_level=role_level, source=source
                         )
                         authorized_guild_id_set.add(guild_id_str)
-                        logger.info(
-                            f"User granted {role_level} access to guild {guild_id} via {source}"
-                        )
+                        logger.info("Granted guild access via configured role mapping")
 
                 except Exception:
-                    logger.exception(
-                        "Error checking roles for guild %s during OAuth role evaluation",
-                        guild_id,
-                    )
+                    logger.exception("Error checking roles during OAuth role evaluation")
                     continue
 
         # Extract user information
@@ -391,11 +388,11 @@ async def callback(request: Request, code: str, state: str | None = None):
             raise HTTPException(status_code=400, detail="Invalid user data")
 
         # Debug logging
-        logger.info(f"User {user_id} authorized for {len(authorized_guilds)} guild(s)")
-        logger.debug(f"Authorized guild IDs: {sorted(authorized_guild_id_set)}")
-        logger.debug(
-            f"Per-guild permissions: {[(g, p.role_level) for g, p in authorized_guilds.items()]}"
+        logger.info(
+            "OAuth authorization succeeded for %d guild(s)",
+            len(authorized_guilds),
         )
+        logger.debug("Completed OAuth authorization mapping")
 
         # Require at least one authorized guild
         if not authorized_guilds:
@@ -427,9 +424,7 @@ async def callback(request: Request, code: str, state: str | None = None):
         }
 
         # Do NOT auto-select guild - force user to choose from SelectServer screen
-        logger.info(
-            f"User {user_id} authorized for {len(authorized_guilds)} guild(s), redirecting to guild selection"
-        )
+        logger.info("Redirecting authenticated user to guild selection")
 
         session_data = {
             "user_id": user_id,
@@ -489,23 +484,13 @@ async def get_available_guilds(
 
     This ensures users only see guilds they can manage and where the bot is active.
     """
-    logger.info(
-        "Guild list requested",
-        extra={
-            "user_id": current_user.user_id,
-            "authorized_guilds": list(current_user.authorized_guilds.keys()),
-        },
-    )
+    logger.info("Guild list requested")
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
         logger.warning(
             "Internal API guild fetch failed; falling back to session guilds",
             exc_info=exc,
-            extra={
-                "user_id": current_user.user_id,
-                "authorized_guild_count": len(current_user.authorized_guilds),
-            },
         )
         guilds = [
             {
@@ -523,8 +508,7 @@ async def get_available_guilds(
     # Build set of authorized guild IDs (string form) sourced from the session payload
     authorized_guild_ids = set(current_user.authorized_guilds)
 
-    logger.debug(f"Bot guilds from internal API: {[g.get('guild_id') for g in guilds]}")
-    logger.debug(f"User authorized guild IDs: {authorized_guild_ids}")
+    logger.debug("Resolved bot guild list and authorized guild set")
 
     summaries = []
     for guild in guilds:
@@ -534,10 +518,10 @@ async def get_available_guilds(
 
         # Only include guilds where user has admin/moderator permissions
         if normalized_id not in authorized_guild_ids:
-            logger.debug(f"Skipping guild {normalized_id} - not in authorized list")
+            logger.debug("Skipping guild outside authorized list")
             continue
 
-        logger.debug(f"Including guild {normalized_id} - {guild.get('guild_name')}")
+        logger.debug("Including guild in authorized response")
         summaries.append(
             GuildSummary(
                 guild_id=normalized_id,
@@ -546,14 +530,7 @@ async def get_available_guilds(
             )
         )
 
-    logger.info(
-        "Guild list response",
-        extra={
-            "user_id": current_user.user_id,
-            "returned": len(summaries),
-            "authorized": len(authorized_guild_ids),
-        },
-    )
+    logger.info("Guild list response returned %d guild(s)", len(summaries))
     return GuildListResponse(guilds=summaries)
 
 
@@ -593,10 +570,7 @@ async def get_all_guilds_metadata(
             icon_url=guild.get("icon_url"),
         )
 
-    logger.info(
-        "All guilds metadata requested by bot owner",
-        extra={"user_id": current_user.user_id, "guild_count": len(guild_map)},
-    )
+    logger.info("All guilds metadata requested by bot owner")
 
     return AllGuildsMetadataResponse(guilds=guild_map)
 
@@ -628,25 +602,29 @@ async def select_active_guild(
         await set_session_cookie(response, session_payload)
         logger.info(
             "Bot owner entered All Guilds mode",
-            extra={"user_id": current_user.user_id},
         )
         return SelectGuildResponse()
 
     try:
         guilds = await internal_api.get_guilds()
     except Exception as exc:  # pragma: no cover - transport errors
-        raise translate_internal_api_error(exc, "Failed to fetch guilds") from exc
-
-    allowed_ids: set[str] = set()
-    for guild in guilds:
-        normalized = _normalize_guild_id(guild.get("guild_id"))
-        if normalized:
-            allowed_ids.add(normalized)
+        logger.warning(
+            "Internal API guild fetch failed during selection; falling back "
+            "to session guilds, which may be stale and not reflect current "
+            "guild membership",
+            exc_info=exc,
+        )
+        allowed_ids = set(current_user.authorized_guilds)
+    else:
+        allowed_ids: set[str] = set()
+        for guild in guilds:
+            normalized = _normalize_guild_id(guild.get("guild_id"))
+            if normalized:
+                allowed_ids.add(normalized)
 
     if not allowed_ids:
         logger.warning(
-            "internal API returned no guilds during selection; accepting guild_id=%s",
-            payload.guild_id,
+            "internal API returned no guilds during selection; accepting requested guild",
         )
     elif payload.guild_id not in allowed_ids:
         raise HTTPException(status_code=404, detail="Guild not found")
@@ -731,7 +709,7 @@ async def bot_authorization_callback(
 
     # Success - redirect to SelectServer page
     # Frontend will automatically refresh the guild list
-    logger.info(f"Bot successfully added to guild {guild_id}")
+    logger.info("Bot authorization completed successfully")
     return RedirectResponse(
         url=f"{FRONTEND_URL}/select-server?bot_added=true",
         status_code=302,

@@ -2,20 +2,26 @@ import '@testing-library/jest-dom';
 import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Mock the API module
-vi.mock('../api/endpoints', () => ({
-  authApi: {
-    getMe: vi.fn(),
-  },
-  voiceApi: {
+const { mockedVoiceApi, useAuth } = vi.hoisted(() => ({
+  mockedVoiceApi: {
     getIntegrity: vi.fn(),
     getActive: vi.fn(),
   },
+  useAuth: vi.fn(),
+}));
+
+// Mock the API module
+vi.mock('../api/endpoints', () => ({
+  voiceApi: mockedVoiceApi,
   ALL_GUILDS_SENTINEL: '*',
 }));
 
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth,
+}));
+
 // Import after mocking
-import { authApi, voiceApi } from '../api/endpoints';
+import { voiceApi } from '../api/endpoints';
 import Voice from './Voice';
 
 // Helper to create mock user profile
@@ -40,13 +46,12 @@ function createMockUserProfile(overrides = {}) {
 describe('Voice Page Rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Default mock implementations
-    vi.mocked(authApi.getMe).mockResolvedValue({
-      success: true,
+    vi.mocked(useAuth).mockReturnValue({
       user: createMockUserProfile(),
+      activeGuildId: '987654321',
+      loading: false,
     });
-    
+
     vi.mocked(voiceApi.getIntegrity).mockResolvedValue({
       count: 0,
       details: [],
@@ -71,24 +76,33 @@ describe('Voice Page Rendering', () => {
 
   it('calls API endpoints on mount', async () => {
     render(<Voice />);
-    
+
     await waitFor(() => {
-      expect(authApi.getMe).toHaveBeenCalled();
+      expect(voiceApi.getActive).toHaveBeenCalled();
+      expect(voiceApi.getIntegrity).toHaveBeenCalled();
     });
   });
 
   it('handles API errors gracefully', async () => {
     vi.mocked(voiceApi.getActive).mockRejectedValue(new Error('API Error'));
 
-    // Should not throw
-    expect(() => render(<Voice />)).not.toThrow();
+    render(<Voice />);
+
+    await waitFor(() => {
+      expect(voiceApi.getActive).toHaveBeenCalled();
+    });
   });
 });
 
 describe('Voice Page Permission Checks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
+    vi.mocked(useAuth).mockReturnValue({
+      user: createMockUserProfile(),
+      activeGuildId: '987654321',
+      loading: false,
+    });
+
     vi.mocked(voiceApi.getIntegrity).mockResolvedValue({
       count: 0,
       details: [],
@@ -102,8 +116,7 @@ describe('Voice Page Permission Checks', () => {
   });
 
   it('renders for staff users', async () => {
-    vi.mocked(authApi.getMe).mockResolvedValue({
-      success: true,
+    vi.mocked(useAuth).mockReturnValue({
       user: createMockUserProfile({
         authorized_guilds: {
           '987654321': {
@@ -113,19 +126,19 @@ describe('Voice Page Permission Checks', () => {
           },
         },
       }),
+      activeGuildId: '987654321',
+      loading: false,
     });
 
     render(<Voice />);
 
     await waitFor(() => {
-      expect(authApi.getMe).toHaveBeenCalled();
       expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });
 
   it('renders for moderator users', async () => {
-    vi.mocked(authApi.getMe).mockResolvedValue({
-      success: true,
+    vi.mocked(useAuth).mockReturnValue({
       user: createMockUserProfile({
         authorized_guilds: {
           '987654321': {
@@ -135,19 +148,19 @@ describe('Voice Page Permission Checks', () => {
           },
         },
       }),
+      activeGuildId: '987654321',
+      loading: false,
     });
 
     render(<Voice />);
 
     await waitFor(() => {
-      expect(authApi.getMe).toHaveBeenCalled();
       expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });
 
   it('renders for bot_admin users', async () => {
-    vi.mocked(authApi.getMe).mockResolvedValue({
-      success: true,
+    vi.mocked(useAuth).mockReturnValue({
       user: createMockUserProfile({
         authorized_guilds: {
           '987654321': {
@@ -157,12 +170,13 @@ describe('Voice Page Permission Checks', () => {
           },
         },
       }),
+      activeGuildId: '987654321',
+      loading: false,
     });
 
     render(<Voice />);
 
     await waitFor(() => {
-      expect(authApi.getMe).toHaveBeenCalled();
       expect(voiceApi.getActive).toHaveBeenCalled();
     });
   });

@@ -2,7 +2,7 @@
  * GameDetailPanel — Modal showing detailed metrics for a selected game.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   Area,
   AreaChart,
@@ -15,12 +15,10 @@ import {
 import {
   ActivityDimension,
   ActivityTier,
-  GameMetricsDetail,
-  metricsApi,
 } from '../../api/endpoints';
+import { useGameMetrics } from '../../hooks/useGameMetrics';
 import { CHART_TOOLTIP_STYLE } from '../../utils/chartStyles';
 import { formatDuration } from '../../utils/format';
-import { handleApiError } from '../../utils/toast';
 
 interface GameDetailPanelProps {
   gameName: string;
@@ -37,26 +35,18 @@ export default function GameDetailPanel({
   tier,
   onClose,
 }: GameDetailPanelProps) {
-  const [data, setData] = useState<GameMetricsDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchGameMetrics = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    metricsApi
-      .getGameMetrics(gameName, days, 5, dimension, tier)
-      .then((response) => setData(response.data))
-      .catch((err) => {
-        setError('Failed to load game metrics');
-        handleApiError(err, 'Failed to load game metrics');
-      })
-      .finally(() => setLoading(false));
-  }, [days, dimension, gameName, tier]);
-
-  useEffect(() => {
-    fetchGameMetrics();
-  }, [fetchGameMetrics]);
+  const {
+    gameMetrics: data,
+    gameMetricsLoading: loading,
+    gameMetricsError: error,
+    refetch,
+  } = useGameMetrics({
+    gameName,
+    days,
+    dimension,
+    tier,
+    enabled: true,
+  });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -132,7 +122,7 @@ export default function GameDetailPanel({
             <div className="flex flex-col items-center justify-center h-48 gap-3">
               <p className="text-red-400 text-sm">{error}</p>
               <button
-                onClick={fetchGameMetrics}
+                onClick={refetch}
                 className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-600 transition text-sm"
               >
                 Retry

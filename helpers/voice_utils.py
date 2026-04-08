@@ -78,6 +78,8 @@ async def get_user_channel(
                     logger.exception("Failed to fetch channel %s", channel_id)
                     return None
 
+            if not isinstance(channel, discord.VoiceChannel):
+                return None
             return channel
     return None
 

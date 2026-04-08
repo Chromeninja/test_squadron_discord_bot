@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
+from tests.test_helpers import FakeInteraction, FakeUser
 
 
 @pytest.fixture
@@ -54,57 +55,6 @@ async def temp_db(tmp_path):
     # Restore original state completely
     Database._db_path = orig_path
     Database._initialized = orig_initialized
-
-
-class FakeUser:
-    def __init__(self, user_id=1, display_name="User") -> None:  # minimal interface
-        self.id = user_id
-        self.display_name = display_name
-        self.mention = f"@{display_name}"
-
-    # Used by some code paths that DM; keep as no-op/mocked in tests
-    async def send(self, *args, **kwargs) -> None:
-        return None
-
-
-class FakeResponse:
-    def __init__(self) -> None:
-        self._is_done = False
-        self.sent_modal = None
-
-    def is_done(self) -> bool:
-        return self._is_done
-
-    async def send_message(self, *args, **kwargs) -> None:
-        self._is_done = True
-
-    async def defer(self, *args, **kwargs) -> None:
-        self._is_done = True
-
-    async def send_modal(self, modal) -> None:
-        self._is_done = True
-        self.sent_modal = modal
-
-
-class FakeFollowup:
-    async def send(self, *args, **kwargs) -> None:
-        pass
-
-
-class FakeInteraction:
-    def __init__(self, user: FakeUser | None = None) -> None:
-        self.user = user or FakeUser()
-        self.response = FakeResponse()
-        self.followup = FakeFollowup()
-        self.guild: SimpleNamespace | None = SimpleNamespace(id=123, name="TestGuild")
-        self.channel: SimpleNamespace | None = None
-        self.channel_id: int | None = None
-        self.token: str = "fake_interaction_token"
-
-        async def _edit(**kwargs: object) -> None:
-            pass
-
-        self.message = SimpleNamespace(edit=_edit)
 
 
 @pytest.fixture

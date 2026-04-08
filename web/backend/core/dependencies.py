@@ -11,7 +11,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import httpx
 from fastapi import Cookie, Depends, HTTPException, Request, Response
@@ -426,10 +426,14 @@ async def require_is_bot_owner(
 
 # Fresh role validation (TTL-based) against Internal API
 ROLE_VALIDATION_TTL = int(os.getenv("ROLE_VALIDATION_TTL", "30"))
+INTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("INTERNAL_API_TIMEOUT_SECONDS", "15"))
 
 
 def _now_ts() -> int:
     return int(time.time())
+
+
+GuildValidationStatus = Literal["valid", "unavailable", "revoked"]
 
 
 async def _validate_guild_membership(
@@ -437,8 +441,8 @@ async def _validate_guild_membership(
     current_user: UserProfile,
     internal_api: InternalAPIClient,
     guild_id_str: str,
-) -> str | None:
-    """Fetch live member data for a guild and return the computed role level."""
+) -> tuple[GuildValidationStatus, str | None]:
+    """Fetch live member data for a guild and classify the validation result."""
     log_context = {
         "request_id": get_request_id(),
         "user_id": current_user.user_id,
@@ -453,7 +457,7 @@ async def _validate_guild_membership(
             "role validation failed - invalid guild id",
             extra={**log_context, "cause": "invalid_guild_id"},
         )
-        return None
+        return "revoked", None
 
     try:
         member = await internal_api.get_guild_member(
@@ -468,23 +472,23 @@ async def _validate_guild_membership(
                 "user not found in guild - skipping role validation",
                 extra={**log_context, "cause": "user_not_in_guild"},
             )
-            return None
+            return "revoked", None
         # Other HTTP errors
         logger.warning(
-            "role validation failed - internal API HTTP error",
+            "role validation unavailable - internal API HTTP error",
             extra={
                 **log_context,
                 "cause": "internal_api_http_error",
                 "status": exc.response.status_code,
             },
         )
-        return None
+        return "unavailable", None
     except Exception as exc:  # pragma: no cover - transport errors
         logger.warning(
-            "role validation failed - internal API error",
+            "role validation unavailable - internal API error",
             extra={**log_context, "cause": "internal_api_error", "error": str(exc)},
         )
-        return None
+        return "unavailable", None
 
     role_ids = member.get("role_ids") or [
         r.get("id") for r in (member.get("roles") or [])
@@ -494,7 +498,7 @@ async def _validate_guild_membership(
             "role validation failed - invalid payload",
             extra={**log_context, "cause": "invalid_payload"},
         )
-        return None
+        return "unavailable", None
 
     def _to_int(value):
         try:
@@ -527,7 +531,7 @@ async def _validate_guild_membership(
             "role validation failed - role mismatch",
             extra={**log_context, "cause": "role_mismatch"},
         )
-        return None
+        return "revoked", None
 
     logger.info(
         "role validation refreshed",
@@ -537,7 +541,7 @@ async def _validate_guild_membership(
             "source": member.get("source"),
         },
     )
-    return computed_level
+    return "valid", computed_level
 
 
 async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes session refresh flow
@@ -618,12 +622,24 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915 - centralizes se
         if not force_refresh and last_ts and (now_ts - last_ts) < ROLE_VALIDATION_TTL:
             continue
 
-        role_level = await _validate_guild_membership(
+        validation_status, role_level = await _validate_guild_membership(
             request,
             current_user,
             internal_api,
             guild_id_str,
         )
+
+        if validation_status == "unavailable":
+            logger.info(
+                "role validation unavailable - preserving existing guild access",
+                extra={
+                    "request_id": get_request_id(),
+                    "user_id": current_user.user_id,
+                    "guild_id": guild_id_str,
+                    "path": request.url.path,
+                },
+            )
+            continue
 
         if not role_level:
             # Role validation failed - remove this guild
@@ -843,7 +859,9 @@ class InternalAPIClient:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
             self._client = httpx.AsyncClient(
-                base_url=self.base_url, headers=headers, timeout=10.0
+                base_url=self.base_url,
+                headers=headers,
+                timeout=INTERNAL_API_TIMEOUT_SECONDS,
             )
         return self._client
 

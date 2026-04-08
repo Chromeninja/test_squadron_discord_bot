@@ -8,6 +8,7 @@ from helpers.bulk_check import (
     MENTION_RE,
     StatusRow,
     _format_detail_line,
+    _get_effective_status,
     build_summary_embed,
     collect_targets,
     parse_members_text,
@@ -22,7 +23,7 @@ def _extract_id_from_match(match) -> int:
     return int(match.group("raw"))
 
 
-def test_mention_regex():
+def test_mention_regex() -> None:
     """Test the mention regular expression."""
     text = "@user1 <@123456789012345678> <@!987654321098765432> 111222333444555666 not_a_mention 123"
 
@@ -37,7 +38,7 @@ def test_mention_regex():
 
 
 @pytest.mark.asyncio
-async def test_parse_members_text():
+async def test_parse_members_text() -> None:
     """Test parsing member text with mentions and IDs."""
     # Mock guild and members
     guild = Mock()
@@ -65,14 +66,43 @@ async def test_parse_members_text():
     members = await parse_members_text(guild, text)
 
     assert len(members) == 3
-    # Members can be in any order since we use sets internally
-    member_ids = {member.id for member in members}
-    expected_ids = {123456789012345678, 987654321098765432, 111222333444555666}
+    member_ids = [member.id for member in members]
+    expected_ids = [123456789012345678, 987654321098765432, 111222333444555666]
     assert member_ids == expected_ids
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_users():
+async def test_parse_members_text_deduplicates_while_preserving_order() -> None:
+    """Duplicate mentions should be collapsed without reordering first appearance."""
+    # Arrange
+    guild = Mock()
+
+    member1 = Mock()
+    member1.id = 123456789012345678
+
+    member2 = Mock()
+    member2.id = 987654321098765432
+
+    guild.get_member.side_effect = lambda user_id: {
+        123456789012345678: member1,
+        987654321098765432: member2,
+    }.get(user_id)
+    guild.fetch_member = AsyncMock()
+
+    text = "<@987654321098765432> <@123456789012345678> <@!987654321098765432>"
+
+    # Act
+    members = await parse_members_text(guild, text)
+
+    # Assert
+    assert [member.id for member in members] == [
+        987654321098765432,
+        123456789012345678,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_targets_users() -> None:
     """Test collecting targets in users mode."""
     guild = Mock()
 
@@ -89,7 +119,7 @@ async def test_collect_targets_users():
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_voice_channel():
+async def test_collect_targets_voice_channel() -> None:
     """Test collecting targets in voice channel mode."""
     guild = Mock()
 
@@ -106,13 +136,16 @@ async def test_collect_targets_voice_channel():
 
 
 @pytest.mark.asyncio
-async def test_collect_targets_active_voice():
+async def test_collect_targets_active_voice() -> None:
     """Test collecting targets in active voice mode."""
     guild = Mock()
 
     member1 = Mock()
+    member1.id = 1
     member2 = Mock()
+    member2.id = 2
     member3 = Mock()
+    member3.id = 3
 
     # Mock voice channels
     vc1 = Mock()
@@ -128,14 +161,39 @@ async def test_collect_targets_active_voice():
 
     members = await collect_targets("active_voice", guild, None, None)
 
-    # Should get unique members from non-empty channels
-    assert len(members) == 3
-    assert member1 in members
-    assert member2 in members
-    assert member3 in members
+    # Should get unique members from non-empty channels in channel/member order
+    assert members == [member1, member2, member3]
 
 
-def test_status_row():
+@pytest.mark.asyncio
+async def test_collect_targets_active_voice_deduplicates_without_reordering() -> None:
+    """Members in multiple channels should keep their first-seen position."""
+    # Arrange
+    guild = Mock()
+
+    member1 = Mock()
+    member1.id = 1
+    member2 = Mock()
+    member2.id = 2
+    member3 = Mock()
+    member3.id = 3
+
+    vc1 = Mock()
+    vc1.members = [member2, member1]
+
+    vc2 = Mock()
+    vc2.members = [member1, member3]
+
+    guild.voice_channels = [vc1, vc2]
+
+    # Act
+    members = await collect_targets("active_voice", guild, None, None)
+
+    # Assert
+    assert members == [member2, member1, member3]
+
+
+def test_status_row() -> None:
     """Test StatusRow structure."""
     row = StatusRow(
         user_id=123,
@@ -154,7 +212,7 @@ def test_status_row():
     assert row.voice_channel == "General"
 
 
-def test_build_summary_embed():
+def test_build_summary_embed() -> None:
     """Test building the summary embed."""
     invoker = Mock()
     invoker.mention = "<@12345>"
@@ -188,8 +246,45 @@ def test_build_summary_embed():
     assert "**Unverified:** 1" in desc
 
 
+def test_build_summary_embed_sets_footer_when_details_are_truncated() -> None:
+    """Embed footer should surface when detail rows exceed the field budget."""
+    # Arrange
+    invoker = Mock()
+    invoker.mention = "<@12345>"
+    invoker.display_name = "TestAdmin"
+
+    rows = [
+        StatusRow(
+            index,
+            f"User{index}",
+            f"handle_{index}",
+            "main",
+            1609459200,
+            "General",
+        )
+        for index in range(1, 20)
+    ]
+
+    # Act
+    embed = build_summary_embed(
+        invoker=invoker,
+        members=[],  # type: ignore[arg-type]
+        rows=rows,
+        truncated_count=0,
+    )
+
+    # Assert
+    assert embed.footer.text is not None
+    assert "see CSV for full results" in embed.footer.text
+    assert embed.fields
+    detail_value = embed.fields[0].value
+    assert detail_value is not None
+    detail_lines = detail_value.split("\n")
+    assert len(detail_lines) < len(rows)
+
+
 @pytest.mark.asyncio
-async def test_write_csv():
+async def test_write_csv() -> None:
     """Test CSV writing functionality."""
     rows = [
         StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
@@ -222,7 +317,7 @@ async def test_write_csv():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_empty():
+async def test_write_csv_empty() -> None:
     """Test CSV writing with empty rows."""
     filename, content_bytes = await write_csv(
         [], guild_name="TestGuild", invoker_name="TestAdmin"
@@ -239,7 +334,7 @@ async def test_write_csv_empty():
     )
 
 
-def test_status_row_with_rsi_recheck():
+def test_status_row_with_rsi_recheck() -> None:
     """Test StatusRow with RSI recheck fields."""
     row = StatusRow(
         user_id=123,
@@ -263,7 +358,7 @@ def test_status_row_with_rsi_recheck():
     assert row.rsi_checked_at == 1609459300
 
 
-def test_build_summary_embed_with_rsi_recheck():
+def test_build_summary_embed_with_rsi_recheck() -> None:
     """Test building the summary embed with RSI recheck data."""
     invoker = Mock()
     invoker.mention = "<@12345>"
@@ -306,7 +401,7 @@ def test_build_summary_embed_with_rsi_recheck():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_with_rsi_recheck():
+async def test_write_csv_with_rsi_recheck() -> None:
     """Test CSV writing with RSI recheck data."""
     rows = [
         StatusRow(
@@ -372,7 +467,7 @@ async def test_write_csv_with_rsi_recheck():
 
 
 @pytest.mark.asyncio
-async def test_write_csv_with_org_data():
+async def test_write_csv_with_org_data() -> None:
     """Test CSV writing with organization data."""
     rows = [
         StatusRow(
@@ -427,7 +522,7 @@ async def test_write_csv_with_org_data():
     )
 
 
-def test_format_detail_line_without_rsi_recheck():
+def test_format_detail_line_without_rsi_recheck() -> None:
     """Test formatting a detail line without RSI recheck data."""
     row = StatusRow(
         user_id=123456789,
@@ -449,8 +544,8 @@ def test_format_detail_line_without_rsi_recheck():
     assert "RSI:" in detail_line  # RSI handle label still present
 
 
-def test_format_detail_line_with_rsi_recheck():
-    """Test formatting a detail line with RSI recheck data."""
+def test_format_detail_line_with_rsi_recheck() -> None:
+    """Test formatting a detail line with RSI recheck data showing status transition."""
     row = StatusRow(
         user_id=123456789,
         username="TestUser",
@@ -465,16 +560,16 @@ def test_format_detail_line_with_rsi_recheck():
 
     detail_line = _format_detail_line(row)
 
-    # Verify the enhanced format with RSI recheck
+    # Verify the transition format (DB status → effective RSI status)
     assert "<@123456789>" in detail_line
-    assert "DB: Verified/Main" in detail_line  # DB status
-    assert "RSI: Affiliate" in detail_line  # RSI status
+    assert "Verified/Main" in detail_line  # DB status shown in transition
+    assert "**Affiliate**" in detail_line  # Effective status bolded
     assert "Handle: test_handle" in detail_line
     assert "VC: General" in detail_line
     assert "RSI Checked:" in detail_line
 
 
-def test_format_detail_line_with_rsi_error():
+def test_format_detail_line_with_rsi_error() -> None:
     """Test formatting a detail line when RSI recheck fails."""
     row = StatusRow(
         user_id=123456789,
@@ -492,7 +587,107 @@ def test_format_detail_line_with_rsi_error():
 
     # Verify error case formatting
     assert "<@123456789>" in detail_line
-    assert "DB: Unverified" in detail_line
-    assert "RSI: Unverified" in detail_line
-    # Note: Error is in rsi_error field but not displayed in detail line
-    # It's available in CSV export
+    assert "Unverified" in detail_line
+    assert "\u26a0\ufe0f RSI error" in detail_line  # Error indicator shown
+
+
+# --- Regression tests for effective status and source-of-truth fixes ---
+
+
+def test_get_effective_status_prefers_rsi_on_success() -> None:
+    """Effective status should use rsi_status when available and no error."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="affiliate",
+        rsi_checked_at=2,
+        rsi_error=None,
+    )
+    assert _get_effective_status(row) == "affiliate"
+
+
+def test_get_effective_status_falls_back_on_error() -> None:
+    """Effective status should fall back to DB when RSI check had an error."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="non_member",
+        rsi_checked_at=2,
+        rsi_error="RSI fetch failed",
+    )
+    assert _get_effective_status(row) == "main"
+
+
+def test_get_effective_status_falls_back_when_no_rsi() -> None:
+    """Effective status should use DB when no RSI data present."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="h",
+        membership_status="affiliate",
+        last_updated=1,
+        voice_channel=None,
+    )
+    assert _get_effective_status(row) == "affiliate"
+
+
+def test_count_uses_effective_status_from_rsi() -> None:
+    """Summary counts must use live RSI status, not stale DB status."""
+    from helpers.bulk_check import _count_membership_statuses
+
+    rows = [
+        # DB says main, RSI says affiliate → should count as affiliate
+        StatusRow(1, "u1", "h1", "main", 1, None, "affiliate", 2, None),
+        # DB says affiliate, RSI says non_member → should count as non_member
+        StatusRow(2, "u2", "h2", "affiliate", 1, None, "non_member", 2, None),
+        # No RSI data → should count as DB status (main)
+        StatusRow(3, "u3", "h3", "main", 1, None),
+    ]
+
+    counts = _count_membership_statuses(rows)
+    assert counts["Verified/Main"] == 1  # User 3 (DB-only)
+    assert counts["Affiliate"] == 1  # User 1 (RSI effective)
+    assert counts["Non-Member"] == 1  # User 2 (RSI effective)
+
+
+def test_count_falls_back_to_db_on_rsi_error() -> None:
+    """Summary counts must fall back to DB status when RSI errored."""
+    from helpers.bulk_check import _count_membership_statuses
+
+    rows = [
+        StatusRow(1, "u1", "h1", "affiliate", 1, None, "non_member", 2, "fetch error"),
+    ]
+
+    counts = _count_membership_statuses(rows)
+    # RSI error → effective falls back to DB → affiliate
+    assert counts["Affiliate"] == 1
+    assert counts["Non-Member"] == 0
+
+
+def test_format_detail_line_unchanged_status() -> None:
+    """Detail line shows simple format when DB and RSI status match."""
+    row = StatusRow(
+        user_id=1,
+        username="u",
+        rsi_handle="handle",
+        membership_status="main",
+        last_updated=1,
+        voice_channel=None,
+        rsi_status="main",
+        rsi_checked_at=2,
+        rsi_error=None,
+    )
+
+    line = _format_detail_line(row)
+    assert "Verified/Main" in line
+    # No transition arrow when status unchanged
+    assert "\u2192" not in line
+    assert "**" not in line

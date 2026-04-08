@@ -48,6 +48,18 @@ def normalize_text(s: str | None) -> str:
     return re.sub(r"\s+", " ", s).strip().lower() if s else ""
 
 
+def _parse_html_document(html_content: str) -> BeautifulSoup:
+    """Parse raw HTML into a BeautifulSoup document."""
+    return BeautifulSoup(html_content, "lxml")
+
+
+def _get_soup(document: str | BeautifulSoup) -> BeautifulSoup:
+    """Return a parsed BeautifulSoup document, reusing existing parses when given."""
+    if isinstance(document, BeautifulSoup):
+        return document
+    return _parse_html_document(document)
+
+
 async def is_valid_rsi_handle(
     user_handle: str, http_client: HTTPClient, org_name: str, org_sid: str | None = None
 ) -> tuple[int | None, str | None, str | None, list[str], list[str]]:
@@ -88,9 +100,11 @@ async def is_valid_rsi_handle(
         logger.error(f"Failed to fetch organization data for handle: {user_handle}")
         return None, None, None, [], []
 
+    org_soup = _get_soup(org_html)
+
     # Parse organization SIDs (new format - do this first)
     try:
-        org_sids = parse_rsi_org_sids(org_html)
+        org_sids = parse_rsi_org_sids(org_soup)
         main_orgs = org_sids.get("main_orgs", [])
         affiliate_orgs = org_sids.get("affiliate_orgs", [])
     except Exception:
@@ -111,7 +125,7 @@ async def is_valid_rsi_handle(
     else:
         # Fall back to name-based verification for backward compatibility
         try:
-            org_data = parse_rsi_organizations(org_html, org_name)
+            org_data = parse_rsi_organizations(org_soup, org_name)
         except Exception:
             logger.exception(
                 f"Exception while parsing organization data for {user_handle}"
@@ -129,9 +143,11 @@ async def is_valid_rsi_handle(
         logger.error(f"Failed to fetch profile data for handle: {user_handle}")
         return verify_value, None, None, main_orgs, affiliate_orgs
 
+    profile_soup = _get_soup(profile_html)
+
     # Extract correctly cased handle
     try:
-        cased_handle = extract_handle(profile_html)
+        cased_handle = extract_handle(profile_soup)
         if cased_handle:
             logger.debug(f"Cased handle for {user_handle}: {cased_handle}")
         else:
@@ -142,7 +158,7 @@ async def is_valid_rsi_handle(
 
     # Extract community moniker
     try:
-        community_moniker = extract_moniker(profile_html, cased_handle)
+        community_moniker = extract_moniker(profile_soup, cased_handle)
         if community_moniker:
             logger.debug(
                 f"Extracted community moniker for {user_handle}: {community_moniker}"
@@ -161,18 +177,18 @@ async def is_valid_rsi_handle(
     return verify_value, cased_handle, community_moniker, main_orgs, affiliate_orgs
 
 
-def extract_handle(html_content: str) -> str | None:
+def extract_handle(html_content: str | BeautifulSoup) -> str | None:
     """
     Extracts the correctly cased handle from the RSI profile page.
 
     Args:
-        html_content (str): The HTML content of the RSI profile page.
+        html_content (str | BeautifulSoup): The profile HTML or parsed profile page.
 
     Returns:
         Optional[str]: The correctly cased handle, or None if not found.
     """
     logger.debug("Extracting cased handle from profile HTML.")
-    soup = BeautifulSoup(html_content, "lxml")
+    soup = _get_soup(html_content)
 
     if (
         handle_paragraph := soup.find(
@@ -201,7 +217,9 @@ def extract_handle(html_content: str) -> str | None:
     return None
 
 
-def extract_moniker(html_content: str, handle: str | None = None) -> str | None:
+def extract_moniker(
+    html_content: str | BeautifulSoup, handle: str | None = None
+) -> str | None:
     """Extract the community moniker (display name) from profile HTML.
 
     Strategy:
@@ -215,7 +233,7 @@ def extract_moniker(html_content: str, handle: str | None = None) -> str | None:
       5. If extracted moniker equals the handle (case-insensitive) or is empty
          after stripping, treat as None.
     """
-    soup = BeautifulSoup(html_content, "lxml")
+    soup = _get_soup(html_content)
     # Primary search region: all profile info entries (broad but ordered)
     entries = soup.select(".profile .info p.entry") or soup.find_all(
         "p", class_="entry"
@@ -277,12 +295,14 @@ def _sanitize_moniker(moniker: str) -> str:
     return cleaned.replace("\u200b", "").strip()
 
 
-def parse_rsi_organizations(html_content: str, target_org: str | None = None) -> dict:
+def parse_rsi_organizations(
+    html_content: str | BeautifulSoup, target_org: str | None = None
+) -> dict:
     """
     Parses the RSI organizations from the provided HTML content using robust selectors.
 
     Args:
-        html_content (str): The HTML content of the RSI organizations page.
+        html_content (str | BeautifulSoup): The organizations HTML or parsed page.
         target_org (str | None): Optional organization name for matched_status logging.
 
     Returns:
@@ -292,7 +312,7 @@ def parse_rsi_organizations(html_content: str, target_org: str | None = None) ->
         "Parsing RSI organizations from HTML content.",
         extra={"event": "rsi-parser.orgs"},
     )
-    soup = BeautifulSoup(html_content, "lxml")
+    soup = _get_soup(html_content)
 
     main_org = None
     affiliates = []
@@ -379,7 +399,7 @@ def parse_rsi_organizations(html_content: str, target_org: str | None = None) ->
     return result
 
 
-def parse_rsi_org_sids(html_content: str) -> dict:
+def parse_rsi_org_sids(html_content: str | BeautifulSoup) -> dict:
     """
     Parses RSI organization SIDs from the HTML content.
 
@@ -387,7 +407,7 @@ def parse_rsi_org_sids(html_content: str) -> dict:
     organizations. Hidden/redacted organizations will have "REDACTED" as their SID.
 
     Args:
-        html_content (str): The HTML content of the RSI organizations page.
+        html_content (str | BeautifulSoup): The organizations HTML or parsed page.
 
     Returns:
         dict: Dictionary with 'main_orgs' list (0 or 1 items) and 'affiliate_orgs' list.
@@ -397,7 +417,7 @@ def parse_rsi_org_sids(html_content: str) -> dict:
         "Parsing RSI organization SIDs from HTML content.",
         extra={"event": "rsi-parser.org-sids"},
     )
-    soup = BeautifulSoup(html_content, "lxml")
+    soup = _get_soup(html_content)
 
     main_orgs = []
     affiliate_orgs = []
@@ -413,22 +433,29 @@ def parse_rsi_org_sids(html_content: str) -> dict:
             main_orgs.append("REDACTED")
             logger.debug("Main organization is redacted/hidden")
         else:
-            # Try to find SID in the info section
-            sid_entry = main_org_div.select_one("p.entry:has(span.label)")
-            if sid_entry:
+            # Try to find SID in the info section — iterate ALL entries,
+            # not just the first, because label order may vary.
+            sid_entries = main_org_div.select("p.entry")
+            main_sid_found = False
+            for sid_entry in sid_entries:
                 label = sid_entry.select_one("span.label")
-                if label and "Spectrum Identification" in label.get_text():
-                    sid_value = sid_entry.select_one("strong.value")
-                    if sid_value:
-                        sid = sid_value.get_text(strip=True)
-                        if sid:
-                            main_orgs.append(sid)
-                            logger.debug(f"Main organization SID: {sid}")
-                        else:
-                            main_orgs.append("REDACTED")
-                            logger.debug(
-                                "Main organization SID is empty, treating as REDACTED"
-                            )
+                if label:
+                    label_text = label.get_text(strip=True)
+                    if "Spectrum" in label_text or "SID" in label_text:
+                        sid_value = sid_entry.select_one("strong.value")
+                        if sid_value:
+                            sid = sid_value.get_text(strip=True)
+                            if sid and sid not in ("\xa0", ""):
+                                main_orgs.append(sid)
+                                logger.debug("Main organization SID: %s", sid)
+                                main_sid_found = True
+                                break
+
+            if not main_sid_found and sid_entries:
+                main_orgs.append("REDACTED")
+                logger.debug(
+                    "Main organization SID not found in entries, treating as REDACTED"
+                )
 
     # Parse affiliate organization SIDs
     affiliate_divs = soup.select(".box-content.org.affiliation")
@@ -455,12 +482,10 @@ def parse_rsi_org_sids(html_content: str) -> dict:
                         sid_value = entry.select_one("strong.value")
                         if sid_value:
                             sid = sid_value.get_text(strip=True)
-                            if sid and sid not in [
-                                "\xa0",
-                                "",
-                            ]:  # Filter out nbsp and empty
+                            # Filter out nbsp, empty, and whitespace-only values
+                            if sid and sid not in ("\xa0", "") and sid.strip():
                                 affiliate_orgs.append(sid)
-                                logger.debug(f"Affiliate organization SID: {sid}")
+                                logger.debug("Affiliate organization SID: %s", sid)
                                 sid_found = True
                                 break
 

@@ -2,6 +2,7 @@
 Tests for authentication endpoints.
 """
 
+import httpx
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -252,6 +253,88 @@ async def test_select_guild_allows_when_internal_api_empty(
     )
 
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_guilds_falls_back_to_session_when_internal_api_unavailable(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+) -> None:
+    """Guild list should remain available from the session during internal API outages."""
+
+    async def raise_request_error(*args, **kwargs) -> list[dict]:
+        request = httpx.Request("GET", "http://test/internal")
+        raise httpx.RequestError("internal api unavailable", request=request)
+
+    fake_internal_api.get_guilds = raise_request_error
+    fake_internal_api.get_guild_member = raise_request_error
+
+    response = await client.get(
+        "/api/auth/guilds?force_refresh=1",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert [guild["guild_id"] for guild in data["guilds"]] == ["123", "1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_select_guild_uses_session_guilds_when_internal_api_unavailable(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+) -> None:
+    """Guild selection should continue to work for already-authorized guilds."""
+
+    async def raise_request_error(*args, **kwargs) -> list[dict]:
+        request = httpx.Request("GET", "http://test/internal")
+        raise httpx.RequestError("internal api unavailable", request=request)
+
+    fake_internal_api.get_guilds = raise_request_error
+    fake_internal_api.get_guild_member = raise_request_error
+
+    response = await client.post(
+        "/api/auth/select-guild",
+        json={"guild_id": "123"},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 200
+    new_session = response.cookies.get("session")
+    assert new_session
+
+    decoded = await decode_session_token(new_session)
+    assert decoded is not None
+    assert decoded["active_guild_id"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_get_guilds_revokes_access_on_role_mismatch(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+) -> None:
+    """Live role mismatches should still revoke stale session access."""
+
+    async def mismatched_member(guild_id: int, user_id: int) -> dict:
+        return {
+            "user_id": user_id,
+            "role_ids": ["not-a-valid-role"],
+            "source": "discord",
+        }
+
+    fake_internal_api.get_guild_member = mismatched_member
+
+    response = await client.get(
+        "/api/auth/guilds?force_refresh=1",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "role_revoked"
 
 
 @pytest.mark.asyncio

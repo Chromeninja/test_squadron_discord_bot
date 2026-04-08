@@ -57,16 +57,22 @@ MENTION_RE = re.compile(r"<@!?(?P<id>\d+)>|(?P<raw>\d{15,20})")
 
 async def parse_members_text(guild: discord.Guild, text: str) -> list[discord.Member]:
     """Parse multiple mentions/IDs from a single string; dedupe; return members present in guild."""
-    member_ids = set()
+    member_ids: list[int] = []
+    seen_ids: set[int] = set()
 
     # Extract all user IDs from mentions and raw numbers
     for match in MENTION_RE.finditer(text):
+        user_id: int | None = None
         if match.group("id"):
-            member_ids.add(int(match.group("id")))
+            user_id = int(match.group("id"))
         elif match.group("raw"):
-            member_ids.add(int(match.group("raw")))
+            user_id = int(match.group("raw"))
 
-    members = []
+        if user_id is not None and user_id not in seen_ids:
+            seen_ids.add(user_id)
+            member_ids.append(user_id)
+
+    members: list[discord.Member] = []
     for user_id in member_ids:
         try:
             # Try to get member from cache first
@@ -130,11 +136,16 @@ async def collect_targets(
 
     elif targets == "active_voice":
         # Collect all members from all non-empty voice channels
-        all_members = set()
+        all_members: list[discord.Member] = []
+        seen_ids: set[int] = set()
         for voice_channel in guild.voice_channels:
             if voice_channel.members:  # Skip empty channels
-                all_members.update(voice_channel.members)
-        return list(all_members)
+                for member in voice_channel.members:
+                    if member.id in seen_ids:
+                        continue
+                    seen_ids.add(member.id)
+                    all_members.append(member)
+        return all_members
 
     else:
         return []
@@ -236,8 +247,23 @@ async def fetch_status_rows(
     return status_rows
 
 
+def _get_effective_status(row: StatusRow) -> str | None:
+    """Return the effective membership status for a row.
+
+    When live RSI data is available and represents a successful check
+    (no error), prefer it over the stale DB status. This ensures
+    summary counts and detail lines reflect the *post-check* truth.
+    """
+    if row.rsi_status is not None and row.rsi_error is None:
+        return row.rsi_status
+    return row.membership_status
+
+
 def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
-    """Count rows by membership status category."""
+    """Count rows by effective membership status category.
+
+    Uses live RSI status when available, falling back to DB status.
+    """
     counts = {
         "Verified/Main": 0,
         "Affiliate": 0,
@@ -247,13 +273,14 @@ def _count_membership_statuses(rows: list[StatusRow]) -> dict[str, int]:
     }
 
     for row in rows:
-        if row.membership_status == "main":
+        effective = _get_effective_status(row)
+        if effective == "main":
             counts["Verified/Main"] += 1
-        elif row.membership_status == "affiliate":
+        elif effective == "affiliate":
             counts["Affiliate"] += 1
-        elif row.membership_status == "non_member":
+        elif effective == "non_member":
             counts["Non-Member"] += 1
-        elif row.membership_status in ("unknown", "unverified"):
+        elif effective in ("unknown", "unverified"):
             counts["Unverified"] += 1
         else:
             counts["Not in DB"] += 1
@@ -282,7 +309,7 @@ def _truncate_text(text: str, max_length: int = 20) -> str:
 
 def _format_timestamp(timestamp: int | None) -> str:
     """Format Unix timestamp for Discord display."""
-    if timestamp and timestamp > 0:
+    if timestamp is not None and timestamp > 0:
         return f"<t:{timestamp}:R>"
     return "Never"
 
@@ -320,20 +347,39 @@ def _build_description_lines(
 
 def _format_detail_line(row: StatusRow) -> str:
     """Format a single row into a detail line for the embed."""
-    status = _format_status_display(row.membership_status or "unknown")
     rsi_display = _truncate_text(row.rsi_handle or "—")
     vc_display = _truncate_text(row.voice_channel or "—")
     updated_display = _format_timestamp(row.last_updated)
 
     # If no RSI recheck data, return DB-only format
     if row.rsi_status is None:
+        status = _format_status_display(row.membership_status or "unknown")
         return f"• <@{row.user_id}> — {status} | RSI: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
 
-    # Include RSI recheck data
-    rsi_status_display = _format_status_display(row.rsi_status)
+    # Show effective status with DB→RSI transition when they differ
+    effective = _get_effective_status(row)
+    effective_display = _format_status_display(effective or "unknown")
+    db_status = _format_status_display(row.membership_status or "unknown")
+    rsi_status_display = _format_status_display(row.rsi_status or "unknown")
     rsi_checked_display = _format_timestamp(row.rsi_checked_at)
+
+    if row.rsi_error:
+        # RSI check failed — show DB status with error note
+        return (
+            f"• <@{row.user_id}> — {db_status} ⚠️ RSI error | "
+            f"Handle: {rsi_display} | VC: {vc_display} | Updated: {updated_display}"
+        )
+
+    if db_status != rsi_status_display:
+        # Status changed — show transition
+        return (
+            f"• <@{row.user_id}> — {db_status} → **{effective_display}** | "
+            f"Handle: {rsi_display} | VC: {vc_display} | RSI Checked: {rsi_checked_display}"
+        )
+
+    # Status unchanged
     return (
-        f"• <@{row.user_id}> — DB: {status} → RSI: {rsi_status_display} | "
+        f"• <@{row.user_id}> — {effective_display} | "
         f"Handle: {rsi_display} | VC: {vc_display} | RSI Checked: {rsi_checked_display}"
     )
 

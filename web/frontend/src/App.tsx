@@ -1,14 +1,24 @@
+import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { DashboardShell } from './components/layout/DashboardShell';
 import { useAuth } from './contexts/AuthContext';
-import Dashboard from './pages/Dashboard';
-import Users from './pages/Users';
-import Voice from './pages/Voice';
-import Metrics from './pages/Metrics';
-import SelectServer from './pages/SelectServer';
-import DashboardBotSettings from './pages/DashboardBotSettings';
-import Tickets from './pages/Tickets';
 import { hasPermission as hasPermissionFn } from './utils/permissions';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Users = lazy(() => import('./pages/Users'));
+const Voice = lazy(() => import('./pages/Voice'));
+const Metrics = lazy(() => import('./pages/Metrics'));
+const SelectServer = lazy(() => import('./pages/SelectServer'));
+const DashboardBotSettings = lazy(() => import('./pages/DashboardBotSettings'));
+const Tickets = lazy(() => import('./pages/Tickets'));
+
+function PageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-xl">Loading...</div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Route guards
@@ -110,68 +120,74 @@ function App() {
 
   // ---- No guild selected ----
   if (!user.active_guild_id) {
-    return <SelectServer onSelected={refreshProfile} user={user} />;
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <SelectServer onSelected={refreshProfile} user={user} />
+      </Suspense>
+    );
   }
 
   // ---- Authenticated + guild selected → routed shell ----
   return (
-    <Routes>
-      <Route
-        element={
-          <DashboardShell
-            user={user}
-            onUserChange={setUser}
-            onRefreshProfile={refreshProfile}
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route
+          element={
+            <DashboardShell
+              user={user}
+              onUserChange={setUser}
+              onRefreshProfile={refreshProfile}
+            />
+          }
+        >
+          {/* Dashboard (index route) */}
+          <Route index element={<Dashboard />} />
+
+          {/* Metrics — discord_manager+ */}
+          <Route
+            path="metrics"
+            element={
+              <RequireRole minRole="discord_manager">
+                <Metrics />
+              </RequireRole>
+            }
           />
-        }
-      >
-        {/* Dashboard (index route) */}
-        <Route index element={<Dashboard />} />
 
-        {/* Metrics — discord_manager+ */}
-        <Route
-          path="metrics"
-          element={
-            <RequireRole minRole="discord_manager">
-              <Metrics />
-            </RequireRole>
-          }
-        />
+          {/* Users */}
+          <Route path="users" element={<Users />} />
 
-        {/* Users */}
-        <Route path="users" element={<Users />} />
+          {/* Voice */}
+          <Route path="voice" element={<Voice />} />
 
-        {/* Voice */}
-        <Route path="voice" element={<Voice />} />
+          {/* Tickets — discord_manager+ and needs guildId */}
+          <Route
+            path="tickets"
+            element={
+              <RequireRole minRole="discord_manager">
+                <RequireGuild>
+                  {(guildId) => <Tickets guildId={guildId} />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
 
-        {/* Tickets — discord_manager+ and needs guildId */}
-        <Route
-          path="tickets"
-          element={
-            <RequireRole minRole="discord_manager">
-              <RequireGuild>
-                {(guildId) => <Tickets guildId={guildId} />}
-              </RequireGuild>
-            </RequireRole>
-          }
-        />
+          {/* Bot Settings — bot_admin+ and needs guildId */}
+          <Route
+            path="settings"
+            element={
+              <RequireRole minRole="bot_admin">
+                <RequireGuild>
+                  {(guildId) => <DashboardBotSettings guildId={guildId} />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
 
-        {/* Bot Settings — bot_admin+ and needs guildId */}
-        <Route
-          path="settings"
-          element={
-            <RequireRole minRole="bot_admin">
-              <RequireGuild>
-                {(guildId) => <DashboardBotSettings guildId={guildId} />}
-              </RequireGuild>
-            </RequireRole>
-          }
-        />
-
-        {/* Catch-all → redirect to dashboard */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+          {/* Catch-all → redirect to dashboard */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
 

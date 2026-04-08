@@ -9,121 +9,19 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 import pytest_asyncio
 
-from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
-
-
-class MockVoiceChannel:
-    """Mock Discord voice channel."""
-
-    def __init__(
-        self,
-        channel_id: int,
-        name: str = "test-channel",
-        members: list | None = None,
-        category=None,
-        guild=None,
-    ):
-        self.id = channel_id
-        self.name = name
-        self.members = members or []
-        self.category = category or MagicMock()
-        self.guild = guild or MagicMock()
-        self.guild.id = 12345
-        if not hasattr(self.guild, "get_member"):
-            self.guild.get_member = MagicMock(return_value=None)
-        self.user_limit = 0
-        self.bitrate = 64000
-        self.overwrites = {}
-        self.mention = f"<#{channel_id}>"
-
-    async def delete(self, reason: str | None = None):
-        """Mock channel deletion."""
-        pass
-
-    async def edit(self, **kwargs):
-        """Mock channel edit operation."""
-        overwrites = kwargs.get("overwrites")
-        if overwrites is not None:
-            self.overwrites = overwrites
-
-
-class MockMember:
-    """Mock Discord member."""
-
-    def __init__(self, user_id: int, display_name: str = "TestUser"):
-        self.id = user_id
-        self.display_name = display_name
-        self.voice = MagicMock()
-        self.voice.channel = None
-        self.top_role = MagicMock()
-        self.top_role.name = "member"
-
-    async def move_to(self, channel):
-        """Mock member move."""
-        pass
-
-    async def send(self, message: str):
-        """Mock sending DM to member."""
-        pass
-
-
-class MockGuild:
-    """Mock Discord guild."""
-
-    def __init__(self, guild_id: int = 12345):
-        self.id = guild_id
-        self.name = "Test Guild"
-
-    def get_channel(self, channel_id: int):
-        """Mock get_channel method."""
-        return None
-
-    def get_member(self, user_id: int):
-        """Mock get_member method."""
-        return None
-
-    async def create_voice_channel(self, name: str, category=None, **kwargs):
-        """Mock voice channel creation."""
-        return MockVoiceChannel(channel_id=99999, name=name, category=category)
-
-
-class MockBot:
-    """Mock Discord bot."""
-
-    def __init__(self):
-        self._channels = {}
-        self.guilds = []
-        self.user = MagicMock()
-        self.user.id = 12345
-
-    async def wait_until_ready(self):
-        """Mock wait_until_ready method."""
-        pass
-
-    def get_guild(self, guild_id: int):
-        """Get mock guild by ID."""
-        return None
-
-    def get_channel(self, channel_id: int):
-        """Get mock channel by ID."""
-        return self._channels.get(channel_id)
-
-    async def fetch_channel(self, channel_id: int):
-        """Fetch mock channel by ID (async version)."""
-        return self._channels.get(channel_id)
-
-    def add_channel(self, channel: MockVoiceChannel):
-        """Add mock channel."""
-        self._channels[channel.id] = channel
-
-    def remove_channel(self, channel_id: int):
-        """Remove mock channel."""
-        self._channels.pop(channel_id, None)
+from tests.voice_test_helpers import (
+    MockGuild,
+    MockMember,
+    MockVoiceChannel,
+    create_voice_service_with_bot,
+    shutdown_voice_service_with_bot,
+)
 
 
 class TestMultipleChannelsPerOwner:
@@ -132,17 +30,13 @@ class TestMultipleChannelsPerOwner:
     @pytest_asyncio.fixture
     async def voice_service_with_bot(self, temp_db):
         """Create voice service with mock bot for testing."""
-        config_service = ConfigService()
-        await config_service.initialize()
-
-        mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot, test_mode=True)  # type: ignore[arg-type]
-        await voice_service.initialize()
+        voice_service, mock_bot, config_service = await create_voice_service_with_bot(
+            test_mode=True
+        )
 
         yield voice_service, mock_bot
 
-        await voice_service.shutdown()
-        await config_service.shutdown()
+        await shutdown_voice_service_with_bot(voice_service, config_service)
 
     @pytest.mark.asyncio
     async def test_jtc_join_creates_new_channel_when_user_has_existing_active_channel(
@@ -198,9 +92,10 @@ class TestMultipleChannelsPerOwner:
         # Mock guild methods
         guild.get_member = MagicMock(return_value=bot_member)
 
-        # Mock category permissions
-        jtc_channel.category.permissions_for = MagicMock()
-        jtc_channel.category.permissions_for.return_value.manage_channels = True
+        # Mock category permissions — use real Permissions so _sanitize_overwrite works
+        jtc_channel.category.permissions_for = MagicMock(
+            return_value=discord.Permissions.all()
+        )
 
         # Mock channel creation
         new_channel = MockVoiceChannel(channel_id=77777, name="TestUser's Channel")

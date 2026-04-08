@@ -9,88 +9,25 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from services.config_service import ConfigService
 from services.db.database import Database
-from services.voice_service import VoiceService
-
-
-class MockVoiceChannel:
-    """Mock Discord voice channel."""
-
-    def __init__(self, channel_id: int, name: str = "test-channel", members=None):
-        self.id = channel_id
-        self.name = name
-        self.members = members or []
-        self.guild = MagicMock()
-        self.guild.id = 12345
-        self.guild.get_member = MagicMock(return_value=None)
-        self.category = MagicMock()
-        self.category.id = 77777
-        self.category.name = "Voice Category"
-        self.category.create_voice_channel = AsyncMock()
-        self.delete = AsyncMock()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-
-class MockBot:
-    """Mock Discord bot."""
-
-    def __init__(self):
-        self.channels_map = {}
-        self.user = MagicMock()
-        self.user.id = 999999
-
-    def add_channel(self, channel: MockVoiceChannel):
-        """Add a channel to the bot."""
-        self.channels_map[channel.id] = channel
-
-    def get_channel(self, channel_id: int) -> MockVoiceChannel | None:
-        """Get a channel by ID."""
-        return self.channels_map.get(channel_id)
+from tests.voice_test_helpers import (
+    MockVoiceChannel,
+    create_voice_service_with_bot,
+    shutdown_voice_service_with_bot,
+)
 
 
 class TestJTCManagement:
     """Tests for JTC channel management functionality."""
 
     @pytest_asyncio.fixture
-    async def temp_db(self, tmp_path):
-        """Initialize Database to a temporary file."""
-        db_path = tmp_path / "test_jtc.db"
-
-        # Save original state
-        original_db_path = Database._db_path
-        was_initialized = Database._initialized
-
-        # Initialize test database
-        Database._initialized = False
-        Database._db_path = str(db_path)
-        await Database.initialize(str(db_path))
-
-        yield str(db_path)
-
-        # Restore original state
-        Database._initialized = was_initialized
-        Database._db_path = original_db_path
-
-    @pytest_asyncio.fixture
     async def voice_service_with_bot(self, temp_db):
         """Create voice service with mock bot for testing."""
-        config_service = ConfigService()
-        await config_service.initialize()
-
-        mock_bot = MockBot()
-        voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
-        await voice_service.initialize()
+        voice_service, mock_bot, config_service = await create_voice_service_with_bot()
 
         yield voice_service, mock_bot
 
-        await voice_service.shutdown()
-        await config_service.shutdown()
+        await shutdown_voice_service_with_bot(voice_service, config_service)
 
     @pytest.mark.asyncio
     async def test_add_jtc_channel_success(self, voice_service_with_bot):
@@ -299,11 +236,17 @@ class TestJTCManagement:
         # Create a valid category
         category = MagicMock()
         category.guild = MagicMock()
-        category.guild.get_member = MagicMock(return_value=MagicMock())
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
 
         # Create mock permissions
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = True
+        mock_perms.manage_roles = True
 
         # Mock the permissions_for method
         category.permissions_for = MagicMock(return_value=mock_perms)
@@ -324,12 +267,18 @@ class TestJTCManagement:
         # Create category
         category = MagicMock()
         category.guild = MagicMock()
-        category.guild.get_member = MagicMock(return_value=MagicMock())
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
         category.name = "Test Category"
 
         # Create mock permissions without manage_channels
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = False
+        mock_perms.manage_roles = True
 
         category.permissions_for = MagicMock(return_value=mock_perms)
 
@@ -351,13 +300,17 @@ class TestJTCManagement:
         category = MagicMock()
         category.guild = MagicMock()
         category.guild.id = guild_id
-        category.guild.get_member = MagicMock(
-            return_value=MagicMock()
-        )  # Bot member exists
+        bot_member = MagicMock()
+        guild_perms = MagicMock()
+        guild_perms.move_members = True
+        bot_member.guild_permissions = guild_perms
+        category.guild.get_member = MagicMock(return_value=bot_member)
 
         # Mock permissions
         mock_perms = MagicMock()
+        mock_perms.view_channel = True
         mock_perms.manage_channels = True
+        mock_perms.manage_roles = True
         category.permissions_for = MagicMock(return_value=mock_perms)
 
         # Mock channel creation

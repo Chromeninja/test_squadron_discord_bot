@@ -4,32 +4,25 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 
-from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
-
-# Reuse lightweight mocks similar to other test modules
-from tests.test_voice_multiple_channels import (
+from tests.voice_test_helpers import (
     MockBot,
     MockGuild,
     MockMember,
     MockVoiceChannel,
+    create_voice_service_with_bot,
+    shutdown_voice_service_with_bot,
 )
 
 
 @pytest_asyncio.fixture
 async def voice_service_with_bot(temp_db):
-    config_service = ConfigService()
-    await config_service.initialize()
-
-    mock_bot = MockBot()
-    voice_service = VoiceService(config_service, bot=mock_bot)  # type: ignore[arg-type]
-    await voice_service.initialize()
+    voice_service, mock_bot, config_service = await create_voice_service_with_bot()
 
     yield voice_service, mock_bot
 
-    await voice_service.shutdown()
-    await config_service.shutdown()
+    await shutdown_voice_service_with_bot(voice_service, config_service)
 
 
 @pytest.mark.asyncio

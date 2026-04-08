@@ -275,8 +275,20 @@ async def compute_global_state(
 
 
 async def store_global_state(state: GlobalVerificationState) -> None:
-    """Persist global verification state to the database."""
+    """Persist global verification state to the database.
+
+    Raises:
+        ValueError: If the RSI handle is already claimed by another user.
+        RuntimeError: If the state has an error (callers should use
+            handle_recheck_failure for error states instead).
+    """
     from services.db.database import Database
+
+    if state.error:
+        raise RuntimeError(
+            f"Refusing to persist error state for user {state.user_id}: {state.error}. "
+            "Use handle_recheck_failure() for error states."
+        )
 
     conflict = await Database.check_rsi_handle_conflict(state.rsi_handle, state.user_id)
     if conflict:

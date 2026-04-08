@@ -288,3 +288,32 @@ async def test_is_valid_rsi_handle_org_parse_exception(monkeypatch) -> None:
     assert moniker is None
     assert main_orgs == []
     assert affiliate_orgs == []
+
+
+@pytest.mark.asyncio
+async def test_is_valid_rsi_handle_reuses_parsed_documents(monkeypatch) -> None:
+    """Profile and organization pages should each be parsed once per validation."""
+    http = FakeHTTP(
+        {
+            "https://robertsspaceindustries.com/citizens/TestUser/organizations": ORG_HTML,
+            "https://robertsspaceindustries.com/citizens/TestUser": PROFILE_HTML,
+        }
+    )
+
+    parse_inputs: list[str] = []
+    original_parser = rv._parse_html_document
+
+    def counting_parser(html_content: str):
+        parse_inputs.append(html_content)
+        return original_parser(html_content)
+
+    monkeypatch.setattr(rv, "_parse_html_document", counting_parser)
+
+    result = await rv.is_valid_rsi_handle(
+        "TestUser",
+        http,  # type: ignore[arg-type]
+        "test squadron - best squardon!",
+    )
+
+    assert result[0] == 1
+    assert parse_inputs == [ORG_HTML, PROFILE_HTML]

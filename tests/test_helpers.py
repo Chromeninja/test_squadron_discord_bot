@@ -1,51 +1,56 @@
-"""Test helper classes for bot tests."""
+"""Compatibility helpers for older bot tests.
+
+Prefer importing richer fakes from tests.factories for new tests.
+"""
+
+from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
+
+from tests.factories.discord_factories import (
+    FakeFollowup as _FactoryFakeFollowup,
+    FakeResponse as _FactoryFakeResponse,
+    FakeUser as _FactoryFakeUser,
+)
 
 
-class FakeUser:
-    def __init__(self, user_id=1, display_name="User") -> None:  # minimal interface
-        self.id = user_id
-        self.display_name = display_name
+class FakeUser(_FactoryFakeUser):
+    """Backward-compatible fake user with the older constructor shape."""
+
+    def __init__(self, user_id: int = 1, display_name: str = "User") -> None:
+        super().__init__(
+            user_id=user_id,
+            name=display_name,
+            display_name=display_name,
+        )
         self.mention = f"@{display_name}"
 
-    # Used by some code paths that DM; keep as no-op/mocked in tests
-    async def send(self, *args, **kwargs) -> None:
-        return None
+
+class FakeResponse(_FactoryFakeResponse):
+    """Re-export the shared fake response implementation."""
 
 
-class FakeResponse:
-    def __init__(self) -> None:
-        self._is_done = False
-        self.sent_modal = None
+class FakeFollowup(_FactoryFakeFollowup):
+    """Re-export the shared fake followup implementation."""
 
-    def is_done(self) -> bool:
-        return self._is_done
-
-    async def send_message(self, *args, **kwargs) -> None:
-        self._is_done = True
-
-    async def defer(self, *args, **kwargs) -> None:
-        self._is_done = True
-
-    async def send_modal(self, modal) -> None:
-        self._is_done = True
-        self.sent_modal = modal
-
-
-class FakeFollowup:
-    async def send(self, *args, **kwargs) -> None:
-        return None
+    async def send(self, *args: Any, **kwargs: Any) -> None:
+        await super().send(*args, **kwargs)
 
 
 class FakeInteraction:
-    def __init__(self, user=None) -> None:
+    """Backward-compatible minimal interaction wrapper for legacy tests."""
+
+    def __init__(self, user: FakeUser | None = None) -> None:
         self.user = user or FakeUser()
         self.response = FakeResponse()
         self.followup = FakeFollowup()
         self.guild = SimpleNamespace(id=123, name="TestGuild")
+        self.channel = None
+        self.channel_id = None
+        self.token = "fake_interaction_token"
 
-        async def _edit(**kwargs) -> None:
+        async def _edit(**kwargs: Any) -> None:
             return None
 
         self.message = SimpleNamespace(edit=_edit)

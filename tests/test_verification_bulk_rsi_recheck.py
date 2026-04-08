@@ -1,13 +1,19 @@
 # tests/test_verification_bulk_rsi_recheck.py
 """Tests for bulk verification RSI recheck using the unified pipeline."""
 
+import asyncio
 import time
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
+import discord
 import pytest
 
 from helpers.bulk_check import StatusRow
+from services.verification_bulk_service import (
+    BulkVerificationJob,
+    VerificationBulkService,
+)
 from services.verification_state import GlobalVerificationState, VerificationStatus
 
 
@@ -329,6 +335,176 @@ async def test_perform_rsi_recheck_with_error_in_state():
 
 
 @pytest.mark.asyncio
+async def test_fetch_batch_members_fetches_cache_misses_concurrently() -> None:
+    """Cache misses should fetch concurrently within the batch."""
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    guild = Mock(spec=discord.Guild)
+    guild.get_member.return_value = None
+
+    started_fetches: list[int] = []
+    all_started = asyncio.Event()
+
+    async def fetch_member(member_id: int) -> Mock:
+        started_fetches.append(member_id)
+        if len(started_fetches) == 2:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=0.1)
+        member = Mock(spec=discord.Member)
+        member.id = member_id
+        return member
+
+    guild.fetch_member = AsyncMock(side_effect=fetch_member)
+    job = BulkVerificationJob(
+        job_id=1,
+        guild_id=123,
+        target_member_ids=[1, 2],
+        invoker_id=999,
+        interaction=Mock(),
+        scope_label="specific users",
+    )
+
+    members = await service._fetch_batch_members(job, guild, [1, 2])
+
+    assert [member.id for member in members] == [1, 2]
+    assert started_fetches == [1, 2]
+    assert job.errors == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_batch_members_respects_configured_concurrency() -> None:
+    """Configured member fetch concurrency should cap parallel API calls."""
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {"auto_recheck": {"batch": {"member_fetch_concurrency": 1}}}
+    service = VerificationBulkService(bot)
+
+    guild = Mock(spec=discord.Guild)
+    guild.get_member.return_value = None
+
+    active_fetches = 0
+    max_active_fetches = 0
+
+    async def fetch_member(member_id: int) -> Mock:
+        nonlocal active_fetches, max_active_fetches
+        active_fetches += 1
+        max_active_fetches = max(max_active_fetches, active_fetches)
+        await asyncio.sleep(0)
+        active_fetches -= 1
+        member = Mock(spec=discord.Member)
+        member.id = member_id
+        return member
+
+    guild.fetch_member = AsyncMock(side_effect=fetch_member)
+    job = BulkVerificationJob(
+        job_id=1,
+        guild_id=123,
+        target_member_ids=[1, 2],
+        invoker_id=999,
+        interaction=Mock(),
+        scope_label="specific users",
+    )
+
+    members = await service._fetch_batch_members(job, guild, [1, 2])
+
+    assert [member.id for member in members] == [1, 2]
+    assert max_active_fetches == 1
+
+
+def test_get_batch_size_clamps_invalid_values() -> None:
+    """Batch size config should always resolve to a positive integer."""
+    bot = Mock()
+    bot.config = {"auto_recheck": {"batch": {"max_users_per_run": 0}}}
+    service = VerificationBulkService(bot)
+
+    assert service._get_batch_size() == 1
+
+    bot.config = {"auto_recheck": {"batch": {"max_users_per_run": "bad"}}}
+    assert service._get_batch_size() == 50
+
+
+def test_get_member_fetch_concurrency_uses_safe_config() -> None:
+    """Member fetch concurrency should read config and clamp invalid values."""
+    bot = Mock()
+    bot.config = {"auto_recheck": {"batch": {"member_fetch_concurrency": 3}}}
+    service = VerificationBulkService(bot)
+
+    assert service._get_member_fetch_concurrency() == 3
+
+    bot.config = {"auto_recheck": {"batch": {"member_fetch_concurrency": -5}}}
+    assert service._get_member_fetch_concurrency() == 1
+
+
+@pytest.mark.asyncio
+async def test_enqueue_manual_records_queue_position_ahead() -> None:
+    """Queued jobs should remember how many other jobs were already waiting."""
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    existing_job = BulkVerificationJob(
+        job_id=999,
+        guild_id=123,
+        target_member_ids=[10],
+        invoker_id=1,
+        interaction=Mock(),
+        scope_label="specific users",
+    )
+    await service.queue.put(existing_job)
+
+    interaction = Mock(spec=discord.Interaction)
+    interaction.guild_id = 123
+    interaction.guild = None
+    interaction.user = Mock()
+    interaction.user.id = 42
+
+    member = Mock(spec=discord.Member)
+    member.id = 100
+
+    await service.enqueue_manual(interaction, [member], "specific users")
+
+    await service.queue.get()
+    queued_job = await service.queue.get()
+    assert queued_job.queued_ahead == 1
+
+
+@pytest.mark.asyncio
+async def test_notify_job_start_uses_recorded_queue_position() -> None:
+    """Start notification should report the original queue position, not live qsize."""
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    guild = Mock(spec=discord.Guild)
+    bot.get_guild.return_value = guild
+    service = VerificationBulkService(bot)
+
+    interaction = Mock(spec=discord.Interaction)
+    interaction.followup.send = AsyncMock()
+
+    job = BulkVerificationJob(
+        job_id=1,
+        guild_id=123,
+        target_member_ids=[1, 2, 3],
+        invoker_id=999,
+        interaction=interaction,
+        scope_label="specific users",
+        queued_ahead=2,
+    )
+
+    result = await service._notify_job_start(job)
+
+    assert result is guild
+    interaction.followup.send.assert_awaited_once_with(
+        "⏳ Processing started (queued behind 2 other job(s)). Checking 3 users...",
+        ephemeral=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_perform_rsi_recheck_partial_failures():
     """Test that partial failures don't affect successful checks."""
     from helpers.http_helper import NotFoundError
@@ -381,3 +557,241 @@ async def test_perform_rsi_recheck_partial_failures():
     assert result_rows[2].rsi_error is None
     assert result_rows[3].rsi_status == "unknown"
     assert "Timeout" in result_rows[3].rsi_error
+
+
+# ---------------------------------------------------------------------------
+# Guild sync integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_guild_sync_called_on_successful_recheck() -> None:
+    """Verify sync_user_to_all_guilds is called when compute succeeds (no error)."""
+    from services.verification_bulk_service import VerificationBulkService
+
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    input_rows = [
+        StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
+    ]
+
+    async def mock_compute(
+        user_id: int, handle: str, http_client: object, **kwargs: object
+    ) -> GlobalVerificationState:
+        return _make_global_state(user_id, handle, "main")
+
+    mock_sync = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+        patch("services.guild_sync.sync_user_to_all_guilds", mock_sync),
+    ):
+        await service._perform_rsi_recheck(input_rows, guild_id=123456789)
+
+    # sync_user_to_all_guilds must have been called for the successful user
+    mock_sync.assert_awaited_once()
+    call_args = mock_sync.call_args
+    assert call_args[0][0].user_id == 1  # global_state
+    assert call_args[0][1] is bot  # bot instance
+
+
+@pytest.mark.asyncio
+async def test_guild_sync_not_called_on_error_state() -> None:
+    """Verify sync_user_to_all_guilds is NOT called when compute returns an error."""
+    from services.verification_bulk_service import VerificationBulkService
+
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    input_rows = [
+        StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
+    ]
+
+    async def mock_compute(
+        user_id: int, handle: str, http_client: object, **kwargs: object
+    ) -> GlobalVerificationState:
+        return _make_global_state(
+            user_id, handle, "non_member", error="RSI fetch failed"
+        )
+
+    mock_sync = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+        patch("services.guild_sync.sync_user_to_all_guilds", mock_sync),
+        patch(
+            "services.db.database.Database.get_auto_recheck_fail_count",
+            new_callable=AsyncMock,
+            return_value=0,
+        ),
+        patch(
+            "services.verification_scheduler.handle_recheck_failure",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await service._perform_rsi_recheck(input_rows, guild_id=123456789)
+
+    mock_sync.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Error state persistence guard tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_store_not_called_on_error_state() -> None:
+    """Verify store_global_state is NOT called when compute returns an error."""
+    from services.verification_bulk_service import VerificationBulkService
+
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    input_rows = [
+        StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
+    ]
+
+    async def mock_compute(
+        user_id: int, handle: str, http_client: object, **kwargs: object
+    ) -> GlobalVerificationState:
+        return _make_global_state(
+            user_id, handle, "non_member", error="RSI fetch failed"
+        )
+
+    mock_store = AsyncMock()
+
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", mock_store),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+        patch("services.guild_sync.sync_user_to_all_guilds", new_callable=AsyncMock),
+        patch(
+            "services.db.database.Database.get_auto_recheck_fail_count",
+            new_callable=AsyncMock,
+            return_value=0,
+        ),
+        patch(
+            "services.verification_scheduler.handle_recheck_failure",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await service._perform_rsi_recheck(input_rows, guild_id=123456789)
+
+    # store_global_state must NOT have been called since error was set
+    mock_store.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_recheck_failure_called_on_error_state() -> None:
+    """Verify handle_recheck_failure IS called when compute returns an error."""
+    from services.verification_bulk_service import VerificationBulkService
+
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    input_rows = [
+        StatusRow(1, "User1", "handle1", "main", 1609459200, "General"),
+    ]
+
+    async def mock_compute(
+        user_id: int, handle: str, http_client: object, **kwargs: object
+    ) -> GlobalVerificationState:
+        return _make_global_state(user_id, handle, "non_member", error="RSI is down")
+
+    mock_handle_failure = AsyncMock()
+
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", new_callable=AsyncMock),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+        patch("services.guild_sync.sync_user_to_all_guilds", new_callable=AsyncMock),
+        patch(
+            "services.db.database.Database.get_auto_recheck_fail_count",
+            new_callable=AsyncMock,
+            return_value=2,
+        ),
+        patch(
+            "services.verification_scheduler.handle_recheck_failure",
+            mock_handle_failure,
+        ),
+    ):
+        await service._perform_rsi_recheck(input_rows, guild_id=123456789)
+
+    mock_handle_failure.assert_awaited_once()
+    call_kwargs = mock_handle_failure.call_args
+    assert call_kwargs[0][0] == 1  # user_id
+    assert "RSI is down" in call_kwargs[0][1]  # error message
+    assert call_kwargs[1]["fail_count"] == 3  # incremented from 2
+
+
+@pytest.mark.asyncio
+async def test_store_called_on_successful_recheck() -> None:
+    """Verify store_global_state IS called when compute succeeds (no error)."""
+    from services.verification_bulk_service import VerificationBulkService
+
+    bot = Mock()
+    bot.http_client = Mock()
+    bot.config = {}
+    service = VerificationBulkService(bot)
+
+    input_rows = [
+        StatusRow(1, "User1", "handle1", "affiliate", 1609459200, "General"),
+    ]
+
+    async def mock_compute(
+        user_id: int, handle: str, http_client: object, **kwargs: object
+    ) -> GlobalVerificationState:
+        return _make_global_state(user_id, handle, "affiliate")
+
+    mock_store = AsyncMock()
+
+    with (
+        patch(
+            "services.verification_state.compute_global_state", side_effect=mock_compute
+        ),
+        patch("services.verification_state.store_global_state", mock_store),
+        patch(
+            "services.verification_scheduler.schedule_user_recheck",
+            new_callable=AsyncMock,
+        ),
+        patch("services.guild_sync.sync_user_to_all_guilds", new_callable=AsyncMock),
+    ):
+        await service._perform_rsi_recheck(input_rows, guild_id=123456789)
+
+    mock_store.assert_awaited_once()
+    stored_state = mock_store.call_args[0][0]
+    assert stored_state.user_id == 1
+    assert stored_state.status == "affiliate"

@@ -116,6 +116,7 @@ initial_extensions = [
     "cogs.info.about",
     "cogs.info.privacy",
     "cogs.info.dashboard",
+    "cogs.info.help",
     "cogs.voice.commands",
     "cogs.voice.events",
     "cogs.voice.service_bridge",
@@ -324,62 +325,72 @@ class MyBot(commands.Bot):
         # Alert admin channel about prefix warnings if any
         await self._alert_prefix_warnings()
 
-        for guild in self.guilds:
-            try:
-                await guild.chunk(cache=True)
-                logger.info(f"Chunked members for guild '{guild.name}' ({guild.id})")
-            except Exception as e:
-                logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
-        for guild in self.guilds:
-            await self.check_bot_permissions(guild)
+        if self.guilds:
+            await asyncio.gather(
+                *(self._chunk_guild_members(guild) for guild in self.guilds)
+            )
+            await asyncio.gather(
+                *(self.check_bot_permissions(guild) for guild in self.guilds)
+            )
+
+    async def _chunk_guild_members(self, guild: discord.Guild) -> None:
+        """Chunk members for a single guild without blocking other guilds."""
+        try:
+            await guild.chunk(cache=True)
+            logger.info(f"Chunked members for guild '{guild.name}' ({guild.id})")
+        except Exception as e:
+            logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
 
     async def _alert_prefix_warnings(self) -> None:
         """Send admin channel alert if there were prefix normalization warnings."""
         if not PREFIX_WARNINGS:
             return
 
-        for guild in self.guilds:
-            try:
-                # Get admin channel from config
-                bot_spam_id = await self.services.config.get_guild_setting(
-                    guild.id, "channels.bot_spam_channel_id"
-                )
-                if not bot_spam_id:
-                    continue
+        await asyncio.gather(
+            *(self._send_prefix_warning_for_guild(guild) for guild in self.guilds)
+        )
 
-                channel = guild.get_channel(int(bot_spam_id))
-                if not channel or not isinstance(channel, discord.abc.Messageable):
-                    continue
+    async def _send_prefix_warning_for_guild(self, guild: discord.Guild) -> None:
+        """Send a prefix warning alert for a single guild if configured."""
+        try:
+            # Get admin channel from config
+            bot_spam_id = await self.services.config.get_guild_setting(
+                guild.id, "channels.bot_spam_channel_id"
+            )
+            if not bot_spam_id:
+                return
 
-                embed = discord.Embed(
-                    title="⚠️ Prefix Configuration Warning",
-                    description="The command prefix configuration had issues during startup.",
-                    color=discord.Color.orange(),
-                )
-                current_prefix = get_prefix()
-                warnings = get_prefix_warnings()
+            channel = guild.get_channel(int(bot_spam_id))
+            if not channel or not isinstance(channel, discord.abc.Messageable):
+                return
 
-                embed.add_field(
-                    name="Warnings",
-                    value="\n".join(f"• {w}" for w in warnings[:10]),
-                    inline=False,
-                )
-                embed.add_field(
-                    name="Current Mode",
-                    value="Mention-only"
-                    if commands.when_mentioned == current_prefix
-                    else f"Prefixes: {current_prefix}",
-                    inline=False,
-                )
-                embed.set_footer(text="Check config.yaml prefix settings")
+            embed = discord.Embed(
+                title="⚠️ Prefix Configuration Warning",
+                description="The command prefix configuration had issues during startup.",
+                color=discord.Color.orange(),
+            )
+            current_prefix = get_prefix()
+            warnings = get_prefix_warnings()
 
-                await channel.send(embed=embed)
-                logger.info(f"Sent prefix warning alert to guild {guild.name}")
+            embed.add_field(
+                name="Warnings",
+                value="\n".join(f"• {w}" for w in warnings[:10]),
+                inline=False,
+            )
+            embed.add_field(
+                name="Current Mode",
+                value="Mention-only"
+                if commands.when_mentioned == current_prefix
+                else f"Prefixes: {current_prefix}",
+                inline=False,
+            )
+            embed.set_footer(text="Check config.yaml prefix settings")
 
-            except Exception as e:
-                logger.warning(
-                    f"Failed to send prefix warning to guild {guild.name}: {e}"
-                )
+            await channel.send(embed=embed)
+            logger.info(f"Sent prefix warning alert to guild {guild.name}")
+
+        except Exception as e:
+            logger.warning(f"Failed to send prefix warning to guild {guild.name}: {e}")
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""

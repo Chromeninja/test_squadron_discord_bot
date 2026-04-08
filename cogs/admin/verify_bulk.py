@@ -59,9 +59,9 @@ class VerifyCommands(app_commands.Group):
         """
         Check verification status for a single user.
 
-        - Displays current verification status
-        - Verifies RSI org status (main and affiliate orgs)
-        - No changes are made
+        - Performs live RSI org verification
+        - Applies role and state updates immediately
+        - Posts results to leadership channel
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -99,9 +99,9 @@ class VerifyCommands(app_commands.Group):
         """
         Check verification status for multiple users.
 
-        - Displays current verification status
-        - Verifies RSI org status (main and affiliate orgs)
-        - No changes are made
+        - Performs live RSI org verification
+        - Applies role and state updates immediately
+        - Posts results to leadership channel
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -170,9 +170,9 @@ class VerifyCommands(app_commands.Group):
         """
         Check verification status for users in a voice channel.
 
-        - Displays current verification status
-        - Verifies RSI org status (main and affiliate orgs)
-        - No changes are made
+        - Performs live RSI org verification
+        - Applies role and state updates immediately
+        - Posts results to leadership channel
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -229,9 +229,9 @@ class VerifyCommands(app_commands.Group):
         """
         Check verification status for all users in active voice channels.
 
-        - Displays current verification status
-        - Verifies RSI org status (main and affiliate orgs)
-        - No changes are made
+        - Performs live RSI org verification
+        - Applies role and state updates immediately
+        - Posts results to leadership channel
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -280,7 +280,7 @@ class VerifyCommands(app_commands.Group):
         interaction: discord.Interaction,
         members: list[discord.Member],
     ) -> None:
-        """Handle check action: read-only status verification with RSI org details."""
+        """Handle check action: live RSI verification with immediate role and state updates."""
         try:
             batch_size = (
                 self.bot.config.get("auto_recheck", {})

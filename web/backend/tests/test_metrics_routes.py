@@ -20,6 +20,221 @@ def _use_fixture(*fixtures):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_metrics_bundle_returns_data(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+) -> None:
+    """Bundled metrics endpoint returns normalized page data from one route."""
+    captured_calls: dict[str, dict[str, object]] = {}
+
+    async def _capture_bulk(
+        guild_id: int,
+        dimensions: list[str],
+        tiers: list[str],
+        days: int = 30,
+    ) -> dict[str, dict[str, list[int]]]:
+        captured_calls["bulk"] = {
+            "guild_id": guild_id,
+            "dimensions": dimensions,
+            "tiers": tiers,
+            "days": days,
+        }
+        return {"voice": {"regular": [123456789]}}
+
+    async def _capture_overview(
+        guild_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls["overview"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "user_ids": user_ids,
+        }
+        return {
+            "live": {
+                "messages_today": 42,
+                "active_voice_users": 3,
+                "top_game": "Star Citizen",
+                "active_game_sessions": 5,
+            },
+            "period": {
+                "total_messages": 1200,
+                "unique_messagers": 25,
+                "avg_messages_per_user": 48.0,
+                "total_voice_seconds": 360000,
+                "unique_voice_users": 18,
+                "avg_voice_per_user": 20000,
+                "unique_users": 30,
+                "top_games": [],
+            },
+        }
+
+    async def _capture_voice(
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls["voice"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "limit": limit,
+            "user_ids": user_ids,
+        }
+        return {
+            "entries": [{"user_id": 123456789, "value": 7200.0, "username": "PilotOne"}]
+        }
+
+    async def _capture_messages(
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls["messages"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "limit": limit,
+            "user_ids": user_ids,
+        }
+        return {
+            "entries": [{"user_id": 123456789, "value": 500, "username": "PilotOne"}]
+        }
+
+    async def _capture_top_games(
+        guild_id: int,
+        days: int = 7,
+        limit: int = 10,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls["games"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "limit": limit,
+            "user_ids": user_ids,
+        }
+        return {
+            "games": [
+                {
+                    "game_name": "Star Citizen",
+                    "total_seconds": 72000,
+                    "session_count": 20,
+                    "avg_seconds": 3600,
+                    "unique_players": 10,
+                }
+            ]
+        }
+
+    async def _capture_timeseries(
+        guild_id: int,
+        metric: str = "messages",
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls[f"timeseries:{metric}"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "user_ids": user_ids,
+        }
+        return {
+            "metric": metric,
+            "days": days,
+            "data": [
+                {"timestamp": 1735689600, "value": 10, "unique_users": 2},
+            ],
+        }
+
+    async def _capture_groups(
+        guild_id: int,
+        days: int = 7,
+        user_ids: list[int] | None = None,
+    ) -> dict:
+        captured_calls["groups"] = {
+            "guild_id": guild_id,
+            "days": days,
+            "user_ids": user_ids,
+        }
+        tier_counts = {
+            "hardcore": 2,
+            "regular": 5,
+            "casual": 8,
+            "reserve": 10,
+            "inactive": 25,
+        }
+        return {
+            "all": tier_counts,
+            "voice": tier_counts,
+            "chat": tier_counts,
+            "game": tier_counts,
+        }
+
+    fake_internal_api.get_activity_group_members_bulk = _capture_bulk
+    fake_internal_api.get_metrics_overview = _capture_overview
+    fake_internal_api.get_metrics_voice_leaderboard = _capture_voice
+    fake_internal_api.get_metrics_message_leaderboard = _capture_messages
+    fake_internal_api.get_metrics_top_games = _capture_top_games
+    fake_internal_api.get_metrics_timeseries = _capture_timeseries
+    fake_internal_api.get_activity_groups = _capture_groups
+
+    response = await client.get(
+        "/api/metrics/dashboard?days=30&dimension=voice&tier=regular",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["overview"]["period"]["total_messages"] == 1200
+    assert data["voice_leaderboard"][0]["user_id"] == "123456789"
+    assert data["voice_leaderboard"][0]["total_seconds"] == 7200
+    assert data["message_leaderboard"][0]["total_messages"] == 500
+    assert data["top_games"][0]["game_name"] == "Star Citizen"
+    assert data["message_timeseries"][0]["timestamp"] == 1735689600
+    assert data["activity_counts"]["all"]["regular"] == 5
+    assert captured_calls["bulk"] == {
+        "guild_id": 123,
+        "dimensions": ["voice"],
+        "tiers": ["regular"],
+        "days": 30,
+    }
+    for key in (
+        "overview",
+        "voice",
+        "messages",
+        "games",
+        "timeseries:messages",
+        "timeseries:voice",
+        "groups",
+    ):
+        call = captured_calls[key]
+        assert call["guild_id"] == 123
+        assert call["days"] == 30
+        assert call["user_ids"] == [123456789]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_metrics_bundle_internal_error(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api,
+) -> None:
+    """Bundled metrics endpoint returns 502 if one internal call fails."""
+    _use_fixture(fake_internal_api)
+    fake_internal_api._metrics_top_games_override = RuntimeError("timeout")
+
+    response = await client.get(
+        "/api/metrics/dashboard?days=7",
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_GATEWAY
+    assert response.json()["detail"] == "Bundled dashboard metrics unavailable"
+
+
+@pytest.mark.asyncio
 async def test_overview_returns_data(
     client: AsyncClient, mock_admin_session: str, fake_internal_api
 ):
@@ -128,7 +343,7 @@ async def test_message_leaderboard(
     assert response.status_code == HTTPStatus.OK
     body = response.json()
     assert len(body["entries"]) == 2
-    assert body["entries"][0]["value"] == 500
+    assert body["entries"][0]["total_messages"] == 500
 
 
 @pytest.mark.asyncio

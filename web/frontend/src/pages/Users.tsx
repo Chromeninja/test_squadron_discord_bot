@@ -1,19 +1,18 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   usersApi,
-  authApi,
   adminApi,
   EnrichedUser,
   ExportUsersRequest,
   BulkRecheckResponse,
   BulkRecheckProgress,
-  UserProfile,
   ALL_GUILDS_SENTINEL,
 } from '../api/endpoints';
 import { BulkRecheckResultsModal } from '../components/BulkRecheckResultsModal';
 import { UserDetailsModal } from '../components/users/UserDetailsModal';
+import { useAuth } from '../contexts/AuthContext';
+import { useRequestSequence } from '../hooks/useRequestSequence';
 import { OrgBadgeList } from '../components/users/OrgBadgeList';
-import { handleApiError } from '../utils/toast';
 import { hasPermission } from '../utils/permissions';
 import { getStatusVariant } from '../utils/statusHelpers';
 import { Alert, Button, Card, Badge, Input, Pagination } from '../components/ui';
@@ -23,13 +22,11 @@ import { Alert, Button, Card, Badge, Input, Pagination } from '../components/ui'
 // ---------------------------------------------------------------------------
 
 function Users() {
+  const { user: userProfile, activeGuildId } = useAuth();
   // State
   const [users, setUsers] = useState<EnrichedUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeGuildId, setActiveGuildId] = useState<string | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [isCrossGuild, setIsCrossGuild] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -52,6 +49,8 @@ function Users() {
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const usersRequestSequence = useRequestSequence();
+  const modalRefreshSequence = useRequestSequence();
 
   // Admin actions
   const [recheckingUserId, setRecheckingUserId] = useState<string | null>(null);
@@ -250,13 +249,12 @@ function Users() {
   // Fetch available orgs from the API (all orgs across the full dataset)
   const [availableOrgs, setAvailableOrgs] = useState<string[]>([]);
   useEffect(() => {
-    if (!activeGuildId) return;
     let cancelled = false;
     usersApi.getAvailableOrgs().then(data => {
       if (!cancelled) setAvailableOrgs(data.orgs);
     }).catch(() => { /* ignore — org dropdown will be empty */ });
     return () => { cancelled = true; };
-  }, [activeGuildId]);
+  }, []);
 
   // Filter orgs by search query
   const filteredAvailableOrgs = useMemo(() => {
@@ -325,21 +323,6 @@ function Users() {
     };
   }, []);
 
-  // Load user profile to get active guild
-  useEffect(() => {
-    const loadUserProfile = async () => {
-      try {
-        const response = await authApi.getMe();
-        setUserProfile(response.user);
-        setActiveGuildId(response.user?.active_guild_id || null);
-      } catch (err) {
-        handleApiError(err, 'Failed to load user profile');
-      }
-    };
-
-    loadUserProfile();
-  }, []);
-
   // Check if user has moderator access (required for recheck operations)
   const canRecheck = useMemo(() => {
     if (!userProfile?.active_guild_id || !userProfile.authorized_guilds) {
@@ -357,17 +340,16 @@ function Users() {
     }
     setPage(1);
     resetSelection();
-    // Check if we're in cross-guild mode
-    setIsCrossGuild(activeGuildId === ALL_GUILDS_SENTINEL);
   }, [activeGuildId]);
 
   // Fetch users
   const fetchUsers = useCallback(async () => {
+    const requestId = usersRequestSequence.next();
+
     if (!activeGuildId) {
       setUsers([]);
       setTotal(0);
       setTotalPages(0);
-      setIsCrossGuild(false);
       return;
     }
 
@@ -382,24 +364,31 @@ function Users() {
         debouncedSearch || null,
         selectedOrgs.length > 0 ? selectedOrgs : null,
       );
+      if (!usersRequestSequence.isCurrent(requestId)) {
+        return;
+      }
       setUsers(data.items);
       setTotal(data.total);
       setTotalPages(data.total_pages);
-      setIsCrossGuild(data.is_cross_guild === true);
     } catch (err: any) {
+      if (!usersRequestSequence.isCurrent(requestId)) {
+        return;
+      }
       setError(err.response?.data?.detail || 'Failed to load users');
       setUsers([]);
       setTotal(0);
       setTotalPages(0);
     } finally {
-      setLoading(false);
+      if (usersRequestSequence.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
-  }, [activeGuildId, page, pageSize, normalizedStatusFilters, debouncedSearch, selectedOrgs]);
+  }, [activeGuildId, page, pageSize, normalizedStatusFilters, debouncedSearch, selectedOrgs, usersRequestSequence]);
 
   // Load users on mount and when filters/pagination change
   useEffect(() => {
-    fetchUsers();
-  }, [page, pageSize, normalizedStatusFilters, activeGuildId, debouncedSearch, selectedOrgs]);
+    void fetchUsers();
+  }, [fetchUsers]);
 
   // Keep modal user details in sync with latest table data after refreshes/rechecks
   useEffect(() => {
@@ -419,6 +408,17 @@ function Users() {
       return;
     }
 
+    const needsDetailRefresh =
+      selectedUser.roles.length === 0 ||
+      !selectedUser.joined_at ||
+      !selectedUser.created_at;
+
+    if (!needsDetailRefresh) {
+      return;
+    }
+
+    const requestId = modalRefreshSequence.next();
+
     let cancelled = false;
 
     const refreshModalUserDetails = async () => {
@@ -426,7 +426,7 @@ function Users() {
         const response = await usersApi.getUserDetails(selectedUser.discord_id);
         const refreshedUser = response.data;
 
-        if (cancelled) {
+        if (cancelled || !modalRefreshSequence.isCurrent(requestId)) {
           return;
         }
 
@@ -457,12 +457,14 @@ function Users() {
       }
     };
 
-    refreshModalUserDetails();
+    void refreshModalUserDetails();
 
     return () => {
       cancelled = true;
     };
-  }, [showUserModal, selectedUser?.discord_id]);
+  }, [showUserModal, selectedUser?.discord_id, modalRefreshSequence]);
+
+  const isCrossGuild = activeGuildId === ALL_GUILDS_SENTINEL;
 
 
 

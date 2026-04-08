@@ -17,6 +17,7 @@ from helpers.voice_permissions import (
     enforce_permission_changes,
 )
 from helpers.voice_utils import get_user_channel
+from services.voice_service import VoiceService
 
 
 @pytest.mark.asyncio
@@ -51,6 +52,8 @@ async def test_assert_base_permissions() -> None:
 
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
 
     # Owner only gets connect - channel management is via bot commands
     assert overwrites[owner_member].connect is True
@@ -58,10 +61,11 @@ async def test_assert_base_permissions() -> None:
 
 @pytest.mark.asyncio
 async def test_enforce_permission_changes() -> None:
-    """Test that permissions are enforced properly."""
-    # Create mocks
+    """Test that permissions are enforced in a single consolidated API call."""
+    # Arrange
     channel = AsyncMock(spec=discord.VoiceChannel)
     channel.id = 12345
+    channel.overwrites = {}
 
     guild = MagicMock(spec=discord.Guild)
     guild.id = 98765
@@ -73,26 +77,47 @@ async def test_enforce_permission_changes() -> None:
     bot_member = MagicMock(spec=discord.Member)
     default_role = MagicMock(spec=discord.Role)
 
-    # Use get_me as a property instead of a method
     guild.me = bot_member
     guild.get_member.return_value = owner_member
     guild.default_role = default_role
 
-    # Setup patch for assert_base_permissions
-    with patch(
-        "helpers.voice_permissions.assert_base_permissions", new=AsyncMock()
-    ) as mock_assert:
-        # Call the function
+    # Patch DB helpers to return no settings (base-only test)
+    with (
+        patch(
+            "helpers.voice_permissions._apply_permit_reject_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_voice_feature_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_lock_setting",
+            new=AsyncMock(),
+        ),
+    ):
+        # Act
         await enforce_permission_changes(channel, bot, 1001, 98765, 101)
 
-        # Check that the correct functions were called
-        bot.get_guild.assert_called_once_with(98765)
-        guild.get_member.assert_called_once_with(1001)
+    # Assert — guild and member lookups happened
+    bot.get_guild.assert_called_once_with(98765)
+    guild.get_member.assert_called_once_with(1001)
 
-        # Check that assert_base_permissions was called with the correct arguments
-        mock_assert.assert_called_once_with(
-            channel, bot_member, owner_member, default_role
-        )
+    # Assert — single channel.edit call with consolidated overwrites
+    channel.edit.assert_called_once()
+    overwrites = channel.edit.call_args.kwargs["overwrites"]
+    assert default_role in overwrites
+    assert bot_member in overwrites
+    assert owner_member in overwrites
+
+    # Verify base permission values
+    assert overwrites[default_role].connect is True
+    assert overwrites[default_role].use_voice_activation is True
+    assert overwrites[bot_member].manage_channels is True
+    assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
+    assert overwrites[owner_member].connect is True
 
 
 @pytest.mark.asyncio
@@ -208,6 +233,8 @@ async def test_assert_base_permissions_merges_existing() -> None:
     # bot_member: base fields set
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
 
     # owner_member: base fields set
     assert overwrites[owner_member].connect is True
@@ -240,6 +267,8 @@ async def test_assert_base_permissions_empty_channel() -> None:
     assert overwrites[default_role].use_voice_activation is True
     assert overwrites[bot_member].manage_channels is True
     assert overwrites[bot_member].connect is True
+    assert overwrites[bot_member].move_members is True
+    assert overwrites[bot_member].view_channel is True
     assert overwrites[owner_member].connect is True
 
 
@@ -272,7 +301,9 @@ def test_get_hierarchy_blocking_roles_detects_conflicts() -> None:
     high_role.name = "HighRole"
     high_role.position = 12
 
-    overwrites: dict[object, discord.PermissionOverwrite] = {
+    overwrites: dict[
+        discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
+    ] = {
         default_role: discord.PermissionOverwrite(),
         low_role: discord.PermissionOverwrite(),
         equal_role: discord.PermissionOverwrite(),
@@ -399,3 +430,201 @@ async def test_permission_precedence_no_lock() -> None:
 
     # Assert — connect stays True
     assert overwrites[default_role].connect is True
+
+
+# ======================================================================
+# Tests for VoiceService._sanitize_overwrite (Fix 3)
+# ======================================================================
+
+
+class TestSanitizeOverwrite:
+    """Tests for VoiceService._sanitize_overwrite static method."""
+
+    def test_strips_allow_bits_bot_lacks(self) -> None:
+        """Overwrite allow bits the bot doesn't have should be stripped."""
+        # Arrange — overwrite allows manage_channels + connect,
+        # but bot only has connect in the category.
+        overwrite = discord.PermissionOverwrite(manage_channels=True, connect=True)
+        bot_perms = discord.Permissions(connect=True)
+
+        # Act
+        result = VoiceService._sanitize_overwrite(overwrite, bot_perms)
+
+        # Assert — manage_channels stripped, connect preserved
+        allow, deny = result.pair()
+        assert allow.connect is True
+        assert allow.manage_channels is False
+        assert deny.value == 0  # no deny bits
+
+    def test_preserves_deny_bits_unconditionally(self) -> None:
+        """Deny bits should never be stripped, even if bot lacks the permission."""
+        # Arrange — deny speak, bot doesn't have speak
+        overwrite = discord.PermissionOverwrite(speak=False)
+        bot_perms = discord.Permissions.none()
+
+        # Act
+        result = VoiceService._sanitize_overwrite(overwrite, bot_perms)
+
+        # Assert — deny preserved
+        allow, deny = result.pair()
+        assert deny.speak is True  # "deny" Permissions has speak=True means denied
+        assert allow.value == 0
+
+    def test_passthrough_when_bot_has_all_perms(self) -> None:
+        """When bot has all perms, the overwrite should pass through unchanged."""
+        # Arrange
+        overwrite = discord.PermissionOverwrite(
+            connect=True, speak=True, manage_channels=True
+        )
+        bot_perms = discord.Permissions.all()
+
+        # Act
+        result = VoiceService._sanitize_overwrite(overwrite, bot_perms)
+
+        # Assert — all allow bits preserved
+        allow, _deny = result.pair()
+        assert allow.connect is True
+        assert allow.speak is True
+        assert allow.manage_channels is True
+
+    def test_empty_overwrite_stays_empty(self) -> None:
+        """Empty overwrite should remain empty after sanitization."""
+        overwrite = discord.PermissionOverwrite()
+        bot_perms = discord.Permissions(connect=True)
+
+        result = VoiceService._sanitize_overwrite(overwrite, bot_perms)
+
+        allow, deny = result.pair()
+        assert allow.value == 0
+        assert deny.value == 0
+
+    def test_mixed_allow_deny_preserves_deny(self) -> None:
+        """Overwrite with both allow and deny bits — only allow is filtered."""
+        # Arrange — allow connect+speak, deny stream; bot only has connect
+        overwrite = discord.PermissionOverwrite(connect=True, speak=True, stream=False)
+        bot_perms = discord.Permissions(connect=True)
+
+        # Act
+        result = VoiceService._sanitize_overwrite(overwrite, bot_perms)
+
+        # Assert
+        allow, deny = result.pair()
+        assert allow.connect is True
+        assert allow.speak is False  # stripped — bot lacks speak
+        assert deny.stream is True  # deny preserved
+
+
+# ======================================================================
+# Tests for enforce_permission_changes with DB settings (Fix 5)
+# ======================================================================
+
+
+@pytest.mark.asyncio
+async def test_enforce_merges_lock_into_single_call() -> None:
+    """Lock setting should override @everyone connect in the same API call."""
+    # Arrange
+    channel = AsyncMock(spec=discord.VoiceChannel)
+    channel.id = 12345
+    channel.overwrites = {}
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 98765
+
+    bot = MagicMock(spec=discord.Client)
+    bot.get_guild.return_value = guild
+
+    owner_member = MagicMock(spec=discord.Member)
+    bot_member = MagicMock(spec=discord.Member)
+    default_role = MagicMock(spec=discord.Role)
+
+    guild.me = bot_member
+    guild.get_member.return_value = owner_member
+    guild.default_role = default_role
+
+    async def apply_lock(overwrites: dict, *_args: object) -> None:
+        """Simulate DB lock=1 by setting connect=False on @everyone."""
+        ow = overwrites.get(default_role, discord.PermissionOverwrite())
+        ow.connect = False
+        overwrites[default_role] = ow
+
+    with (
+        patch(
+            "helpers.voice_permissions._apply_permit_reject_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_voice_feature_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_lock_setting",
+            side_effect=apply_lock,
+        ),
+    ):
+        # Act
+        await enforce_permission_changes(channel, bot, 1001, 98765, 101)
+
+    # Assert — single API call with lock applied on top of base
+    channel.edit.assert_called_once()
+    overwrites = channel.edit.call_args.kwargs["overwrites"]
+    assert overwrites[default_role].connect is False  # lock overrides base
+    assert overwrites[default_role].use_voice_activation is True  # base preserved
+
+
+@pytest.mark.asyncio
+async def test_enforce_uses_per_target_with_hierarchy_blocks() -> None:
+    """When hierarchy-blocking roles exist, use per-target set_permissions."""
+    # Arrange
+    default_role = MagicMock(spec=discord.Role)
+    default_role.id = 1
+    default_role.name = "@everyone"
+    default_role.position = 0
+
+    blocking_role = MagicMock(spec=discord.Role)
+    blocking_role.id = 99
+    blocking_role.name = "Admin"
+    blocking_role.position = 50
+
+    channel = AsyncMock(spec=discord.VoiceChannel)
+    channel.id = 12345
+    channel.overwrites = {
+        default_role: discord.PermissionOverwrite(),
+        blocking_role: discord.PermissionOverwrite(connect=True),
+    }
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 98765
+
+    bot = MagicMock(spec=discord.Client)
+    bot.get_guild.return_value = guild
+
+    owner_member = MagicMock(spec=discord.Member)
+    bot_member = MagicMock(spec=discord.Member)
+    bot_top_role = MagicMock(spec=discord.Role)
+    bot_top_role.position = 10
+    bot_member.top_role = bot_top_role
+
+    guild.me = bot_member
+    guild.get_member.return_value = owner_member
+    guild.default_role = default_role
+
+    with (
+        patch(
+            "helpers.voice_permissions._apply_permit_reject_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_voice_feature_settings",
+            new=AsyncMock(),
+        ),
+        patch(
+            "helpers.voice_permissions._apply_lock_setting",
+            new=AsyncMock(),
+        ),
+    ):
+        # Act
+        await enforce_permission_changes(channel, bot, 1001, 98765, 101)
+
+    # Assert — channel.edit NOT called, set_permissions called instead
+    channel.edit.assert_not_called()
+    assert channel.set_permissions.call_count > 0
