@@ -39,12 +39,14 @@ async def worker() -> None:
 
 async def run_task(task) -> None:
     """
-    Executes the given task.
+    Executes the given task with retry for transient Discord errors.
+
+    Retries on 5xx server errors and 429 rate-limit responses.
+    For 429s, honours the Retry-After header when available.
 
     Args:
         task (Callable): An asynchronous callable representing the task.
     """
-    # Retry transient Discord server errors (5xx/DiscordServerError).
     MAX_RETRIES = 3
     BASE_DELAY = 0.5
     attempt = 0
@@ -53,24 +55,38 @@ async def run_task(task) -> None:
             return await task()
         except Exception as e:
             attempt += 1
-            # Decide whether to retry: DiscordServerError or HTTPException with 5xx
             should_retry = False
+            retry_delay: float | None = None
+
             if isinstance(e, discord.DiscordServerError):
                 should_retry = True
             elif isinstance(e, discord.HTTPException):
-                # Prefer the numeric HTTP status when available to detect 5xx
                 status = getattr(e, "status", None)
-                if isinstance(status, int) and 500 <= status < 600:
-                    should_retry = True
+                if isinstance(status, int):
+                    if 500 <= status < 600:
+                        should_retry = True
+                    elif status == 429:
+                        should_retry = True
+                        # Parse Retry-After from the Discord response
+                        retry_after = getattr(e, "retry_after", None)
+                        if isinstance(retry_after, (int, float)) and retry_after > 0:
+                            retry_delay = min(float(retry_after), 60.0)
 
-            # Only retry while attempt < MAX_RETRIES so the total number of
-            # attempts equals MAX_RETRIES (no extra attempt beyond the limit).
             if should_retry and attempt < MAX_RETRIES:
-                delay = BASE_DELAY * (2 ** (attempt - 1))
-                # jitter
-                delay = delay + secure_uniform(0, 0.1 * delay)
+                if retry_delay is None:
+                    delay = BASE_DELAY * (2 ** (attempt - 1))
+                    delay = delay + secure_uniform(0, 0.1 * delay)
+                else:
+                    # Use server-provided delay with small jitter
+                    delay = retry_delay + secure_uniform(0, 0.1 * retry_delay)
+
                 logger.warning(
-                    f"Transient error in queued task (attempt {attempt}/{MAX_RETRIES}), retrying in {delay:.2f}s: {e}"
+                    "Transient error in queued task (attempt %d/%d), "
+                    "retrying in %.2fs: %s",
+                    attempt,
+                    MAX_RETRIES,
+                    delay,
+                    e,
                 )
                 await asyncio.sleep(delay)
                 continue

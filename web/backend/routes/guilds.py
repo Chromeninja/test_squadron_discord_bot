@@ -232,6 +232,31 @@ async def get_discord_scheduled_events(
     )
 
 
+@router.get(
+    "/{guild_id}/events/scheduled/{event_id}",
+    response_model=ScheduledEventResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def get_discord_scheduled_event(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Return a single Discord scheduled event by ID."""
+    ensure_guild_match(guild_id, current_user)
+    try:
+        event_payload = await internal_api.get_guild_scheduled_event(
+            guild_id, event_id
+        )
+    except Exception as exc:  # pragma: no cover - transport errors
+        raise translate_internal_api_error(
+            exc, "Failed to fetch scheduled event"
+        ) from exc
+
+    return ScheduledEventResponse(event=ScheduledEventSummary(**event_payload))
+
+
 @router.post(
     "/{guild_id}/events/scheduled",
     response_model=ScheduledEventResponse,
@@ -250,11 +275,15 @@ async def create_discord_scheduled_event(
     create_payload = {
         "name": payload.name,
         "description": payload.description,
+        "announcement_message": payload.announcement_message,
         "scheduled_start_time": payload.scheduled_start_time,
         "scheduled_end_time": payload.scheduled_end_time,
         "entity_type": payload.entity_type,
         "channel_id": str(channel_id) if channel_id is not None else None,
         "location": payload.location,
+        "announcement_channel_id": payload.announcement_channel_id,
+        "signup_role_ids": payload.signup_role_ids,
+        "created_by_name": current_user.username,
     }
 
     try:
@@ -288,11 +317,14 @@ async def update_discord_scheduled_event(
     update_payload = {
         "name": payload.name,
         "description": payload.description,
+        "announcement_message": payload.announcement_message,
         "scheduled_start_time": payload.scheduled_start_time,
         "scheduled_end_time": payload.scheduled_end_time,
         "entity_type": payload.entity_type,
         "channel_id": str(channel_id) if channel_id is not None else None,
         "location": payload.location,
+        "announcement_channel_id": payload.announcement_channel_id,
+        "signup_role_ids": payload.signup_role_ids,
     }
 
     try:

@@ -5,31 +5,22 @@ import {
 } from '../api/endpoints';
 import { type BadgeVariant } from '../utils/theme';
 
-export type BuilderStep = 'details' | 'attendance' | 'connections' | 'review';
+export type BuilderStep = 'details' | 'connections' | 'review';
 export type EndMode = 'duration' | 'manual' | 'open';
-export type RecurrenceOption = 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
-export type AttendanceMode = 'rsvp' | 'signup' | 'drop_in';
-export type ReminderOffset = 'none' | '15m' | '1h' | '1d';
 
 export interface EventDraft {
   name: string;
   description: string;
-  entityType: 'voice' | 'external';
+  announcementMessage: string;
   channelId: string | null;
-  location: string;
   startDate: string;
   startTime: string;
   endMode: EndMode;
   durationMinutes: string;
   endDate: string;
   endTime: string;
-  recurrence: RecurrenceOption;
-  attendanceMode: AttendanceMode;
-  capacity: string;
-  waitlistEnabled: boolean;
-  reminderOffset: ReminderOffset;
   announcementChannelId: string | null;
-  coordinatorNotes: string;
+  signupRoleIds: string[];
 }
 
 export const BUILDER_STEPS: Array<{
@@ -43,14 +34,9 @@ export const BUILDER_STEPS: Array<{
     description: 'Core schedule, type, and presentation.',
   },
   {
-    id: 'attendance',
-    title: 'Attendance',
-    description: 'RSVP and signup behavior.',
-  },
-  {
     id: 'connections',
     title: 'Connections',
-    description: 'Channels, reminders, and notes.',
+    description: 'Channels and announcements.',
   },
   {
     id: 'review',
@@ -65,43 +51,6 @@ export const DURATION_OPTIONS = [
   { value: '90', label: '90 min' },
   { value: '120', label: '2 hours' },
   { value: '180', label: '3 hours' },
-];
-
-export const RECURRENCE_OPTIONS: Array<{ value: RecurrenceOption; label: string }> = [
-  { value: 'once', label: 'One-time event' },
-  { value: 'daily', label: 'Daily cadence' },
-  { value: 'weekly', label: 'Weekly cadence' },
-  { value: 'biweekly', label: 'Every two weeks' },
-  { value: 'monthly', label: 'Monthly cadence' },
-];
-
-export const REMINDER_OPTIONS: Array<{ value: ReminderOffset; label: string }> = [
-  { value: 'none', label: 'No reminder' },
-  { value: '15m', label: '15 minutes before' },
-  { value: '1h', label: '1 hour before' },
-  { value: '1d', label: '1 day before' },
-];
-
-export const ATTENDANCE_OPTIONS: Array<{
-  id: AttendanceMode;
-  title: string;
-  description: string;
-}> = [
-  {
-    id: 'rsvp',
-    title: 'RSVP tracking',
-    description: 'Best for fleet ops and events where you want a clean interested headcount.',
-  },
-  {
-    id: 'signup',
-    title: 'Structured signups',
-    description: 'Use for trainings or limited-capacity activities where slots matter.',
-  },
-  {
-    id: 'drop_in',
-    title: 'Drop-in attendance',
-    description: 'Useful for community hangs and low-friction, open-door sessions.',
-  },
 ];
 
 export function combineDateAndTime(date: string, time: string): string {
@@ -164,22 +113,16 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
   return {
     name: '',
     description: '',
-    entityType: 'voice',
+    announcementMessage: '',
     channelId: settings?.default_voice_channel_id ?? null,
-    location: '',
     startDate: '',
     startTime: '',
     endMode: 'duration',
     durationMinutes: '120',
     endDate: '',
     endTime: '',
-    recurrence: 'once',
-    attendanceMode: 'rsvp',
-    capacity: '',
-    waitlistEnabled: false,
-    reminderOffset: '1h',
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
-    coordinatorNotes: '',
+    signupRoleIds: [],
   };
 }
 
@@ -199,22 +142,16 @@ export function createDraftFromEvent(
   return {
     name: event.name,
     description: event.description ?? '',
-    entityType: event.entity_type === 'external' ? 'external' : 'voice',
+    announcementMessage: event.description ?? '',
     channelId: event.channel_id ?? settings?.default_voice_channel_id ?? null,
-    location: event.location ?? '',
     startDate: start.date,
     startTime: start.time,
     endMode: event.scheduled_end_time ? 'manual' : 'open',
     durationMinutes,
     endDate: end.date,
     endTime: end.time,
-    recurrence: 'once',
-    attendanceMode: 'rsvp',
-    capacity: '',
-    waitlistEnabled: false,
-    reminderOffset: '1h',
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
-    coordinatorNotes: '',
+    signupRoleIds: [],
   };
 }
 
@@ -293,12 +230,12 @@ export function validateDraft(draft: EventDraft): string | null {
     return 'Start date and time are required.';
   }
 
-  if (draft.entityType === 'external' && !draft.location.trim()) {
-    return 'External events require a location.';
+  if (!draft.channelId) {
+    return 'Voice events require a voice channel.';
   }
 
-  if (draft.entityType !== 'external' && !draft.channelId) {
-    return 'Voice events require a voice channel.';
+  if (!draft.announcementChannelId) {
+    return 'Announcement channel is required.';
   }
 
   if (draft.endMode === 'manual' && ((!draft.endDate && draft.endTime) || (draft.endDate && !draft.endTime))) {
@@ -330,22 +267,17 @@ export function validateDraft(draft: EventDraft): string | null {
 
 export function getReviewHighlights(draft: EventDraft): string[] {
   const highlights: string[] = [];
-  highlights.push(draft.entityType === 'external' ? 'External destination' : 'Voice attendance');
-  highlights.push(draft.recurrence === 'once' ? 'Single publish' : `${draft.recurrence} cadence`);
-  highlights.push(
-    draft.attendanceMode === 'signup'
-      ? 'Structured signups'
-      : draft.attendanceMode === 'drop_in'
-        ? 'Drop-in attendance'
-        : 'RSVP tracking',
-  );
+  const signupRoleIds = draft.signupRoleIds ?? [];
+  highlights.push('Voice attendance');
 
-  if (draft.reminderOffset !== 'none') {
-    highlights.push(`Reminder ${draft.reminderOffset} before`);
+  if (draft.endMode === 'duration') {
+    highlights.push(`Duration: ${formatDuration(draft.durationMinutes)}`);
+  } else if (draft.endMode === 'open') {
+    highlights.push('Open-ended');
   }
 
-  if (draft.capacity.trim()) {
-    highlights.push(`Capacity ${draft.capacity.trim()}`);
+  if (signupRoleIds.length > 0) {
+    highlights.push(`Signup roles: ${signupRoleIds.length}`);
   }
 
   return highlights;

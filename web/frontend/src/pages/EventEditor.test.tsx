@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
   eventsApi: {
     getScheduledEvents: vi.fn(),
+    getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
   },
@@ -13,6 +14,7 @@ const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
     getGuildInfo: vi.fn(),
     getGuildConfig: vi.fn(),
     getDiscordChannels: vi.fn(),
+    getDiscordRoles: vi.fn(),
   },
   useAuth: vi.fn(),
 }));
@@ -116,6 +118,13 @@ describe('EventEditor Page', () => {
         { id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 },
       ],
     });
+    vi.mocked(guildApi.getDiscordRoles).mockResolvedValue({
+      success: true,
+      roles: [
+        { id: '20', name: 'Pilot', color: null },
+        { id: '21', name: 'Medic', color: null },
+      ],
+    });
     vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
       success: true,
       events: [
@@ -137,6 +146,25 @@ describe('EventEditor Page', () => {
         },
       ],
     });
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '555',
+        name: 'Fleet Night',
+        description: 'Weekly op',
+        scheduled_start_time: '2026-04-09T20:00:00+00:00',
+        scheduled_end_time: '2026-04-09T22:00:00+00:00',
+        status: 'scheduled',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
+        user_count: 12,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: null,
+      },
+    });
     vi.mocked(eventsApi.createScheduledEvent).mockResolvedValue({
       success: true,
       event: {
@@ -146,10 +174,10 @@ describe('EventEditor Page', () => {
         scheduled_start_time: '2026-04-10T20:00:00+00:00',
         scheduled_end_time: null,
         status: 'scheduled',
-        entity_type: 'external',
-        channel_id: null,
-        channel_name: null,
-        location: 'Spectrum',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
         user_count: 0,
         creator_id: '444333222',
         creator_name: 'Coordinator',
@@ -193,8 +221,10 @@ describe('EventEditor Page', () => {
     fireEvent.change(screen.getByLabelText('Start Time'), {
       target: { value: '20:00' },
     });
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'test event' },
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
@@ -207,7 +237,12 @@ describe('EventEditor Page', () => {
     await waitFor(() => {
       expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
         '123',
-        expect.objectContaining({ name: 'Created Event' }),
+        expect.objectContaining({
+          name: 'Created Event',
+          announcement_channel_id: '10',
+          announcement_message: 'test event',
+          signup_role_ids: [],
+        }),
       );
     });
 
@@ -220,7 +255,7 @@ describe('EventEditor Page', () => {
     renderWithRouter('/events/555/edit');
 
     await waitFor(() => {
-      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+      expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '555');
     });
 
     expect(screen.getByDisplayValue('Fleet Night')).toBeInTheDocument();
@@ -229,7 +264,6 @@ describe('EventEditor Page', () => {
       target: { value: 'Fleet Night Updated' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
@@ -245,6 +279,46 @@ describe('EventEditor Page', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Upcoming and recent events')).toBeInTheDocument();
+    });
+  });
+
+  it('allows customizing the announcement message before publish', async () => {
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.change(screen.getByLabelText('Event Name'), {
+      target: { value: 'Apollo TEST' },
+    });
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'test brief' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-16' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '16:00' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    fireEvent.change(screen.getByLabelText('Announcement Message'), {
+      target: { value: 'Custom channel briefing for this op.' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'Apollo TEST',
+          announcement_message: 'Custom channel briefing for this op.',
+        }),
+      );
     });
   });
 });

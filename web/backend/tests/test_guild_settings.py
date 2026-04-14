@@ -337,9 +337,9 @@ async def test_create_discord_scheduled_event_proxies_internal_api(
             "description": "Create route test",
             "scheduled_start_time": "2026-04-09T20:00:00+00:00",
             "scheduled_end_time": "2026-04-09T22:00:00+00:00",
-            "entity_type": "external",
-            "location": "Spectrum Briefing Room",
-            "channel_id": None,
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
         },
         cookies={"session": mock_event_coordinator_session},
     )
@@ -349,6 +349,57 @@ async def test_create_discord_scheduled_event_proxies_internal_api(
     assert data["success"] is True
     assert data["event"]["name"] == "Ops Night"
     assert fake_internal_api.scheduled_events_by_guild[123][-1]["name"] == "Ops Night"
+
+
+@pytest.mark.asyncio
+async def test_create_discord_scheduled_event_forwards_announcement_message(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Create route should forward announcement_message to internal API."""
+    captured_payload: dict[str, object] = {}
+
+    async def create_event(guild_id: int, payload: dict) -> dict:
+        del guild_id
+        captured_payload.update(payload)
+        return {
+            "id": "900000000000000001",
+            "name": payload.get("name", "Ops Night"),
+            "description": payload.get("description"),
+            "scheduled_start_time": payload.get("scheduled_start_time"),
+            "scheduled_end_time": payload.get("scheduled_end_time"),
+            "status": "scheduled",
+            "entity_type": payload.get("entity_type", "voice"),
+            "channel_id": payload.get("channel_id"),
+            "channel_name": "Mock Event Channel",
+            "location": payload.get("location"),
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": None,
+        }
+
+    fake_internal_api.create_guild_scheduled_event = create_event
+
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Create route test",
+            "announcement_message": "Custom announcement body",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    assert captured_payload["announcement_message"] == "Custom announcement body"
+    assert isinstance(captured_payload.get("created_by_name"), str)
 
 
 @pytest.mark.asyncio
@@ -384,9 +435,9 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
             "description": "Updated description",
             "scheduled_start_time": "2026-04-10T20:00:00+00:00",
             "scheduled_end_time": "2026-04-10T22:00:00+00:00",
-            "entity_type": "external",
-            "location": "Updated Briefing Room",
-            "channel_id": None,
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
         },
         cookies={"session": mock_event_coordinator_session},
     )
@@ -395,8 +446,31 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
     data = response.json()
     assert data["success"] is True
     assert data["event"]["name"] == "Ops Night Updated"
-    assert data["event"]["location"] == "Updated Briefing Room"
-    assert fake_internal_api.scheduled_events_by_guild[123][0]["entity_type"] == "external"
+    assert data["event"]["location"] is None
+    assert fake_internal_api.scheduled_events_by_guild[123][0]["entity_type"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_create_discord_scheduled_event_rejects_external_entity_type(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+) -> None:
+    """Scheduled event create should reject non-voice entity types."""
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "External Test",
+            "description": "Should fail validation",
+            "scheduled_start_time": "2026-04-10T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-10T21:00:00+00:00",
+            "entity_type": "external",
+            "location": "Spectrum",
+            "channel_id": None,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

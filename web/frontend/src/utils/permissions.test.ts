@@ -31,7 +31,7 @@ describe('Permission Utilities', () => {
     });
 
     it('bot_owner has access to everything', () => {
-      const roles: RoleLevel[] = ['bot_owner', 'bot_admin', 'discord_manager', 'moderator', 'staff', 'user'];
+      const roles: RoleLevel[] = ['bot_owner', 'bot_admin', 'discord_manager', 'moderator', 'event_coordinator', 'staff', 'user'];
       for (const required of roles) {
         expect(hasPermission('bot_owner', required)).toBe(true);
       }
@@ -58,7 +58,7 @@ describe('Permission Utilities', () => {
 
   describe('getRoleBadgeColor', () => {
     it('returns valid color classes for each role', () => {
-      const roles: RoleLevel[] = ['bot_owner', 'bot_admin', 'discord_manager', 'moderator', 'staff', 'user'];
+      const roles: RoleLevel[] = ['bot_owner', 'bot_admin', 'discord_manager', 'moderator', 'event_coordinator', 'staff', 'user'];
       for (const role of roles) {
         const color = getRoleBadgeColor(role);
         expect(color).toBeTruthy();
@@ -82,10 +82,11 @@ describe('Permission Utilities', () => {
       const roles = getRolesAtOrAbove('user');
       expect(roles).toContain('user');
       expect(roles).toContain('staff');
+      expect(roles).toContain('event_coordinator');
       expect(roles).toContain('moderator');
       expect(roles).toContain('bot_admin');
       expect(roles).toContain('bot_owner');
-      expect(roles.length).toBe(6);
+      expect(roles.length).toBe(7);
     });
 
     it('returns only highest roles for bot_owner level', () => {
@@ -99,6 +100,7 @@ describe('Permission Utilities', () => {
       expect(roles).toContain('discord_manager');
       expect(roles).toContain('bot_admin');
       expect(roles).toContain('bot_owner');
+      expect(roles).not.toContain('event_coordinator');
       expect(roles).not.toContain('staff');
       expect(roles).not.toContain('user');
     });
@@ -116,7 +118,9 @@ describe('Permission Utilities', () => {
       expect(ROLE_HIERARCHY.bot_owner).toBeGreaterThan(ROLE_HIERARCHY.bot_admin);
       expect(ROLE_HIERARCHY.bot_admin).toBeGreaterThan(ROLE_HIERARCHY.discord_manager);
       expect(ROLE_HIERARCHY.discord_manager).toBeGreaterThan(ROLE_HIERARCHY.moderator);
-      expect(ROLE_HIERARCHY.moderator).toBeGreaterThan(ROLE_HIERARCHY.staff);
+      expect(ROLE_HIERARCHY.moderator).toBeGreaterThan(ROLE_HIERARCHY.event_coordinator);
+      expect(ROLE_HIERARCHY.event_coordinator).toBeGreaterThan(ROLE_HIERARCHY.staff);
+      expect(ROLE_HIERARCHY.staff).toBeGreaterThan(ROLE_HIERARCHY.user);
       expect(ROLE_HIERARCHY.staff).toBeGreaterThan(ROLE_HIERARCHY.user);
     });
 
@@ -124,8 +128,8 @@ describe('Permission Utilities', () => {
       expect(ROLE_HIERARCHY.user).toBe(1);
     });
 
-    it('bot_owner is the highest level (value 6)', () => {
-      expect(ROLE_HIERARCHY.bot_owner).toBe(6);
+    it('bot_owner is the highest level (value 7)', () => {
+      expect(ROLE_HIERARCHY.bot_owner).toBe(7);
     });
   });
 });

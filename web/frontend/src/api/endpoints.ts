@@ -139,11 +139,14 @@ export interface ScheduledEventSummary {
 export interface ScheduledEventCreateRequest {
   name: string;
   description: string | null;
+  announcement_message?: string | null;
   scheduled_start_time: string;
   scheduled_end_time: string | null;
-  entity_type: 'voice' | 'stage_instance' | 'external';
+  entity_type: 'voice';
   channel_id: string | null;
   location: string | null;
+  announcement_channel_id?: string | null;
+  signup_role_ids?: string[];
 }
 
 export interface ScheduledEventUpdateRequest extends ScheduledEventCreateRequest {}
@@ -1165,6 +1168,12 @@ export const eventsApi = {
   getScheduledEvents: async (guildId: string) => {
     const response = await apiClient.get<{ success: boolean; events: ScheduledEventSummary[] }>(
       `/api/guilds/${guildId}/events/scheduled`
+    );
+    return response.data;
+  },
+  getScheduledEvent: async (guildId: string, eventId: string) => {
+    const response = await apiClient.get<{ success: boolean; event: ScheduledEventSummary }>(
+      `/api/guilds/${guildId}/events/scheduled/${eventId}`
     );
     return response.data;
   },

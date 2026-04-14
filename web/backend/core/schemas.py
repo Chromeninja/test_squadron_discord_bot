@@ -567,11 +567,14 @@ class ScheduledEventCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=1000)
+    announcement_message: str | None = Field(default=None, max_length=2000)
     scheduled_start_time: str
     scheduled_end_time: str | None = None
-    entity_type: Literal["voice", "stage_instance", "external"]
+    entity_type: Literal["voice"]
     channel_id: str | None = None
     location: str | None = Field(default=None, max_length=100)
+    announcement_channel_id: str | None = None
+    signup_role_ids: list[str] = Field(default_factory=list)
 
 
 class ScheduledEventUpdateRequest(ScheduledEventCreateRequest):

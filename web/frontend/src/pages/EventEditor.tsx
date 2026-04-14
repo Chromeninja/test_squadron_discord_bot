@@ -1,21 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SearchableSelect from '../components/SearchableSelect';
+import SearchableMultiSelect from '../components/SearchableMultiSelect';
 import {
   eventsApi,
   guildApi,
   type DiscordChannel,
   type EventModuleSettingsPayload,
+  type GuildRole,
   type GuildInfo,
-  type ScheduledEventSummary,
 } from '../api/endpoints';
 import { Alert, Badge, Button, Card, CardBody, Input, Textarea } from '../components/ui';
 import {
-  ATTENDANCE_OPTIONS,
   BUILDER_STEPS,
   DURATION_OPTIONS,
-  RECURRENCE_OPTIONS,
-  REMINDER_OPTIONS,
   calculateScheduledEndTime,
   combineDateAndTime,
   createDraftFromEvent,
@@ -28,8 +26,6 @@ import {
   type BuilderStep,
   type EndMode,
   type EventDraft,
-  type RecurrenceOption,
-  type ReminderOffset,
   validateDraft,
 } from './eventFlowShared';
 
@@ -42,6 +38,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   const navigate = useNavigate();
   const { eventId } = useParams<{ eventId: string }>();
   const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
+  const [roles, setRoles] = useState<GuildRole[]>([]);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [eventSettings, setEventSettings] = useState<EventModuleSettingsPayload | null>(null);
   const [builderStep, setBuilderStep] = useState<BuilderStep>('details');
@@ -53,8 +50,13 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
 
   const isEditing = mode === 'edit';
   const channelNameById = useMemo(() => new Map(channels.map((channel) => [channel.id, channel.name])), [channels]);
+  const roleNameById = useMemo(() => new Map(roles.map((role) => [role.id, role.name])), [roles]);
   const eventChannelOptions = useMemo(() => getEventChannelOptions(channels), [channels]);
   const announcementChannelOptions = useMemo(() => getAnnouncementChannelOptions(channels), [channels]);
+  const signupRoleOptions = useMemo(
+    () => roles.map((role) => ({ id: role.id, name: role.name })),
+    [roles],
+  );
   const stepIndex = BUILDER_STEPS.findIndex((step) => step.id === builderStep);
   const validationError = validateDraft(draft);
   const computedEndTime = draft.startDate && draft.startTime
@@ -74,30 +76,31 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     setError(null);
 
     try {
-      const [guildResponse, configResponse, channelsResponse] = await Promise.all([
+      const [guildResponse, configResponse, channelsResponse, rolesResponse] = await Promise.all([
         guildApi.getGuildInfo(guildId),
         guildApi.getGuildConfig(guildId),
         guildApi.getDiscordChannels(guildId),
+        guildApi.getDiscordRoles(guildId),
       ]);
 
       setGuildInfo(guildResponse.guild);
       setEventSettings(configResponse.data.events);
       setChannels(channelsResponse.channels);
+      setRoles(rolesResponse.roles);
 
       if (isEditing) {
         if (!eventId) {
           throw new Error('Missing event id');
         }
 
-        const eventsResponse = await eventsApi.getScheduledEvents(guildId);
-        const event = eventsResponse.events.find((item: ScheduledEventSummary) => item.id === eventId);
+        const eventResponse = await eventsApi.getScheduledEvent(guildId, eventId);
 
-        if (!event) {
+        if (!eventResponse.event) {
           setError('The requested event could not be found.');
           return;
         }
 
-        setDraft(createDraftFromEvent(event, configResponse.data.events));
+        setDraft(createDraftFromEvent(eventResponse.event, configResponse.data.events));
       } else {
         setDraft(createEmptyDraft(configResponse.data.events));
       }
@@ -120,13 +123,11 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     setDraft((currentDraft) => {
       const nextDraft = { ...currentDraft };
 
-      if (nextDraft.entityType === 'voice') {
-        if (
-          !nextDraft.channelId ||
-          !eventChannelOptions.some((option) => option.id === nextDraft.channelId)
-        ) {
-          nextDraft.channelId = eventChannelOptions[0]?.id ?? null;
-        }
+      if (
+        !nextDraft.channelId ||
+        !eventChannelOptions.some((option) => option.id === nextDraft.channelId)
+      ) {
+        nextDraft.channelId = eventChannelOptions[0]?.id ?? null;
       }
 
       if (
@@ -178,11 +179,15 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
       const payload = {
         name: draft.name.trim(),
         description: draft.description.trim() || null,
+        announcement_message:
+          draft.announcementMessage.trim() || draft.description.trim() || null,
         scheduled_start_time: combineDateAndTime(draft.startDate, draft.startTime),
         scheduled_end_time: calculateScheduledEndTime(draft),
-        entity_type: draft.entityType,
-        channel_id: draft.entityType === 'external' ? null : draft.channelId,
-        location: draft.entityType === 'external' ? draft.location.trim() || null : null,
+        entity_type: 'voice' as const,
+        channel_id: draft.channelId,
+        location: null,
+        announcement_channel_id: draft.announcementChannelId,
+        signup_role_ids: draft.signupRoleIds ?? [],
       };
 
       if (isEditing && eventId) {
@@ -288,45 +293,19 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                 <Textarea
                   label="Description"
                   value={draft.description}
-                  onChange={(event) => updateDraft({ description: event.target.value })}
+                  onChange={(event) => {
+                    const nextDescription = event.target.value;
+                    updateDraft(
+                      draft.announcementMessage.trim()
+                        ? { description: nextDescription }
+                        : {
+                            description: nextDescription,
+                            announcementMessage: nextDescription,
+                          },
+                    );
+                  }}
                   placeholder="Add the mission brief, prep notes, or agenda"
                 />
-
-                <div>
-                  <p className="mb-3 text-sm font-medium text-gray-300">Event Type</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {[
-                      {
-                        id: 'voice',
-                        title: 'Voice event',
-                        description: 'Link the schedule to a voice room for live attendance tracking.',
-                      },
-                      {
-                        id: 'external',
-                        title: 'External event',
-                        description: 'Point the event at a website, Spectrum post, or external destination.',
-                      },
-                    ].map((option) => {
-                      const isSelected = draft.entityType === option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => updateDraft({ entityType: option.id as 'voice' | 'external' })}
-                          className={[
-                            'rounded-2xl border px-4 py-4 text-left transition',
-                            isSelected
-                              ? 'border-[#ffbb00]/60 bg-[#2b2006]'
-                              : 'border-slate-700 bg-slate-900/65 hover:border-slate-500 hover:bg-slate-800/80',
-                          ].join(' ')}
-                        >
-                          <p className="text-sm font-semibold text-white">{option.title}</p>
-                          <p className="mt-2 text-xs leading-5 text-slate-400">{option.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
 
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
@@ -428,156 +407,46 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
 
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-300">Recurrence</label>
+                    <label className="mb-1 block text-sm font-medium text-gray-300">Event Channel</label>
                     <SearchableSelect
-                      options={RECURRENCE_OPTIONS.map((option) => ({ id: option.value, name: option.label }))}
-                      selected={draft.recurrence}
-                      onChange={(value) => updateDraft({ recurrence: (value as RecurrenceOption) || 'once' })}
-                      placeholder="Choose recurrence"
-                      formatLabel={(option) => option.name}
+                      options={eventChannelOptions}
+                      selected={draft.channelId}
+                      onChange={(value) => updateDraft({ channelId: value })}
+                      placeholder="Choose a voice channel"
                     />
                   </div>
-
-                  {draft.entityType === 'external' ? (
-                    <Input
-                      label="Location"
-                      value={draft.location}
-                      onChange={(event) => updateDraft({ location: event.target.value })}
-                      placeholder="Spectrum briefing room, website, or external venue"
-                    />
-                  ) : (
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-gray-300">Event Channel</label>
-                      <SearchableSelect
-                        options={eventChannelOptions}
-                        selected={draft.channelId}
-                        onChange={(value) => updateDraft({ channelId: value })}
-                        placeholder="Choose a voice channel"
-                      />
-                    </div>
-                  )}
                 </div>
-              </div>
-            )}
-
-            {builderStep === 'attendance' && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-                  {ATTENDANCE_OPTIONS.map((option) => {
-                    const isSelected = draft.attendanceMode === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => updateDraft({ attendanceMode: option.id })}
-                        className={[
-                          'rounded-2xl border px-4 py-4 text-left transition',
-                          isSelected
-                            ? 'border-[#ffbb00]/60 bg-[#2b2006]'
-                            : 'border-slate-700 bg-slate-900/65 hover:border-slate-500 hover:bg-slate-800/80',
-                        ].join(' ')}
-                      >
-                        <p className="text-sm font-semibold text-white">{option.title}</p>
-                        <p className="mt-2 text-xs leading-5 text-slate-400">{option.description}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <Input
-                    label="Capacity"
-                    type="number"
-                    min={1}
-                    value={draft.capacity}
-                    onChange={(event) => updateDraft({ capacity: event.target.value })}
-                    placeholder="Optional headcount limit"
-                    helperText="Use this when seats or ship slots are limited."
-                  />
-
-                  <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-                    <p className="text-sm font-semibold text-white">Waitlist</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {[
-                        { label: 'Disabled', value: false },
-                        { label: 'Enabled', value: true },
-                      ].map((option) => (
-                        <button
-                          key={option.label}
-                          type="button"
-                          onClick={() => updateDraft({ waitlistEnabled: option.value })}
-                          className={[
-                            'rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition',
-                            draft.waitlistEnabled === option.value
-                              ? 'border-[#ffbb00]/60 bg-[#2b2006] text-[#fff1bf]'
-                              : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-400',
-                          ].join(' ')}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <Card variant="default" className="border border-slate-700 bg-slate-900/80">
-                  <CardBody>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Coordinator Snapshot</p>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Attendance Mode</p>
-                        <p className="mt-1 text-sm text-slate-100">
-                          {draft.attendanceMode === 'signup'
-                            ? 'Structured signups'
-                            : draft.attendanceMode === 'drop_in'
-                              ? 'Drop-in attendance'
-                              : 'RSVP tracking'}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Capacity</p>
-                        <p className="mt-1 text-sm text-slate-100">{draft.capacity.trim() || 'Flexible'}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Waitlist</p>
-                        <p className="mt-1 text-sm text-slate-100">{draft.waitlistEnabled ? 'Enabled' : 'Disabled'}</p>
-                      </div>
-                    </div>
-                  </CardBody>
-                </Card>
               </div>
             )}
 
             {builderStep === 'connections' && (
               <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-300">Announcement Channel</label>
-                    <SearchableSelect
-                      options={announcementChannelOptions}
-                      selected={draft.announcementChannelId}
-                      onChange={(value) => updateDraft({ announcementChannelId: value })}
-                      placeholder="Choose a text channel"
-                    />
-                  </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-300">Announcement Channel</label>
+                  <SearchableSelect
+                    options={announcementChannelOptions}
+                    selected={draft.announcementChannelId}
+                    onChange={(value) => updateDraft({ announcementChannelId: value })}
+                    placeholder="Choose a text channel"
+                  />
+                </div>
 
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-300">Reminder Timing</label>
-                    <SearchableSelect
-                      options={REMINDER_OPTIONS.map((option) => ({ id: option.value, name: option.label }))}
-                      selected={draft.reminderOffset}
-                      onChange={(value) => updateDraft({ reminderOffset: (value as ReminderOffset) || 'none' })}
-                      placeholder="Choose a reminder"
-                      formatLabel={(option) => option.name}
-                    />
-                  </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-300">Signup Roles (optional)</label>
+                  <SearchableMultiSelect
+                    options={signupRoleOptions}
+                    selected={draft.signupRoleIds ?? []}
+                    onChange={(value) => updateDraft({ signupRoleIds: value })}
+                    placeholder="Type to search server roles..."
+                    componentId="event-signup-roles"
+                  />
                 </div>
 
                 <Textarea
-                  label="Coordinator Notes"
-                  value={draft.coordinatorNotes}
-                  onChange={(event) => updateDraft({ coordinatorNotes: event.target.value })}
-                  placeholder="Optional internal notes for comms, staffing, or prep reminders"
+                  label="Announcement Message"
+                  value={draft.announcementMessage}
+                  onChange={(event) => updateDraft({ announcementMessage: event.target.value })}
+                  placeholder="Defaults to your event brief, but you can customize what gets posted."
                 />
 
                 <Card variant="default" className="border border-slate-700 bg-slate-900/80">
@@ -585,7 +454,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Connection Summary</p>
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Announcement Path</p>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Announcement Channel</p>
                         <p className="mt-1 text-sm text-slate-100">
                           {draft.announcementChannelId
                             ? channelNameById.get(draft.announcementChannelId) || 'Configured channel'
@@ -621,7 +490,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                         </div>
                         <div className="flex items-center justify-between gap-4">
                           <span>Type</span>
-                          <span className="text-right text-slate-100">{draft.entityType === 'external' ? 'External event' : 'Voice event'}</span>
+                          <span className="text-right text-slate-100">Voice event</span>
                         </div>
                         <div className="flex items-center justify-between gap-4">
                           <span>Starts</span>
@@ -638,31 +507,11 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                         <div className="flex items-center justify-between gap-4">
                           <span>Connection</span>
                           <span className="text-right text-slate-100">
-                            {draft.entityType === 'external'
-                              ? draft.location || 'No location selected'
-                              : draft.channelId
-                                ? channelNameById.get(draft.channelId) || 'Configured voice channel'
-                                : 'No voice channel selected'}
+                            {draft.channelId
+                              ? channelNameById.get(draft.channelId) || 'Configured voice channel'
+                              : 'No voice channel selected'}
                           </span>
                         </div>
-                      </div>
-                    </CardBody>
-                  </Card>
-
-                  <Card variant="default" className="border border-slate-700 bg-slate-900/80">
-                    <CardBody>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Coordinator Plan</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {reviewHighlights.map((highlight) => (
-                          <span
-                            key={highlight}
-                            className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-100"
-                          >
-                            {highlight}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-4 space-y-3 text-sm text-slate-300">
                         <div className="flex items-center justify-between gap-4">
                           <span>Announcement</span>
                           <span className="text-right text-slate-100">
@@ -672,17 +521,39 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-4">
-                          <span>Reminder</span>
+                          <span>Announcement Message</span>
                           <span className="text-right text-slate-100">
-                            {REMINDER_OPTIONS.find((option) => option.value === draft.reminderOffset)?.label || 'No reminder'}
+                            {(draft.announcementMessage.trim() || draft.description.trim())
+                              ? `${(draft.announcementMessage.trim() || draft.description.trim()).slice(0, 40)}${(draft.announcementMessage.trim() || draft.description.trim()).length > 40 ? '...' : ''}`
+                              : 'Default summary'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-4">
-                          <span>Recurrence</span>
+                          <span>Signup Roles</span>
                           <span className="text-right text-slate-100">
-                            {RECURRENCE_OPTIONS.find((option) => option.value === draft.recurrence)?.label || 'One-time event'}
+                            {(draft.signupRoleIds ?? []).length > 0
+                              ? (draft.signupRoleIds ?? [])
+                                  .map((roleId) => roleNameById.get(roleId) || `Role ${roleId}`)
+                                  .join(', ')
+                              : 'None'}
                           </span>
                         </div>
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                  <Card variant="default" className="border border-slate-700 bg-slate-900/80">
+                    <CardBody>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Summary</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {reviewHighlights.map((highlight) => (
+                          <span
+                            key={highlight}
+                            className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-100"
+                          >
+                            {highlight}
+                          </span>
+                        ))}
                       </div>
                     </CardBody>
                   </Card>
@@ -724,12 +595,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live Preview</p>
               <div className="mt-4 rounded-[24px] border border-[#ffbb00]/15 bg-[linear-gradient(180deg,_rgba(58,41,5,0.35),_rgba(15,23,42,0.96))] p-5">
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="info">{draft.entityType === 'external' ? 'External' : 'Voice'}</Badge>
-                  <Badge variant="neutral">
-                    {draft.recurrence === 'once'
-                      ? 'One-time'
-                      : RECURRENCE_OPTIONS.find((option) => option.value === draft.recurrence)?.label || 'Recurring'}
-                  </Badge>
+                  <Badge variant="info">Voice</Badge>
                 </div>
                 <h4 className="mt-4 text-2xl font-semibold text-white">{draft.name || 'Untitled event'}</h4>
                 <p className="mt-3 text-sm leading-6 text-slate-300">
@@ -756,23 +622,11 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                     </p>
                   </div>
                   <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Attendance</p>
-                    <p className="mt-1 text-sm text-slate-100">
-                      {draft.attendanceMode === 'signup'
-                        ? 'Structured signups'
-                        : draft.attendanceMode === 'drop_in'
-                          ? 'Drop-in attendance'
-                          : 'RSVP tracking'}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Destination</p>
                     <p className="mt-1 text-sm text-slate-100">
-                      {draft.entityType === 'external'
-                        ? draft.location || 'Add a location'
-                        : draft.channelId
-                          ? channelNameById.get(draft.channelId) || 'Configured voice channel'
-                          : 'Select a voice channel'}
+                      {draft.channelId
+                        ? channelNameById.get(draft.channelId) || 'Configured voice channel'
+                        : 'Select a voice channel'}
                     </p>
                   </div>
                 </div>

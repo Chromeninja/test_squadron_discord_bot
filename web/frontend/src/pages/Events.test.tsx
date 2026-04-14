@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
   eventsApi: {
     getScheduledEvents: vi.fn(),
+    getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
   },
@@ -13,6 +14,7 @@ const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
     getGuildInfo: vi.fn(),
     getGuildConfig: vi.fn(),
     getDiscordChannels: vi.fn(),
+    getDiscordRoles: vi.fn(),
   },
   useAuth: vi.fn(),
 }));
@@ -116,6 +118,13 @@ describe('Events Page', () => {
         { id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 },
       ],
     });
+    vi.mocked(guildApi.getDiscordRoles).mockResolvedValue({
+      success: true,
+      roles: [
+        { id: '20', name: 'Pilot', color: null },
+        { id: '21', name: 'Medic', color: null },
+      ],
+    });
     vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
       success: true,
       events: [
@@ -137,6 +146,25 @@ describe('Events Page', () => {
         },
       ],
     });
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '555',
+        name: 'Fleet Night',
+        description: 'Weekly op',
+        scheduled_start_time: '2026-04-09T20:00:00+00:00',
+        scheduled_end_time: '2026-04-09T22:00:00+00:00',
+        status: 'scheduled',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
+        user_count: 12,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: null,
+      },
+    });
     vi.mocked(eventsApi.createScheduledEvent).mockResolvedValue({
       success: true,
       event: {
@@ -146,10 +174,10 @@ describe('Events Page', () => {
         scheduled_start_time: '2026-04-10T20:00:00+00:00',
         scheduled_end_time: null,
         status: 'scheduled',
-        entity_type: 'external',
-        channel_id: null,
-        channel_name: null,
-        location: 'Spectrum',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
         user_count: 0,
         creator_id: '444333222',
         creator_name: 'Coordinator',
