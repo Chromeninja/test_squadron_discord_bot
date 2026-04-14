@@ -21,7 +21,9 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       // Unauthorized - redirect to login (but avoid infinite loop if already on auth page)
       if (!window.location.pathname.startsWith('/auth')) {
-        window.location.href = '/auth/login';
+        const nextPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const loginUrl = `/auth/login?next=${encodeURIComponent(nextPath || '/')}`;
+        window.location.href = loginUrl;
       }
     }
     return Promise.reject(error);

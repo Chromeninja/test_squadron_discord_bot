@@ -133,6 +133,14 @@ function SettingsIcon({ className = 'h-4 w-4' }: { className?: string }) {
   );
 }
 
+function HomeIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M8.89 1.538a1.25 1.25 0 0 0-1.78 0L1.89 6.76A1.25 1.25 0 0 0 1.5 7.643V13a1.5 1.5 0 0 0 1.5 1.5h2.25A1.25 1.25 0 0 0 6.5 13.25v-2.5c0-.138.112-.25.25-.25h2.5c.138 0 .25.112.25.25v2.5A1.25 1.25 0 0 0 10.75 14.5H13A1.5 1.5 0 0 0 14.5 13V7.643a1.25 1.25 0 0 0-.39-.883L8.89 1.538Z" />
+    </svg>
+  );
+}
+
 function ChevronUpDownIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
@@ -193,6 +201,22 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
 
   const canViewMetrics = userHasPermission('discord_manager');
   const canViewEvents = eventModuleEnabled && userHasPermission('event_coordinator');
+  const dashboardBasePath =
+    user.active_guild_id && user.active_guild_id !== ALL_GUILDS_SENTINEL
+      ? `/dashboard/${encodeURIComponent(user.active_guild_id)}`
+      : '/';
+
+  const dashboardPath = useCallback(
+    (childPath: string = ''): string => {
+      const normalizedChildPath = childPath.replace(/^\/+/, '');
+      if (!normalizedChildPath) {
+        return dashboardBasePath;
+      }
+
+      return `${dashboardBasePath}/${normalizedChildPath}`;
+    },
+    [dashboardBasePath],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -279,17 +303,27 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       {
         title: 'Overview',
         items: [
-          { to: '/', label: 'Dashboard', icon: <DashboardIcon />, visible: true },
-          { to: '/metrics', label: 'Metrics', icon: <MetricsIcon />, visible: canViewMetrics },
+          {
+            to: dashboardPath(),
+            label: 'Dashboard',
+            icon: <DashboardIcon />,
+            visible: true,
+          },
+          {
+            to: dashboardPath('metrics'),
+            label: 'Metrics',
+            icon: <MetricsIcon />,
+            visible: canViewMetrics,
+          },
         ],
       },
       {
         title: 'Operations',
         items: [
-          { to: '/users', label: 'Users', icon: <UsersIcon />, visible: true },
-          { to: '/voice', label: 'Voice', icon: <VoiceIcon />, visible: true },
+          { to: dashboardPath('users'), label: 'Users', icon: <UsersIcon />, visible: true },
+          { to: dashboardPath('voice'), label: 'Voice', icon: <VoiceIcon />, visible: true },
           {
-            to: '/tickets',
+            to: dashboardPath('tickets'),
             label: 'Tickets',
             icon: <TicketsIcon />,
             visible: userHasPermission('discord_manager'),
@@ -299,10 +333,20 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       {
         title: 'Workspace',
         items: [
-          { to: '/events', label: 'Events', icon: <CalendarIcon />, visible: canViewEvents },
-          { to: '/events/drafts', label: 'Drafts', icon: <DraftIcon />, visible: canViewEvents },
           {
-            to: '/events/recurring',
+            to: dashboardPath('events'),
+            label: 'Events',
+            icon: <CalendarIcon />,
+            visible: canViewEvents,
+          },
+          {
+            to: dashboardPath('events/drafts'),
+            label: 'Drafts',
+            icon: <DraftIcon />,
+            visible: canViewEvents,
+          },
+          {
+            to: dashboardPath('events/recurring'),
             label: 'Recurring',
             icon: <RecurringIcon />,
             visible: canViewEvents,
@@ -313,7 +357,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
         title: 'Account',
         items: [
           {
-            to: '/settings',
+            to: dashboardPath('settings'),
             label: 'Settings',
             icon: <SettingsIcon />,
             visible: userHasPermission('bot_admin'),
@@ -321,7 +365,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
         ],
       },
     ],
-    [canViewEvents, canViewMetrics, userHasPermission],
+    [canViewEvents, canViewMetrics, dashboardPath, userHasPermission],
   );
 
   const visibleSections = useMemo(
@@ -364,7 +408,17 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       await authApi.selectGuild(guildId);
       await onRefreshProfile();
       setWorkspaceMenuOpen(false);
-      navigate('/');
+
+      const requestedPrefix = `${dashboardBasePath}/`;
+      const currentPath = location.pathname;
+      const currentSuffix = currentPath.startsWith(requestedPrefix)
+        ? currentPath.slice(requestedPrefix.length)
+        : '';
+      const nextPath = currentSuffix
+        ? `/dashboard/${encodeURIComponent(guildId)}/${currentSuffix}`
+        : `/dashboard/${encodeURIComponent(guildId)}`;
+
+      navigate(`${nextPath}${location.search}`);
     } catch (err) {
       handleApiError(err, 'Failed to switch server');
     } finally {
@@ -548,13 +602,15 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
               </h3>
               <div className="mt-1.5 space-y-1">
                 {section.items.map((item) => {
-                  const isEventsChild = item.to.startsWith('/events/') && item.to !== '/events';
+                  const eventsRootPath = dashboardPath('events');
+                  const isEventsChild =
+                    item.to.startsWith(`${eventsRootPath}/`) && item.to !== eventsRootPath;
 
                   return (
                     <NavLink
                       key={item.to}
                       to={item.to}
-                      end={item.to === '/' || item.to === '/events'}
+                      end={item.to === dashboardBasePath || item.to === eventsRootPath}
                       className={({ isActive }) =>
                         cn(
                           'group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition',
@@ -633,6 +689,18 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
               className="absolute inset-x-0 bottom-full z-20 mb-1 overflow-hidden rounded-2xl border border-[#ffbb00]/20 bg-black/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
             >
               <div className="space-y-1 p-2">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    navigate('/home');
+                  }}
+                  className="group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-sm font-medium text-[#f5deb3] transition hover:bg-[#ffbb00]/10 hover:text-[#fff1bf]"
+                >
+                  <HomeIcon className="h-4 w-4 flex-none text-[#ffbb00]/75" />
+                  <span className="grow py-1">Public Home</span>
+                </button>
                 <button
                   type="button"
                   role="menuitem"

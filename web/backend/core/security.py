@@ -52,6 +52,7 @@ __all__ = [
     "SESSION_SECRET",
     "check_user_has_roles",
     "cleanup_expired_states",
+    "consume_oauth_state",
     "clear_session_cookie",
     "create_session_token",
     "create_session_token_async",
@@ -62,7 +63,7 @@ __all__ = [
     "validate_oauth_state",
 ]
 
-_oauth_states: dict[str, float] = {}
+_oauth_states: dict[str, float | dict[str, object]] = {}
 logger = logging.getLogger(__name__)
 
 
@@ -95,7 +96,18 @@ def _cleanup_expired_sessions(now: datetime | None = None) -> None:
         )
 
 
-def generate_oauth_state() -> str:
+def _extract_oauth_state_timestamp(state_value: float | dict[str, object]) -> float:
+    """Extract a creation timestamp from an OAuth state store value."""
+    if isinstance(state_value, dict):
+        raw_created_at = state_value.get("created_at")
+        if isinstance(raw_created_at, (int, float)):
+            return float(raw_created_at)
+        return 0.0
+
+    return float(state_value)
+
+
+def generate_oauth_state(*, next_path: str | None = None) -> str:
     """
     Generate a cryptographically random state for OAuth flow.
 
@@ -103,8 +115,29 @@ def generate_oauth_state() -> str:
         Random state string
     """
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = datetime.now(UTC).timestamp()
+    state_record: dict[str, object] = {"created_at": datetime.now(UTC).timestamp()}
+    if next_path:
+        state_record["next_path"] = next_path
+
+    _oauth_states[state] = state_record
     return state
+
+
+def consume_oauth_state(state: str) -> dict[str, object] | None:
+    """Consume and return OAuth state metadata when valid and unexpired."""
+    state_value = _oauth_states.pop(state, None)
+    if state_value is None:
+        return None
+
+    created_at = _extract_oauth_state_timestamp(state_value)
+    age = datetime.now(UTC).timestamp() - created_at
+    if age >= 300:
+        return None
+
+    if isinstance(state_value, dict):
+        return state_value
+
+    return {"created_at": created_at}
 
 
 def validate_oauth_state(state: str) -> bool:
@@ -117,19 +150,17 @@ def validate_oauth_state(state: str) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    if state not in _oauth_states:
-        return False
-
-    # Check expiration (5 minutes)
-    timestamp = _oauth_states.pop(state)
-    age = datetime.now(UTC).timestamp() - timestamp
-    return age < 300  # 5 minutes
+    return consume_oauth_state(state) is not None
 
 
 def cleanup_expired_states() -> None:
     """Remove expired OAuth states (call periodically)."""
     now = datetime.now(UTC).timestamp()
-    expired = [s for s, t in _oauth_states.items() if now - t > 300]
+    expired = [
+        state
+        for state, state_value in _oauth_states.items()
+        if now - _extract_oauth_state_timestamp(state_value) > 300
+    ]
     for s in expired:
         _oauth_states.pop(s, None)
 

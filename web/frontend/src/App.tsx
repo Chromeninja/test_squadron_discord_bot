@@ -1,5 +1,6 @@
-import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { authApi, type UserProfile } from './api/endpoints';
 import { DashboardShell } from './components/layout/DashboardShell';
 import { useAuth } from './contexts/AuthContext';
 import { hasPermission as hasPermissionFn } from './utils/permissions';
@@ -15,6 +16,7 @@ const Events = lazy(() => import('./pages/Events'));
 const EventEditor = lazy(() => import('./pages/EventEditor'));
 const EventDrafts = lazy(() => import('./pages/EventDrafts'));
 const EventRecurring = lazy(() => import('./pages/EventRecurring'));
+const Landing = lazy(() => import('./pages/Landing'));
 
 function PageFallback() {
   return (
@@ -22,6 +24,14 @@ function PageFallback() {
       <div className="text-xl text-[#f5deb3]">Loading...</div>
     </div>
   );
+}
+
+function buildDashboardPath(guildId: string, childPath: string = ''): string {
+  const encodedGuildId = encodeURIComponent(guildId);
+  const normalizedChild = childPath.replace(/^\/+/, '');
+  return normalizedChild
+    ? `/dashboard/${encodedGuildId}/${normalizedChild}`
+    : `/dashboard/${encodedGuildId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,11 +63,134 @@ function RequireGuild({ children }: { children: (guildId: string) => React.React
   return <>{children(activeGuildId)}</>;
 }
 
+function LegacyGuildRouteRedirect({ childPath }: { childPath: string }) {
+  const { user } = useAuth();
+
+  if (!user?.active_guild_id || user.active_guild_id === '*') {
+    return <Navigate to="/select-server" replace />;
+  }
+
+  return <Navigate to={buildDashboardPath(user.active_guild_id, childPath)} replace />;
+}
+
+function LegacyEventEditorRedirect() {
+  const { eventId } = useParams();
+  return <LegacyGuildRouteRedirect childPath={`events/${eventId ?? ''}/edit`} />;
+}
+
+function AuthenticatedLandingRoute({ user }: { user: UserProfile }) {
+  const dashboardHref =
+    user.active_guild_id && user.active_guild_id !== '*'
+      ? buildDashboardPath(user.active_guild_id)
+      : '/select-server';
+
+  return <Landing loginHref="/auth/login?next=%2F" user={user} dashboardHref={dashboardHref} />;
+}
+
+function SelectServerRoute({
+  user,
+  onSelected,
+}: {
+  user: UserProfile;
+  onSelected: () => Promise<void>;
+}) {
+  if (user.active_guild_id && user.active_guild_id !== '*') {
+    return <Navigate to={buildDashboardPath(user.active_guild_id)} replace />;
+  }
+
+  return <SelectServer onSelected={onSelected} user={user} />;
+}
+
+function GuildScopeGate({
+  user,
+  onRefreshProfile,
+  children,
+}: {
+  user: UserProfile;
+  onRefreshProfile: () => Promise<void>;
+  children: React.ReactNode;
+}) {
+  const { guildId } = useParams();
+  const navigate = useNavigate();
+  const [isSwitching, setIsSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState(false);
+
+  const requestedGuildId = guildId ?? '';
+  const isAuthorizedForRequestedGuild = Boolean(
+    requestedGuildId && user.authorized_guilds?.[requestedGuildId],
+  );
+
+  useEffect(() => {
+    if (!requestedGuildId) {
+      setSwitchError(true);
+      return;
+    }
+
+    if (!isAuthorizedForRequestedGuild) {
+      setSwitchError(true);
+      return;
+    }
+
+    if (user.active_guild_id === requestedGuildId) {
+      setSwitchError(false);
+      setIsSwitching(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncGuildContext = async () => {
+      setIsSwitching(true);
+      try {
+        await authApi.selectGuild(requestedGuildId);
+        await onRefreshProfile();
+        if (!cancelled) {
+          setSwitchError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setSwitchError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSwitching(false);
+        }
+      }
+    };
+
+    void syncGuildContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAuthorizedForRequestedGuild,
+    onRefreshProfile,
+    requestedGuildId,
+    user.active_guild_id,
+  ]);
+
+  useEffect(() => {
+    if (!switchError) {
+      return;
+    }
+
+    navigate('/select-server', { replace: true });
+  }, [navigate, switchError]);
+
+  if (switchError || isSwitching || user.active_guild_id !== requestedGuildId) {
+    return <PageFallback />;
+  }
+
+  return <>{children}</>;
+}
+
 // ---------------------------------------------------------------------------
 // App root
 // ---------------------------------------------------------------------------
 
 function App() {
+  const location = useLocation();
   const { user, loading, setUser, refreshProfile } = useAuth();
 
   // ---- Loading state ----
@@ -71,21 +204,13 @@ function App() {
 
   // ---- Not authenticated ----
   if (!user) {
+    const nextPath = `${location.pathname}${location.search}${location.hash}` || '/';
+    const loginHref = `/auth/login?next=${encodeURIComponent(nextPath)}`;
+
     return (
-      <div className="dashboard-theme flex min-h-screen flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-2xl border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(20,23,31,0.96),rgba(8,9,12,0.98))] p-8 text-center shadow-[0_0_30px_rgba(255,187,0,0.08)]">
-          <h1 className="mb-4 text-2xl font-bold text-[#fff4cc] sm:text-3xl">TEST Squadron Command</h1>
-          <p className="mb-6 text-[#a89465]">
-            Admin dashboard for bot management
-          </p>
-          <a
-            href="/auth/login"
-            className="inline-block min-h-[44px] rounded-lg border border-[#ffbb00]/45 bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] px-6 py-3 font-semibold text-[#fff1bf] transition hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))]"
-          >
-            Login with Discord
-          </a>
-        </div>
-      </div>
+      <Suspense fallback={<PageFallback />}>
+        <Landing loginHref={loginHref} user={null} />
+      </Suspense>
     );
   }
 
@@ -122,26 +247,28 @@ function App() {
     );
   }
 
-  // ---- No guild selected ----
-  if (!user.active_guild_id) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <SelectServer onSelected={refreshProfile} user={user} />
-      </Suspense>
-    );
-  }
-
-  // ---- Authenticated + guild selected → routed shell ----
+  // ---- Authenticated routing ----
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
+        <Route path="/" element={<AuthenticatedLandingRoute user={user} />} />
+        <Route path="/home" element={<AuthenticatedLandingRoute user={user} />} />
+
         <Route
+          path="/select-server"
+          element={<SelectServerRoute user={user} onSelected={refreshProfile} />}
+        />
+
+        <Route
+          path="/dashboard/:guildId"
           element={
-            <DashboardShell
-              user={user}
-              onUserChange={setUser}
-              onRefreshProfile={refreshProfile}
-            />
+            <GuildScopeGate user={user} onRefreshProfile={refreshProfile}>
+              <DashboardShell
+                user={user}
+                onUserChange={setUser}
+                onRefreshProfile={refreshProfile}
+              />
+            </GuildScopeGate>
           }
         >
           {/* Dashboard (index route) */}
@@ -244,8 +371,28 @@ function App() {
           />
 
           {/* Catch-all → redirect to dashboard */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="." replace />} />
         </Route>
+
+        {/* Legacy flat routes kept for backwards compatibility */}
+        <Route path="/metrics" element={<LegacyGuildRouteRedirect childPath="metrics" />} />
+        <Route path="/users" element={<LegacyGuildRouteRedirect childPath="users" />} />
+        <Route path="/voice" element={<LegacyGuildRouteRedirect childPath="voice" />} />
+        <Route path="/events" element={<LegacyGuildRouteRedirect childPath="events" />} />
+        <Route path="/events/new" element={<LegacyGuildRouteRedirect childPath="events/new" />} />
+        <Route path="/events/:eventId/edit" element={<LegacyEventEditorRedirect />} />
+        <Route
+          path="/events/drafts"
+          element={<LegacyGuildRouteRedirect childPath="events/drafts" />}
+        />
+        <Route
+          path="/events/recurring"
+          element={<LegacyGuildRouteRedirect childPath="events/recurring" />}
+        />
+        <Route path="/tickets" element={<LegacyGuildRouteRedirect childPath="tickets" />} />
+        <Route path="/settings" element={<LegacyGuildRouteRedirect childPath="settings" />} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );

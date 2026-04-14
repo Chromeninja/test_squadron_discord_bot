@@ -419,6 +419,71 @@ async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkey
 
 
 @pytest.mark.asyncio
+async def test_callback_redirects_to_preserved_next_path(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """OAuth callback should redirect to the state-preserved frontend path."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    async def mock_post(*args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    async def mock_get(url, *args, **kwargs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            mock_response.json = lambda: [
+                {
+                    "id": "246486575137947648",
+                    "name": "Test Guild",
+                    "owner": True,
+                    "permissions": "2147483647",
+                }
+            ]
+        elif "/users/@me" in url:
+            mock_response.json = lambda: {
+                "id": "123456789",
+                "username": "TestOwner",
+                "discriminator": "0001",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
+
+    valid_state = generate_oauth_state(
+        next_path="/dashboard/246486575137947648/metrics"
+    )
+
+    response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code", "state": valid_state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"].endswith(
+        "/dashboard/246486575137947648/metrics"
+    )
+
+
+@pytest.mark.asyncio
 async def test_callback_grants_access_to_administrator(
     client: AsyncClient, monkeypatch
 ):

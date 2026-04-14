@@ -3,7 +3,7 @@ Authentication routes for Discord OAuth2 flow.
 """
 
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from core.dependencies import (
@@ -36,10 +36,10 @@ from core.schemas import (
 from core.security import (
     SESSION_COOKIE_NAME,
     clear_session_cookie,
+    consume_oauth_state,
     generate_oauth_state,
     get_discord_authorize_url,
     set_session_cookie,
-    validate_oauth_state,
 )
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -109,6 +109,28 @@ def _safe_bot_callback_error(error: str | None) -> str:
     return "unknown_error"
 
 
+def _sanitize_next_path(next_path: str | None) -> str:
+    """Allow only safe same-origin relative return paths."""
+    if not next_path:
+        return "/"
+
+    if len(next_path) > 2048:
+        return "/"
+
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        return "/"
+
+    parsed = urlparse(next_path)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+
+    # Avoid redirect loops back into auth endpoints.
+    if parsed.path.startswith("/auth"):
+        return "/"
+
+    return next_path
+
+
 @router.get("/login")
 @limiter.limit("10/minute")
 async def login(request: Request):
@@ -117,8 +139,11 @@ async def login(request: Request):
 
     Redirects user to Discord authorization page.
     """
+    raw_next = request.query_params.get("next")
+    next_path = _sanitize_next_path(raw_next)
+
     # Generate CSRF state token for OAuth security (stored in-memory, validated in callback)
-    state = generate_oauth_state()
+    state = generate_oauth_state(next_path=next_path)
     auth_url = get_discord_authorize_url(state)
 
     return RedirectResponse(url=auth_url)
@@ -145,11 +170,17 @@ async def callback(request: Request, code: str, state: str | None = None):
             raise HTTPException(status_code=400, detail="Missing authorization code")
 
         # Validate CSRF state token (one-time use, expires after 5 minutes)
-        if not state or not validate_oauth_state(state):
+        state_payload = consume_oauth_state(state) if state else None
+        if not state_payload:
             logger.warning("OAuth callback with invalid or expired state token")
             raise HTTPException(
                 status_code=400, detail="Invalid or expired state token"
             )
+
+        raw_next_path = state_payload.get("next_path")
+        next_path = _sanitize_next_path(
+            raw_next_path if isinstance(raw_next_path, str) else None
+        )
 
         # Exchange code for access token
         async with httpx.AsyncClient() as client:
@@ -424,8 +455,12 @@ async def callback(request: Request, code: str, state: str | None = None):
             for guild_id, perm in authorized_guilds.items()
         }
 
-        # Do NOT auto-select guild - force user to choose from SelectServer screen
-        logger.info("Redirecting authenticated user to guild selection")
+        # Do NOT auto-select guild here. Frontend route guards will perform safe selection
+        # when deep-linking into a guild-scoped page.
+        logger.info(
+            "Redirecting authenticated user to frontend",
+            extra={"next_path": next_path},
+        )
 
         session_data = {
             "user_id": user_id,
@@ -439,7 +474,7 @@ async def callback(request: Request, code: str, state: str | None = None):
         }
 
         # Create response with session cookie using centralized helper
-        response = RedirectResponse(url=FRONTEND_URL)
+        response = RedirectResponse(url=f"{FRONTEND_URL.rstrip('/')}{next_path}")
         await set_session_cookie(response, session_data)
         return response
 

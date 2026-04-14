@@ -42,6 +42,10 @@ class DashboardCog(commands.Cog):
             dashboard_url = config_url or os.getenv(
                 "PUBLIC_URL", "http://localhost:5173"
             )
+            if interaction.guild_id:
+                dashboard_url = (
+                    f"{dashboard_url.rstrip('/')}/dashboard/{interaction.guild_id}"
+                )
 
             embed = discord.Embed(
                 title="🌐 Web Admin Dashboard",
