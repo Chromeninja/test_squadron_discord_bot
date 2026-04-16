@@ -274,27 +274,25 @@ async def test_get_discord_roles_rejects_mismatched_guild(
 async def test_get_discord_scheduled_events_proxies_internal_api(
     client: AsyncClient,
     mock_event_coordinator_session: str,
-    fake_internal_api,
 ) -> None:
-    """Scheduled events endpoint should return data from the internal API."""
-    fake_internal_api.scheduled_events_by_guild[123] = [
-        {
-            "id": "555666777888999000",
+    """Scheduled events endpoint should return DB-backed managed events."""
+    await Database.create_managed_event(
+        guild_id=123,
+        payload={
             "name": "Fleet Night",
             "description": "Weekly operation",
+            "announcement_message": "Weekly operation",
             "scheduled_start_time": "2026-04-09T20:00:00+00:00",
             "scheduled_end_time": "2026-04-09T22:00:00+00:00",
-            "status": "scheduled",
             "entity_type": "voice",
             "channel_id": "1182812153271558255",
-            "channel_name": "Operation Voice",
             "location": None,
-            "user_count": 18,
-            "creator_id": "444333222",
-            "creator_name": "TestEventCoordinator",
-            "image_url": None,
-        }
-    ]
+            "announcement_channel_id": "1182812153271558256",
+            "signup_role_ids": [],
+        },
+        created_by_user_id="444333222",
+        created_by_name="TestEventCoordinator",
+    )
 
     response = await client.get(
         "/api/guilds/123/events/scheduled",
@@ -307,6 +305,7 @@ async def test_get_discord_scheduled_events_proxies_internal_api(
     assert len(data["events"]) == 1
     assert data["events"][0]["name"] == "Fleet Night"
     assert data["events"][0]["entity_type"] == "voice"
+    assert data["events"][0]["source_of_truth"] == "db"
 
 
 @pytest.mark.asyncio
@@ -408,28 +407,25 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
     mock_event_coordinator_session: str,
     fake_internal_api,
 ) -> None:
-    """Scheduled event updates should proxy through the internal API."""
-    fake_internal_api.scheduled_events_by_guild[123] = [
-        {
-            "id": "900000000000000000",
+    """Scheduled event updates should update DB and then project to internal API."""
+    created_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
             "name": "Ops Night",
             "description": "Initial description",
             "scheduled_start_time": "2026-04-09T20:00:00+00:00",
             "scheduled_end_time": "2026-04-09T22:00:00+00:00",
-            "status": "scheduled",
             "entity_type": "voice",
-            "channel_id": "1182812153271558255",
-            "channel_name": "Mock Event Channel",
             "location": None,
-            "user_count": 0,
-            "creator_id": "444333222",
-            "creator_name": "TestEventCoordinator",
-            "image_url": None,
-        }
-    ]
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert created_response.status_code == 200
+    local_event_id = created_response.json()["event"]["id"]
 
     response = await client.put(
-        "/api/guilds/123/events/scheduled/900000000000000000",
+        f"/api/guilds/123/events/scheduled/{local_event_id}",
         json={
             "name": "Ops Night Updated",
             "description": "Updated description",
@@ -447,7 +443,44 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
     assert data["success"] is True
     assert data["event"]["name"] == "Ops Night Updated"
     assert data["event"]["location"] is None
+    assert data["event"]["source_of_truth"] == "db"
     assert fake_internal_api.scheduled_events_by_guild[123][0]["entity_type"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_manual_event_sync_reconcile_uses_db_wins_projection(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Manual reconcile should run pull+push and return DB-backed event inventory."""
+    create_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Sync Test",
+            "description": "Initial",
+            "scheduled_start_time": "2026-04-11T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-11T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert create_response.status_code == 200
+
+    sync_response = await client.post(
+        "/api/guilds/123/events/scheduled/sync",
+        json={"direction": "reconcile"},
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert sync_response.status_code == 200
+    data = sync_response.json()
+    assert data["success"] is True
+    assert data["direction"] == "reconcile"
+    assert data["processed"] >= 1
+    assert len(data["events"]) >= 1
 
 
 @pytest.mark.asyncio

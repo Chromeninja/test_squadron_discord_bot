@@ -553,6 +553,13 @@ class ScheduledEventSummary(BaseModel):
     creator_id: str | None = None
     creator_name: str | None = None
     image_url: str | None = None
+    source_of_truth: str = "db"
+    discord_event_id: str | None = None
+    announcement_message_id: str | None = None
+    signup_message_id: str | None = None
+    sync_status: str = "pending"
+    sync_error: str | None = None
+    last_synced_at: int | None = None
 
 
 class ScheduledEventsResponse(BaseModel):
@@ -586,6 +593,23 @@ class ScheduledEventResponse(BaseModel):
 
     success: bool = True
     event: ScheduledEventSummary
+
+
+class EventSyncRequest(BaseModel):
+    """Manual event synchronization request."""
+
+    direction: Literal["push", "pull", "reconcile"] = "reconcile"
+    event_id: str | None = None
+
+
+class EventSyncResponse(BaseModel):
+    """Manual event synchronization response."""
+
+    success: bool = True
+    processed: int = 0
+    updated: int = 0
+    direction: Literal["push", "pull", "reconcile"]
+    events: list[ScheduledEventSummary] = Field(default_factory=list)
 
 
 class BotChannelSettings(BaseModel):

@@ -464,6 +464,386 @@ class Database:
             # Normalize to a list of simple tuples for typing clarity
             return [(int(r[0]), str(r[1])) for r in rows]
 
+    @staticmethod
+    def _decode_signup_role_ids(raw_value: str | None) -> list[str]:
+        """Decode persisted signup role IDs from JSON into a normalized list."""
+        if not raw_value:
+            return []
+
+        try:
+            decoded = json.loads(raw_value)
+        except Exception:
+            return []
+
+        if not isinstance(decoded, list):
+            return []
+
+        normalized: list[str] = []
+        for role_id in decoded:
+            if isinstance(role_id, (str, int)):
+                normalized.append(str(role_id))
+        return normalized
+
+    @classmethod
+    def _managed_event_row_to_dict(cls, row: aiosqlite.Row) -> dict[str, object | None]:
+        """Convert a managed event row into API-facing event payload fields."""
+        return {
+            "id": str(row["id"]),
+            "name": row["name"],
+            "description": row["description"],
+            "announcement_message": row["announcement_message"],
+            "scheduled_start_time": row["scheduled_start_time"],
+            "scheduled_end_time": row["scheduled_end_time"],
+            "status": row["status"],
+            "entity_type": row["entity_type"],
+            "channel_id": row["channel_id"],
+            "channel_name": None,
+            "location": row["location"],
+            "user_count": 0,
+            "creator_id": row["created_by_user_id"],
+            "creator_name": row["created_by_name"],
+            "image_url": None,
+            "source_of_truth": "db",
+            "discord_event_id": row["discord_event_id"],
+            "announcement_message_id": row["announcement_message_id"],
+            "signup_message_id": row["signup_message_id"],
+            "sync_status": row["sync_status"],
+            "sync_error": row["sync_error"],
+            "last_synced_at": row["last_synced_at"],
+            "announcement_channel_id": row["announcement_channel_id"],
+            "signup_role_ids": cls._decode_signup_role_ids(row["signup_role_ids"]),
+            "revision": int(row["revision"]),
+        }
+
+    @classmethod
+    async def list_managed_events_by_guild(cls, guild_id: int) -> list[dict[str, object | None]]:
+        """List non-deleted managed events for a guild ordered by start time."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM managed_events
+                WHERE guild_id = ? AND deleted_at IS NULL
+                ORDER BY scheduled_start_time ASC, id ASC
+                """,
+                (guild_id,),
+            )
+            rows = await cursor.fetchall()
+            return [cls._managed_event_row_to_dict(row) for row in rows]
+
+    @classmethod
+    async def get_managed_event(
+        cls, guild_id: int, event_id: int
+    ) -> dict[str, object | None] | None:
+        """Get one non-deleted managed event for a guild by local DB event ID."""
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM managed_events
+                WHERE guild_id = ? AND id = ? AND deleted_at IS NULL
+                """,
+                (guild_id, event_id),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return cls._managed_event_row_to_dict(row)
+
+    @classmethod
+    async def create_managed_event(
+        cls,
+        guild_id: int,
+        payload: dict[str, object | None],
+        created_by_user_id: str | None,
+        created_by_name: str | None,
+    ) -> dict[str, object | None]:
+        """Create a managed event row with pending projection state."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO managed_events (
+                    guild_id,
+                    name,
+                    description,
+                    announcement_message,
+                    scheduled_start_time,
+                    scheduled_end_time,
+                    entity_type,
+                    channel_id,
+                    location,
+                    announcement_channel_id,
+                    signup_role_ids,
+                    status,
+                    source,
+                    sync_status,
+                    created_by_user_id,
+                    created_by_name,
+                    updated_by_user_id,
+                    updated_by_name,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'dashboard', 'pending', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    guild_id,
+                    str(payload.get("name") or ""),
+                    payload.get("description"),
+                    payload.get("announcement_message"),
+                    str(payload.get("scheduled_start_time") or ""),
+                    payload.get("scheduled_end_time"),
+                    str(payload.get("entity_type") or "voice"),
+                    payload.get("channel_id"),
+                    payload.get("location"),
+                    payload.get("announcement_channel_id"),
+                    json.dumps(payload.get("signup_role_ids") or []),
+                    created_by_user_id,
+                    created_by_name,
+                    created_by_user_id,
+                    created_by_name,
+                    now,
+                    now,
+                ),
+            )
+            event_id = cursor.lastrowid
+            await db.commit()
+
+        if event_id is None:
+            raise RuntimeError("Failed to create managed event")
+
+        event = await cls.get_managed_event(guild_id, int(event_id))
+        if event is None:
+            raise RuntimeError("Created managed event could not be loaded")
+        return event
+
+    @classmethod
+    async def update_managed_event(
+        cls,
+        guild_id: int,
+        event_id: int,
+        payload: dict[str, object | None],
+        updated_by_user_id: str | None,
+        updated_by_name: str | None,
+    ) -> dict[str, object | None] | None:
+        """Update managed event fields and mark as pending projection."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                UPDATE managed_events
+                SET
+                    name = ?,
+                    description = ?,
+                    announcement_message = ?,
+                    scheduled_start_time = ?,
+                    scheduled_end_time = ?,
+                    entity_type = ?,
+                    channel_id = ?,
+                    location = ?,
+                    announcement_channel_id = ?,
+                    signup_role_ids = ?,
+                    sync_status = 'pending',
+                    sync_error = NULL,
+                    updated_by_user_id = ?,
+                    updated_by_name = ?,
+                    updated_at = ?,
+                    revision = revision + 1
+                WHERE guild_id = ? AND id = ? AND deleted_at IS NULL
+                """,
+                (
+                    str(payload.get("name") or ""),
+                    payload.get("description"),
+                    payload.get("announcement_message"),
+                    str(payload.get("scheduled_start_time") or ""),
+                    payload.get("scheduled_end_time"),
+                    str(payload.get("entity_type") or "voice"),
+                    payload.get("channel_id"),
+                    payload.get("location"),
+                    payload.get("announcement_channel_id"),
+                    json.dumps(payload.get("signup_role_ids") or []),
+                    updated_by_user_id,
+                    updated_by_name,
+                    now,
+                    guild_id,
+                    event_id,
+                ),
+            )
+            await db.commit()
+            if cursor.rowcount <= 0:
+                return None
+
+        return await cls.get_managed_event(guild_id, event_id)
+
+    @classmethod
+    async def upsert_managed_event_from_discord(
+        cls,
+        guild_id: int,
+        payload: dict[str, object | None],
+    ) -> dict[str, object | None]:
+        """Upsert a managed event from Discord payload using discord_event_id as key."""
+        discord_event_id = str(payload.get("id") or "").strip()
+        if not discord_event_id:
+            raise ValueError("Discord event payload missing id")
+
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO managed_events (
+                    guild_id,
+                    discord_event_id,
+                    name,
+                    description,
+                    announcement_message,
+                    scheduled_start_time,
+                    scheduled_end_time,
+                    entity_type,
+                    channel_id,
+                    location,
+                    announcement_channel_id,
+                    signup_role_ids,
+                    status,
+                    source,
+                    sync_status,
+                    last_synced_at,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, 'discord_import', 'synced', ?, ?, ?)
+                ON CONFLICT(guild_id, discord_event_id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    scheduled_start_time = excluded.scheduled_start_time,
+                    scheduled_end_time = excluded.scheduled_end_time,
+                    entity_type = excluded.entity_type,
+                    channel_id = excluded.channel_id,
+                    location = excluded.location,
+                    status = excluded.status,
+                    sync_status = 'synced',
+                    sync_error = NULL,
+                    last_synced_at = excluded.last_synced_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    guild_id,
+                    discord_event_id,
+                    str(payload.get("name") or ""),
+                    payload.get("description"),
+                    payload.get("description"),
+                    str(payload.get("scheduled_start_time") or ""),
+                    payload.get("scheduled_end_time"),
+                    str(payload.get("entity_type") or "voice"),
+                    payload.get("channel_id"),
+                    payload.get("location"),
+                    str(payload.get("status") or "scheduled"),
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+            cursor = await db.execute(
+                """
+                SELECT id
+                FROM managed_events
+                WHERE guild_id = ? AND discord_event_id = ? AND deleted_at IS NULL
+                """,
+                (guild_id, discord_event_id),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            raise RuntimeError("Failed to resolve upserted managed event")
+
+        event_id = int(row["id"])
+        event = await cls.get_managed_event(guild_id, event_id)
+        if event is None:
+            raise RuntimeError("Upserted managed event could not be loaded")
+        return event
+
+    @classmethod
+    async def mark_managed_event_synced(
+        cls,
+        guild_id: int,
+        event_id: int,
+        discord_event_id: str | None,
+    ) -> None:
+        """Mark managed event projection as synced."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                UPDATE managed_events
+                SET
+                    discord_event_id = COALESCE(?, discord_event_id),
+                    sync_status = 'synced',
+                    sync_error = NULL,
+                    last_synced_at = ?,
+                    updated_at = ?
+                WHERE guild_id = ? AND id = ? AND deleted_at IS NULL
+                """,
+                (discord_event_id, now, now, guild_id, event_id),
+            )
+            await db.commit()
+
+    @classmethod
+    async def mark_managed_event_sync_failed(
+        cls,
+        guild_id: int,
+        event_id: int,
+        error_message: str,
+    ) -> None:
+        """Mark managed event projection as failed with a bounded error message."""
+        now = int(time.time())
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                UPDATE managed_events
+                SET
+                    sync_status = 'failed',
+                    sync_error = ?,
+                    updated_at = ?
+                WHERE guild_id = ? AND id = ? AND deleted_at IS NULL
+                """,
+                (error_message[:500], now, guild_id, event_id),
+            )
+            await db.commit()
+
+    @classmethod
+    async def record_managed_event_sync_audit(
+        cls,
+        guild_id: int,
+        event_id: int,
+        direction: str,
+        operation: str,
+        status: str,
+        detail: str | None,
+    ) -> None:
+        """Persist one sync audit row for managed event reconciliation."""
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO managed_event_sync_audit (
+                    guild_id,
+                    managed_event_id,
+                    direction,
+                    operation,
+                    status,
+                    detail
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    guild_id,
+                    event_id,
+                    direction,
+                    operation,
+                    status,
+                    detail,
+                ),
+            )
+            await db.commit()
+
     # 404 handle change helpers (older 'username_404' module name retained for backward compatibility)
     @classmethod
     async def flag_needs_reverify(cls, user_id: int, now: int) -> bool:

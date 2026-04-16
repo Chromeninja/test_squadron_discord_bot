@@ -480,6 +480,71 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_announcement_events_announced_at ON announcement_events(announced_at)"
     )
 
+    # DB-first scheduled events (source of truth)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS managed_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            discord_event_id TEXT DEFAULT NULL,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT NULL,
+            announcement_message TEXT DEFAULT NULL,
+            scheduled_start_time TEXT NOT NULL,
+            scheduled_end_time TEXT DEFAULT NULL,
+            entity_type TEXT NOT NULL DEFAULT 'voice',
+            channel_id TEXT DEFAULT NULL,
+            location TEXT DEFAULT NULL,
+            announcement_channel_id TEXT DEFAULT NULL,
+            signup_role_ids TEXT NOT NULL DEFAULT '[]',
+            announcement_message_id TEXT DEFAULT NULL,
+            signup_message_id TEXT DEFAULT NULL,
+            status TEXT NOT NULL DEFAULT 'scheduled',
+            revision INTEGER NOT NULL DEFAULT 1,
+            sync_status TEXT NOT NULL DEFAULT 'pending',
+            sync_error TEXT DEFAULT NULL,
+            last_synced_at INTEGER DEFAULT NULL,
+            last_projected_hash TEXT DEFAULT NULL,
+            source TEXT NOT NULL DEFAULT 'dashboard',
+            created_by_user_id TEXT DEFAULT NULL,
+            created_by_name TEXT DEFAULT NULL,
+            updated_by_user_id TEXT DEFAULT NULL,
+            updated_by_name TEXT DEFAULT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            deleted_at INTEGER DEFAULT NULL
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_managed_events_guild ON managed_events(guild_id, deleted_at)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_managed_events_sync ON managed_events(guild_id, sync_status, updated_at)"
+    )
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_events_guild_discord ON managed_events(guild_id, discord_event_id)"
+    )
+
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS managed_event_sync_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            managed_event_id INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            status TEXT NOT NULL,
+            detail TEXT DEFAULT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            FOREIGN KEY (managed_event_id) REFERENCES managed_events(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_managed_event_sync_audit_event ON managed_event_sync_audit(managed_event_id, created_at)"
+    )
+
     # Admin action audit log
     await db.execute(
         """
