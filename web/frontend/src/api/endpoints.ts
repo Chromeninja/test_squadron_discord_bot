@@ -134,6 +134,7 @@ export interface ScheduledEventSummary {
   creator_id: string | null;
   creator_name: string | null;
   image_url: string | null;
+  recurrence_rule: string | null;
 }
 
 export interface ScheduledEventCreateRequest {
@@ -150,6 +151,19 @@ export interface ScheduledEventCreateRequest {
 }
 
 export interface ScheduledEventUpdateRequest extends ScheduledEventCreateRequest {}
+
+export interface EventSyncRequest {
+  direction: 'push' | 'pull' | 'reconcile';
+  event_id?: string | null;
+}
+
+export interface EventSyncResponse {
+  success: boolean;
+  processed: number;
+  updated: number;
+  direction: 'push' | 'pull' | 'reconcile';
+  events: ScheduledEventSummary[];
+}
 
 export interface OrganizationValidationRequest {
   sid: string;
@@ -1168,6 +1182,16 @@ export const eventsApi = {
   getScheduledEvents: async (guildId: string) => {
     const response = await apiClient.get<{ success: boolean; events: ScheduledEventSummary[] }>(
       `/api/guilds/${guildId}/events/scheduled`
+    );
+    return response.data;
+  },
+  syncScheduledEvents: async (
+    guildId: string,
+    payload: EventSyncRequest = { direction: 'reconcile' },
+  ) => {
+    const response = await apiClient.post<EventSyncResponse>(
+      `/api/guilds/${guildId}/events/scheduled/sync`,
+      payload,
     );
     return response.data;
   },

@@ -30,6 +30,13 @@ metrics:
   rollup_interval_minutes: 60     # Hourly aggregation interval
   buffer_flush_seconds: 30        # Message buffer flush interval
 
+events:
+  sync:
+    enabled: true
+    interval_minutes: 60          # Hourly Discord -> DB reconciliation
+    per_guild_delay_seconds: 2.0  # Pace requests across guilds to respect bot limits
+    startup_delay_seconds: 60.0   # Let the bot settle before the first sync pass
+
 bulk_announcement:
   hour_utc: 17                 # UTC hour to run the daily digest
   minute_utc: 13               # UTC minute to run the daily digest

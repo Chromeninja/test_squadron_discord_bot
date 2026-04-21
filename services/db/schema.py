@@ -141,10 +141,28 @@ async def _ensure_ticket_channel_config_columns(db: aiosqlite.Connection) -> Non
         )
 
 
+async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
+    """Ensure managed event compatibility columns exist on legacy databases."""
+    cursor = await db.execute("PRAGMA table_info(managed_events)")
+    rows = await cursor.fetchall()
+    existing_columns = {str(row[1]) for row in rows}
+
+    if "recurrence_rule" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN recurrence_rule TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "managed_events", "column": "recurrence_rule"},
+        )
+
+
 async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     """Ensure ticket schema compatibility columns exist on legacy databases."""
     await _ensure_ticket_categories_columns(db)
     await _ensure_ticket_channel_config_columns(db)
+    await _ensure_managed_event_columns(db)
 
 
 async def init_schema(db: aiosqlite.Connection) -> None:
@@ -512,7 +530,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             updated_by_name TEXT DEFAULT NULL,
             created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            deleted_at INTEGER DEFAULT NULL
+            deleted_at INTEGER DEFAULT NULL,
+            recurrence_rule TEXT DEFAULT NULL
         )
         """
     )

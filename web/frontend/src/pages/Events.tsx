@@ -39,7 +39,6 @@ function Events({ guildId }: EventsProps) {
 
   const loadCoreData = useCallback(async () => {
     const requestId = coreRequestSequence.next();
-    setRefreshing(true);
     setError(null);
 
     try {
@@ -65,7 +64,6 @@ function Events({ guildId }: EventsProps) {
     } finally {
       if (coreRequestSequence.isCurrent(requestId)) {
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [coreRequestSequence, guildId]);
@@ -102,6 +100,26 @@ function Events({ guildId }: EventsProps) {
     void loadScheduledEvents();
   }, [loadCoreData, loadScheduledEvents]);
 
+  const handleSyncFromDiscord = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    setScheduledEventsError(null);
+
+    try {
+      const syncResponse = await eventsApi.syncScheduledEvents(guildId, {
+        direction: 'reconcile',
+      });
+      setScheduledEvents(syncResponse.events);
+      await loadCoreData();
+      await loadScheduledEvents();
+    } catch {
+      setError('Failed to sync scheduled events from Discord.');
+      await loadScheduledEvents();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [guildId, loadCoreData, loadScheduledEvents]);
+
   const roleLabel = useMemo(() => {
     if (!user) {
       return 'User';
@@ -130,8 +148,7 @@ function Events({ guildId }: EventsProps) {
         </Button>
         <Button
           onClick={() => {
-            void loadCoreData();
-            void loadScheduledEvents();
+            void handleSyncFromDiscord();
           }}
           loading={refreshing}
           variant="secondary"
@@ -226,10 +243,17 @@ function Events({ guildId }: EventsProps) {
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Starts</p>
                       <p className="mt-1 text-sm text-slate-100">{formatEventDate(event.scheduled_start_time)}</p>
                     </div>
-                    <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Ends</p>
-                      <p className="mt-1 text-sm text-slate-100">{formatEventDate(event.scheduled_end_time)}</p>
-                    </div>
+                    {event.recurrence_rule ? (
+                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Repeats</p>
+                        <p className="mt-1 text-sm text-slate-100">{event.recurrence_rule}</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Ends</p>
+                        <p className="mt-1 text-sm text-slate-100">{formatEventDate(event.scheduled_end_time)}</p>
+                      </div>
+                    )}
                     <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Connection</p>
                       <p className="mt-1 text-sm text-slate-100">{event.channel_name || event.location || 'No channel attached'}</p>

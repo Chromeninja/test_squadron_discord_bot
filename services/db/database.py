@@ -499,7 +499,7 @@ class Database:
             "channel_id": row["channel_id"],
             "channel_name": None,
             "location": row["location"],
-            "user_count": 0,
+            "user_count": int(row["user_count_current"]),
             "creator_id": row["created_by_user_id"],
             "creator_name": row["created_by_name"],
             "image_url": None,
@@ -513,7 +513,31 @@ class Database:
             "announcement_channel_id": row["announcement_channel_id"],
             "signup_role_ids": cls._decode_signup_role_ids(row["signup_role_ids"]),
             "revision": int(row["revision"]),
+            "recurrence_rule": row["recurrence_rule"],
         }
+
+    @classmethod
+    async def record_managed_event_interest_snapshot(
+        cls,
+        guild_id: int,
+        event_id: int,
+        user_count: int,
+        captured_at: int,
+    ) -> None:
+        """Persist an interested-count history snapshot for a managed event."""
+        async with cls.get_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO managed_event_interest_history (
+                    guild_id,
+                    managed_event_id,
+                    user_count,
+                    captured_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (guild_id, event_id, user_count, captured_at),
+            )
+            await db.commit()
 
     @classmethod
     async def list_managed_events_by_guild(cls, guild_id: int) -> list[dict[str, object | None]]:
@@ -687,7 +711,29 @@ class Database:
             raise ValueError("Discord event payload missing id")
 
         now = int(time.time())
+        user_count_raw = payload.get("user_count")
+        user_count = (
+            int(user_count_raw)
+            if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
+            else 0
+        )
+        previous_user_count: int | None = None
+        event_id: int | None = None
+
         async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT id, user_count_current
+                FROM managed_events
+                WHERE guild_id = ? AND discord_event_id = ? AND deleted_at IS NULL
+                """,
+                (guild_id, discord_event_id),
+            )
+            existing_row = await cursor.fetchone()
+            if existing_row is not None:
+                event_id = int(existing_row["id"])
+                previous_user_count = int(existing_row["user_count_current"])
+
             await db.execute(
                 """
                 INSERT INTO managed_events (
@@ -704,12 +750,15 @@ class Database:
                     announcement_channel_id,
                     signup_role_ids,
                     status,
+                    user_count_current,
+                    user_count_last_synced_at,
+                    recurrence_rule,
                     source,
                     sync_status,
                     last_synced_at,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, 'discord_import', 'synced', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
                 ON CONFLICT(guild_id, discord_event_id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -719,6 +768,9 @@ class Database:
                     channel_id = excluded.channel_id,
                     location = excluded.location,
                     status = excluded.status,
+                    user_count_current = excluded.user_count_current,
+                    user_count_last_synced_at = excluded.user_count_last_synced_at,
+                    recurrence_rule = excluded.recurrence_rule,
                     sync_status = 'synced',
                     sync_error = NULL,
                     last_synced_at = excluded.last_synced_at,
@@ -736,12 +788,14 @@ class Database:
                     payload.get("channel_id"),
                     payload.get("location"),
                     str(payload.get("status") or "scheduled"),
+                    user_count,
+                    now,
+                    payload.get("recurrence_rule"),
                     now,
                     now,
                     now,
                 ),
             )
-            await db.commit()
 
             cursor = await db.execute(
                 """
@@ -752,6 +806,23 @@ class Database:
                 (guild_id, discord_event_id),
             )
             row = await cursor.fetchone()
+
+            if row is not None:
+                event_id = int(row["id"])
+                if previous_user_count is None or previous_user_count != user_count:
+                    await db.execute(
+                        """
+                        INSERT INTO managed_event_interest_history (
+                            guild_id,
+                            managed_event_id,
+                            user_count,
+                            captured_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (guild_id, event_id, user_count, now),
+                    )
+
+            await db.commit()
 
         if row is None:
             raise RuntimeError("Failed to resolve upserted managed event")

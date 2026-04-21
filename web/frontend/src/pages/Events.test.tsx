@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
   eventsApi: {
     getScheduledEvents: vi.fn(),
+    syncScheduledEvents: vi.fn(),
     getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
@@ -143,6 +144,7 @@ describe('Events Page', () => {
           creator_id: '444333222',
           creator_name: 'Coordinator',
           image_url: null,
+          recurrence_rule: null,
         },
       ],
     });
@@ -163,7 +165,33 @@ describe('Events Page', () => {
         creator_id: '444333222',
         creator_name: 'Coordinator',
         image_url: null,
+        recurrence_rule: null,
       },
+    });
+    vi.mocked(eventsApi.syncScheduledEvents).mockResolvedValue({
+      success: true,
+      processed: 1,
+      updated: 1,
+      direction: 'reconcile',
+      events: [
+        {
+          id: '555',
+          name: 'Fleet Night',
+          description: 'Weekly op',
+          scheduled_start_time: '2026-04-09T20:00:00+00:00',
+          scheduled_end_time: '2026-04-09T22:00:00+00:00',
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 12,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: null,
+        },
+      ],
     });
     vi.mocked(eventsApi.createScheduledEvent).mockResolvedValue({
       success: true,
@@ -182,6 +210,7 @@ describe('Events Page', () => {
         creator_id: '444333222',
         creator_name: 'Coordinator',
         image_url: null,
+        recurrence_rule: null,
       },
     });
     vi.mocked(eventsApi.updateScheduledEvent).mockResolvedValue({
@@ -201,6 +230,7 @@ describe('Events Page', () => {
         creator_id: '444333222',
         creator_name: 'Coordinator',
         image_url: null,
+        recurrence_rule: null,
       },
     });
   });
@@ -305,5 +335,75 @@ describe('Events Page', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('Fleet Night')).toBeInTheDocument();
     });
+  });
+
+  it('runs manual reconcile when Sync From Discord is clicked', async () => {
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sync From Discord' }));
+
+    await waitFor(() => {
+      expect(eventsApi.syncScheduledEvents).toHaveBeenCalledWith('123', {
+        direction: 'reconcile',
+      });
+    });
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('shows an error banner when manual reconcile fails', async () => {
+    vi.mocked(eventsApi.syncScheduledEvents).mockRejectedValue(new Error('sync failed'));
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sync From Discord' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to sync scheduled events from discord/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows recurrence details when an event repeats', async () => {
+    vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
+      success: true,
+      events: [
+        {
+          id: '901',
+          name: 'Recurring Fleet Night',
+          description: 'Recurring op',
+          scheduled_start_time: '2026-04-09T20:00:00+00:00',
+          scheduled_end_time: null,
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 5,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: 'Weekly on Tuesday, Thursday',
+        },
+      ],
+    });
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    expect(screen.getByText('Repeats')).toBeInTheDocument();
+    expect(screen.getByText('Weekly on Tuesday, Thursday')).toBeInTheDocument();
   });
 });

@@ -484,6 +484,50 @@ async def test_manual_event_sync_reconcile_uses_db_wins_projection(
 
 
 @pytest.mark.asyncio
+async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Manual reconcile should persist Discord interested counts into DB-backed reads."""
+    create_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Interest Sync Test",
+            "description": "Initial",
+            "scheduled_start_time": "2026-04-11T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-11T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert create_response.status_code == 200
+
+    fake_internal_api.scheduled_events_by_guild[123][0]["user_count"] = 27
+
+    sync_response = await client.post(
+        "/api/guilds/123/events/scheduled/sync",
+        json={"direction": "reconcile"},
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert sync_response.status_code == 200
+    sync_data = sync_response.json()
+    assert sync_data["events"][0]["user_count"] == 27
+
+    list_response = await client.get(
+        "/api/guilds/123/events/scheduled",
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert list_response.status_code == 200
+    list_data = list_response.json()
+    assert list_data["events"][0]["user_count"] == 27
+
+
+@pytest.mark.asyncio
 async def test_create_discord_scheduled_event_rejects_external_entity_type(
     client: AsyncClient,
     mock_event_coordinator_session: str,

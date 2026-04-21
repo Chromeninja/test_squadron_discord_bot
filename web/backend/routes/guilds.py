@@ -243,6 +243,11 @@ def _coerce_scheduled_event_summary(
             else None
         ),
         last_synced_at=last_synced_at,
+        recurrence_rule=(
+            str(event_data["recurrence_rule"])
+            if isinstance(event_data.get("recurrence_rule"), str)
+            else None
+        ),
     )
 
 

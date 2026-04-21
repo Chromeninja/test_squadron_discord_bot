@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from utils.logging import get_logger
 
 from .config_service import ConfigService
+from .event_sync_service import EventSyncService
 from .guild_config_helper import GuildConfigHelper
 from .guild_service import GuildService
 from .health_service import HealthService
@@ -37,6 +38,7 @@ class ServiceContainer:
         self._config: ConfigService | None = None
         self._guild_config: GuildConfigHelper | None = None
         self._guild: GuildService | None = None
+        self._event_sync: EventSyncService | None = None
         self._voice: VoiceService | None = None
         self._health: HealthService | None = None
         self._metrics: MetricsService | None = None
@@ -73,6 +75,13 @@ class ServiceContainer:
         if self._voice is None:
             raise RuntimeError("VoiceService not initialized")
         return self._voice
+
+    @property
+    def event_sync(self) -> EventSyncService:
+        """Get the event sync service."""
+        if self._event_sync is None:
+            raise RuntimeError("EventSyncService not initialized")
+        return self._event_sync
 
     @property
     def health(self) -> HealthService:
@@ -124,6 +133,8 @@ class ServiceContainer:
         # guild_config is a helper, not a service with lifecycle
         if self._guild:
             services.append(self._guild)
+        if self._event_sync:
+            services.append(self._event_sync)
         if self._voice:
             services.append(self._voice)
         if self._health:
@@ -164,6 +175,10 @@ class ServiceContainer:
             self._guild = GuildService(self._config)
             await self._guild.initialize()
             self.logger.debug("GuildService initialized")
+
+            self._event_sync = EventSyncService(self._config, self.bot)
+            await self._event_sync.initialize()
+            self.logger.debug("EventSyncService initialized")
 
             # Initialize voice service (depends on config and bot)
             self._voice = VoiceService(self._config, self.bot)
@@ -235,6 +250,10 @@ class ServiceContainer:
         if self._health:
             await self._health.shutdown()
             self._health = None
+
+        if self._event_sync:
+            await self._event_sync.shutdown()
+            self._event_sync = None
 
         if self._voice:
             await self._voice.shutdown()

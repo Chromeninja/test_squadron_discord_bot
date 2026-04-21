@@ -560,6 +560,7 @@ class ScheduledEventSummary(BaseModel):
     sync_status: str = "pending"
     sync_error: str | None = None
     last_synced_at: int | None = None
+    recurrence_rule: str | None = None
 
 
 class ScheduledEventsResponse(BaseModel):

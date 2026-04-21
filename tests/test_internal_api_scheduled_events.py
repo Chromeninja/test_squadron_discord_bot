@@ -42,6 +42,43 @@ def test_serialize_scheduled_event_uses_discord_py_time_attributes() -> None:
     assert payload["scheduled_end_time"] == end_time.isoformat()
     assert payload["channel_name"] == "Ops Voice"
     assert payload["creator_name"] == "TEST Verify Bot"
+    assert payload["recurrence_rule"] is None
+
+
+def test_serialize_scheduled_event_formats_weekly_recurrence() -> None:
+    """Scheduled event serialization should format weekly recurrence details."""
+    start_time = datetime(2026, 4, 22, 22, 30, tzinfo=UTC)
+    recurrence_rule = SimpleNamespace(
+        frequency=SimpleNamespace(name="weekly"),
+        interval=1,
+        by_weekday=[
+            SimpleNamespace(value=1),
+            SimpleNamespace(value=3),
+        ],
+    )
+    event = cast(
+        Any,
+        SimpleNamespace(
+            id=121212,
+            name="Recurring Fleet",
+            description="Two days each week",
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=None,
+            location=None,
+            user_count=3,
+            creator=None,
+            cover_image=None,
+            recurrence_rule=recurrence_rule,
+        ),
+    )
+
+    payload = InternalAPIServer._serialize_scheduled_event(event)
+
+    assert payload["recurrence_rule"] == "Weekly on Tuesday, Thursday"
 
 
 def test_serialize_scheduled_event_uses_guild_channel_fallback() -> None:

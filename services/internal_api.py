@@ -1139,6 +1139,7 @@ class InternalAPIServer:
         scheduled_start_time = getattr(event, "start_time", None)
         scheduled_end_time = getattr(event, "end_time", None)
         cover_image = getattr(event, "cover_image", None)
+        recurrence_rule_raw = getattr(event, "recurrence_rule", None)
 
         if channel is None:
             channel_id = getattr(event, "channel_id", None)
@@ -1170,7 +1171,56 @@ class InternalAPIServer:
             "creator_name": getattr(creator, "display_name", None)
             or getattr(creator, "name", None),
             "image_url": cover_image_url,
+            "recurrence_rule": InternalAPIServer._format_recurrence_rule(
+                recurrence_rule_raw
+            ),
         }
+
+    @staticmethod
+    def _format_recurrence_rule(rule: object) -> str | None:
+        """Format a Discord recurrence rule into a dashboard-friendly label."""
+        if rule is None:
+            return None
+
+        frequency = getattr(rule, "frequency", None)
+        interval = int(getattr(rule, "interval", 1) or 1)
+        by_weekday = getattr(rule, "by_weekday", None)
+        freq_name = getattr(frequency, "name", "").upper() if frequency else ""
+
+        weekday_names = (
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        )
+
+        def _freq_label(singular: str, plural: str) -> str:
+            return singular if interval == 1 else f"Every {interval} {plural}"
+
+        if freq_name == "DAILY":
+            return _freq_label("Daily", "days")
+        if freq_name == "WEEKLY":
+            prefix = _freq_label("Weekly", "weeks")
+            if by_weekday:
+                day_names = [
+                    weekday_names[weekday_value]
+                    for weekday in by_weekday
+                    if isinstance(
+                        (weekday_value := getattr(weekday, "value", None)), int
+                    )
+                    and 0 <= weekday_value < len(weekday_names)
+                ]
+                if day_names:
+                    return f"{prefix} on {', '.join(day_names)}"
+            return prefix
+        if freq_name == "MONTHLY":
+            return _freq_label("Monthly", "months")
+        if freq_name == "YEARLY":
+            return _freq_label("Yearly", "years")
+        return "Recurring"
 
     @staticmethod
     def _normalize_announcement_message(value: object) -> str | None:
