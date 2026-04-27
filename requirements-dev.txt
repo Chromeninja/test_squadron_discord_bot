@@ -6,10 +6,10 @@ pytest-timeout>=2.3.1
 mypy>=1.8.0
 ruff>=0.3.0
 pre-commit>=3.6.0
-jsonschema>=4.20.0
+jsonschema>=4.26.0
 types-PyYAML
 types-beautifulsoup4
 coverage
-debugpy>=1.8,<2.0
-virtualenv>=20.36.1,<21.0.0
-wheel>=0.46.2,<1.0.0
+debugpy>=1.8.20,<2.0
+virtualenv>=21.2.4,<22.0.0
+wheel>=0.47.0,<1.0.0
