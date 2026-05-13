@@ -33,3 +33,12 @@ repos:
         additional_dependencies: [types-PyYAML, types-beautifulsoup4]
         args: [--config-file, pyproject.toml]
         exclude: ^tests/
+
+  - repo: local
+    hooks:
+      - id: python-modularity-check
+        name: python-modularity-check
+        entry: python3 tools/check_modularity.py --warn-lines 500 --fail-lines 700 --warn-funcs 15 --warn-classes 4
+        language: system
+        files: ^(?!tests/|web/backend/tests/).*\.py$
+        pass_filenames: true

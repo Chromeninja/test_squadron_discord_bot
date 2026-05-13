@@ -5,6 +5,17 @@ description: "Python coding standards for this Discord bot project. Applied when
 
 # Python Standards
 
+## File Modularity
+
+- Keep production Python modules focused and composable.
+- Thresholds for non-test Python files:
+    - Warn at >500 lines
+    - Fail at >700 lines
+    - Warn at >15 functions (`def` + `async def`)
+    - Warn at >4 classes
+- If a touched file exceeds warning thresholds, extract logic into adjacent modules rather than appending more code.
+- If a touched file would exceed fail threshold, refactor before merging.
+
 ## Type Hints — Required on ALL functions
 
 Every function and method MUST have full type annotations (parameters + return type). Use `str | None` union syntax (Python 3.11+), not `Optional[str]`.

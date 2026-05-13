@@ -15,127 +15,13 @@ import aiosqlite
 
 from utils.logging import get_logger
 
+from .managed_event_mapper import managed_event_row_to_dict
+from .membership import derive_membership_status, get_cross_guild_membership_status
 from .schema import init_schema
 
 logger = get_logger(__name__)
 
-
-def derive_membership_status(
-    main_orgs: list[str] | None,
-    affiliate_orgs: list[str] | None,
-    target_sid: str = "TEST",
-) -> str:
-    """
-    Derive membership status from organization SID lists.
-
-    Checks if the target organization SID appears in the user's main or affiliate
-    organization lists and returns the appropriate status.
-    Comparison is case-insensitive and REDACTED entries are excluded.
-
-    Args:
-        main_orgs: List of main organization SIDs (typically 0 or 1 item)
-        affiliate_orgs: List of affiliate organization SIDs
-        target_sid: Organization SID to check for (defaults to "TEST")
-
-    Returns:
-        str: One of "main", "affiliate", or "non_member"
-    """
-    # Handle None or empty lists
-    if not main_orgs:
-        main_orgs = []
-    if not affiliate_orgs:
-        affiliate_orgs = []
-
-    # Normalize to uppercase for case-insensitive comparison
-    target_upper = target_sid.upper()
-    non_redacted_main = [sid.upper() for sid in main_orgs if sid and sid != "REDACTED"]
-    non_redacted_affiliate = [
-        sid.upper() for sid in affiliate_orgs if sid and sid != "REDACTED"
-    ]
-
-    # Check main organizations first
-    if target_upper in non_redacted_main:
-        return "main"
-
-    # Check affiliate organizations
-    if target_upper in non_redacted_affiliate:
-        return "affiliate"
-
-    # Not a member of the target organization
-    return "non_member"
-
-
-async def get_cross_guild_membership_status(user_id: int) -> str:
-    """
-    Determine a user's highest membership status across ALL guilds tracking their orgs.
-
-    Returns the highest status ("main", "affiliate", or "non_member") by:
-    1. Fetching user's main_orgs and affiliate_orgs from verification table
-    2. Finding all guilds that track ANY of those organizations
-    3. Returning "main" if user is main member of ANY tracked org
-    4. Returning "affiliate" if only affiliate across all tracked orgs
-    5. Returning "non_member" if not a member of any tracked org
-
-    This is used for auto-recheck cadence: 14 days for main, 7 for affiliate, 3 for non-member.
-
-    Args:
-        user_id: Discord user ID
-
-    Returns:
-        str: "main", "affiliate", or "non_member"
-    """
-    async with Database.get_connection() as db:
-        # Get user's organization memberships
-        cur = await db.execute(
-            "SELECT main_orgs, affiliate_orgs FROM verification WHERE user_id = ?",
-            (user_id,),
-        )
-        row = await cur.fetchone()
-
-        if not row:
-            return "non_member"
-
-        main_orgs_json, affiliate_orgs_json = row
-        main_orgs = json.loads(main_orgs_json) if main_orgs_json else []
-        affiliate_orgs = json.loads(affiliate_orgs_json) if affiliate_orgs_json else []
-
-        # Filter out REDACTED
-        main_orgs = [sid for sid in main_orgs if sid != "REDACTED"]
-        affiliate_orgs = [sid for sid in affiliate_orgs if sid != "REDACTED"]
-
-        if not main_orgs and not affiliate_orgs:
-            return "non_member"
-
-        # Get all tracked organization SIDs from guild_settings
-        # We need to find guilds where organization.sid matches any of user's orgs
-        all_user_orgs = set(main_orgs + affiliate_orgs)
-
-        # Query guild_settings for any guild tracking these orgs
-        tracked_orgs_query = """
-            SELECT json_extract(value, '$') as org_sid
-            FROM guild_settings
-            WHERE key = 'organization.sid'
-            AND json_extract(value, '$') IS NOT NULL
-        """
-        cur = await db.execute(tracked_orgs_query)
-        tracked_sids_rows = await cur.fetchall()
-        tracked_sids = {
-            row[0].strip('"').upper() for row in tracked_sids_rows if row[0]
-        }
-
-        # Check intersection
-        tracked_user_orgs = all_user_orgs.intersection(tracked_sids)
-
-        if not tracked_user_orgs:
-            return "non_member"
-
-        # Determine highest status
-        for org_sid in tracked_user_orgs:
-            if org_sid in main_orgs:
-                return "main"  # Highest status
-
-        # If we get here, user is only affiliate in tracked orgs
-        return "affiliate"
+__all__ = ["Database", "derive_membership_status", "get_cross_guild_membership_status"]
 
 
 class Database:
@@ -464,58 +350,6 @@ class Database:
             # Normalize to a list of simple tuples for typing clarity
             return [(int(r[0]), str(r[1])) for r in rows]
 
-    @staticmethod
-    def _decode_signup_role_ids(raw_value: str | None) -> list[str]:
-        """Decode persisted signup role IDs from JSON into a normalized list."""
-        if not raw_value:
-            return []
-
-        try:
-            decoded = json.loads(raw_value)
-        except Exception:
-            return []
-
-        if not isinstance(decoded, list):
-            return []
-
-        normalized: list[str] = []
-        for role_id in decoded:
-            if isinstance(role_id, (str, int)):
-                normalized.append(str(role_id))
-        return normalized
-
-    @classmethod
-    def _managed_event_row_to_dict(cls, row: aiosqlite.Row) -> dict[str, object | None]:
-        """Convert a managed event row into API-facing event payload fields."""
-        return {
-            "id": str(row["id"]),
-            "name": row["name"],
-            "description": row["description"],
-            "announcement_message": row["announcement_message"],
-            "scheduled_start_time": row["scheduled_start_time"],
-            "scheduled_end_time": row["scheduled_end_time"],
-            "status": row["status"],
-            "entity_type": row["entity_type"],
-            "channel_id": row["channel_id"],
-            "channel_name": None,
-            "location": row["location"],
-            "user_count": int(row["user_count_current"]),
-            "creator_id": row["created_by_user_id"],
-            "creator_name": row["created_by_name"],
-            "image_url": None,
-            "source_of_truth": "db",
-            "discord_event_id": row["discord_event_id"],
-            "announcement_message_id": row["announcement_message_id"],
-            "signup_message_id": row["signup_message_id"],
-            "sync_status": row["sync_status"],
-            "sync_error": row["sync_error"],
-            "last_synced_at": row["last_synced_at"],
-            "announcement_channel_id": row["announcement_channel_id"],
-            "signup_role_ids": cls._decode_signup_role_ids(row["signup_role_ids"]),
-            "revision": int(row["revision"]),
-            "recurrence_rule": row["recurrence_rule"],
-        }
-
     @classmethod
     async def record_managed_event_interest_snapshot(
         cls,
@@ -553,7 +387,7 @@ class Database:
                 (guild_id,),
             )
             rows = await cursor.fetchall()
-            return [cls._managed_event_row_to_dict(row) for row in rows]
+            return [managed_event_row_to_dict(row) for row in rows]
 
     @classmethod
     async def get_managed_event(
@@ -572,7 +406,7 @@ class Database:
             row = await cursor.fetchone()
             if row is None:
                 return None
-            return cls._managed_event_row_to_dict(row)
+            return managed_event_row_to_dict(row)
 
     @classmethod
     async def create_managed_event(

@@ -125,6 +125,17 @@ async def test_update_record_success(temp_db, monkeypatch) -> None:
 - **Dataclasses:** Use `@dataclass(slots=True)` for all data structures (memory-efficient)
 - **Async concurrency:** Use `asyncio.gather()` or `asyncio.TaskGroup` for concurrent I/O — never mix sync blocking calls in async code
 
+## File Modularity Guard Rails
+
+- For non-test Python files:
+    - Warn at >500 lines
+    - Fail at >700 lines
+    - Warn at >15 functions (`def` + `async def`)
+    - Warn at >4 classes
+- When touching files above warning thresholds, prefer extraction into nearby modules over appending more logic.
+- Do not merge changes that leave touched files above fail threshold unless the same PR includes decomposition work.
+- Add characterization tests for high-risk behavior before extracting large modules.
+
 ## Forbidden Patterns
 
 - `datetime.utcnow()` → use `datetime.now(timezone.utc)`

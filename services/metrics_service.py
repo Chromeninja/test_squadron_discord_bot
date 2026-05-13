@@ -12,52 +12,20 @@ import asyncio
 import json
 import time
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from services.base import BaseService
 from services.db.metrics_db import MetricsDatabase
+from services.metrics_activity import classify_member_activity_tiers
+from services.metrics_buckets import hour_bucket as _hour_bucket
+from services.metrics_buckets import message_window_bucket as _message_window_bucket
+from services.metrics_models import GameSessionInfo, MetricsSnapshot, VoiceSessionInfo
 
 if TYPE_CHECKING:
     from discord.ext.commands import Bot
 
     from services.config_service import ConfigService
-
-
-# ---------------------------------------------------------------------------
-# Data classes for in-memory session tracking
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class VoiceSessionInfo:
-    """Tracks an active voice session for a user."""
-
-    guild_id: int
-    user_id: int
-    channel_id: int
-    joined_at: int  # Unix epoch seconds
-
-
-@dataclass
-class GameSessionInfo:
-    """Tracks an active game session for a user."""
-
-    guild_id: int
-    user_id: int
-    game_name: str
-    started_at: int  # Unix epoch seconds
-
-
-@dataclass
-class MetricsSnapshot:
-    """Point-in-time snapshot of live metrics for a guild."""
-
-    messages_today: int = 0
-    active_voice_users: int = 0
-    active_game_sessions: int = 0
-    top_game: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -348,75 +316,6 @@ class MetricsService(BaseService):
     # Activity-group bucket computation
     # ------------------------------------------------------------------
 
-    # Tier cadence: (tier_name, window_size_in_days)
-    # Checked strictest-first; user gets the first tier where every
-    # non-overlapping window of that size contains at least one active day.
-    _TIER_CADENCE_DAYS: ClassVar[list[tuple[str, int]]] = [
-        ("hardcore", 1),  # active every day
-        ("regular", 3),  # active once every 3 days
-        ("casual", 7),  # active once every 7 days (weekly)
-        ("reserve", 30),  # active once every 30 days (monthly)
-    ]
-
-    @staticmethod
-    def _tier_from_cadence(
-        active_days: set[int],
-        range_start_day: int,
-        range_days: int,
-    ) -> str:
-        """Derive a tier label from cadence coverage over a time range.
-
-        The range is divided into non-overlapping windows of each tier's
-        cadence size.  The user qualifies for a tier when *every* window
-        contains at least one active day.  Reserve is skipped when the
-        range is shorter than 30 days.
-
-        Example — 7-day range starting at day-bucket 20000::
-
-            range_start_day = 20000, range_days = 7
-
-            hardcore (window=1): 7 windows → [20000, 20001, …, 20006].
-              User must have an active day in *each* 1-day window (all 7 days).
-
-            regular  (window=3): ceil(7/3) = 3 windows →
-              [20000–20003), [20003–20006), [20006–20007).
-              User must have ≥1 active day in each of the 3 windows.
-
-            casual   (window=7): ceil(7/7) = 1 window →
-              [20000–20007).  Any single active day qualifies.
-
-            reserve  (window=30): skipped (30 > 7).
-
-        The last window may be shorter than ``window_days`` when
-        ``range_days`` is not an exact multiple — it still requires at
-        least one active day.
-
-        AI Notes:
-            ``active_days`` contains integer day-buckets (Unix timestamp
-            ``// 86400``).  ``range_start_day`` is the first day-bucket
-            in the range, which spans ``range_days`` day-buckets.
-        """
-        if not active_days:
-            return "inactive"
-        for tier_name, window_days in MetricsService._TIER_CADENCE_DAYS:
-            if window_days > range_days:
-                continue  # e.g., skip reserve for 7-day range
-            num_windows = -(-range_days // window_days)  # ceil div
-            all_covered = True
-            for i in range(num_windows):
-                w_start = range_start_day + i * window_days
-                w_end = range_start_day + min(
-                    (i + 1) * window_days,
-                    range_days,
-                )
-                if not any(w_start <= d < w_end for d in active_days):
-                    all_covered = False
-                    break
-            if all_covered:
-                return tier_name
-
-        return "inactive"
-
     async def get_member_activity_buckets(
         self,
         guild_id: int,
@@ -593,64 +492,35 @@ class MetricsService(BaseService):
         user_data: dict[int, dict[str, Any]] = {}
 
         (
-            (chat_days, last_chat),
-            (voice_days, last_voice),
-            (game_days, last_game),
+            (chat_days_by_user, last_chat),
+            (voice_days_by_user, last_voice),
+            (game_days_by_user, last_game),
         ) = await asyncio.gather(
             _fetch_chat_activity(),
             _fetch_voice_activity(),
             _fetch_game_activity(),
         )
 
-        for uid, days_set in chat_days.items():
+        for uid, days_set in chat_days_by_user.items():
             entry = user_data.setdefault(uid, {})
             entry["active_chat_days"] = days_set
             entry["last_chat_at"] = last_chat.get(uid, 0)
 
-        for uid, days_set in voice_days.items():
+        for uid, days_set in voice_days_by_user.items():
             entry = user_data.setdefault(uid, {})
             entry["active_voice_days"] = days_set
             entry["last_voice_at"] = last_voice.get(uid, 0)
 
-        for uid, days_set in game_days.items():
+        for uid, days_set in game_days_by_user.items():
             entry = user_data.setdefault(uid, {})
             entry["active_game_days"] = days_set
             entry["last_game_at"] = last_game.get(uid, 0)
 
-        # Classify tiers per dimension + combined
-        result: dict[int, dict[str, Any]] = {}
-        for uid, data in user_data.items():
-            chat_days = data.get("active_chat_days", set())
-            voice_days = data.get("active_voice_days", set())
-            game_days = data.get("active_game_days", set())
-            combined_days = chat_days | voice_days | game_days
-            result[uid] = {
-                "last_chat_at": data.get("last_chat_at"),
-                "last_voice_at": data.get("last_voice_at"),
-                "last_game_at": data.get("last_game_at"),
-                "voice_tier": self._tier_from_cadence(
-                    voice_days,
-                    range_start_day,
-                    normalized_lookback,
-                ),
-                "chat_tier": self._tier_from_cadence(
-                    chat_days,
-                    range_start_day,
-                    normalized_lookback,
-                ),
-                "game_tier": self._tier_from_cadence(
-                    game_days,
-                    range_start_day,
-                    normalized_lookback,
-                ),
-                "combined_tier": self._tier_from_cadence(
-                    combined_days,
-                    range_start_day,
-                    normalized_lookback,
-                ),
-            }
-
-        return result
+        return classify_member_activity_tiers(
+            user_data,
+            range_start_day,
+            normalized_lookback,
+        )
 
     async def get_activity_group_counts(
         self,
@@ -1992,18 +1862,3 @@ class MetricsService(BaseService):
             }
         )
         return base
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _hour_bucket(epoch: int) -> int:
-    """Truncate a Unix timestamp to the start of its hour."""
-    return epoch - (epoch % 3600)
-
-
-def _message_window_bucket(epoch: int) -> int:
-    """Truncate a Unix timestamp to the start of its 3-minute message window."""
-    return epoch - (epoch % 180)

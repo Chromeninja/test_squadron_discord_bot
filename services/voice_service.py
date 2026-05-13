@@ -19,6 +19,13 @@ from helpers.voice_permissions import enforce_permission_changes
 from helpers.voice_settings import get_voice_settings_snapshots
 from services.db.database import Database
 from services.db.repository import BaseRepository
+from services.voice_channel_helpers import (
+    classify_old_channel,
+    get_user_game_name,
+    sanitize_overwrite,
+    validate_jtc_permissions,
+)
+from services.voice_channel_helpers import get_member_count as resolve_member_count
 from utils.types import VoiceChannelInfo, VoiceChannelResult
 
 from .base import BaseService
@@ -457,66 +464,27 @@ class VoiceService(BaseService):
         channel_or_id: discord.VoiceChannel | discord.StageChannel | int | None,
     ) -> int:
         """Return the member count for a voice-like channel using cache fallback."""
-
-        if channel_or_id is None:
-            return 0
-
-        channel: discord.VoiceChannel | discord.StageChannel | None
-        channel_id: int | None
-
-        if isinstance(channel_or_id, int):
-            channel_id = channel_or_id
-            channel_candidate = self.bot.get_channel(channel_id) if self.bot else None
-            if isinstance(
-                channel_candidate, (discord.VoiceChannel, discord.StageChannel)
-            ):
-                channel = channel_candidate
-            else:
-                channel = None
-        else:
-            channel = channel_or_id
-            channel_id = getattr(channel, "id", None)
-
-        try:
-            if channel and hasattr(channel, "members"):
-                return len(channel.members)  # type: ignore[arg-type]
-        except Exception:
-            self.logger.debug(
-                "Failed to read channel.members for channel %s", channel_id
-            )
-
-        if channel_id is not None:
-            cached = self._voice_channel_members.get(channel_id)
-            if cached is not None:
-                return len(cached)
-
-        return 0
+        return resolve_member_count(
+            channel_or_id,
+            bot=self.bot,
+            voice_channel_members=self._voice_channel_members,
+            logger=self.logger,
+        )
 
     def _classify_old_channel(
         self,
         member_count: int,
     ) -> str:
         """Classify what to do with an existing channel when a new one is created."""
-
-        if member_count > 0:
-            return "orphan"
-        return "delete"
+        return classify_old_channel(member_count)
 
     @staticmethod
     def _sanitize_overwrite(
         overwrite: discord.PermissionOverwrite,
         bot_perms: discord.Permissions,
     ) -> discord.PermissionOverwrite:
-        """Remove allowed permission bits the bot itself lacks.
-
-        Discord rejects overwrites that grant permissions the bot does not
-        hold in the guild/category.  This strips only the *allow* side of
-        those bits; deny is always safe to set.
-        """
-        allow, deny = overwrite.pair()
-        # Mask: keep only bits the bot has
-        sanitized_allow = discord.Permissions(allow.value & bot_perms.value)
-        return discord.PermissionOverwrite.from_pair(sanitized_allow, deny)
+        """Remove allowed permission bits the bot itself lacks."""
+        return sanitize_overwrite(overwrite, bot_perms)
 
     async def _delete_channel_safe(
         self,
@@ -2317,12 +2285,7 @@ class VoiceService(BaseService):
 
     def _get_user_game_name(self, member: discord.Member) -> str | None:
         """Get the user's current game/activity name."""
-        try:
-            if member.activity and hasattr(member.activity, "name"):
-                return member.activity.name
-        except Exception:
-            self.logger.debug("Failed to read activity for member %s", member.id)
-        return None
+        return get_user_game_name(member, self.logger)
 
     async def _handle_old_channel_transition(
         self,
@@ -3418,108 +3381,12 @@ class VoiceService(BaseService):
     async def _validate_jtc_permissions(
         self, category: discord.CategoryChannel
     ) -> tuple[bool, str | None]:
-        """
-        Validate bot has permissions to create channels in a category.
-
-        Checks:
-        - Category exists
-        - Bot instance available
-        - Bot has View Channel permission in category
-        - Bot has Manage Channels permission in category
-        - Bot has Move Members permission in guild
-
-        Args:
-            category: Discord category channel
-
-        Returns:
-            Tuple of (can_create, error_message)
-
-        Observability:
-            - Logs DEBUG on permission check start
-            - Logs WARNING with specific missing permission
-            - Logs INFO on successful validation
-        """
-        try:
-            self.logger.debug(
-                f"Validating JTC permissions for category {category.id if category else 'None'}"
-            )
-
-            if category is None:
-                self.logger.warning("JTC permission check failed: category is None")
-                return False, "Category does not exist"
-
-            if not self.bot or not self.bot.user:
-                self.logger.warning("JTC permission check failed: bot not available")
-                return False, "Bot instance or bot user not available"
-
-            guild = category.guild
-            bot_member = guild.get_member(self.bot.user.id)
-            if bot_member is None:
-                self.logger.warning(
-                    f"JTC permission check failed: bot member not found in guild {guild.id}"
-                )
-                return False, "Bot member not found in guild"
-
-            # Check category-level permissions
-            perms = category.permissions_for(bot_member)
-            if not perms.view_channel:
-                self.logger.warning(
-                    "Missing 'View Channel' permission in category '%s' (%s)",
-                    category.name,
-                    category.id,
-                    extra={"guild_id": guild.id, "category_id": category.id},
-                )
-                return (
-                    False,
-                    f"Bot missing 'View Channel' permission in category '{category.name}'",
-                )
-
-            if not perms.manage_channels:
-                self.logger.warning(
-                    f"Missing 'Manage Channels' permission in category '{category.name}' ({category.id})",
-                    extra={"guild_id": guild.id, "category_id": category.id},
-                )
-                return (
-                    False,
-                    f"Bot missing 'Manage Channels' permission in category '{category.name}'",
-                )
-
-            # Category-level Manage Roles remains required even though
-            # BOT_CREATION_OVERWRITE_PERMISSIONS omits it; overwrites cannot
-            # bootstrap manage_roles when the category itself denies it.
-            if not perms.manage_roles:
-                self.logger.warning(
-                    "Missing 'Manage Permissions' (manage_roles) in category '%s' (%s)",
-                    category.name,
-                    category.id,
-                    extra={"guild_id": guild.id, "category_id": category.id},
-                )
-                return (
-                    False,
-                    f"Bot missing 'Manage Permissions' permission in category '{category.name}'",
-                )
-
-            # Check guild-level Move Members permission
-            guild_perms = bot_member.guild_permissions
-            if not guild_perms.move_members:
-                self.logger.warning(
-                    f"Missing 'Move Members' permission in guild {guild.id}",
-                    extra={"guild_id": guild.id},
-                )
-                return (
-                    False,
-                    f"Bot missing 'Move Members' permission in guild '{guild.name}'",
-                )
-
-            self.logger.debug(
-                f"JTC permission validation passed for category {category.name}",
-                extra={"guild_id": guild.id, "category_id": category.id},
-            )
-            return True, None
-
-        except Exception as e:
-            self.logger.exception("Error validating JTC permissions", exc_info=e)
-            return False, str(e)
+        """Validate bot has permissions to create channels in a category."""
+        return validate_jtc_permissions(
+            category,
+            bot=self.bot,
+            logger=self.logger,
+        )
 
     async def voice_setup_guard(
         self,
