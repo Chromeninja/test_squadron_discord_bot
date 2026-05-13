@@ -20,7 +20,7 @@ from helpers.ticket_form_views import (
     create_ticket_from_route,
 )
 from services.ticket_form_service import RouteExecutionContext
-from tests.conftest import FakeInteraction
+from tests.factories.discord_factories import FakeInteraction
 
 # ---------------------------------------------------------------------------
 # Helpers

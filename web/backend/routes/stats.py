@@ -88,13 +88,17 @@ async def get_stats_overview(
                         guild_info.get("guild_id"),
                         exc_info=True,
                     )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to fetch cross-guild stats totals", exc_info=exc)
             total_guild_members = 0
     elif guild_id:
         try:
             guild_stats = await internal_api.get_guild_stats(guild_id)
             total_guild_members = guild_stats.get("member_count", 0)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch guild stats for guild %s", guild_id, exc_info=exc
+            )
             total_guild_members = 0
 
     # ---- Total verified (guild-scoped in single-guild mode) ----

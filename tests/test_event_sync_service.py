@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from discord.ext.commands import Bot
 
+from services.config_service import ConfigService
 from services.event_sync_service import EventSyncService
 from web.backend.core.event_service import SyncResult
 
@@ -47,7 +50,11 @@ async def test_event_sync_service_initialize_starts_loop_when_enabled() -> None:
     )
     bot = SimpleNamespace(guilds=[])
     internal_api_client = AsyncMock()
-    service = EventSyncService(config_service, bot, internal_api_client)
+    service = EventSyncService(
+        cast(ConfigService, config_service),
+        cast(Bot, bot),
+        internal_api_client,
+    )
 
     # Act
     await service.initialize()
@@ -84,7 +91,11 @@ async def test_event_sync_service_reconcile_pulls_only_enabled_guilds(
         ]
     )
     internal_api_client = AsyncMock()
-    service = EventSyncService(config_service, bot, internal_api_client)
+    service = EventSyncService(
+        cast(ConfigService, config_service),
+        cast(Bot, bot),
+        internal_api_client,
+    )
     manual_sync_mock = AsyncMock(return_value=(SyncResult(processed=2, updated=1), []))
     sleep_mock = AsyncMock()
     monkeypatch.setattr(

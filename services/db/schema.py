@@ -157,6 +157,26 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
             extra={"table": "managed_events", "column": "recurrence_rule"},
         )
 
+    if "user_count_current" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN user_count_current INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "managed_events", "column": "user_count_current"},
+        )
+
+    if "user_count_last_synced_at" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN user_count_last_synced_at INTEGER DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "managed_events", "column": "user_count_last_synced_at"},
+        )
+
 
 async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     """Ensure ticket schema compatibility columns exist on legacy databases."""
@@ -521,6 +541,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             revision INTEGER NOT NULL DEFAULT 1,
             sync_status TEXT NOT NULL DEFAULT 'pending',
             sync_error TEXT DEFAULT NULL,
+            user_count_current INTEGER NOT NULL DEFAULT 0,
+            user_count_last_synced_at INTEGER DEFAULT NULL,
             last_synced_at INTEGER DEFAULT NULL,
             last_projected_hash TEXT DEFAULT NULL,
             source TEXT NOT NULL DEFAULT 'dashboard',
@@ -543,6 +565,22 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_events_guild_discord ON managed_events(guild_id, discord_event_id)"
+    )
+
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS managed_event_interest_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            managed_event_id INTEGER NOT NULL,
+            user_count INTEGER NOT NULL DEFAULT 0,
+            captured_at INTEGER NOT NULL,
+            FOREIGN KEY (managed_event_id) REFERENCES managed_events(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_managed_event_interest_history_event ON managed_event_interest_history(managed_event_id, captured_at)"
     )
 
     await db.execute(

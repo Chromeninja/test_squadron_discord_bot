@@ -10,7 +10,11 @@ from typing import Any
 
 from tests.factories.discord_factories import (
     FakeFollowup as _FactoryFakeFollowup,
+)
+from tests.factories.discord_factories import (
     FakeResponse as _FactoryFakeResponse,
+)
+from tests.factories.discord_factories import (
     FakeUser as _FactoryFakeUser,
 )
 
@@ -33,9 +37,6 @@ class FakeResponse(_FactoryFakeResponse):
 
 class FakeFollowup(_FactoryFakeFollowup):
     """Re-export the shared fake followup implementation."""
-
-    async def send(self, *args: Any, **kwargs: Any) -> None:
-        await super().send(*args, **kwargs)
 
 
 class FakeInteraction:

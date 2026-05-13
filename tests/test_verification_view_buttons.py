@@ -20,16 +20,15 @@ async def test_verification_view_buttons_callbacks(monkeypatch, mock_bot) -> Non
         called["get_token"] = True
         # Patch internals to avoid network/DB
         monkeypatch.setattr(
-            "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+            "helpers.views_verification.check_rate_limit", AsyncMock(return_value=(False, 0))
         )
-        monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
-        monkeypatch.setattr("helpers.views.send_message", AsyncMock())
+        monkeypatch.setattr("helpers.views_verification.log_attempt", AsyncMock(return_value=None))
         return await orig_get(interaction)
 
     async def spy_verify(interaction) -> None:
         called["verify"] = True
         monkeypatch.setattr(
-            "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+            "helpers.views_verification.check_rate_limit", AsyncMock(return_value=(False, 0))
         )
         return await orig_verify(interaction)
 

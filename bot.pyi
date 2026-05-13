@@ -1,11 +1,13 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 from discord.ext import commands
 
 from helpers.http_helper import HTTPClient
-from services.internal_api import InternalAPIServer
 from services.service_container import ServiceContainer
+
+if TYPE_CHECKING:
+    from services.internal_api import InternalAPIServer
 
 class MyBot(commands.Bot):
     """
@@ -24,10 +26,10 @@ class MyBot(commands.Bot):
     config: dict[str, Any]
     services: ServiceContainer
     http_client: HTTPClient
-    role_cache: dict[str, object]
+    role_cache: dict[int, discord.Role]
     start_time: float
     owner_id: int | None
-    internal_api: InternalAPIServer | None
+    internal_api: "InternalAPIServer | None"
 
     # Private attributes for internal tracking
     _missing_role_warned_guilds: set[int]

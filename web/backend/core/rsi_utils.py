@@ -9,19 +9,15 @@ cascading failures when RSI blocks requests.
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
 
 import aiohttp
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 # Import the shared circuit breaker implementation
 from helpers.circuit_breaker import (
     CircuitBreakerState,
     get_rsi_circuit_breaker,
 )
-
-if TYPE_CHECKING:
-    from bs4 import Tag
 
 logger = logging.getLogger(__name__)
 
@@ -242,8 +238,8 @@ def _parse_org_name_from_html(
 
         # Look for the org name in
         # <h1>Org Name / <span class="symbol">SID</span></h1>
-        h1_tag = soup.find("h1")
-        if not h1_tag:
+        h1_found = soup.find("h1")
+        if not isinstance(h1_found, Tag):
             logger.warning(f"Could not find <h1> tag in org page for {sid}")
             return (
                 False,
@@ -251,6 +247,7 @@ def _parse_org_name_from_html(
                 "Failed to parse organization page. "
                 "The page structure may have changed.",
             )
+        h1_tag = h1_found
 
         # Extract org name using different strategies
         org_name = _extract_org_name(h1_tag)

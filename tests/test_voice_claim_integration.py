@@ -7,7 +7,6 @@ import pytest_asyncio
 from services.db.database import Database
 from services.voice_service import VoiceService
 from tests.voice_test_helpers import (
-    MockBot,
     MockGuild,
     MockMember,
     MockVoiceChannel,

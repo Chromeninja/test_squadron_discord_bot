@@ -251,8 +251,9 @@ async def get_metrics_overview(
             guild_id, days=days, user_ids=user_ids
         )
         return MetricsOverviewResponse(data=MetricsOverview(**result))
-    except Exception:
-        raise HTTPException(status_code=502, detail="Metrics unavailable")
+    except Exception as exc:
+        logger.exception("metrics.overview unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Metrics unavailable") from exc
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info("metrics.overview completed elapsed_ms=%s", elapsed_ms)
@@ -370,8 +371,9 @@ async def get_voice_leaderboard(
             result.get("entries", []), metric_field="total_seconds"
         )
         return LeaderboardResponse(entries=normalized_entries)
-    except Exception:
-        raise HTTPException(status_code=502, detail="Voice leaderboard unavailable")
+    except Exception as exc:
+        logger.exception("metrics.voice_leaderboard unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Voice leaderboard unavailable") from exc
 
 
 @router.get("/messages/leaderboard", response_model=LeaderboardResponse)
@@ -407,8 +409,9 @@ async def get_message_leaderboard(
             result.get("entries", []), metric_field="total_messages"
         )
         return LeaderboardResponse(entries=normalized_entries)
-    except Exception:
-        raise HTTPException(status_code=502, detail="Message leaderboard unavailable")
+    except Exception as exc:
+        logger.exception("metrics.message_leaderboard unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Message leaderboard unavailable") from exc
 
 
 @router.get("/games/top", response_model=TopGamesResponse)
@@ -441,8 +444,9 @@ async def get_top_games(
             guild_id, days=days, limit=limit, user_ids=user_ids
         )
         return TopGamesResponse(games=result.get("games", []))
-    except Exception:
-        raise HTTPException(status_code=502, detail="Game stats unavailable")
+    except Exception as exc:
+        logger.exception("metrics.top_games unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Game stats unavailable") from exc
 
 
 @router.get("/games/detail", response_model=GameMetricsResponse)
@@ -502,8 +506,9 @@ async def get_game_metrics(
         return GameMetricsResponse(data=GameMetrics(**result))
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Game metrics unavailable")
+    except Exception as exc:
+        logger.exception("metrics.game_detail unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Game metrics unavailable") from exc
 
 
 @router.get("/timeseries", response_model=TimeSeriesResponse)
@@ -543,8 +548,9 @@ async def get_timeseries(
             days=result.get("days", days),
             data=result.get("data", []),
         )
-    except Exception:
-        raise HTTPException(status_code=502, detail="Timeseries unavailable")
+    except Exception as exc:
+        logger.exception("metrics.timeseries unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Timeseries unavailable") from exc
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info("metrics.timeseries completed elapsed_ms=%s", elapsed_ms)
@@ -583,8 +589,9 @@ async def get_activity_groups(
             guild_id, days=days, user_ids=user_ids
         )
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
-    except Exception:
-        raise HTTPException(status_code=502, detail="Activity groups unavailable")
+    except Exception as exc:
+        logger.exception("metrics.activity_groups unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Activity groups unavailable") from exc
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info("metrics.activity_groups completed elapsed_ms=%s", elapsed_ms)

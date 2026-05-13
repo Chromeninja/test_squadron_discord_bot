@@ -1,7 +1,5 @@
 import pytest
-
 from core.dependencies import _has_minimum_role
-
 
 pytestmark = pytest.mark.contract
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 # Checked strictest-first; the first fully covered cadence wins.
 TIER_CADENCE_DAYS: list[tuple[str, int]] = [
     ("hardcore", 1),
@@ -40,12 +42,12 @@ def tier_from_cadence(
 
 
 def classify_member_activity_tiers(
-    user_data: dict[int, dict[str, object]],
+    user_data: dict[int, dict[str, Any]],
     range_start_day: int,
     lookback_days: int,
-) -> dict[int, dict[str, object]]:
+) -> dict[int, dict[str, Any]]:
     """Build per-user tier payloads from intermediate day-bucket activity data."""
-    result: dict[int, dict[str, object]] = {}
+    result: dict[int, dict[str, Any]] = {}
 
     for user_id, data in user_data.items():
         active_chat_days = set(data.get("active_chat_days", set()))

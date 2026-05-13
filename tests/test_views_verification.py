@@ -14,9 +14,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
 
     # Patch rate limiter and attempt logging (avoid DB)
     monkeypatch.setattr(
-        "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
+        "helpers.views_verification.check_rate_limit", AsyncMock(return_value=(False, 0))
     )
-    monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
+    monkeypatch.setattr("helpers.views_verification.log_attempt", AsyncMock(return_value=None))
 
     # Track interaction calls
     ix = FakeInteraction(FakeUser(7, "TestUser"))
@@ -34,8 +34,8 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
         assert ephemeral is True
         assert embed is not None
 
-    ix.response.defer = fake_defer
-    ix.followup.send = fake_followup_send
+    monkeypatch.setattr(ix.response, "defer", fake_defer)
+    monkeypatch.setattr(ix.followup, "send", fake_followup_send)
 
     await view.get_token_button_callback(ix)  # type: ignore[arg-type]
     assert defer_called is True

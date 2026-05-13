@@ -2,7 +2,10 @@ import asyncio
 import os
 import time
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+if TYPE_CHECKING:
+    from services.internal_api import InternalAPIServer
 
 import discord
 from discord.ext import commands
@@ -128,7 +131,7 @@ initial_extensions = [
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
-    def __init__(self, *args, config: dict | None = None, **kwargs) -> None:
+    def __init__(self, *args: Any, config: dict | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         # Assign the entire config to the bot instance (passed from factory or lazy-loaded)
@@ -144,10 +147,12 @@ class MyBot(commands.Bot):
         self.http_client = HTTPClient(user_agent=ua, concurrency=3, timeout=20)
 
         # Initialize role cache and warning tracking
-        self.role_cache = {}
-        self._missing_role_warned_guilds = set()
+        self.role_cache: dict[int, discord.Role] = {}
+        self._missing_role_warned_guilds: set[int] = set()
         self._guild_role_expectations: dict[int, set[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
+        # Declare internal_api here so it's always available; assigned in setup_hook
+        self.internal_api: "InternalAPIServer | None" = None
 
     def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
         """Track a background task for clean shutdown and log exceptions."""
@@ -265,9 +270,9 @@ class MyBot(commands.Bot):
 
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
-        self.add_view(TicketPanelView(self, enable_public_button=True))  # type: ignore[arg-type]
-        self.add_view(TicketActionView(self))  # type: ignore[arg-type]
-        self.add_view(TicketContinueView(self))  # type: ignore[arg-type]
+        self.add_view(TicketPanelView(self, enable_public_button=True))
+        self.add_view(TicketActionView(self))
+        self.add_view(TicketContinueView(self))
 
         # Sync the command tree after loading all cogs
         try:
@@ -489,12 +494,12 @@ class MyBot(commands.Bot):
         previous_ids = self._guild_role_expectations.get(guild_id, set())
         removed_ids = previous_ids - expected_ids
         for stale_id in removed_ids:
-            self.role_cache.pop(stale_id, None)
+            self.role_cache.pop(int(stale_id), None)
 
         for role_id in expected_ids:
             role = guild.get_role(int(role_id))
             if role:
-                self.role_cache[role_id] = role
+                self.role_cache[int(role_id)] = role
             else:
                 await self._warn_missing_role(guild, role_id)
 
@@ -538,7 +543,12 @@ class MyBot(commands.Bot):
 
         try:
             reported = await Database.has_reported_missing_roles(guild.id)
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "Failed to check missing-role report status for guild %s",
+                guild.id,
+                exc_info=exc,
+            )
             reported = False
 
         if not reported and guild.id not in self._missing_role_warned_guilds:
@@ -647,14 +657,14 @@ class MyBot(commands.Bot):
 
     async def has_admin_permissions(
         self,
-        user: discord.Member,
+        user: discord.Member | discord.User,
         guild: discord.Guild | None = None,
     ) -> bool:
         """
         Check if a user has admin permissions based on configured roles or privileged status.
 
         Args:
-            user: Discord member to check
+            user: Discord member or user to check
             guild: Optional guild context (provided by slash-command decorators)
 
         Returns:
@@ -735,7 +745,13 @@ class MyBot(commands.Bot):
         for task in list(self._background_tasks):
             task.cancel()
         if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            results = await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.warning(
+                        "Background task raised exception during shutdown",
+                        exc_info=result,
+                    )
             self._background_tasks.clear()
 
         # Close the HTTP client

@@ -663,7 +663,10 @@ async def _list_users_single_guild(
     # Fetch guild member IDs from Discord (cached for 30s)
     try:
         guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch guild member IDs for guild %s", guild_id, exc_info=exc
+        )
         return empty
 
     if not guild_member_ids:
@@ -783,7 +786,12 @@ async def resolve_filtered_ids(
 
     try:
         guild_member_ids = await fetch_guild_member_ids(internal_api, guild_id)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch guild member IDs for resolve-ids in guild %s",
+            guild_id,
+            exc_info=exc,
+        )
         return {"user_ids": [], "total": 0}
 
     if not guild_member_ids:

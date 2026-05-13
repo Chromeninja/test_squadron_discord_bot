@@ -2,7 +2,7 @@ import logging
 import re
 import string
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from helpers.circuit_breaker import get_rsi_circuit_breaker
 from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
@@ -193,10 +193,12 @@ def extract_handle(html_content: str | BeautifulSoup) -> str | None:
     if (
         handle_paragraph := soup.find(
             "p",
-            class_="entry",
+            attrs={"class": "entry"},
             string=lambda text: text and "Handle name" in text,  # type: ignore[arg-type]
         )
-    ) and (handle_strong := handle_paragraph.find("strong", class_="value")):
+    ) and isinstance(handle_paragraph, Tag) and (
+        handle_strong := handle_paragraph.find("strong", attrs={"class": "value"})
+    ):
         cased_handle = handle_strong.get_text(strip=True)
         logger.debug(f"Extracted cased handle: {cased_handle}")
         return cased_handle

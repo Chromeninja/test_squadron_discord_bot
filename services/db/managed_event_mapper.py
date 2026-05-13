@@ -24,7 +24,7 @@ def decode_signup_role_ids(raw_value: str | None) -> list[str]:
 
     normalized: list[str] = []
     for role_id in decoded:
-        if isinstance(role_id, (str, int)):
+        if isinstance(role_id, (str, int)) and not isinstance(role_id, bool):
             normalized.append(str(role_id))
     return normalized
 

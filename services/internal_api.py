@@ -1423,13 +1423,13 @@ class InternalAPIServer:
         guild_id = guild.id
 
         try:
-            guild_any = cast(Any, guild)
+            guild_any = cast("Any", guild)
             create_kwargs: dict[str, object] = {
                 "name": name,
                 "start_time": start_time,
                 "entity_type": entity_type,
                 "privacy_level": discord.PrivacyLevel.guild_only,
-                "channel": cast(discord.abc.Snowflake, channel),
+                "channel": cast("discord.abc.Snowflake", channel),
             }
             if end_time is not None:
                 create_kwargs["end_time"] = end_time
@@ -1510,6 +1510,7 @@ class InternalAPIServer:
                 )
             else:
                 announcement_channel = guild.get_channel(announcement_channel_int)
+                announcement_channel_any: Any = None
                 if announcement_channel is None:
                     logger.warning(
                         "Announcement channel %s not found for guild %s",
@@ -1523,7 +1524,7 @@ class InternalAPIServer:
                         guild_id,
                     )
                 else:
-                    announcement_channel_any = cast(Any, announcement_channel)
+                    announcement_channel_any = cast("Any", announcement_channel)
                     announcement_text = (
                         announcement_message
                         or description
@@ -1556,7 +1557,7 @@ class InternalAPIServer:
                             event.id,
                             exc_info=e,
                         )
-                if signup_role_ids:
+                if signup_role_ids and announcement_channel_any is not None:
                     role_pairs: list[tuple[int, str]] = []
                     for role_id in signup_role_ids:
                         role = guild.get_role(role_id)
@@ -1646,14 +1647,14 @@ class InternalAPIServer:
             )
 
         try:
-            event_any = cast(Any, scheduled_event)
+            event_any = cast("Any", scheduled_event)
             edit_kwargs: dict[str, object] = {
                 "name": name,
                 "description": description,
                 "start_time": start_time,
                 "end_time": end_time,
                 "entity_type": entity_type,
-                "channel": cast(discord.abc.Snowflake, channel),
+                "channel": cast("discord.abc.Snowflake", channel),
                 "location": None,
             }
             updated_event = await event_any.edit(**edit_kwargs)

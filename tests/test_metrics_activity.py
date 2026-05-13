@@ -56,7 +56,7 @@ def test_tier_from_cadence_casual_weekly_window() -> None:
 def test_tier_from_cadence_reserve_monthly_window() -> None:
     """One active day in 30-day range should classify as reserve."""
     # Arrange
-    active_days = {530}
+    active_days = {529}  # last valid day in [500, 530) half-open range
 
     # Act
     tier = tier_from_cadence(active_days, range_start_day=500, range_days=30)

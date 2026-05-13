@@ -398,7 +398,7 @@ class TestDailyLeadershipSummary:
             announcer.bot = bot
 
         with patch(
-            "helpers.announcement.resolve_leadership_channel",
+            "helpers.announcement_bulk_cog.resolve_leadership_channel",
             return_value=mock_channel,
         ):
             await announcer._post_daily_leadership_summary()
@@ -424,7 +424,7 @@ class TestDailyLeadershipSummary:
             announcer.bot = bot
 
         with patch(
-            "helpers.announcement.resolve_leadership_channel",
+            "helpers.announcement_bulk_cog.resolve_leadership_channel",
         ) as mock_resolve:
             await announcer._post_daily_leadership_summary()
 
@@ -447,7 +447,7 @@ class TestDailyLeadershipSummary:
             announcer.bot = bot
 
         with patch(
-            "helpers.announcement.resolve_leadership_channel",
+            "helpers.announcement_bulk_cog.resolve_leadership_channel",
             return_value=mock_channel,
         ):
             await announcer._post_daily_leadership_summary()
@@ -472,7 +472,7 @@ class TestDailyLeadershipSummary:
             announcer.bot = bot
 
         with patch(
-            "helpers.announcement.resolve_leadership_channel",
+            "helpers.announcement_bulk_cog.resolve_leadership_channel",
             return_value=None,
         ):
             # Should not raise
@@ -496,7 +496,7 @@ class TestDailyLeadershipSummary:
             announcer.bot = bot
 
         with patch(
-            "helpers.announcement.resolve_leadership_channel",
+            "helpers.announcement_bulk_cog.resolve_leadership_channel",
             return_value=mock_channel,
         ):
             # Should not raise even on send failure
