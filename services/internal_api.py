@@ -123,7 +123,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
     def __init__(self, services: "ServiceContainer"):
         self.services = services
         # Store bot reference for easy access
-        self.bot = services.bot
+        self.bot = cast("MyBot | None", services.bot)
         self.app = web.Application()
         self.runner = None
         self.site = None

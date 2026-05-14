@@ -27,12 +27,11 @@ from core.pagination import (
 from core.rate_limit import limiter
 from core.schemas import UserProfile, UserSearchResponse, VerificationRecord
 from core.user_enrichment import (
-    EnrichedUser,
+    _VERIFICATION_COLUMNS,
     ExportUsersRequest,
     ResolveIdsRequest,
     UserDetailsResponse,
     UsersListResponse,
-    _VERIFICATION_COLUMNS,
     _build_search_where,
     _build_status_filters,
     _derive_and_filter,
@@ -41,7 +40,6 @@ from core.user_enrichment import (
     _get_member_with_cache,
     _list_users_cross_guild,
     _list_users_single_guild,
-    _paginate,
     _parse_verification_row,
     _placeholder_member,
     _split_comma_param,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import discord
 from discord.ext import commands
@@ -13,12 +13,31 @@ from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from bot import MyBot
+    from collections.abc import Sequence
+
+    from services.service_container import ServiceContainer
 
 logger = get_logger(__name__)
 
 
-async def token_cleanup_task(bot: MyBot) -> None:
+class BotTaskContext(Protocol):
+    """Structural type for bot background task helpers."""
+
+    config: dict
+    services: ServiceContainer
+
+    @property
+    def guilds(self) -> Sequence[discord.Guild]:
+        ...
+
+    async def wait_until_ready(self) -> None:
+        ...
+
+    def is_closed(self) -> bool:
+        ...
+
+
+async def token_cleanup_task(bot: BotTaskContext) -> None:
     """Periodically cleans up expired tokens."""
     while not bot.is_closed():
         await asyncio.sleep(300)  # Run every 5 minutes
@@ -26,7 +45,7 @@ async def token_cleanup_task(bot: MyBot) -> None:
         logger.debug("Expired tokens cleaned up.")
 
 
-async def attempts_cleanup_task(bot: MyBot) -> None:
+async def attempts_cleanup_task(bot: BotTaskContext) -> None:
     """Periodically cleans up expired rate-limiting data."""
     from helpers.rate_limiter import cleanup_attempts
 
@@ -35,7 +54,7 @@ async def attempts_cleanup_task(bot: MyBot) -> None:
         await cleanup_attempts()
 
 
-async def log_cleanup_task(bot: MyBot) -> None:
+async def log_cleanup_task(bot: BotTaskContext) -> None:
     """Daily cleanup of old logs based on retention policies.
 
     Runs at the configured cleanup_hour_utc time each day.
@@ -79,7 +98,7 @@ async def log_cleanup_task(bot: MyBot) -> None:
             await asyncio.sleep(3600)
 
 
-async def alert_prefix_warnings(bot: MyBot) -> None:
+async def alert_prefix_warnings(bot: BotTaskContext) -> None:
     """Send admin channel alert if there were prefix normalization warnings."""
     from bot import PREFIX_WARNINGS
 
@@ -91,7 +110,10 @@ async def alert_prefix_warnings(bot: MyBot) -> None:
     )
 
 
-async def send_prefix_warning_for_guild(bot: MyBot, guild: discord.Guild) -> None:
+async def send_prefix_warning_for_guild(
+    bot: BotTaskContext,
+    guild: discord.Guild,
+) -> None:
     """Send a prefix warning alert for a single guild if configured."""
     from bot import get_prefix, get_prefix_warnings
 

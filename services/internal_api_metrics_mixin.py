@@ -10,7 +10,8 @@ from services.db.repository import BaseRepository
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
-    pass
+    from bot import MyBot
+    from services.service_container import ServiceContainer
 
 logger = get_logger(__name__)
 
@@ -23,6 +24,14 @@ class InternalAPIMetricsMixin:
     - self.bot — MyBot or None
     - self._check_auth(request) — returns bool
     """
+
+    if TYPE_CHECKING:
+        services: ServiceContainer
+        bot: MyBot | None
+
+    def _check_auth(self, request: web.Request) -> bool:
+        """Host class must provide auth check implementation."""
+        raise NotImplementedError
 
     def _get_metrics_service(self):
         """Get the metrics service, returning None if unavailable."""

@@ -93,7 +93,6 @@ from core.schemas import (
 )
 from core.validation import (
     ensure_guild_match,
-    parse_snowflake_id_optional,
     safe_int,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -115,6 +114,40 @@ def _coerce_role(role_data: dict) -> DiscordRole | None:
     name = role_data.get("name") or "Unnamed Role"
     color_value = role_data.get("color")
     color = safe_int(color_value) if color_value is not None else None
+
+    return DiscordRole(
+        id=role_id_str,
+        name=str(name),
+        color=color,
+    )
+
+
+def _coerce_member(member_data: dict) -> GuildMember | None:
+    user_id = member_data.get("user_id")
+    user_id_int = safe_int(user_id)
+    if user_id_int is None:
+        return None
+
+    roles: list[DiscordRole] = []
+    for role in member_data.get("roles", []):
+        if not isinstance(role, dict):
+            continue
+        role_obj = _coerce_role(role)
+        if role_obj:
+            roles.append(role_obj)
+
+    return GuildMember(
+        user_id=user_id_int,
+        username=member_data.get("username"),
+        discriminator=member_data.get("discriminator"),
+        global_name=member_data.get("global_name"),
+        avatar_url=member_data.get("avatar_url"),
+        joined_at=member_data.get("joined_at"),
+        created_at=member_data.get("created_at"),
+        roles=roles,
+    )
+
+
 @router.get(
     "/{guild_id}/roles/discord",
     response_model=GuildRolesResponse,

@@ -151,7 +151,7 @@ class MyBot(commands.Bot):
         self._guild_role_expectations: dict[int, set[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
         # Declare internal_api here so it's always available; assigned in setup_hook
-        self.internal_api: "InternalAPIServer | None" = None
+        self.internal_api: InternalAPIServer | None = None
 
     def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
         """Track a background task for clean shutdown and log exceptions."""
@@ -257,9 +257,18 @@ class MyBot(commands.Bot):
         self._track_task(spawn(self.role_refresh_task()), "role_refresh")
 
         # Start cleanup tasks
-        self._track_task(spawn(bot_tasks.token_cleanup_task(self)), "token_cleanup")
-        self._track_task(spawn(bot_tasks.attempts_cleanup_task(self)), "attempts_cleanup")
-        self._track_task(spawn(bot_tasks.log_cleanup_task(self)), "log_cleanup")
+        self._track_task(
+            spawn(bot_tasks.token_cleanup_task(self)),
+            "token_cleanup",
+        )
+        self._track_task(
+            spawn(bot_tasks.attempts_cleanup_task(self)),
+            "attempts_cleanup",
+        )
+        self._track_task(
+            spawn(bot_tasks.log_cleanup_task(self)),
+            "log_cleanup",
+        )
 
         # Register persistent views (must happen every startup for persistence to work)
         # Import here to avoid circular import issues

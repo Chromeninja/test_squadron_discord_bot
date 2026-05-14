@@ -29,7 +29,7 @@ class MyBot(commands.Bot):
     role_cache: dict[int, discord.Role]
     start_time: float
     owner_id: int | None
-    internal_api: "InternalAPIServer | None"
+    internal_api: InternalAPIServer | None
 
     # Private attributes for internal tracking
     _missing_role_warned_guilds: set[int]
@@ -37,5 +37,9 @@ class MyBot(commands.Bot):
 
 # Module-level attributes for type checking
 PREFIX: Any
+PREFIX_WARNINGS: list[str]
 intents: discord.Intents
 initial_extensions: list[str]
+
+def get_prefix() -> Any: ...
+def get_prefix_warnings() -> list[str]: ...
