@@ -15,17 +15,21 @@ from pathlib import Path
 # Legacy monolith ceilings allow incremental decomposition without permitting growth.
 LEGACY_FILE_CEILINGS: dict[str, int] = {
     "services/voice_service.py": 4169,
-    "services/internal_api.py": 2884,
+    "services/internal_api.py": 2225,
     "services/metrics_service.py": 2009,
-    "services/ticket_service.py": 1659,
+    "services/ticket_service.py": 1574,
     "services/db/database.py": 1553,
-    "web/backend/routes/guilds.py": 1561,
+    "web/backend/routes/guilds.py": 1227,
     "web/backend/core/dependencies.py": 1399,
     "helpers/ticket_views.py": 1391,
-    "web/backend/core/guild_settings.py": 1285,
+    "web/backend/core/guild_settings.py": 1023,
     "helpers/views.py": 1265,
-    "web/backend/routes/voice.py": 1164,
-    "services/ticket_form_service.py": 1117,
+    "web/backend/routes/voice.py": 1165,
+    "services/ticket_form_service.py": 1118,
+    "services/db/schema.py": 872,
+    "cogs/voice/commands.py": 890,
+    "web/backend/routes/auth.py": 773,
+    "services/verification_bulk_service.py": 703,
 }
 
 

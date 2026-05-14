@@ -14,10 +14,10 @@ import pytest
 import pytest_asyncio
 
 from services.db.database import Database
+from services.ticket_rate_limiter import TICKET_RATE_LIMIT_SECONDS
 from services.ticket_service import (
     DEFAULT_MAX_OPEN_PER_USER,
     DEFAULT_REOPEN_WINDOW_HOURS,
-    TICKET_RATE_LIMIT_SECONDS,
     TicketService,
 )
 

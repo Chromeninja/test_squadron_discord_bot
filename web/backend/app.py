@@ -63,6 +63,7 @@ from routes import (
     admin_users,
     auth,
     errors,
+    guild_events,
     guilds,
     health,
     logs,
@@ -161,6 +162,7 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
 app.include_router(guilds.router)
+app.include_router(guild_events.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
