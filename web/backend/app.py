@@ -65,6 +65,8 @@ from routes import (
     errors,
     guild_events,
     guilds,
+    guilds_discord,
+    guilds_organization,
     health,
     logs,
     metrics,
@@ -72,6 +74,7 @@ from routes import (
     ticket_forms,
     tickets,
     users,
+    users_bulk_export,
     voice,
 )
 from slowapi import _rate_limit_exceeded_handler
@@ -162,10 +165,13 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
 app.include_router(guilds.router)
+app.include_router(guilds_discord.router)
+app.include_router(guilds_organization.router)
 app.include_router(guild_events.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(users_bulk_export.router)
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(tickets.router, prefix="/api/tickets", tags=["tickets"])
 app.include_router(ticket_forms.router, prefix="/api/tickets", tags=["ticket_forms"])
