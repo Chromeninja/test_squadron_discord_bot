@@ -42,8 +42,8 @@ async def test_admin_status_returns_expected_string(monkeypatch, mock_bot) -> No
     # Build cog and run
     cog = AdminCog(mock_bot)
     ix = FakeInteraction(FakeUser(10, "AdminUser"))
-    ix.response.send_message = capture_response
-    ix.followup.send = capture_response
+    monkeypatch.setattr(ix.response, "send_message", capture_response)
+    monkeypatch.setattr(ix.followup, "send", capture_response)
 
     # Call the status command directly
     await cog.status.callback(cog, ix)  # type: ignore[arg-type]

@@ -39,6 +39,19 @@ Follow these rules — **enforced by pre-commit hooks and CI**:
 | Parameterized SQL (`?` placeholders) | Ruff S608 (advisory) + code review |
 | Line length ≤ 88 chars | Ruff formatter |
 | Imports sorted | Ruff I |
+| Python modularity thresholds on changed files | `tools/check_modularity.py` via pre-commit + CI |
+
+Modularity thresholds for non-test Python files changed in a PR:
+
+- Warn at >500 lines
+- Fail at >700 lines
+- Warn at >15 functions (`def` + `async def`)
+- Warn at >4 classes
+
+Legacy monolith exceptions are ceiling-based and non-growth only:
+
+- Existing oversized files must not grow beyond their recorded legacy ceiling
+- Decomposition can proceed incrementally while still hard-failing on growth
 
 ### 4. Write Tests
 
@@ -69,6 +82,7 @@ async def test_your_feature(temp_db, monkeypatch) -> None:
 ```bash
 # Pre-commit hooks run automatically, but you can also:
 pre-commit run --all-files   # Lint + format + type check
+python3 tools/check_modularity.py $(git diff --name-only --diff-filter=AM HEAD -- '*.py')
 pytest tests/ -v             # Run bot tests
 pytest web/backend/tests/ -v # Run backend tests
 ```

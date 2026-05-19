@@ -7,6 +7,12 @@ description: "Testing standards for pytest test files. Applied when editing test
 
 ## Every new function/feature MUST have tests — no exceptions.
 
+## Large-File Change Safety
+
+- If a production Python file above modularity warning threshold is edited, add or update characterization tests in the same PR.
+- Characterization tests should lock current behavior for high-risk paths before refactor extractions.
+- For service refactors, include at least one success path and one failure path assertion for each extracted behavior.
+
 ## Pattern — Arrange / Act / Assert
 
 ```python

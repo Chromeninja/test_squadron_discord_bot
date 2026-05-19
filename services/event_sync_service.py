@@ -94,7 +94,7 @@ class EventSyncService(BaseService):
                     self._stop_event.wait(), timeout=self._startup_delay_seconds
                 )
                 return
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         while not self._stop_event.is_set():
@@ -111,7 +111,7 @@ class EventSyncService(BaseService):
                 await asyncio.wait_for(
                     self._stop_event.wait(), timeout=self._interval_seconds
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
     async def reconcile_all_guilds(self) -> None:

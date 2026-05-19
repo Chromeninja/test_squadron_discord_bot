@@ -50,20 +50,20 @@ async def test_feature_user_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
     fake_channel = FakeChannelUI(42, fake_guild)
 
     monkeypatch.setattr(
-        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+        "helpers.views_feature.get_user_channel", AsyncMock(return_value=fake_channel)
     )
     # Patch the helper that resolves guild/jtc
     monkeypatch.setattr(
-        "helpers.views._get_guild_and_jtc_for_user_channel",
+        "helpers.views_feature._get_guild_and_jtc_for_user_channel",
         AsyncMock(return_value=(999, 555)),
     )
 
     fake_set = AsyncMock()
     fake_apply = AsyncMock()
     fake_send = AsyncMock()
-    monkeypatch.setattr("helpers.views.set_voice_feature_setting", fake_set)
-    monkeypatch.setattr("helpers.views.apply_voice_feature_toggle", fake_apply)
-    monkeypatch.setattr("helpers.views.send_message", fake_send)
+    monkeypatch.setattr("helpers.views_feature.set_voice_feature_setting", fake_set)
+    monkeypatch.setattr("helpers.views_feature.apply_voice_feature_toggle", fake_apply)
+    monkeypatch.setattr("helpers.views_feature.send_message", fake_send)
 
     ix = FakeInteraction(FakeUser(1000, "Owner"))
     await view.user_select_callback(ix)  # type: ignore[arg-type]
@@ -90,19 +90,19 @@ async def test_select_user_store_permit_calls_db_and_apply(
     fake_channel = FakeChannelUI(99, fake_guild)
 
     monkeypatch.setattr(
-        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+        "helpers.views_admin.get_user_channel", AsyncMock(return_value=fake_channel)
     )
     monkeypatch.setattr(
-        "helpers.views._get_guild_and_jtc_for_user_channel",
+        "helpers.views_admin._get_guild_and_jtc_for_user_channel",
         AsyncMock(return_value=(111, 222)),
     )
 
     fake_store = AsyncMock()
     fake_apply = AsyncMock()
     fake_send = AsyncMock()
-    monkeypatch.setattr("helpers.views.store_permit_reject_in_db", fake_store)
-    monkeypatch.setattr("helpers.views.apply_permissions_changes", fake_apply)
-    monkeypatch.setattr("helpers.views.send_message", fake_send)
+    monkeypatch.setattr("helpers.views_admin.store_permit_reject_in_db", fake_store)
+    monkeypatch.setattr("helpers.views_admin.apply_permissions_changes", fake_apply)
+    monkeypatch.setattr("helpers.views_admin.send_message", fake_send)
 
     ix = FakeInteraction(FakeUser(5000, "OwnerTwo"))
     await view.user_select_callback(ix)  # type: ignore[arg-type]
@@ -123,19 +123,19 @@ async def test_feature_role_select_calls_db_and_apply(monkeypatch, mock_bot) -> 
     fake_channel = FakeChannelUI(201, fake_guild)
 
     monkeypatch.setattr(
-        "helpers.views.get_user_channel", AsyncMock(return_value=fake_channel)
+        "helpers.views_feature.get_user_channel", AsyncMock(return_value=fake_channel)
     )
     monkeypatch.setattr(
-        "helpers.views._get_guild_and_jtc_for_user_channel",
+        "helpers.views_feature._get_guild_and_jtc_for_user_channel",
         AsyncMock(return_value=(777, 888)),
     )
 
     fake_set = AsyncMock()
     fake_apply = AsyncMock()
     fake_send = AsyncMock()
-    monkeypatch.setattr("helpers.views.set_voice_feature_setting", fake_set)
-    monkeypatch.setattr("helpers.views.apply_voice_feature_toggle", fake_apply)
-    monkeypatch.setattr("helpers.views.send_message", fake_send)
+    monkeypatch.setattr("helpers.views_feature.set_voice_feature_setting", fake_set)
+    monkeypatch.setattr("helpers.views_feature.apply_voice_feature_toggle", fake_apply)
+    monkeypatch.setattr("helpers.views_feature.send_message", fake_send)
 
     ix = FakeInteraction(FakeUser(6000, "OwnerThree"))
     # Ensure interaction.guild is our fake guild object

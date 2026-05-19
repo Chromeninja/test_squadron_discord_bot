@@ -2,17 +2,19 @@ import asyncio
 import os
 import time
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+if TYPE_CHECKING:
+    from services.internal_api import InternalAPIServer
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import bot_tasks
 from config.config_loader import ConfigLoader, normalize_prefix
 from helpers.http_helper import HTTPClient
 from helpers.task_queue import start_task_workers, stop_task_workers
-from helpers.token_manager import cleanup_tokens
-from services.log_cleanup import LogCleanupService
 from utils.logging import get_logger
 from utils.tasks import spawn
 
@@ -128,7 +130,7 @@ initial_extensions = [
 class MyBot(commands.Bot):
     """Bot with project-specific attributes and helpers."""
 
-    def __init__(self, *args, config: dict | None = None, **kwargs) -> None:
+    def __init__(self, *args: Any, config: dict | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         # Assign the entire config to the bot instance (passed from factory or lazy-loaded)
@@ -144,10 +146,12 @@ class MyBot(commands.Bot):
         self.http_client = HTTPClient(user_agent=ua, concurrency=3, timeout=20)
 
         # Initialize role cache and warning tracking
-        self.role_cache = {}
-        self._missing_role_warned_guilds = set()
+        self.role_cache: dict[int, discord.Role] = {}
+        self._missing_role_warned_guilds: set[int] = set()
         self._guild_role_expectations: dict[int, set[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
+        # Declare internal_api here so it's always available; assigned in setup_hook
+        self.internal_api: InternalAPIServer | None = None
 
     def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
         """Track a background task for clean shutdown and log exceptions."""
@@ -253,9 +257,18 @@ class MyBot(commands.Bot):
         self._track_task(spawn(self.role_refresh_task()), "role_refresh")
 
         # Start cleanup tasks
-        self._track_task(spawn(self.token_cleanup_task()), "token_cleanup")
-        self._track_task(spawn(self.attempts_cleanup_task()), "attempts_cleanup")
-        self._track_task(spawn(self.log_cleanup_task()), "log_cleanup")
+        self._track_task(
+            spawn(bot_tasks.token_cleanup_task(self)),
+            "token_cleanup",
+        )
+        self._track_task(
+            spawn(bot_tasks.attempts_cleanup_task(self)),
+            "attempts_cleanup",
+        )
+        self._track_task(
+            spawn(bot_tasks.log_cleanup_task(self)),
+            "log_cleanup",
+        )
 
         # Register persistent views (must happen every startup for persistence to work)
         # Import here to avoid circular import issues
@@ -265,9 +278,9 @@ class MyBot(commands.Bot):
 
         self.add_view(VerificationView(self))
         self.add_view(ChannelSettingsView(self))
-        self.add_view(TicketPanelView(self, enable_public_button=True))  # type: ignore[arg-type]
-        self.add_view(TicketActionView(self))  # type: ignore[arg-type]
-        self.add_view(TicketContinueView(self))  # type: ignore[arg-type]
+        self.add_view(TicketPanelView(self, enable_public_button=True))
+        self.add_view(TicketActionView(self))
+        self.add_view(TicketContinueView(self))
 
         # Sync the command tree after loading all cogs
         try:
@@ -323,7 +336,7 @@ class MyBot(commands.Bot):
         logger.info("Bot is ready and online!")
 
         # Alert admin channel about prefix warnings if any
-        await self._alert_prefix_warnings()
+        await bot_tasks.alert_prefix_warnings(self)
 
         if self.guilds:
             await asyncio.gather(
@@ -340,57 +353,6 @@ class MyBot(commands.Bot):
             logger.info(f"Chunked members for guild '{guild.name}' ({guild.id})")
         except Exception as e:
             logger.warning(f"Could not chunk members for guild '{guild.name}': {e}")
-
-    async def _alert_prefix_warnings(self) -> None:
-        """Send admin channel alert if there were prefix normalization warnings."""
-        if not PREFIX_WARNINGS:
-            return
-
-        await asyncio.gather(
-            *(self._send_prefix_warning_for_guild(guild) for guild in self.guilds)
-        )
-
-    async def _send_prefix_warning_for_guild(self, guild: discord.Guild) -> None:
-        """Send a prefix warning alert for a single guild if configured."""
-        try:
-            # Get admin channel from config
-            bot_spam_id = await self.services.config.get_guild_setting(
-                guild.id, "channels.bot_spam_channel_id"
-            )
-            if not bot_spam_id:
-                return
-
-            channel = guild.get_channel(int(bot_spam_id))
-            if not channel or not isinstance(channel, discord.abc.Messageable):
-                return
-
-            embed = discord.Embed(
-                title="⚠️ Prefix Configuration Warning",
-                description="The command prefix configuration had issues during startup.",
-                color=discord.Color.orange(),
-            )
-            current_prefix = get_prefix()
-            warnings = get_prefix_warnings()
-
-            embed.add_field(
-                name="Warnings",
-                value="\n".join(f"• {w}" for w in warnings[:10]),
-                inline=False,
-            )
-            embed.add_field(
-                name="Current Mode",
-                value="Mention-only"
-                if commands.when_mentioned == current_prefix
-                else f"Prefixes: {current_prefix}",
-                inline=False,
-            )
-            embed.set_footer(text="Check config.yaml prefix settings")
-
-            await channel.send(embed=embed)
-            logger.info(f"Sent prefix warning alert to guild {guild.name}")
-
-        except Exception as e:
-            logger.warning(f"Failed to send prefix warning to guild {guild.name}: {e}")
 
     async def check_bot_permissions(self, guild: discord.Guild) -> None:
         """Verify required guild-level permissions and log any missing ones."""
@@ -489,12 +451,12 @@ class MyBot(commands.Bot):
         previous_ids = self._guild_role_expectations.get(guild_id, set())
         removed_ids = previous_ids - expected_ids
         for stale_id in removed_ids:
-            self.role_cache.pop(stale_id, None)
+            self.role_cache.pop(int(stale_id), None)
 
         for role_id in expected_ids:
             role = guild.get_role(int(role_id))
             if role:
-                self.role_cache[role_id] = role
+                self.role_cache[int(role_id)] = role
             else:
                 await self._warn_missing_role(guild, role_id)
 
@@ -538,7 +500,12 @@ class MyBot(commands.Bot):
 
         try:
             reported = await Database.has_reported_missing_roles(guild.id)
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "Failed to check missing-role report status for guild %s",
+                guild.id,
+                exc_info=exc,
+            )
             reported = False
 
         if not reported and guild.id not in self._missing_role_warned_guilds:
@@ -553,83 +520,6 @@ class MyBot(commands.Bot):
                 )
         else:
             logger.info(f"Role {role_id} missing in '{guild.name}' (already reported).")
-
-    async def token_cleanup_task(self) -> None:
-        """
-        Periodically cleans up expired tokens.
-        """
-        while not self.is_closed():
-            await asyncio.sleep(300)  # Run every 5 minutes
-            cleanup_tokens()
-            logger.debug("Expired tokens cleaned up.")
-
-    async def attempts_cleanup_task(self) -> None:
-        """
-        Periodically cleans up expired rate-limiting data.
-        """
-        # Import here to avoid circular import
-        from helpers.rate_limiter import cleanup_attempts
-
-        while not self.is_closed():
-            await asyncio.sleep(300)  # Run every 5 minutes
-            # Cleanup_attempts is an async coroutine; await it to avoid "coroutine was never awaited" warnings
-            await cleanup_attempts()
-
-    async def log_cleanup_task(self) -> None:
-        """
-        Daily cleanup of old logs based on retention policies.
-
-        Runs at the configured cleanup_hour_utc time each day.
-        """
-        await self.wait_until_ready()
-
-        # Get cleanup hour from config (default to 3 AM UTC)
-        cleanup_cfg = getattr(self, "config", {}) or {}
-        cleanup_hour_utc = cleanup_cfg.get("log_retention", {}).get(
-            "cleanup_hour_utc", 3
-        )
-
-        while not self.is_closed():
-            try:
-                # Calculate seconds until next cleanup time
-                from datetime import UTC, datetime, timedelta
-
-                now = datetime.now(UTC)
-                target_time = now.replace(
-                    hour=cleanup_hour_utc, minute=0, second=0, microsecond=0
-                )
-
-                # If target time has passed today, schedule for tomorrow
-                if now >= target_time:
-                    target_time += timedelta(days=1)
-
-                seconds_until_cleanup = (target_time - now).total_seconds()
-
-                logger.info(
-                    f"Log cleanup scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S UTC')} "
-                    f"({seconds_until_cleanup / 3600:.1f} hours from now)"
-                )
-
-                # Wait until cleanup time
-                await asyncio.sleep(seconds_until_cleanup)
-
-                # Run cleanup
-                logger.info("Starting scheduled log cleanup")
-                cleanup_service = LogCleanupService(cleanup_cfg)
-                summary = await cleanup_service.cleanup_all()
-
-                logger.info(
-                    f"Log cleanup completed: {summary}",
-                    extra={"cleanup_summary": summary},
-                )
-
-            except asyncio.CancelledError:
-                logger.info("Log cleanup task cancelled")
-                break
-            except Exception as e:
-                logger.exception("Error in log cleanup task", exc_info=e)
-                # Wait 1 hour before retrying on error
-                await asyncio.sleep(3600)
 
     @property
     def uptime(self) -> str:
@@ -647,14 +537,14 @@ class MyBot(commands.Bot):
 
     async def has_admin_permissions(
         self,
-        user: discord.Member,
+        user: discord.Member | discord.User,
         guild: discord.Guild | None = None,
     ) -> bool:
         """
         Check if a user has admin permissions based on configured roles or privileged status.
 
         Args:
-            user: Discord member to check
+            user: Discord member or user to check
             guild: Optional guild context (provided by slash-command decorators)
 
         Returns:
@@ -735,7 +625,13 @@ class MyBot(commands.Bot):
         for task in list(self._background_tasks):
             task.cancel()
         if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            results = await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.warning(
+                        "Background task raised exception during shutdown",
+                        exc_info=result,
+                    )
             self._background_tasks.clear()
 
         # Close the HTTP client

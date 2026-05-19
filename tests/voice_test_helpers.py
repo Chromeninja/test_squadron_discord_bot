@@ -148,7 +148,7 @@ async def create_voice_service_with_bot(
     mock_bot = MockBot()
     voice_service = VoiceService(
         config_service,
-        bot=cast(Any, mock_bot),
+        bot=cast("Any", mock_bot),
         test_mode=test_mode,
     )
     await voice_service.initialize()

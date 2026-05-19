@@ -331,6 +331,7 @@ class FakeInteraction:
         self.channel_id = self.channel.id if self.channel else None
         self.response = FakeResponse()
         self.followup = FakeFollowup()
+        self.token = "fake_interaction_token"
         self.locale = "en-US"
         self.command = SimpleNamespace(name="test_command")
 

@@ -838,7 +838,7 @@ def fake_internal_api(monkeypatch):
     fake = FakeInternalAPIClient()
 
     # Ensure user detail cache does not leak across tests.
-    from routes.users import _member_cache
+    from core.user_enrichment import _member_cache
 
     _member_cache.clear()
 

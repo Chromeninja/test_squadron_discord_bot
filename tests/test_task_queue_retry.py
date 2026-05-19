@@ -1,9 +1,19 @@
 """Tests for task queue retry logic including 429 rate-limit handling."""
 
+from __future__ import annotations
+
+from typing import Any, cast
+
+import aiohttp
 import discord
 import pytest
 
 from helpers.task_queue import run_task
+
+
+def _fake_response(status: int) -> aiohttp.ClientResponse:
+    """Return a minimal fake aiohttp response cast for discord.HTTPException."""
+    return cast("aiohttp.ClientResponse", _FakeResponse(status))
 
 
 @pytest.mark.asyncio
@@ -16,7 +26,7 @@ async def test_run_task_retries_on_5xx(monkeypatch) -> None:
         calls += 1
         if calls < 2:
             exc = discord.HTTPException(
-                _FakeResponse(status=500),
+                _fake_response(500),
                 {"message": "Internal Server Error"},
             )
             exc.status = 500
@@ -40,11 +50,11 @@ async def test_run_task_retries_on_429_with_retry_after(monkeypatch) -> None:
         calls += 1
         if calls < 2:
             exc = discord.HTTPException(
-                _FakeResponse(status=429),
+                _fake_response(429),
                 {"message": "Rate limited", "retry_after": 0.01},
             )
             exc.status = 429
-            exc.retry_after = 0.01
+            setattr(exc, "retry_after", 0.01)
             raise exc
         return "done"
 
@@ -64,7 +74,7 @@ async def test_run_task_gives_up_after_max_retries(monkeypatch) -> None:
         nonlocal calls
         calls += 1
         exc = discord.HTTPException(
-            _FakeResponse(status=500),
+            _fake_response(500),
             {"message": "Always fails"},
         )
         exc.status = 500
@@ -86,7 +96,7 @@ async def test_run_task_does_not_retry_on_400(monkeypatch) -> None:
         nonlocal calls
         calls += 1
         exc = discord.HTTPException(
-            _FakeResponse(status=400),
+            _fake_response(400),
             {"message": "Bad Request"},
         )
         exc.status = 400
@@ -105,4 +115,4 @@ class _FakeResponse:
     def __init__(self, status: int) -> None:
         self.status = status
         self.reason = "Test"
-        self.headers = {"Content-Type": "application/json"}
+        self.headers: dict[str, Any] = {"Content-Type": "application/json"}

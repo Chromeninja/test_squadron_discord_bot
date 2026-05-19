@@ -24,7 +24,7 @@ from helpers.ticket_views import (
     _create_ticket_thread,
     _log_ticket_event,
 )
-from tests.conftest import FakeInteraction, FakeUser
+from tests.factories.discord_factories import FakeInteraction, FakeUser
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -312,11 +312,12 @@ class TestTicketCategorySelect:
         select._values = ["9"]
         interaction = FakeInteraction()
         interaction.response.send_message = AsyncMock()  # type: ignore[method-assign]
-        interaction.guild = SimpleNamespace(
-            id=123,
-            name="TestGuild",
-            get_role=lambda role_id: SimpleNamespace(mention=f"<@&{role_id}>"),
-        )
+        from tests.factories.discord_factories import FakeGuild
+
+        fake_guild = FakeGuild(guild_id=123)
+        fake_guild.name = "TestGuild"  # type: ignore[attr-defined]
+        fake_guild.get_role = lambda role_id: SimpleNamespace(mention=f"<@&{role_id}>")  # type: ignore[attr-defined]
+        interaction.guild = fake_guild
 
         type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
         await select.callback(interaction)  # type: ignore[arg-type]
@@ -598,7 +599,10 @@ class TestCreateTicketThread:
             name="TestGuild",
             get_role=lambda rid: {777: role_category, 888: role_global}.get(rid),
         )
-        interaction.guild = guild
+        from typing import cast
+        from tests.factories.discord_factories import FakeGuild
+
+        interaction.guild = cast(FakeGuild, guild)
 
         text_channel = MagicMock(spec=discord.TextChannel)
         text_channel.id = 777
@@ -913,7 +917,7 @@ class TestTicketDeleteButton:
         thread.delete = AsyncMock()
         interaction.channel = thread
 
-        with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+        with patch("helpers.ticket_views_action._log_ticket_event", new=AsyncMock()):
             await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
 
         thread.delete.assert_awaited_once()
@@ -973,8 +977,8 @@ class TestCloseTicketFlow:
         thread.edit = AsyncMock()
         thread.delete = AsyncMock()
 
-        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
-            with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+        with patch("helpers.ticket_views_thread._generate_transcript", new=AsyncMock(return_value=None)):
+            with patch("helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()):
                 await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
         thread.edit.assert_awaited_once()
@@ -1003,9 +1007,9 @@ class TestCloseTicketFlow:
             )
         )
 
-        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
-            with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
-                with patch("helpers.ticket_views.logger.exception") as log_exception:
+        with patch("helpers.ticket_views_thread._generate_transcript", new=AsyncMock(return_value=None)):
+            with patch("helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()):
+                with patch("helpers.ticket_views_thread.logger.exception") as log_exception:
                     await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
         log_exception.assert_called()

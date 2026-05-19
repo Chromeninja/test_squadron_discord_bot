@@ -64,6 +64,27 @@ jobs:
           mkdir -p config
           cp config/config-example.yaml config/config.yaml
 
+      - name: Enforce Python modularity thresholds
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}..HEAD" -- '*.py' || true)
+          else
+            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "HEAD~1..HEAD" -- '*.py' || true)
+          fi
+
+          if [ -z "$CHANGED_PY_FILES" ]; then
+            echo "No changed Python files to check."
+            exit 0
+          fi
+
+          python3 tools/check_modularity.py \
+            --warn-lines 500 \
+            --fail-lines 700 \
+            --warn-funcs 15 \
+            --warn-classes 4 \
+            $CHANGED_PY_FILES
+
       - name: Audit dependencies for known vulnerabilities
         run: |
           pip install pip-audit

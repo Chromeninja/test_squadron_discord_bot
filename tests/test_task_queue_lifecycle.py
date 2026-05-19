@@ -91,15 +91,17 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     )
     monkeypatch.setattr(bot_mod, "spawn", lambda coro: asyncio.create_task(coro))
 
+    import bot_tasks as bt_mod
+
     # Patch bot methods that would hit external systems
     monkeypatch.setattr(bot_mod.MyBot, "add_cog", async_noop)
     monkeypatch.setattr(bot_mod.MyBot, "load_extension", async_noop)
     monkeypatch.setattr(bot_mod.MyBot, "_track_task", sync_noop)
     monkeypatch.setattr(bot_mod.MyBot, "cache_roles", async_noop)
     monkeypatch.setattr(bot_mod.MyBot, "role_refresh_task", async_noop)
-    monkeypatch.setattr(bot_mod.MyBot, "token_cleanup_task", async_noop)
-    monkeypatch.setattr(bot_mod.MyBot, "attempts_cleanup_task", async_noop)
-    monkeypatch.setattr(bot_mod.MyBot, "log_cleanup_task", async_noop)
+    monkeypatch.setattr(bt_mod, "token_cleanup_task", async_noop)
+    monkeypatch.setattr(bt_mod, "attempts_cleanup_task", async_noop)
+    monkeypatch.setattr(bt_mod, "log_cleanup_task", async_noop)
     monkeypatch.setattr(bot_mod.MyBot, "add_view", sync_noop)
     # Provide resolved application info once awaited
     app_info_future = asyncio.Future()

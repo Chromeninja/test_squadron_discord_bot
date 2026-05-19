@@ -4,7 +4,6 @@ Tests for voice channel cleanup functionality.
 Tests the new immediate cleanup when channels become empty and startup reconciliation.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

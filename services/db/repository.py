@@ -335,8 +335,8 @@ def parse_snowflake_strict(value: Any, name: str = "ID") -> int:
 # Organization Data Utilities
 # -----------------------------------------------------------------------------
 
-# Canonical implementation lives in database.py; re-export for backward compat
-from .database import derive_membership_status
+# Canonical implementation lives in membership.py; re-export for backward compat
+from .membership import derive_membership_status
 
 
 def parse_org_lists(

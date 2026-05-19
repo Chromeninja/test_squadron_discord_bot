@@ -26,11 +26,11 @@ from discord.ui import (  # type: ignore[import-not-found]
     View,
 )
 
+from helpers.bot_protocol import BotProtocol
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from bot import MyBot
     from services.ticket_form_service import RouteExecutionContext
 
 logger = get_logger(__name__)
@@ -52,7 +52,7 @@ class ModalBuilder:
 
     @staticmethod
     def build_modal(
-        bot: MyBot,
+        bot: BotProtocol,
         category: dict[str, Any],
         step_config: dict[str, Any],
         questions: list[dict[str, Any]],
@@ -110,7 +110,7 @@ class DynamicTicketModal(Modal):
 
     def __init__(
         self,
-        bot: MyBot,
+        bot: BotProtocol,
         category: dict[str, Any],
         step_config: dict[str, Any],
         questions: list[dict[str, Any]],
@@ -235,7 +235,7 @@ class DynamicTicketModal(Modal):
 
 
 async def present_step_ui(
-    bot: MyBot,
+    bot: BotProtocol,
     interaction: discord.Interaction,
     category: dict[str, Any],
     step_config: dict[str, Any],
@@ -268,7 +268,7 @@ class TicketContinueView(View):
     values so it survives bot restarts.
     """
 
-    def __init__(self, bot: MyBot) -> None:
+    def __init__(self, bot: BotProtocol) -> None:
         super().__init__(timeout=None)
         self.bot = bot
 
@@ -383,7 +383,7 @@ class TicketContinueView(View):
 
 
 async def create_ticket_from_route(
-    bot: MyBot,
+    bot: BotProtocol,
     interaction: discord.Interaction,
     context: RouteExecutionContext,
 ) -> None:
