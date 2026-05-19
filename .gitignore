@@ -124,6 +124,7 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+metrics.db.bak_*
 *.db.bak_*
 *.sqlite.bak_*
 
