@@ -68,9 +68,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- '*.py')
+            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}..HEAD" -- '*.py' || true)
           else
-            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "HEAD~1...HEAD" -- '*.py' || true)
+            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=AM "HEAD~1..HEAD" -- '*.py' || true)
           fi
 
           if [ -z "$CHANGED_PY_FILES" ]; then
