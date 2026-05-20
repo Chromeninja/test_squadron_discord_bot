@@ -1,12 +1,35 @@
 import {
   type DiscordChannel,
   type EventModuleSettingsPayload,
+  type ScheduledEventCreateRequest,
   type ScheduledEventSummary,
 } from '../api/endpoints';
 import { type BadgeVariant } from '../utils/theme';
 
 export type BuilderStep = 'details' | 'connections' | 'review';
 export type EndMode = 'duration' | 'manual' | 'open';
+export type RecurrenceFrequency = 0 | 1 | 2 | 3;
+export type RecurrenceWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export const RECURRENCE_WEEKDAY_OPTIONS: Array<{ value: RecurrenceWeekday; label: string }> = [
+  { value: 0, label: 'Mon' },
+  { value: 1, label: 'Tue' },
+  { value: 2, label: 'Wed' },
+  { value: 3, label: 'Thu' },
+  { value: 4, label: 'Fri' },
+  { value: 5, label: 'Sat' },
+  { value: 6, label: 'Sun' },
+];
+
+export const RECURRENCE_FREQUENCY_OPTIONS: Array<{
+  value: RecurrenceFrequency;
+  label: string;
+}> = [
+  { value: 3, label: 'Daily' },
+  { value: 2, label: 'Weekly' },
+  { value: 1, label: 'Monthly' },
+  { value: 0, label: 'Yearly' },
+];
 
 export interface EventDraft {
   name: string;
@@ -21,6 +44,10 @@ export interface EventDraft {
   endTime: string;
   announcementChannelId: string | null;
   signupRoleIds: string[];
+  recurrenceEnabled: boolean;
+  recurrenceFrequency: RecurrenceFrequency;
+  recurrenceInterval: string;
+  recurrenceWeekdays: RecurrenceWeekday[];
 }
 
 export const BUILDER_STEPS: Array<{
@@ -123,6 +150,10 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     endTime: '',
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
     signupRoleIds: [],
+    recurrenceEnabled: false,
+    recurrenceFrequency: 2,
+    recurrenceInterval: '1',
+    recurrenceWeekdays: [],
   };
 }
 
@@ -138,6 +169,7 @@ export function createDraftFromEvent(
     startTime && endTime && endTime.getTime() > startTime.getTime()
       ? String(Math.round((endTime.getTime() - startTime.getTime()) / 60000))
       : '120';
+  const recurrencePayload = event.recurrence_rule_payload;
 
   return {
     name: event.name,
@@ -152,6 +184,12 @@ export function createDraftFromEvent(
     endTime: end.time,
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
     signupRoleIds: [],
+    recurrenceEnabled: !!recurrencePayload,
+    recurrenceFrequency: recurrencePayload?.frequency ?? 2,
+    recurrenceInterval: String(recurrencePayload?.interval ?? 1),
+    recurrenceWeekdays: (recurrencePayload?.by_weekday ?? []).filter(
+      (day): day is RecurrenceWeekday => Number.isInteger(day) && day >= 0 && day <= 6,
+    ),
   };
 }
 
@@ -174,6 +212,62 @@ export function formatDuration(minutesValue: string): string {
   }
 
   return `${hours}h ${remainder}m`;
+}
+
+export function formatRecurrenceSummary(draft: EventDraft): string {
+  if (!draft.recurrenceEnabled) {
+    return 'One-time event';
+  }
+
+  const intervalRaw = Number(draft.recurrenceInterval);
+  const interval = Number.isFinite(intervalRaw) && intervalRaw > 0 ? intervalRaw : 1;
+  const baseLabel =
+    RECURRENCE_FREQUENCY_OPTIONS.find((item) => item.value === draft.recurrenceFrequency)
+      ?.label ?? 'Recurring';
+
+  const prefix =
+    interval === 1
+      ? baseLabel
+      : `Every ${interval} ${baseLabel.toLowerCase().replace(/y$/, 'ie')}s`.replace(
+          'dailies',
+          'days',
+        );
+
+  if (draft.recurrenceFrequency !== 2 || draft.recurrenceWeekdays.length === 0) {
+    return prefix;
+  }
+
+  const dayLabels = RECURRENCE_WEEKDAY_OPTIONS
+    .filter((item) => draft.recurrenceWeekdays.includes(item.value))
+    .map((item) => item.label);
+
+  if (dayLabels.length === 0) {
+    return prefix;
+  }
+
+  return `${prefix} on ${dayLabels.join(', ')}`;
+}
+
+export function buildRecurrenceRule(
+  draft: EventDraft,
+): ScheduledEventCreateRequest['recurrence_rule'] {
+  if (!draft.recurrenceEnabled || !draft.startDate || !draft.startTime) {
+    return null;
+  }
+
+  const intervalRaw = Number(draft.recurrenceInterval);
+  const interval = Number.isFinite(intervalRaw) && intervalRaw > 0 ? Math.floor(intervalRaw) : 1;
+  const recurrenceRule: NonNullable<ScheduledEventCreateRequest['recurrence_rule']> = {
+    start: combineDateAndTime(draft.startDate, draft.startTime),
+    frequency: draft.recurrenceFrequency,
+    interval,
+  };
+
+  if (draft.recurrenceFrequency === 2 && draft.recurrenceWeekdays.length > 0) {
+    recurrenceRule.by_weekday = [...draft.recurrenceWeekdays].sort((a, b) => a - b);
+  }
+
+  return recurrenceRule;
 }
 
 export function getAnnouncementChannelOptions(channels: DiscordChannel[]) {
@@ -249,6 +343,17 @@ export function validateDraft(draft: EventDraft): string | null {
     }
   }
 
+  if (draft.recurrenceEnabled) {
+    const intervalRaw = Number(draft.recurrenceInterval);
+    if (!Number.isFinite(intervalRaw) || intervalRaw <= 0) {
+      return 'Recurring interval must be greater than zero.';
+    }
+
+    if (draft.recurrenceFrequency === 2 && draft.recurrenceWeekdays.length === 0) {
+      return 'Select at least one weekday for weekly recurrence.';
+    }
+  }
+
   const start = new Date(combineDateAndTime(draft.startDate, draft.startTime));
   if (Number.isNaN(start.getTime())) {
     return 'Start date or time is invalid.';
@@ -278,6 +383,10 @@ export function getReviewHighlights(draft: EventDraft): string[] {
 
   if (signupRoleIds.length > 0) {
     highlights.push(`Signup roles: ${signupRoleIds.length}`);
+  }
+
+  if (draft.recurrenceEnabled) {
+    highlights.push(formatRecurrenceSummary(draft));
   }
 
   return highlights;

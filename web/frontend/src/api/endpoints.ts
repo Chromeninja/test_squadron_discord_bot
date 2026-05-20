@@ -135,6 +135,15 @@ export interface ScheduledEventSummary {
   creator_name: string | null;
   image_url: string | null;
   recurrence_rule: string | null;
+  recurrence_rule_payload?: {
+    start: string;
+    frequency: 0 | 1 | 2 | 3;
+    interval: number;
+    by_weekday?: Array<0 | 1 | 2 | 3 | 4 | 5 | 6>;
+    by_n_weekday?: Array<{ n: number; day: 0 | 1 | 2 | 3 | 4 | 5 | 6 }>;
+    by_month?: number[];
+    by_month_day?: number[];
+  } | null;
 }
 
 export interface ScheduledEventCreateRequest {
@@ -148,6 +157,15 @@ export interface ScheduledEventCreateRequest {
   location: string | null;
   announcement_channel_id?: string | null;
   signup_role_ids?: string[];
+  recurrence_rule?: {
+    start: string;
+    frequency: 0 | 1 | 2 | 3;
+    interval: number;
+    by_weekday?: Array<0 | 1 | 2 | 3 | 4 | 5 | 6>;
+    by_n_weekday?: Array<{ n: number; day: 0 | 1 | 2 | 3 | 4 | 5 | 6 }>;
+    by_month?: number[];
+    by_month_day?: number[];
+  } | null;
 }
 
 export interface ScheduledEventUpdateRequest extends ScheduledEventCreateRequest {}

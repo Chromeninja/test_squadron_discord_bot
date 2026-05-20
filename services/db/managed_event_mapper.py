@@ -31,6 +31,16 @@ def decode_signup_role_ids(raw_value: str | None) -> list[str]:
 
 def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
     """Convert a managed event row into API-facing event payload fields."""
+    recurrence_rule_payload_raw = row["recurrence_rule_payload"]
+    recurrence_rule_payload: dict[str, object] | None = None
+    if isinstance(recurrence_rule_payload_raw, str) and recurrence_rule_payload_raw:
+        try:
+            parsed_payload = json.loads(recurrence_rule_payload_raw)
+        except Exception:
+            parsed_payload = None
+        if isinstance(parsed_payload, dict):
+            recurrence_rule_payload = parsed_payload
+
     return {
         "id": str(row["id"]),
         "name": row["name"],
@@ -58,4 +68,5 @@ def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
         "signup_role_ids": decode_signup_role_ids(row["signup_role_ids"]),
         "revision": int(row["revision"]),
         "recurrence_rule": row["recurrence_rule"],
+        "recurrence_rule_payload": recurrence_rule_payload,
     }

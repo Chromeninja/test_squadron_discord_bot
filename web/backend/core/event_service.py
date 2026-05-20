@@ -96,6 +96,7 @@ class EventService:
             "announcement_channel_id": event.get("announcement_channel_id"),
             "signup_role_ids": event.get("signup_role_ids") or [],
             "created_by_name": event.get("creator_name"),
+            "recurrence_rule": event.get("recurrence_rule_payload"),
         }
 
     @staticmethod

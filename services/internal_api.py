@@ -5,6 +5,7 @@ without hitting Discord API rate limits.
 """
 
 import base64
+import json
 import os
 import secrets
 import time
@@ -35,7 +36,7 @@ _EVENTS_CACHE_TTL_SECONDS = 30.0
 class _ScheduledEventsCache:
     """Short-TTL in-memory cache for guild scheduled events."""
 
-    events: list[dict[str, str | int | None]] = field(default_factory=list)
+    events: list[dict[str, object | None]] = field(default_factory=list)
     fetched_at: float = 0.0
 
     def is_fresh(self) -> bool:
@@ -1011,7 +1012,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
     async def _fetch_and_cache_events(
         self, guild: discord.Guild
-    ) -> list[dict[str, str | int | None]]:
+    ) -> list[dict[str, object | None]]:
         """Fetch scheduled events from Discord and update the cache.
 
         AI Notes:
@@ -1028,7 +1029,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         scheduled_events = await guild.fetch_scheduled_events()
         duration_ms = (time.monotonic() - t0) * 1000
 
-        events_payload: list[dict[str, str | int | None]] = []
+        events_payload: list[dict[str, object | None]] = []
         for event in sorted(
             scheduled_events,
             key=lambda item: getattr(item, "start_time", None)
@@ -1132,7 +1133,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
     @staticmethod
     def _serialize_scheduled_event(
         event: discord.ScheduledEvent, guild: discord.Guild | None = None
-    ) -> dict[str, str | int | None]:
+    ) -> dict[str, object | None]:
         """Convert a Discord scheduled event into a dashboard-safe payload."""
         channel = getattr(event, "channel", None)
         creator = getattr(event, "creator", None)
@@ -1175,7 +1176,218 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "recurrence_rule": InternalAPIServer._format_recurrence_rule(
                 recurrence_rule_raw
             ),
+            "recurrence_rule_payload": InternalAPIServer._serialize_recurrence_rule(
+                recurrence_rule_raw,
+                scheduled_start_time,
+            ),
         }
+
+    @staticmethod
+    def _serialize_recurrence_rule(
+        rule: object,
+        fallback_start: datetime | None,
+    ) -> dict[str, object] | None:
+        """Serialize Discord recurrence objects into API-safe dict payloads."""
+        if rule is None:
+            return None
+
+        start_raw = getattr(rule, "start", None)
+        if isinstance(start_raw, datetime):
+            start = start_raw.isoformat()
+        elif isinstance(fallback_start, datetime):
+            start = fallback_start.isoformat()
+        else:
+            return None
+
+        frequency_raw = getattr(rule, "frequency", None)
+        frequency = getattr(frequency_raw, "value", None)
+        if not isinstance(frequency, int):
+            frequency_name = (
+                str(getattr(frequency_raw, "name", "")).strip().upper()
+                if frequency_raw is not None
+                else ""
+            )
+            frequency = {
+                "YEARLY": 0,
+                "MONTHLY": 1,
+                "WEEKLY": 2,
+                "DAILY": 3,
+            }.get(frequency_name)
+        if not isinstance(frequency, int):
+            return None
+
+        interval_raw = getattr(rule, "interval", 1)
+        interval = (
+            int(interval_raw)
+            if isinstance(interval_raw, (int, str)) and str(interval_raw).strip()
+            else 1
+        )
+
+        result: dict[str, object] = {
+            "start": start,
+            "frequency": frequency,
+            "interval": max(1, interval),
+        }
+
+        by_weekday_raw = getattr(rule, "by_weekday", None)
+        if isinstance(by_weekday_raw, list):
+            by_weekday: list[int] = []
+            for weekday in by_weekday_raw:
+                weekday_value = getattr(weekday, "value", None)
+                if isinstance(weekday_value, int) and 0 <= weekday_value <= 6:
+                    by_weekday.append(weekday_value)
+            if by_weekday:
+                result["by_weekday"] = by_weekday
+
+        by_n_weekday_raw = getattr(rule, "by_n_weekday", None)
+        if isinstance(by_n_weekday_raw, list):
+            by_n_weekday: list[dict[str, int]] = []
+            for entry in by_n_weekday_raw:
+                n_value = getattr(entry, "n", None)
+                day_raw = getattr(entry, "day", None)
+                day_value = getattr(day_raw, "value", None)
+                if (
+                    isinstance(n_value, int)
+                    and 1 <= n_value <= 5
+                    and isinstance(day_value, int)
+                    and 0 <= day_value <= 6
+                ):
+                    by_n_weekday.append({"n": n_value, "day": day_value})
+            if by_n_weekday:
+                result["by_n_weekday"] = by_n_weekday
+
+        by_month_raw = getattr(rule, "by_month", None)
+        if isinstance(by_month_raw, list):
+            by_month: list[int] = []
+            for month in by_month_raw:
+                month_value = getattr(month, "value", month)
+                if isinstance(month_value, int) and 1 <= month_value <= 12:
+                    by_month.append(month_value)
+            if by_month:
+                result["by_month"] = by_month
+
+        by_month_day_raw = getattr(rule, "by_month_day", None)
+        if isinstance(by_month_day_raw, list):
+            by_month_day: list[int] = []
+            for day in by_month_day_raw:
+                if isinstance(day, int) and 1 <= day <= 31:
+                    by_month_day.append(day)
+            if by_month_day:
+                result["by_month_day"] = by_month_day
+
+        return result
+
+    @staticmethod
+    def _normalize_recurrence_payload(
+        recurrence_rule_raw: object,
+        start_time: datetime,
+    ) -> dict[str, object] | None:
+        """Validate recurrence payloads from dashboard and normalize for Discord API."""
+        if recurrence_rule_raw is None:
+            return None
+
+        if not isinstance(recurrence_rule_raw, dict):
+            raise ValueError("recurrence_rule must be an object")
+
+        start_raw = recurrence_rule_raw.get("start")
+        start = start_time.isoformat()
+        if isinstance(start_raw, str) and start_raw.strip():
+            start = start_raw.strip()
+
+        frequency_raw = recurrence_rule_raw.get("frequency")
+        if not isinstance(frequency_raw, (int, str)) or not str(frequency_raw).strip():
+            raise ValueError("recurrence_rule.frequency is required")
+        frequency = int(frequency_raw)
+        if frequency not in {0, 1, 2, 3}:
+            raise ValueError("recurrence_rule.frequency must be one of 0, 1, 2, 3")
+
+        interval_raw = recurrence_rule_raw.get("interval", 1)
+        if not isinstance(interval_raw, (int, str)) or not str(interval_raw).strip():
+            raise ValueError("recurrence_rule.interval must be an integer")
+        interval = int(interval_raw)
+        if interval <= 0:
+            raise ValueError("recurrence_rule.interval must be greater than zero")
+
+        normalized: dict[str, object] = {
+            "start": start,
+            "frequency": frequency,
+            "interval": interval,
+        }
+
+        by_weekday_raw = recurrence_rule_raw.get("by_weekday")
+        if by_weekday_raw is not None:
+            if not isinstance(by_weekday_raw, list):
+                raise ValueError("recurrence_rule.by_weekday must be an array")
+            by_weekday: list[int] = []
+            for day_raw in by_weekday_raw:
+                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                    raise ValueError("recurrence_rule.by_weekday values must be integers")
+                day = int(day_raw)
+                if day < 0 or day > 6:
+                    raise ValueError("recurrence_rule.by_weekday values must be 0-6")
+                by_weekday.append(day)
+            if by_weekday:
+                normalized["by_weekday"] = by_weekday
+
+        by_n_weekday_raw = recurrence_rule_raw.get("by_n_weekday")
+        if by_n_weekday_raw is not None:
+            if not isinstance(by_n_weekday_raw, list):
+                raise ValueError("recurrence_rule.by_n_weekday must be an array")
+            by_n_weekday: list[dict[str, int]] = []
+            for item in by_n_weekday_raw:
+                if not isinstance(item, dict):
+                    raise ValueError("recurrence_rule.by_n_weekday values must be objects")
+                n_raw = item.get("n")
+                day_raw = item.get("day")
+                if not isinstance(n_raw, (int, str)) or not str(n_raw).strip():
+                    raise ValueError("recurrence_rule.by_n_weekday.n must be an integer")
+                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                    raise ValueError("recurrence_rule.by_n_weekday.day must be an integer")
+                n_value = int(n_raw)
+                day_value = int(day_raw)
+                if n_value < 1 or n_value > 5:
+                    raise ValueError("recurrence_rule.by_n_weekday.n must be 1-5")
+                if day_value < 0 or day_value > 6:
+                    raise ValueError("recurrence_rule.by_n_weekday.day must be 0-6")
+                by_n_weekday.append({"n": n_value, "day": day_value})
+            if by_n_weekday:
+                normalized["by_n_weekday"] = by_n_weekday
+
+        by_month_raw = recurrence_rule_raw.get("by_month")
+        if by_month_raw is not None:
+            if not isinstance(by_month_raw, list):
+                raise ValueError("recurrence_rule.by_month must be an array")
+            by_month: list[int] = []
+            for month_raw in by_month_raw:
+                if not isinstance(month_raw, (int, str)) or not str(month_raw).strip():
+                    raise ValueError("recurrence_rule.by_month values must be integers")
+                month = int(month_raw)
+                if month < 1 or month > 12:
+                    raise ValueError("recurrence_rule.by_month values must be 1-12")
+                by_month.append(month)
+            if by_month:
+                normalized["by_month"] = by_month
+
+        by_month_day_raw = recurrence_rule_raw.get("by_month_day")
+        if by_month_day_raw is not None:
+            if not isinstance(by_month_day_raw, list):
+                raise ValueError("recurrence_rule.by_month_day must be an array")
+            by_month_day: list[int] = []
+            for day_raw in by_month_day_raw:
+                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                    raise ValueError(
+                        "recurrence_rule.by_month_day values must be integers"
+                    )
+                day = int(day_raw)
+                if day < 1 or day > 31:
+                    raise ValueError(
+                        "recurrence_rule.by_month_day values must be 1-31"
+                    )
+                by_month_day.append(day)
+            if by_month_day:
+                normalized["by_month_day"] = by_month_day
+
+        return normalized
 
     @staticmethod
     def _format_recurrence_rule(rule: object) -> str | None:
@@ -1319,6 +1531,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         datetime | None,
         discord.abc.GuildChannel | None,
         str | None,
+        dict[str, object] | None,
     ] | web.Response:
         """Parse and validate a scheduled event request body."""
         try:
@@ -1367,6 +1580,15 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 status=400,
             )
 
+        recurrence_rule_raw = payload.get("recurrence_rule")
+        try:
+            recurrence_rule = self._normalize_recurrence_payload(
+                recurrence_rule_raw,
+                start_time,
+            )
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
         channel_id = payload.get("channel_id")
         channel = None
         if channel_id is not None:
@@ -1396,6 +1618,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             end_time,
             channel,
             description,
+            recurrence_rule,
         )
 
     async def create_guild_scheduled_event(self, request: web.Request) -> web.Response:
@@ -1419,7 +1642,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             end_time,
             channel,
             description,
+            *event_request_rest,
         ) = event_request
+        recurrence_rule = event_request_rest[0] if event_request_rest else None
 
         guild_id = guild.id
 
@@ -1436,7 +1661,19 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 create_kwargs["end_time"] = end_time
             if description is not None:
                 create_kwargs["description"] = description
-            event = await guild_any.create_scheduled_event(**create_kwargs)
+            if recurrence_rule is None:
+                event = await guild_any.create_scheduled_event(**create_kwargs)
+            else:
+                event = await self._create_scheduled_event_with_recurrence(
+                    guild=guild,
+                    name=name,
+                    entity_type=entity_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    channel=cast("discord.abc.Snowflake", channel),
+                    description=description,
+                    recurrence_rule=recurrence_rule,
+                )
         except discord.Forbidden:
             return web.json_response(
                 {
@@ -1625,7 +1862,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             end_time,
             channel,
             description,
+            *event_request_rest,
         ) = event_request
+        recurrence_rule = event_request_rest[0] if event_request_rest else None
 
         try:
             event_id = int(request.match_info["event_id"])
@@ -1658,7 +1897,20 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 "channel": cast("discord.abc.Snowflake", channel),
                 "location": None,
             }
-            updated_event = await event_any.edit(**edit_kwargs)
+            if recurrence_rule is None:
+                updated_event = await event_any.edit(**edit_kwargs)
+            else:
+                updated_event = await self._update_scheduled_event_with_recurrence(
+                    guild=guild,
+                    event_id=event_id,
+                    name=name,
+                    entity_type=entity_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    channel=cast("discord.abc.Snowflake", channel),
+                    description=description,
+                    recurrence_rule=recurrence_rule,
+                )
         except discord.Forbidden:
             return web.json_response(
                 {
@@ -1692,6 +1944,82 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         return web.json_response(
             {"event": self._serialize_scheduled_event(updated_event, guild)}
         )
+
+    async def _create_scheduled_event_with_recurrence(
+        self,
+        guild: discord.Guild,
+        name: str,
+        entity_type: discord.EntityType,
+        start_time: datetime,
+        end_time: datetime | None,
+        channel: discord.abc.Snowflake,
+        description: str | None,
+        recurrence_rule: dict[str, object],
+    ) -> discord.ScheduledEvent:
+        """Create a scheduled event via raw HTTP with recurrence payload support."""
+        from discord.http import Route
+
+        guild_any = cast("Any", guild)
+        http_client = cast("Any", guild_any._state.http)
+        payload: dict[str, object] = {
+            "name": name,
+            "scheduled_start_time": start_time.isoformat(),
+            "entity_type": entity_type.value,
+            "privacy_level": discord.PrivacyLevel.guild_only.value,
+            "channel_id": str(channel.id),
+            "entity_metadata": None,
+            "recurrence_rule": recurrence_rule,
+        }
+        if end_time is not None:
+            payload["scheduled_end_time"] = end_time.isoformat()
+        if description is not None:
+            payload["description"] = description
+
+        data = await http_client.request(
+            Route("POST", "/guilds/{guild_id}/scheduled-events", guild_id=guild.id),
+            json=payload,
+        )
+        event_id = int(data["id"])
+        return await guild.fetch_scheduled_event(event_id)
+
+    async def _update_scheduled_event_with_recurrence(
+        self,
+        guild: discord.Guild,
+        event_id: int,
+        name: str,
+        entity_type: discord.EntityType,
+        start_time: datetime,
+        end_time: datetime | None,
+        channel: discord.abc.Snowflake,
+        description: str | None,
+        recurrence_rule: dict[str, object],
+    ) -> discord.ScheduledEvent:
+        """Update a scheduled event via raw HTTP with recurrence payload support."""
+        from discord.http import Route
+
+        guild_any = cast("Any", guild)
+        http_client = cast("Any", guild_any._state.http)
+        payload: dict[str, object | None] = {
+            "name": name,
+            "description": description,
+            "scheduled_start_time": start_time.isoformat(),
+            "scheduled_end_time": end_time.isoformat() if end_time is not None else None,
+            "entity_type": entity_type.value,
+            "channel_id": str(channel.id),
+            "entity_metadata": None,
+            "location": None,
+            "recurrence_rule": recurrence_rule,
+        }
+        await http_client.request(
+            Route(
+                "PATCH",
+                "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}",
+                guild_id=guild.id,
+                guild_scheduled_event_id=event_id,
+            ),
+            json=payload,
+        )
+        return await guild.fetch_scheduled_event(event_id)
 
     @staticmethod
     def _parse_iso_datetime(value: object) -> datetime:

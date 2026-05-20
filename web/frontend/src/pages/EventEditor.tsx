@@ -13,6 +13,9 @@ import {
 import { Alert, Badge, Button, Card, CardBody, Input, Textarea } from '../components/ui';
 import {
   BUILDER_STEPS,
+  RECURRENCE_FREQUENCY_OPTIONS,
+  RECURRENCE_WEEKDAY_OPTIONS,
+  buildRecurrenceRule,
   DURATION_OPTIONS,
   calculateScheduledEndTime,
   combineDateAndTime,
@@ -20,12 +23,15 @@ import {
   createEmptyDraft,
   formatDuration,
   formatEventDate,
+  formatRecurrenceSummary,
   getAnnouncementChannelOptions,
   getEventChannelOptions,
   getReviewHighlights,
   type BuilderStep,
   type EndMode,
   type EventDraft,
+  type RecurrenceFrequency,
+  type RecurrenceWeekday,
   validateDraft,
 } from './eventFlowShared';
 
@@ -188,6 +194,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         location: null,
         announcement_channel_id: draft.announcementChannelId,
         signup_role_ids: draft.signupRoleIds ?? [],
+        recurrence_rule: buildRecurrenceRule(draft),
       };
 
       if (isEditing && eventId) {
@@ -405,6 +412,95 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                   </div>
                 </div>
 
+                <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-white">Recurrence</h4>
+                      <p className="mt-1 text-xs text-slate-400">Optionally repeat this event on a schedule.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateDraft({ recurrenceEnabled: !draft.recurrenceEnabled })}
+                      className={[
+                        'rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition',
+                        draft.recurrenceEnabled
+                          ? 'border-[#ffbb00]/60 bg-[#2b2006] text-[#fff1bf]'
+                          : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-400',
+                      ].join(' ')}
+                    >
+                      {draft.recurrenceEnabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+
+                  {draft.recurrenceEnabled && (
+                    <div className="mt-4 space-y-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-300">Frequency</label>
+                          <select
+                            value={draft.recurrenceFrequency}
+                            onChange={(event) =>
+                              updateDraft({
+                                recurrenceFrequency: Number(event.target.value) as RecurrenceFrequency,
+                              })
+                            }
+                            className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                          >
+                            {RECURRENCE_FREQUENCY_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <Input
+                          label="Interval"
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={draft.recurrenceInterval}
+                          onChange={(event) => updateDraft({ recurrenceInterval: event.target.value })}
+                        />
+                      </div>
+
+                      {draft.recurrenceFrequency === 2 && (
+                        <div>
+                          <p className="mb-2 text-sm font-medium text-gray-300">Weekdays</p>
+                          <div className="flex flex-wrap gap-2">
+                            {RECURRENCE_WEEKDAY_OPTIONS.map((option) => {
+                              const isSelected = draft.recurrenceWeekdays.includes(option.value);
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  onClick={() => {
+                                    const nextWeekdays = isSelected
+                                      ? draft.recurrenceWeekdays.filter((day) => day !== option.value)
+                                      : [...draft.recurrenceWeekdays, option.value];
+                                    updateDraft({
+                                      recurrenceWeekdays: [...nextWeekdays].sort((a, b) => a - b) as RecurrenceWeekday[],
+                                    });
+                                  }}
+                                  className={[
+                                    'rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition',
+                                    isSelected
+                                      ? 'border-[#ffbb00]/60 bg-[#2b2006] text-[#fff1bf]'
+                                      : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-400',
+                                  ].join(' ')}
+                                >
+                                  {option.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-400">{formatRecurrenceSummary(draft)}</p>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-300">Event Channel</label>
@@ -503,6 +599,10 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                         <div className="flex items-center justify-between gap-4">
                           <span>Ends</span>
                           <span className="text-right text-slate-100">{formatEventDate(computedEndTime)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span>Recurrence</span>
+                          <span className="text-right text-slate-100">{formatRecurrenceSummary(draft)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-4">
                           <span>Connection</span>
@@ -620,6 +720,10 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                           ? formatEventDate(computedEndTime)
                           : 'Open-ended'}
                     </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recurrence</p>
+                    <p className="mt-1 text-sm text-slate-100">{formatRecurrenceSummary(draft)}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Destination</p>

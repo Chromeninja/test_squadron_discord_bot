@@ -43,6 +43,7 @@ def test_serialize_scheduled_event_uses_discord_py_time_attributes() -> None:
     assert payload["channel_name"] == "Ops Voice"
     assert payload["creator_name"] == "TEST Verify Bot"
     assert payload["recurrence_rule"] is None
+    assert payload["recurrence_rule_payload"] is None
 
 
 def test_serialize_scheduled_event_formats_weekly_recurrence() -> None:
@@ -79,6 +80,12 @@ def test_serialize_scheduled_event_formats_weekly_recurrence() -> None:
     payload = InternalAPIServer._serialize_scheduled_event(event)
 
     assert payload["recurrence_rule"] == "Weekly on Tuesday, Thursday"
+    assert payload["recurrence_rule_payload"] == {
+        "start": start_time.isoformat(),
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [1, 3],
+    }
 
 
 def test_serialize_scheduled_event_uses_guild_channel_fallback() -> None:

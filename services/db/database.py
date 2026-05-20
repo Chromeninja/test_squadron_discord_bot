@@ -24,6 +24,66 @@ logger = get_logger(__name__)
 __all__ = ["Database", "derive_membership_status", "get_cross_guild_membership_status"]
 
 
+def _format_recurrence_label_from_payload(
+    recurrence_payload: dict[str, object] | None,
+) -> str | None:
+    """Create a short recurrence label for UI display from a recurrence payload."""
+    if not recurrence_payload:
+        return None
+
+    frequency_raw = recurrence_payload.get("frequency")
+    interval_raw = recurrence_payload.get("interval")
+    interval = (
+        int(interval_raw)
+        if isinstance(interval_raw, (int, str)) and str(interval_raw).strip()
+        else 1
+    )
+
+    freq_name = {
+        0: "Yearly",
+        1: "Monthly",
+        2: "Weekly",
+        3: "Daily",
+    }.get(
+        int(frequency_raw)
+        if isinstance(frequency_raw, (int, str)) and str(frequency_raw).strip()
+        else -1,
+        "Recurring",
+    )
+
+    if interval > 1:
+        if freq_name == "Weekly":
+            freq_name = f"Every {interval} weeks"
+        elif freq_name == "Monthly":
+            freq_name = f"Every {interval} months"
+        elif freq_name == "Yearly":
+            freq_name = f"Every {interval} years"
+        elif freq_name == "Daily":
+            freq_name = f"Every {interval} days"
+
+    weekdays_raw = recurrence_payload.get("by_weekday")
+    if isinstance(weekdays_raw, list) and weekdays_raw:
+        weekday_names = (
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        )
+        names: list[str] = []
+        for day_raw in weekdays_raw:
+            if isinstance(day_raw, (int, str)) and str(day_raw).strip():
+                day_index = int(day_raw)
+                if 0 <= day_index < len(weekday_names):
+                    names.append(weekday_names[day_index])
+        if names:
+            return f"{freq_name} on {', '.join(names)}"
+
+    return freq_name
+
+
 class Database:
     _db_path: str = "TESTDatabase.db"
     _lock = asyncio.Lock()  # Ensures that only one initialization happens
@@ -418,6 +478,15 @@ class Database:
     ) -> dict[str, object | None]:
         """Create a managed event row with pending projection state."""
         now = int(time.time())
+        recurrence_payload = payload.get("recurrence_rule")
+        recurrence_payload_json: str | None = None
+        recurrence_rule_label: str | None = None
+        if isinstance(recurrence_payload, dict):
+            recurrence_payload_json = json.dumps(recurrence_payload)
+            recurrence_rule_label = _format_recurrence_label_from_payload(
+                recurrence_payload
+            )
+
         async with cls.get_connection() as db:
             cursor = await db.execute(
                 """
@@ -433,6 +502,8 @@ class Database:
                     location,
                     announcement_channel_id,
                     signup_role_ids,
+                    recurrence_rule,
+                    recurrence_rule_payload,
                     status,
                     source,
                     sync_status,
@@ -442,7 +513,7 @@ class Database:
                     updated_by_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'dashboard', 'pending', ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'dashboard', 'pending', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guild_id,
@@ -456,6 +527,8 @@ class Database:
                     payload.get("location"),
                     payload.get("announcement_channel_id"),
                     json.dumps(payload.get("signup_role_ids") or []),
+                    recurrence_rule_label,
+                    recurrence_payload_json,
                     created_by_user_id,
                     created_by_name,
                     created_by_user_id,
@@ -486,6 +559,15 @@ class Database:
     ) -> dict[str, object | None] | None:
         """Update managed event fields and mark as pending projection."""
         now = int(time.time())
+        recurrence_payload = payload.get("recurrence_rule")
+        recurrence_payload_json: str | None = None
+        recurrence_rule_label: str | None = None
+        if isinstance(recurrence_payload, dict):
+            recurrence_payload_json = json.dumps(recurrence_payload)
+            recurrence_rule_label = _format_recurrence_label_from_payload(
+                recurrence_payload
+            )
+
         async with cls.get_connection() as db:
             cursor = await db.execute(
                 """
@@ -501,6 +583,8 @@ class Database:
                     location = ?,
                     announcement_channel_id = ?,
                     signup_role_ids = ?,
+                    recurrence_rule = ?,
+                    recurrence_rule_payload = ?,
                     sync_status = 'pending',
                     sync_error = NULL,
                     updated_by_user_id = ?,
@@ -520,6 +604,8 @@ class Database:
                     payload.get("location"),
                     payload.get("announcement_channel_id"),
                     json.dumps(payload.get("signup_role_ids") or []),
+                    recurrence_rule_label,
+                    recurrence_payload_json,
                     updated_by_user_id,
                     updated_by_name,
                     now,
@@ -553,6 +639,18 @@ class Database:
         )
         previous_user_count: int | None = None
         event_id: int | None = None
+        recurrence_payload_json: str | None = None
+        recurrence_payload = payload.get("recurrence_rule_payload")
+        if isinstance(recurrence_payload, dict):
+            recurrence_payload_json = json.dumps(recurrence_payload)
+
+        recurrence_rule_label = (
+            str(payload.get("recurrence_rule"))
+            if isinstance(payload.get("recurrence_rule"), str)
+            else _format_recurrence_label_from_payload(
+                recurrence_payload if isinstance(recurrence_payload, dict) else None
+            )
+        )
 
         async with cls.get_connection() as db:
             cursor = await db.execute(
@@ -587,12 +685,13 @@ class Database:
                     user_count_current,
                     user_count_last_synced_at,
                     recurrence_rule,
+                    recurrence_rule_payload,
                     source,
                     sync_status,
                     last_synced_at,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
                 ON CONFLICT(guild_id, discord_event_id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -605,6 +704,7 @@ class Database:
                     user_count_current = excluded.user_count_current,
                     user_count_last_synced_at = excluded.user_count_last_synced_at,
                     recurrence_rule = excluded.recurrence_rule,
+                    recurrence_rule_payload = excluded.recurrence_rule_payload,
                     sync_status = 'synced',
                     sync_error = NULL,
                     last_synced_at = excluded.last_synced_at,
@@ -624,7 +724,8 @@ class Database:
                     str(payload.get("status") or "scheduled"),
                     user_count,
                     now,
-                    payload.get("recurrence_rule"),
+                    recurrence_rule_label,
+                    recurrence_payload_json,
                     now,
                     now,
                     now,

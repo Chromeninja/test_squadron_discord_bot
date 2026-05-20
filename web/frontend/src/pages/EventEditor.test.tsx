@@ -321,4 +321,43 @@ describe('EventEditor Page', () => {
       );
     });
   });
+
+  it('submits recurrence rule for weekly recurring events', async () => {
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.change(screen.getByLabelText('Event Name'), {
+      target: { value: 'Recurring Ops' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-16' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '16:00' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disabled' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Wed' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'Recurring Ops',
+          recurrence_rule: expect.objectContaining({
+            frequency: 2,
+            interval: 1,
+            by_weekday: [2],
+          }),
+        }),
+      );
+    });
+  });
 });

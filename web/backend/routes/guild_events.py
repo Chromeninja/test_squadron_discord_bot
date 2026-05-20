@@ -16,6 +16,7 @@ from core.event_service import EventService
 from core.schemas import (
     EventSyncRequest,
     EventSyncResponse,
+    ScheduledEventRecurrenceRule,
     ScheduledEventCreateRequest,
     ScheduledEventResponse,
     ScheduledEventsResponse,
@@ -54,6 +55,15 @@ def _coerce_scheduled_event_summary(
         if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
         else 0
     )
+    recurrence_rule_payload_raw = event_data.get("recurrence_rule_payload")
+    recurrence_rule_payload: ScheduledEventRecurrenceRule | None = None
+    if isinstance(recurrence_rule_payload_raw, dict):
+        try:
+            recurrence_rule_payload = ScheduledEventRecurrenceRule.model_validate(
+                recurrence_rule_payload_raw
+            )
+        except Exception:
+            recurrence_rule_payload = None
 
     return ScheduledEventSummary(
         id=str(event_data.get("id") or ""),
@@ -134,6 +144,7 @@ def _coerce_scheduled_event_summary(
             if isinstance(event_data.get("recurrence_rule"), str)
             else None
         ),
+        recurrence_rule_payload=recurrence_rule_payload,
     )
 
 
@@ -200,6 +211,11 @@ async def create_discord_scheduled_event(
         "location": payload.location,
         "announcement_channel_id": payload.announcement_channel_id,
         "signup_role_ids": payload.signup_role_ids,
+        "recurrence_rule": (
+            payload.recurrence_rule.model_dump(exclude_none=True)
+            if payload.recurrence_rule is not None
+            else None
+        ),
         "created_by_name": current_user.username,
     }
 
@@ -259,6 +275,11 @@ async def update_discord_scheduled_event(
         "location": payload.location,
         "announcement_channel_id": payload.announcement_channel_id,
         "signup_role_ids": payload.signup_role_ids,
+        "recurrence_rule": (
+            payload.recurrence_rule.model_dump(exclude_none=True)
+            if payload.recurrence_rule is not None
+            else None
+        ),
     }
 
     updated_event = await EventService.update_event(

@@ -495,6 +495,8 @@ class FakeInternalAPIClient:
             "creator_id": "444333222",
             "creator_name": "TestEventCoordinator",
             "image_url": None,
+            "recurrence_rule": payload.get("recurrence_rule"),
+            "recurrence_rule_payload": payload.get("recurrence_rule"),
         }
         self.scheduled_events_by_guild.setdefault(guild_id, []).append(event)
         return event
@@ -520,6 +522,8 @@ class FakeInternalAPIClient:
                 "channel_id": payload.get("channel_id"),
                 "channel_name": "Mock Event Channel" if payload.get("channel_id") else None,
                 "location": payload.get("location"),
+                "recurrence_rule": payload.get("recurrence_rule"),
+                "recurrence_rule_payload": payload.get("recurrence_rule"),
             }
             events[index] = updated_event
             return updated_event

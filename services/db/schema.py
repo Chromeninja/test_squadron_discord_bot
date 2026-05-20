@@ -157,6 +157,19 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
             extra={"table": "managed_events", "column": "recurrence_rule"},
         )
 
+    if "recurrence_rule_payload" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN recurrence_rule_payload TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={
+                "table": "managed_events",
+                "column": "recurrence_rule_payload",
+            },
+        )
+
     if "user_count_current" not in existing_columns:
         await db.execute(
             "ALTER TABLE managed_events "
@@ -553,7 +566,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             deleted_at INTEGER DEFAULT NULL,
-            recurrence_rule TEXT DEFAULT NULL
+            recurrence_rule TEXT DEFAULT NULL,
+            recurrence_rule_payload TEXT DEFAULT NULL
         )
         """
     )

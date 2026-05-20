@@ -402,6 +402,68 @@ async def test_create_discord_scheduled_event_forwards_announcement_message(
 
 
 @pytest.mark.asyncio
+async def test_create_discord_scheduled_event_forwards_recurrence_rule(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Create route should forward recurrence_rule payload to internal API."""
+    captured_payload: dict[str, object] = {}
+
+    async def create_event(guild_id: int, payload: dict) -> dict:
+        del guild_id
+        captured_payload.update(payload)
+        return {
+            "id": "900000000000000111",
+            "name": payload.get("name", "Ops Night"),
+            "description": payload.get("description"),
+            "scheduled_start_time": payload.get("scheduled_start_time"),
+            "scheduled_end_time": payload.get("scheduled_end_time"),
+            "status": "scheduled",
+            "entity_type": payload.get("entity_type", "voice"),
+            "channel_id": payload.get("channel_id"),
+            "channel_name": "Mock Event Channel",
+            "location": payload.get("location"),
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": None,
+            "recurrence_rule": "Weekly on Wednesday",
+            "recurrence_rule_payload": payload.get("recurrence_rule"),
+        }
+
+    fake_internal_api.create_guild_scheduled_event = create_event
+
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Create route test",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+            "recurrence_rule": {
+                "start": "2026-04-09T20:00:00+00:00",
+                "frequency": 2,
+                "interval": 1,
+                "by_weekday": [2],
+            },
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    assert captured_payload["recurrence_rule"] == {
+        "start": "2026-04-09T20:00:00+00:00",
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [2],
+    }
+
+
+@pytest.mark.asyncio
 async def test_update_discord_scheduled_event_proxies_internal_api(
     client: AsyncClient,
     mock_event_coordinator_session: str,

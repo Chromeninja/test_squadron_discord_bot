@@ -5,6 +5,25 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class ScheduledEventRecurrenceNWeekday(BaseModel):
+    """N-th weekday recurrence helper."""
+
+    n: int = Field(ge=1, le=5)
+    day: Literal[0, 1, 2, 3, 4, 5, 6]
+
+
+class ScheduledEventRecurrenceRule(BaseModel):
+    """Discord-compatible recurrence rule payload for scheduled events."""
+
+    start: str
+    frequency: Literal[0, 1, 2, 3]
+    interval: int = Field(default=1, ge=1)
+    by_weekday: list[Literal[0, 1, 2, 3, 4, 5, 6]] | None = None
+    by_n_weekday: list[ScheduledEventRecurrenceNWeekday] | None = None
+    by_month: list[int] | None = Field(default=None)
+    by_month_day: list[int] | None = Field(default=None)
+
+
 class ScheduledEventSummary(BaseModel):
     """Normalized Discord scheduled event metadata."""
 
@@ -30,6 +49,7 @@ class ScheduledEventSummary(BaseModel):
     sync_error: str | None = None
     last_synced_at: int | None = None
     recurrence_rule: str | None = None
+    recurrence_rule_payload: ScheduledEventRecurrenceRule | None = None
 
 
 class ScheduledEventsResponse(BaseModel):
@@ -52,6 +72,7 @@ class ScheduledEventCreateRequest(BaseModel):
     location: str | None = Field(default=None, max_length=100)
     announcement_channel_id: str | None = None
     signup_role_ids: list[str] = Field(default_factory=list)
+    recurrence_rule: ScheduledEventRecurrenceRule | None = None
 
 
 class ScheduledEventUpdateRequest(ScheduledEventCreateRequest):
