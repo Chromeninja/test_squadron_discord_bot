@@ -296,7 +296,18 @@ function App() {
             element={
               <RequireRole minRole="event_coordinator">
                 <RequireGuild>
-                  {(guildId) => <Events guildId={guildId} />}
+                  {(guildId) => <Events guildId={guildId} view="active" />}
+                </RequireGuild>
+              </RequireRole>
+            }
+          />
+
+          <Route
+            path="events/past"
+            element={
+              <RequireRole minRole="event_coordinator">
+                <RequireGuild>
+                  {(guildId) => <Events guildId={guildId} view="past" />}
                 </RequireGuild>
               </RequireRole>
             }
@@ -379,6 +390,7 @@ function App() {
         <Route path="/users" element={<LegacyGuildRouteRedirect childPath="users" />} />
         <Route path="/voice" element={<LegacyGuildRouteRedirect childPath="voice" />} />
         <Route path="/events" element={<LegacyGuildRouteRedirect childPath="events" />} />
+        <Route path="/events/past" element={<LegacyGuildRouteRedirect childPath="events/past" />} />
         <Route path="/events/new" element={<LegacyGuildRouteRedirect childPath="events/new" />} />
         <Route path="/events/:eventId/edit" element={<LegacyEventEditorRedirect />} />
         <Route

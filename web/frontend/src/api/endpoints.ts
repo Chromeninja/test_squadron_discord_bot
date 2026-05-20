@@ -1233,6 +1233,12 @@ export const eventsApi = {
     );
     return response.data;
   },
+  deleteScheduledEvent: async (guildId: string, eventId: string) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/guilds/${guildId}/events/scheduled/${eventId}`,
+    );
+    return response.data;
+  },
 };
 
 // ---------------------------------------------------------------------------

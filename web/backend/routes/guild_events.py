@@ -18,6 +18,7 @@ from core.schemas import (
     EventSyncResponse,
     ScheduledEventRecurrenceRule,
     ScheduledEventCreateRequest,
+    ScheduledEventDeleteResponse,
     ScheduledEventResponse,
     ScheduledEventsResponse,
     ScheduledEventSummary,
@@ -312,6 +313,40 @@ async def update_discord_scheduled_event(
     if latest_event is None:
         raise HTTPException(status_code=404, detail="Scheduled event not found")
     return ScheduledEventResponse(event=_coerce_scheduled_event_summary(latest_event))
+
+
+@router.delete(
+    "/{guild_id}/events/scheduled/{event_id}",
+    response_model=ScheduledEventDeleteResponse,
+    dependencies=[Depends(require_fresh_guild_access)],
+)
+async def delete_discord_scheduled_event(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Delete a managed scheduled event from Discord and DB."""
+    ensure_guild_match(guild_id, current_user)
+
+    try:
+        deleted = await EventService.delete_event(
+            guild_id=guild_id,
+            event_id=event_id,
+            deleted_by_user_id=current_user.user_id,
+            deleted_by_name=current_user.username,
+            projection_client=internal_api,
+        )
+    except Exception as exc:
+        raise translate_internal_api_error(
+            exc,
+            "Failed to delete scheduled event",
+        ) from exc
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Scheduled event not found")
+
+    return ScheduledEventDeleteResponse(success=True)
 
 
 @router.post(

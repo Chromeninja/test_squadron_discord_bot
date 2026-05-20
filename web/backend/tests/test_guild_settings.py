@@ -510,6 +510,62 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
 
 
 @pytest.mark.asyncio
+async def test_delete_discord_scheduled_event_removes_from_inventory(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+) -> None:
+    """Deleting a managed event should remove it from active DB-backed reads."""
+    created_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Delete Test",
+            "description": "Delete me",
+            "scheduled_start_time": "2026-04-11T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-11T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert created_response.status_code == 200
+    local_event_id = created_response.json()["event"]["id"]
+
+    delete_response = await client.delete(
+        f"/api/guilds/123/events/scheduled/{local_event_id}",
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["success"] is True
+
+    list_response = await client.get(
+        "/api/guilds/123/events/scheduled",
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert list_response.status_code == 200
+    list_data = list_response.json()
+    assert list_data["events"] == []
+    assert fake_internal_api.scheduled_events_by_guild[123] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_discord_scheduled_event_requires_event_coordinator(
+    client: AsyncClient,
+    mock_staff_session: str,
+) -> None:
+    """Staff users should not be allowed to delete scheduled events."""
+    response = await client.delete(
+        "/api/guilds/123/events/scheduled/1",
+        cookies={"session": mock_staff_session},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_manual_event_sync_reconcile_uses_db_wins_projection(
     client: AsyncClient,
     mock_event_coordinator_session: str,

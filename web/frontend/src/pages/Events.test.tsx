@@ -55,6 +55,7 @@ describe('Events Page', () => {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/events" element={<Events guildId="123" />} />
+          <Route path="/events/past" element={<Events guildId="123" view="past" />} />
           <Route path="/events/new" element={<EventEditor guildId="123" mode="create" />} />
           <Route path="/events/:eventId/edit" element={<EventEditor guildId="123" mode="edit" />} />
         </Routes>
@@ -133,8 +134,8 @@ describe('Events Page', () => {
           id: '555',
           name: 'Fleet Night',
           description: 'Weekly op',
-          scheduled_start_time: '2026-04-09T20:00:00+00:00',
-          scheduled_end_time: '2026-04-09T22:00:00+00:00',
+          scheduled_start_time: '2099-04-09T20:00:00+00:00',
+          scheduled_end_time: '2099-04-09T22:00:00+00:00',
           status: 'scheduled',
           entity_type: 'voice',
           channel_id: '11',
@@ -154,8 +155,8 @@ describe('Events Page', () => {
         id: '555',
         name: 'Fleet Night',
         description: 'Weekly op',
-        scheduled_start_time: '2026-04-09T20:00:00+00:00',
-        scheduled_end_time: '2026-04-09T22:00:00+00:00',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: '2099-04-09T22:00:00+00:00',
         status: 'scheduled',
         entity_type: 'voice',
         channel_id: '11',
@@ -178,8 +179,8 @@ describe('Events Page', () => {
           id: '555',
           name: 'Fleet Night',
           description: 'Weekly op',
-          scheduled_start_time: '2026-04-09T20:00:00+00:00',
-          scheduled_end_time: '2026-04-09T22:00:00+00:00',
+          scheduled_start_time: '2099-04-09T20:00:00+00:00',
+          scheduled_end_time: '2099-04-09T22:00:00+00:00',
           status: 'scheduled',
           entity_type: 'voice',
           channel_id: '11',
@@ -199,7 +200,7 @@ describe('Events Page', () => {
         id: '777',
         name: 'Created Event',
         description: null,
-        scheduled_start_time: '2026-04-10T20:00:00+00:00',
+        scheduled_start_time: '2099-04-10T20:00:00+00:00',
         scheduled_end_time: null,
         status: 'scheduled',
         entity_type: 'voice',
@@ -219,8 +220,8 @@ describe('Events Page', () => {
         id: '555',
         name: 'Fleet Night Updated',
         description: 'Updated weekly op',
-        scheduled_start_time: '2026-04-09T21:00:00+00:00',
-        scheduled_end_time: '2026-04-09T23:00:00+00:00',
+        scheduled_start_time: '2099-04-09T21:00:00+00:00',
+        scheduled_end_time: '2099-04-09T23:00:00+00:00',
         status: 'scheduled',
         entity_type: 'voice',
         channel_id: '11',
@@ -381,7 +382,7 @@ describe('Events Page', () => {
           id: '901',
           name: 'Recurring Fleet Night',
           description: 'Recurring op',
-          scheduled_start_time: '2026-04-09T20:00:00+00:00',
+          scheduled_start_time: '2099-04-09T20:00:00+00:00',
           scheduled_end_time: null,
           status: 'scheduled',
           entity_type: 'voice',
@@ -405,5 +406,108 @@ describe('Events Page', () => {
 
     expect(screen.getByText('Repeats')).toBeInTheDocument();
     expect(screen.getByText('Weekly on Tuesday, Thursday')).toBeInTheDocument();
+  });
+
+  it('keeps past events out of the default events view', async () => {
+    vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
+      success: true,
+      events: [
+        {
+          id: 'future',
+          name: 'Future Fleet Op',
+          description: null,
+          scheduled_start_time: '2099-06-01T20:00:00+00:00',
+          scheduled_end_time: '2099-06-01T22:00:00+00:00',
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 3,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: null,
+        },
+        {
+          id: 'past',
+          name: 'Past Fleet Op',
+          description: null,
+          scheduled_start_time: '2020-06-01T20:00:00+00:00',
+          scheduled_end_time: '2020-06-01T22:00:00+00:00',
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 2,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: null,
+        },
+      ],
+    });
+
+    renderWithRouter('/events');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    expect(screen.getByText('Future Fleet Op')).toBeInTheDocument();
+    expect(screen.queryByText('Past Fleet Op')).not.toBeInTheDocument();
+  });
+
+  it('shows only past events on the past events tab', async () => {
+    vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
+      success: true,
+      events: [
+        {
+          id: 'future',
+          name: 'Future Fleet Op',
+          description: null,
+          scheduled_start_time: '2099-06-01T20:00:00+00:00',
+          scheduled_end_time: '2099-06-01T22:00:00+00:00',
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 3,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: null,
+        },
+        {
+          id: 'past',
+          name: 'Past Fleet Op',
+          description: null,
+          scheduled_start_time: '2020-06-01T20:00:00+00:00',
+          scheduled_end_time: '2020-06-01T22:00:00+00:00',
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '11',
+          channel_name: 'Event Voice',
+          location: null,
+          user_count: 2,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: null,
+          recurrence_rule: null,
+        },
+      ],
+    });
+
+    renderWithRouter('/events/past');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    expect(screen.getByText('Past events')).toBeInTheDocument();
+    expect(screen.getByText('Past Fleet Op')).toBeInTheDocument();
+    expect(screen.queryByText('Future Fleet Op')).not.toBeInTheDocument();
   });
 });

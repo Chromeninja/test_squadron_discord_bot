@@ -429,3 +429,69 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
     assert isinstance(embed, discord.Embed)
     assert embed.description == "test event brief"
     assert embed.footer.text == "Created by EventCoordinator"
+
+
+@pytest.mark.asyncio
+async def test_delete_guild_scheduled_event_success() -> None:
+    """Delete flow should remove event and invalidate scheduled-event cache."""
+    server = object.__new__(InternalAPIServer)
+    server.bot = cast("Any", object())
+    server._check_auth = lambda request: True
+
+    invalidated_guilds: list[int] = []
+    server._invalidate_events_cache = lambda guild_id: invalidated_guilds.append(guild_id)
+
+    event_any = cast("Any", SimpleNamespace(delete=AsyncMock()))
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=123,
+            fetch_scheduled_event=AsyncMock(return_value=event_any),
+        ),
+    )
+    server.bot = cast("Any", SimpleNamespace(get_guild=lambda guild_id: guild))
+
+    request = cast(
+        "web.Request",
+        SimpleNamespace(match_info={"guild_id": "123", "event_id": "555"}),
+    )
+
+    response = await server.delete_guild_scheduled_event(request)
+
+    assert response.status == 200
+    payload = json.loads(response.text or "{}")
+    assert payload["success"] is True
+    event_any.delete.assert_awaited_once()
+    assert invalidated_guilds == [123]
+
+
+@pytest.mark.asyncio
+async def test_delete_guild_scheduled_event_not_found() -> None:
+    """Delete flow should return 404 when Discord scheduled event is missing."""
+    server = object.__new__(InternalAPIServer)
+    server.bot = cast("Any", object())
+    server._check_auth = lambda request: True
+    server._invalidate_events_cache = lambda guild_id: None
+
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=123,
+            fetch_scheduled_event=AsyncMock(side_effect=discord.NotFound(
+                response=cast("Any", SimpleNamespace(status=404, reason="Not Found")),
+                message="Not Found",
+            )),
+        ),
+    )
+    server.bot = cast("Any", SimpleNamespace(get_guild=lambda guild_id: guild))
+
+    request = cast(
+        "web.Request",
+        SimpleNamespace(match_info={"guild_id": "123", "event_id": "555"}),
+    )
+
+    response = await server.delete_guild_scheduled_event(request)
+
+    assert response.status == 404
+    payload = json.loads(response.text or "{}")
+    assert payload["error"] == "Scheduled event not found"

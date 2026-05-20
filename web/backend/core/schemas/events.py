@@ -86,6 +86,12 @@ class ScheduledEventResponse(BaseModel):
     event: ScheduledEventSummary
 
 
+class ScheduledEventDeleteResponse(BaseModel):
+    """Delete scheduled event response wrapper."""
+
+    success: bool = True
+
+
 class EventSyncRequest(BaseModel):
     """Manual event synchronization request."""
 

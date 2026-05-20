@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
+
 from services.db.database import Database
 
 
@@ -23,6 +25,10 @@ class InternalEventProjectionClient(Protocol):
         self, guild_id: int, event_id: int, payload: dict
     ) -> dict:
         """Update one scheduled event in Discord via internal API."""
+        ...
+
+    async def delete_guild_scheduled_event(self, guild_id: int, event_id: int) -> dict:
+        """Delete one scheduled event in Discord via internal API."""
         ...
 
 
@@ -80,6 +86,62 @@ class EventService:
             updated_by_user_id=updated_by_user_id,
             updated_by_name=updated_by_name,
         )
+
+    @staticmethod
+    async def delete_event(
+        guild_id: int,
+        event_id: int,
+        deleted_by_user_id: str | None,
+        deleted_by_name: str | None,
+        projection_client: InternalEventProjectionClient,
+    ) -> bool:
+        """Delete event in Discord (if projected) and soft-delete in DB."""
+        event = await Database.get_managed_event(guild_id, event_id)
+        if event is None:
+            return False
+
+        discord_event_id = event.get("discord_event_id")
+        if isinstance(discord_event_id, str) and discord_event_id.strip():
+            try:
+                await projection_client.delete_guild_scheduled_event(
+                    guild_id,
+                    int(discord_event_id),
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 404:
+                    await Database.mark_managed_event_sync_failed(
+                        guild_id=guild_id,
+                        event_id=event_id,
+                        error_message=str(exc),
+                    )
+                    await Database.record_managed_event_sync_audit(
+                        guild_id=guild_id,
+                        event_id=event_id,
+                        direction="push",
+                        operation="delete",
+                        status="error",
+                        detail=str(exc),
+                    )
+                    raise
+
+        deleted = await Database.delete_managed_event(
+            guild_id=guild_id,
+            event_id=event_id,
+            updated_by_user_id=deleted_by_user_id,
+            updated_by_name=deleted_by_name,
+        )
+        if not deleted:
+            return False
+
+        await Database.record_managed_event_sync_audit(
+            guild_id=guild_id,
+            event_id=event_id,
+            direction="push",
+            operation="delete",
+            status="success",
+            detail=None,
+        )
+        return True
 
     @staticmethod
     def _to_projection_payload(event: dict[str, object | None]) -> dict[str, object | None]:

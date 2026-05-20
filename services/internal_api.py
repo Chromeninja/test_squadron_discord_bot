@@ -184,6 +184,10 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "/guilds/{guild_id}/events/scheduled/{event_id}",
             self.update_guild_scheduled_event,
         )
+        self.app.router.add_delete(
+            "/guilds/{guild_id}/events/scheduled/{event_id}",
+            self.delete_guild_scheduled_event,
+        )
         self.app.router.add_get("/guilds/{guild_id}/stats", self.get_guild_stats)
         self.app.router.add_get("/guilds/{guild_id}/members", self.get_guild_members)
         self.app.router.add_get(
@@ -1944,6 +1948,73 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         return web.json_response(
             {"event": self._serialize_scheduled_event(updated_event, guild)}
         )
+
+    async def delete_guild_scheduled_event(self, request: web.Request) -> web.Response:
+        """Delete a scheduled event for a guild."""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if not self.bot:
+            return web.json_response({"error": "Bot unavailable"}, status=503)
+
+        try:
+            guild_id = int(request.match_info["guild_id"])
+            event_id = int(request.match_info["event_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"error": "Invalid guild or event ID"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return web.json_response({"error": "Guild not found"}, status=404)
+
+        try:
+            scheduled_event = await guild.fetch_scheduled_event(event_id)
+        except discord.NotFound:
+            return web.json_response({"error": "Scheduled event not found"}, status=404)
+        except Exception as e:
+            logger.exception(
+                "Failed to fetch scheduled event %s for guild %s",
+                event_id,
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to fetch scheduled event"}, status=500
+            )
+
+        try:
+            await scheduled_event.delete()
+        except discord.Forbidden:
+            return web.json_response(
+                {
+                    "error": "Bot is missing Discord permissions to manage scheduled events in this server"
+                },
+                status=403,
+            )
+        except discord.HTTPException as e:
+            logger.exception(
+                "Discord rejected scheduled event delete for guild %s event %s",
+                guild_id,
+                event_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": str(e)},
+                status=getattr(e, "status", 500),
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to delete scheduled event %s for guild %s",
+                event_id,
+                guild_id,
+                exc_info=e,
+            )
+            return web.json_response(
+                {"error": "Failed to delete scheduled event"}, status=500
+            )
+
+        self._invalidate_events_cache(guild.id)
+        return web.json_response({"success": True})
 
     async def _create_scheduled_event_with_recurrence(
         self,

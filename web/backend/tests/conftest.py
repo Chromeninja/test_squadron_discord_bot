@@ -530,6 +530,20 @@ class FakeInternalAPIClient:
 
         raise RuntimeError("Scheduled event not found")
 
+    async def delete_guild_scheduled_event(self, guild_id: int, event_id: int) -> dict:
+        """Delete a mock scheduled event for a guild."""
+        events = self.scheduled_events_by_guild.setdefault(guild_id, [])
+        event_id_str = str(event_id)
+
+        for index, event in enumerate(events):
+            if event.get("id") != event_id_str:
+                continue
+
+            events.pop(index)
+            return {"success": True}
+
+        raise RuntimeError("Scheduled event not found")
+
     async def get_voice_channel_members(self, voice_channel_id: int) -> list[int]:
         """Return member IDs in a voice channel (mock)."""
         # Return empty list by default - tests can override if needed

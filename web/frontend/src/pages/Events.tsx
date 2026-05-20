@@ -8,7 +8,7 @@ import {
   type GuildInfo,
   type ScheduledEventSummary,
 } from '../api/endpoints';
-import { Alert, Badge, Button, Card, CardBody } from '../components/ui';
+import { Alert, Badge, Button, Card, CardBody, ConfirmationModal } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useRequestSequence } from '../hooks/useRequestSequence';
 import { getRoleDisplayName } from '../utils/permissions';
@@ -16,9 +16,10 @@ import { formatEventDate, getStatusTone } from './eventFlowShared';
 
 interface EventsProps {
   guildId: string;
+  view?: 'active' | 'past';
 }
 
-function Events({ guildId }: EventsProps) {
+function Events({ guildId, view = 'active' }: EventsProps) {
   const navigate = useNavigate();
   const { user, getUserRoleLevel } = useAuth();
   const coreRequestSequence = useRequestSequence();
@@ -32,6 +33,8 @@ function Events({ guildId }: EventsProps) {
   const [error, setError] = useState<string | null>(null);
   const [scheduledEventsLoading, setScheduledEventsLoading] = useState(false);
   const [scheduledEventsError, setScheduledEventsError] = useState<string | null>(null);
+  const [eventPendingDelete, setEventPendingDelete] = useState<ScheduledEventSummary | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState(false);
 
   const channelNameById = useMemo(() => {
     return new Map(channels.map((channel) => [channel.id, channel.name]));
@@ -120,6 +123,27 @@ function Events({ guildId }: EventsProps) {
     }
   }, [guildId, loadCoreData, loadScheduledEvents]);
 
+  const handleDeleteEvent = useCallback(async () => {
+    if (!eventPendingDelete) {
+      return;
+    }
+
+    setDeletingEvent(true);
+    setError(null);
+
+    try {
+      await eventsApi.deleteScheduledEvent(guildId, eventPendingDelete.id);
+      setScheduledEvents((previous) =>
+        previous.filter((event) => event.id !== eventPendingDelete.id)
+      );
+      setEventPendingDelete(null);
+    } catch {
+      setError(`Failed to delete "${eventPendingDelete.name}".`);
+    } finally {
+      setDeletingEvent(false);
+    }
+  }, [eventPendingDelete, guildId]);
+
   const roleLabel = useMemo(() => {
     if (!user) {
       return 'User';
@@ -127,6 +151,45 @@ function Events({ guildId }: EventsProps) {
 
     return getRoleDisplayName(getUserRoleLevel());
   }, [getUserRoleLevel, user]);
+
+  const isPastEvent = useCallback((event: ScheduledEventSummary): boolean => {
+    const normalizedStatus = event.status.toLowerCase();
+    const terminalStatuses = new Set(['completed', 'ended', 'cancelled', 'canceled']);
+    if (terminalStatuses.has(normalizedStatus)) {
+      return true;
+    }
+
+    // Recurring events can have an old anchor date while still being active.
+    if (event.recurrence_rule) {
+      return false;
+    }
+
+    const now = Date.now();
+    const endTs = event.scheduled_end_time ? Date.parse(event.scheduled_end_time) : Number.NaN;
+    if (!Number.isNaN(endTs) && endTs < now) {
+      return true;
+    }
+
+    const startTs = event.scheduled_start_time ? Date.parse(event.scheduled_start_time) : Number.NaN;
+    const explicitlyActiveStatuses = new Set(['active', 'in_progress', 'ongoing']);
+    if (!Number.isNaN(startTs) && startTs < now && !explicitlyActiveStatuses.has(normalizedStatus)) {
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const filteredEvents = useMemo(() => {
+    return scheduledEvents.filter((event) => (view === 'past' ? isPastEvent(event) : !isPastEvent(event)));
+  }, [isPastEvent, scheduledEvents, view]);
+
+  const sectionTitle = view === 'past' ? 'Past events' : 'Active and upcoming events';
+  const emptyStateTitle =
+    view === 'past' ? 'No past events yet' : 'No active or upcoming events right now';
+  const inventoryLabel =
+    view === 'past'
+      ? 'past scheduled events visible in this view'
+      : 'active or upcoming scheduled events visible in this view';
 
   const defaultAnnouncementLabel = eventSettings?.default_announcement_channel_id
     ? channelNameById.get(eventSettings.default_announcement_channel_id) || 'Configured channel'
@@ -193,9 +256,9 @@ function Events({ guildId }: EventsProps) {
           <CardBody>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live Inventory</p>
             <div className="mt-3">
-              <p className="text-4xl font-bold text-white">{scheduledEvents.length}</p>
+              <p className="text-4xl font-bold text-white">{filteredEvents.length}</p>
               <p className="mt-1 text-sm text-slate-400">
-                native scheduled event{scheduledEvents.length === 1 ? '' : 's'} visible to the dashboard
+                {inventoryLabel}
               </p>
               {scheduledEventsLoading && (
                 <p className="mt-2 text-xs text-cyan-300">Refreshing event inventory...</p>
@@ -210,20 +273,20 @@ function Events({ guildId }: EventsProps) {
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h3 className="text-xl font-semibold text-white">Upcoming and recent events</h3>
+            <h3 className="text-xl font-semibold text-white">{sectionTitle}</h3>
             {guildInfo?.guild_name && <p className="mt-1 text-sm text-slate-500">{guildInfo.guild_name}</p>}
           </div>
         </div>
 
-        {scheduledEvents.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <Card variant="default" className="border border-dashed border-slate-700 bg-slate-900/70">
             <CardBody>
-              <h4 className="text-lg font-semibold text-white">No scheduled events yet</h4>
+              <h4 className="text-lg font-semibold text-white">{emptyStateTitle}</h4>
             </CardBody>
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {scheduledEvents.map((event) => (
+            {filteredEvents.map((event) => (
               <Card key={event.id} variant="default" className="border border-slate-700 bg-slate-900/85">
                 <CardBody>
                   <div className="flex items-start justify-between gap-4">
@@ -280,6 +343,14 @@ function Events({ guildId }: EventsProps) {
                     >
                       Edit Event
                     </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      aria-label={`Delete ${event.name}`}
+                      onClick={() => setEventPendingDelete(event)}
+                    >
+                      Delete Event
+                    </Button>
                   </div>
                 </CardBody>
               </Card>
@@ -287,6 +358,28 @@ function Events({ guildId }: EventsProps) {
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        open={eventPendingDelete !== null}
+        onClose={() => {
+          if (!deletingEvent) {
+            setEventPendingDelete(null);
+          }
+        }}
+        onConfirm={() => {
+          void handleDeleteEvent();
+        }}
+        title="Delete Event"
+        message={
+          eventPendingDelete
+            ? `Delete "${eventPendingDelete.name}"? This cannot be undone.`
+            : 'Delete this event? This cannot be undone.'
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        loading={deletingEvent}
+      />
     </div>
   );
 }

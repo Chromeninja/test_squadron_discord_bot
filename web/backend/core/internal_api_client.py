@@ -232,6 +232,15 @@ class InternalAPIClient:
         response.raise_for_status()
         return response.json().get("event", {})
 
+    async def delete_guild_scheduled_event(self, guild_id: int, event_id: int) -> dict:
+        """Delete a scheduled event for a guild through the internal API."""
+        client = await self._get_client()
+        response = await client.delete(
+            f"/guilds/{guild_id}/events/scheduled/{event_id}"
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def get_guild_roles(self, guild_id: int) -> list[dict]:
         """Fetch Discord roles for a guild."""
         client = await self._get_client()

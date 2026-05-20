@@ -620,6 +620,45 @@ class Database:
         return await cls.get_managed_event(guild_id, event_id)
 
     @classmethod
+    async def delete_managed_event(
+        cls,
+        guild_id: int,
+        event_id: int,
+        updated_by_user_id: str | None,
+        updated_by_name: str | None,
+    ) -> bool:
+        """Soft-delete a managed event row for a guild."""
+        now = int(time.time())
+
+        async with cls.get_connection() as db:
+            cursor = await db.execute(
+                """
+                UPDATE managed_events
+                SET
+                    status = 'cancelled',
+                    sync_status = 'synced',
+                    sync_error = NULL,
+                    updated_by_user_id = ?,
+                    updated_by_name = ?,
+                    updated_at = ?,
+                    deleted_at = ?,
+                    revision = revision + 1
+                WHERE guild_id = ? AND id = ? AND deleted_at IS NULL
+                """,
+                (
+                    updated_by_user_id,
+                    updated_by_name,
+                    now,
+                    now,
+                    guild_id,
+                    event_id,
+                ),
+            )
+            await db.commit()
+
+        return cursor.rowcount > 0
+
+    @classmethod
     async def upsert_managed_event_from_discord(
         cls,
         guild_id: int,

@@ -81,6 +81,7 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
         "signup_role_ids": '["9", 10]',
         "revision": 3,
         "recurrence_rule": None,
+        "recurrence_rule_payload": None,
     }
 
     # Act

@@ -351,6 +351,12 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
             icon: <RecurringIcon />,
             visible: canViewEvents,
           },
+          {
+            to: dashboardPath('events/past'),
+            label: 'Past Events',
+            icon: <CalendarIcon />,
+            visible: canViewEvents,
+          },
         ],
       },
       {

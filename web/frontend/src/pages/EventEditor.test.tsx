@@ -9,6 +9,7 @@ const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
     getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
+    deleteScheduledEvent: vi.fn(),
   },
   guildApi: {
     getGuildInfo: vi.fn(),
@@ -132,8 +133,8 @@ describe('EventEditor Page', () => {
           id: '555',
           name: 'Fleet Night',
           description: 'Weekly op',
-          scheduled_start_time: '2026-04-09T20:00:00+00:00',
-          scheduled_end_time: '2026-04-09T22:00:00+00:00',
+          scheduled_start_time: '2099-04-09T20:00:00+00:00',
+          scheduled_end_time: '2099-04-09T22:00:00+00:00',
           status: 'scheduled',
           entity_type: 'voice',
           channel_id: '11',
@@ -152,8 +153,8 @@ describe('EventEditor Page', () => {
         id: '555',
         name: 'Fleet Night',
         description: 'Weekly op',
-        scheduled_start_time: '2026-04-09T20:00:00+00:00',
-        scheduled_end_time: '2026-04-09T22:00:00+00:00',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: '2099-04-09T22:00:00+00:00',
         status: 'scheduled',
         entity_type: 'voice',
         channel_id: '11',
@@ -171,7 +172,7 @@ describe('EventEditor Page', () => {
         id: '777',
         name: 'Created Event',
         description: null,
-        scheduled_start_time: '2026-04-10T20:00:00+00:00',
+        scheduled_start_time: '2099-04-10T20:00:00+00:00',
         scheduled_end_time: null,
         status: 'scheduled',
         entity_type: 'voice',
@@ -190,8 +191,8 @@ describe('EventEditor Page', () => {
         id: '555',
         name: 'Fleet Night Updated',
         description: 'Updated weekly op',
-        scheduled_start_time: '2026-04-09T21:00:00+00:00',
-        scheduled_end_time: '2026-04-09T23:00:00+00:00',
+        scheduled_start_time: '2099-04-09T21:00:00+00:00',
+        scheduled_end_time: '2099-04-09T23:00:00+00:00',
         status: 'scheduled',
         entity_type: 'voice',
         channel_id: '11',
@@ -202,6 +203,9 @@ describe('EventEditor Page', () => {
         creator_name: 'Coordinator',
         image_url: null,
       },
+    });
+    vi.mocked(eventsApi.deleteScheduledEvent).mockResolvedValue({
+      success: true,
     });
   });
 
@@ -247,7 +251,7 @@ describe('EventEditor Page', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Upcoming and recent events')).toBeInTheDocument();
+      expect(screen.getByText('Active and upcoming events')).toBeInTheDocument();
     });
   });
 
@@ -278,7 +282,7 @@ describe('EventEditor Page', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Upcoming and recent events')).toBeInTheDocument();
+      expect(screen.getByText('Active and upcoming events')).toBeInTheDocument();
     });
   });
 
@@ -358,6 +362,29 @@ describe('EventEditor Page', () => {
           }),
         }),
       );
+    });
+  });
+
+  it('confirms before deleting an event from the list', async () => {
+    renderWithRouter('/events');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Delete Fleet Night' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Fleet Night' }));
+
+    expect(screen.getByRole('heading', { name: 'Delete Event' })).toBeInTheDocument();
+    expect(screen.getByText('Delete "Fleet Night"? This cannot be undone.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(eventsApi.deleteScheduledEvent).toHaveBeenCalledWith('123', '555');
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Fleet Night')).not.toBeInTheDocument();
     });
   });
 });
