@@ -101,6 +101,7 @@ export default function Tickets({ guildId }: TicketsProps) {
     useState<string>('0');
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
+  const [categoryMoveBusy, setCategoryMoveBusy] = useState(false);
 
   // --- Follow-up form editor state ---
   const [formEditorOpen, setFormEditorOpen] = useState(false);
@@ -415,6 +416,57 @@ export default function Tickets({ guildId }: TicketsProps) {
     }
   };
 
+  const handleMoveCategory = async (
+    category: TicketCategory,
+    direction: 'up' | 'down',
+  ) => {
+    if (categoryMoveBusy) return;
+
+    const channelKey = category.channel_id ?? '0';
+    const channelCategories = categoriesByChannel.get(channelKey) ?? [];
+    const currentIndex = channelCategories.findIndex((c) => c.id === category.id);
+    if (currentIndex < 0) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= channelCategories.length) {
+      return;
+    }
+
+    const reordered = [...channelCategories];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const updates = reordered
+      .map((item, index) => ({
+        id: item.id,
+        sort_order: index,
+        current_sort_order: item.sort_order,
+      }))
+      .filter((item) => item.sort_order !== item.current_sort_order);
+
+    if (updates.length === 0) {
+      return;
+    }
+
+    setCategoryMoveBusy(true);
+    try {
+      await Promise.all(
+        updates.map((item) =>
+          ticketsApi.updateCategory(item.id, { sort_order: item.sort_order }),
+        ),
+      );
+      const res = await ticketsApi.getCategories();
+      if (isMountedRef.current) {
+        setCategories(res.categories);
+      }
+      showSuccess('Category order updated');
+    } catch (err) {
+      handleApiError(err, 'Failed to reorder categories');
+    } finally {
+      setCategoryMoveBusy(false);
+    }
+  };
+
   // -----------------------------------------------------------------
   // Follow-up form handlers
   // -----------------------------------------------------------------
@@ -618,6 +670,8 @@ export default function Tickets({ guildId }: TicketsProps) {
                     onEditCategory={openEditCategory}
                     onDeleteCategory={setDeletingCategory}
                     onOpenFormEditor={openFollowUpEditor}
+                    onMoveCategory={handleMoveCategory}
+                    categoryMoveBusy={categoryMoveBusy}
                   />
                 );
               })}
