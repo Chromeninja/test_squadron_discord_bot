@@ -286,6 +286,7 @@ Comprehensive documentation is available and includes:
 - **Usage Instructions**: Step-by-step guides on how to use the bot.
 - **Setup Instructions**: Instructions on setting up the bot locally.
 - **Troubleshooting**: Solutions to common issues.
+- **Repository File Map**: See `documents/file-map.md` for a folder/file overview at a glance.
 
 Developer documentation source is included in the `docs/` directory (markdown files). The generated Sphinx HTML (`docs/build/html/...`) is not committed to this repository.
 
