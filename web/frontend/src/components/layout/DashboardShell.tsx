@@ -101,22 +101,6 @@ function CalendarIcon({ className = 'h-4 w-4' }: { className?: string }) {
   );
 }
 
-function DraftIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
-      <path d="M4 2a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L9.94 2.439A1.5 1.5 0 0 0 8.878 2H4Zm1 5.75A.75.75 0 0 1 5.75 7h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 5 7.75Zm0 3A.75.75 0 0 1 5.75 10h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 5 10.75Z" />
-    </svg>
-  );
-}
-
-function RecurringIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
-      <path d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.68a.75.75 0 0 1-1.5 0V9.567a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.981l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.023-.274Z" />
-    </svg>
-  );
-}
-
 function TicketsIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
@@ -337,18 +321,6 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
             to: dashboardPath('events'),
             label: 'Events',
             icon: <CalendarIcon />,
-            visible: canViewEvents,
-          },
-          {
-            to: dashboardPath('events/drafts'),
-            label: 'Drafts',
-            icon: <DraftIcon />,
-            visible: canViewEvents,
-          },
-          {
-            to: dashboardPath('events/recurring'),
-            label: 'Recurring',
-            icon: <RecurringIcon />,
             visible: canViewEvents,
           },
           {

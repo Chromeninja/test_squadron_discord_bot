@@ -49,12 +49,6 @@ vi.mock('./pages/Events', () => ({
 vi.mock('./pages/EventEditor', () => ({
   default: () => <div>Event Editor Page</div>,
 }));
-vi.mock('./pages/EventDrafts', () => ({
-  default: () => <div>Drafts Page</div>,
-}));
-vi.mock('./pages/EventRecurring', () => ({
-  default: () => <div>Recurring Page</div>,
-}));
 vi.mock('./pages/Landing', () => ({
   default: ({ loginHref, user }: { loginHref: string; user: { user_id?: string } | null }) => (
     <div>

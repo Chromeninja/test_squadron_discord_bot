@@ -14,8 +14,6 @@ const DashboardBotSettings = lazy(() => import('./pages/DashboardBotSettings'));
 const Tickets = lazy(() => import('./pages/Tickets'));
 const Events = lazy(() => import('./pages/Events'));
 const EventEditor = lazy(() => import('./pages/EventEditor'));
-const EventDrafts = lazy(() => import('./pages/EventDrafts'));
-const EventRecurring = lazy(() => import('./pages/EventRecurring'));
 const Landing = lazy(() => import('./pages/Landing'));
 
 function PageFallback() {
@@ -335,28 +333,6 @@ function App() {
             }
           />
 
-          <Route
-            path="events/drafts"
-            element={
-              <RequireRole minRole="event_coordinator">
-                <RequireGuild>
-                  {(guildId) => <EventDrafts guildId={guildId} />}
-                </RequireGuild>
-              </RequireRole>
-            }
-          />
-
-          <Route
-            path="events/recurring"
-            element={
-              <RequireRole minRole="event_coordinator">
-                <RequireGuild>
-                  {(guildId) => <EventRecurring guildId={guildId} />}
-                </RequireGuild>
-              </RequireRole>
-            }
-          />
-
           {/* Tickets — discord_manager+ and needs guildId */}
           <Route
             path="tickets"
@@ -393,14 +369,6 @@ function App() {
         <Route path="/events/past" element={<LegacyGuildRouteRedirect childPath="events/past" />} />
         <Route path="/events/new" element={<LegacyGuildRouteRedirect childPath="events/new" />} />
         <Route path="/events/:eventId/edit" element={<LegacyEventEditorRedirect />} />
-        <Route
-          path="/events/drafts"
-          element={<LegacyGuildRouteRedirect childPath="events/drafts" />}
-        />
-        <Route
-          path="/events/recurring"
-          element={<LegacyGuildRouteRedirect childPath="events/recurring" />}
-        />
         <Route path="/tickets" element={<LegacyGuildRouteRedirect childPath="tickets" />} />
         <Route path="/settings" element={<LegacyGuildRouteRedirect childPath="settings" />} />
 
