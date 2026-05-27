@@ -80,7 +80,10 @@ describe('useUserMetrics', () => {
           enabled,
         }),
       {
-        initialProps: { userId: '123', enabled: true },
+        initialProps: {
+          userId: '123' as string | null,
+          enabled: true,
+        },
       },
     );
 

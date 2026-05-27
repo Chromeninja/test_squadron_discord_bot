@@ -7,6 +7,7 @@ guild-level ticket settings — all scoped to the active guild.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from helpers.role_ids import normalize_role_id_list
 from utils.logging import get_logger
 from web.backend.routes._ticket_helpers import require_guild_category
+from web.backend.routes.users import _get_member_with_cache
 
 if TYPE_CHECKING:
     from services.config_service import ConfigService
@@ -50,6 +52,61 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+async def _resolve_ticket_creators(
+    internal_api: InternalAPIClient,
+    guild_id: int,
+    user_ids: set[int],
+) -> dict[int, dict[str, str | None]]:
+    """Resolve creator identity data for a set of Discord user IDs.
+
+    Uses the shared member cache lookup from users routes so tickets follow
+    the same resolution behavior as other dashboard pages.
+    """
+    if not user_ids:
+        return {}
+
+    async def _resolve_one(user_id: int) -> tuple[int, dict[str, str | None]]:
+        try:
+            member_data = await _get_member_with_cache(internal_api, guild_id, user_id)
+        except Exception as exc:
+            logger.debug(
+                "Failed to resolve ticket creator for guild %s user %s",
+                guild_id,
+                user_id,
+                exc_info=exc,
+            )
+            return (
+                user_id,
+                {
+                    "creator_username": None,
+                    "creator_global_name": None,
+                    "creator_discriminator": None,
+                    "creator_avatar_url": None,
+                },
+            )
+
+        username = member_data.get("username")
+        global_name = member_data.get("global_name")
+        discriminator = member_data.get("discriminator")
+        avatar_url = member_data.get("avatar_url")
+        return (
+            user_id,
+            {
+                "creator_username": str(username) if username else None,
+                "creator_global_name": str(global_name) if global_name else None,
+                "creator_discriminator": (
+                    str(discriminator) if discriminator else None
+                ),
+                "creator_avatar_url": str(avatar_url) if avatar_url else None,
+            },
+        )
+
+    resolved_pairs = await asyncio.gather(
+        *(_resolve_one(user_id) for user_id in user_ids)
+    )
+    return dict(resolved_pairs)
 
 
 def _parse_role_id_list(field_name: str, raw_role_ids: list[str]) -> list[int]:
@@ -395,6 +452,7 @@ async def list_tickets(
     page_size: int = Query(20, ge=1, le=100),
     current_user: UserProfile = Depends(require_staff()),
     svc: TicketService = Depends(get_ticket_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ) -> TicketListResponse:
     """List tickets for the active guild with optional status filter."""
     guild_id = ensure_active_guild(current_user)
@@ -403,6 +461,17 @@ async def list_tickets(
     tickets = await svc.get_tickets(guild_id, status=status, limit=page_size, offset=offset)
     total = await svc.get_ticket_count(guild_id, status=status)
 
+    creator_user_ids: set[int] = {
+        int(ticket["user_id"])
+        for ticket in tickets
+        if ticket.get("user_id") is not None
+    }
+    creator_map = await _resolve_ticket_creators(
+        internal_api,
+        guild_id,
+        creator_user_ids,
+    )
+
     items = [
         TicketInfo(
             id=t["id"],
@@ -410,6 +479,18 @@ async def list_tickets(
             channel_id=str(t["channel_id"]),
             thread_id=str(t["thread_id"]),
             user_id=str(t["user_id"]),
+            creator_username=creator_map.get(int(t["user_id"]), {}).get(
+                "creator_username"
+            ),
+            creator_global_name=creator_map.get(int(t["user_id"]), {}).get(
+                "creator_global_name"
+            ),
+            creator_discriminator=creator_map.get(int(t["user_id"]), {}).get(
+                "creator_discriminator"
+            ),
+            creator_avatar_url=creator_map.get(int(t["user_id"]), {}).get(
+                "creator_avatar_url"
+            ),
             category_id=t.get("category_id"),
             status=t["status"],
             closed_by=str(t["closed_by"]) if t.get("closed_by") else None,

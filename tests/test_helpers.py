@@ -10,7 +10,11 @@ from typing import Any
 
 from tests.factories.discord_factories import (
     FakeFollowup as _FactoryFakeFollowup,
+)
+from tests.factories.discord_factories import (
     FakeResponse as _FactoryFakeResponse,
+)
+from tests.factories.discord_factories import (
     FakeUser as _FactoryFakeUser,
 )
 
@@ -34,17 +38,28 @@ class FakeResponse(_FactoryFakeResponse):
 class FakeFollowup(_FactoryFakeFollowup):
     """Re-export the shared fake followup implementation."""
 
-    async def send(self, *args: Any, **kwargs: Any) -> None:
-        await super().send(*args, **kwargs)
+    async def send(
+        self,
+        content: str | None = None,
+        ephemeral: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        return await super().send(content=content, ephemeral=ephemeral, **kwargs)
 
 
 class FakeInteraction:
     """Backward-compatible minimal interaction wrapper for legacy tests."""
 
+    guild: SimpleNamespace | None
+    channel: Any | None
+    channel_id: int | None
+    response: Any
+    followup: Any
+
     def __init__(self, user: FakeUser | None = None) -> None:
         self.user = user or FakeUser()
-        self.response = FakeResponse()
-        self.followup = FakeFollowup()
+        self.response: Any = FakeResponse()
+        self.followup: Any = FakeFollowup()
         self.guild = SimpleNamespace(id=123, name="TestGuild")
         self.channel = None
         self.channel_id = None
