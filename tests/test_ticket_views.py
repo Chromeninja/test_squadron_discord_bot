@@ -18,6 +18,7 @@ from helpers.ticket_views import (
     TicketActionView,
     TicketCategorySelect,
     TicketCloseReasonModal,
+    TicketDeleteConfirmModal,
     TicketDescriptionModal,
     TicketPanelView,
     _close_ticket,
@@ -163,6 +164,7 @@ class TestTicketPanelView:
             public_button_color="ED4245",  # Red -> Danger
         )
         import discord
+
         private_btn = view.children[0]  # type: ignore[attr-defined]
         public_btn = view.children[1]  # type: ignore[attr-defined]
         assert private_btn.style == discord.ButtonStyle.success  # type: ignore[attr-defined]
@@ -224,9 +226,7 @@ class TestTicketPanelView:
             {"id": 10, "name": "Chan-A Only", "description": "", "emoji": None},
             {"id": 20, "name": "Chan-B Only", "description": "", "emoji": None},
         ]
-        bot = _mock_bot_with_services(
-            categories=all_cats, channel_categories=chan_cats
-        )
+        bot = _mock_bot_with_services(categories=all_cats, channel_categories=chan_cats)
         view = TicketPanelView(bot)
         interaction = FakeInteraction()
         interaction.channel_id = 8001  # panel channel
@@ -235,15 +235,14 @@ class TestTicketPanelView:
         assert interaction.response._is_done
         # Should have called get_categories_for_channel with the panel channel
         bot.services.ticket.get_categories_for_channel.assert_called_once_with(
-            interaction.guild.id, 8001  # type: ignore[union-attr]
+            interaction.guild.id,
+            8001,  # type: ignore[union-attr]
         )
 
     @pytest.mark.asyncio
     async def test_create_ticket_falls_back_to_all_categories(self) -> None:
         """When channel has no categories, falls back to all guild categories."""
-        all_cats = [
-            {"id": 1, "name": "General", "description": "", "emoji": None}
-        ]
+        all_cats = [{"id": 1, "name": "General", "description": "", "emoji": None}]
         # channel_categories is empty → triggers fallback
         bot = _mock_bot_with_services(categories=all_cats, channel_categories=[])
         view = TicketPanelView(bot)
@@ -268,7 +267,12 @@ class TestTicketCategorySelect:
         """Select options match the provided categories."""
         cats = [
             {"id": 1, "name": "General", "description": "General help", "emoji": "📩"},
-            {"id": 2, "name": "Billing", "description": "Payment issues", "emoji": None},
+            {
+                "id": 2,
+                "name": "Billing",
+                "description": "Payment issues",
+                "emoji": None,
+            },
         ]
         bot = _mock_bot_with_services()
         select = TicketCategorySelect(bot, cats)
@@ -492,7 +496,6 @@ class TestTicketActionView:
         interaction.channel = thread
 
         await view._on_close_ticket(interaction)  # type: ignore[arg-type]
-        # Should send a close-reason modal
         assert interaction.response._is_done
         assert interaction.response.sent_modal is not None
         assert isinstance(interaction.response.sent_modal, TicketCloseReasonModal)
@@ -898,7 +901,7 @@ class TestTicketDeleteButton:
 
     @pytest.mark.asyncio
     async def test_delete_ticket_creator_allowed(self) -> None:
-        """Ticket creator can delete the thread."""
+        """Ticket creator can delete the thread after typed confirmation."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
         view = TicketActionView(bot)
@@ -918,6 +921,16 @@ class TestTicketDeleteButton:
         thread.delete = AsyncMock()
         interaction.channel = thread
 
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        assert interaction.response._is_done
+        assert interaction.response.sent_modal is not None
+        assert isinstance(interaction.response.sent_modal, TicketDeleteConfirmModal)
+
+        modal = interaction.response.sent_modal
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = followup_send
+
         with patch(
             "helpers.ticket_views._generate_transcript",
             new=AsyncMock(return_value=None),
@@ -927,11 +940,44 @@ class TestTicketDeleteButton:
                 new=AsyncMock(),
             ):
                 with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
-                    await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
 
         thread.delete.assert_awaited_once()
         bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
         followup_send.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_rejects_invalid_confirmation(self) -> None:
+        """Delete modal rejects input other than DELETE and keeps thread."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+
+        modal.confirm_input._value = "NOPE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        await modal.on_submit(cast("discord.Interaction", submit_interaction))
+
+        thread.delete.assert_not_awaited()
+        bot.services.ticket.mark_thread_deleted.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_ticket_posts_transcript_to_leadership(self) -> None:
@@ -956,6 +1002,13 @@ class TestTicketDeleteButton:
 
         transcript = MagicMock(spec=discord.File)
 
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = interaction.followup.send
+
         with patch(
             "helpers.ticket_views._generate_transcript",
             new=AsyncMock(return_value=transcript),
@@ -965,7 +1018,9 @@ class TestTicketDeleteButton:
                 new=AsyncMock(),
             ) as leadership_post:
                 with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
-                    await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
 
         leadership_post.assert_awaited_once()
         assert leadership_post.await_args is not None
@@ -996,6 +1051,13 @@ class TestTicketDeleteButton:
         thread.delete = AsyncMock()
         interaction.channel = thread
 
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = interaction.followup.send
+
         with patch(
             "helpers.ticket_views._generate_transcript",
             new=AsyncMock(side_effect=RuntimeError("boom")),
@@ -1005,7 +1067,9 @@ class TestTicketDeleteButton:
                 new=AsyncMock(),
             ) as leadership_post:
                 with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
-                    await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
 
         thread.delete.assert_awaited_once()
         bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
@@ -1083,10 +1147,20 @@ class TestTicketDeleteButton:
         interaction.followup.send = followup_send
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
-        thread.delete = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "forbidden"))
+        thread.delete = AsyncMock(
+            side_effect=discord.Forbidden(MagicMock(), "forbidden")
+        )
         interaction.channel = thread
 
         await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = followup_send
+
+        await modal.on_submit(cast("discord.Interaction", submit_interaction))
 
         followup_send.assert_awaited()
         assert followup_send.await_args is not None
@@ -1117,7 +1191,10 @@ class TestCloseTicketFlow:
         thread.edit = AsyncMock()
         thread.delete = AsyncMock()
 
-        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
+        with patch(
+            "helpers.ticket_views._generate_transcript",
+            new=AsyncMock(return_value=None),
+        ):
             with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
                 await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
@@ -1142,12 +1219,17 @@ class TestCloseTicketFlow:
         thread.send = AsyncMock()
         thread.edit = AsyncMock(
             side_effect=discord.HTTPException(
-                response=cast("Any", SimpleNamespace(status=500, reason="Server Error")),
+                response=cast(
+                    "Any", SimpleNamespace(status=500, reason="Server Error")
+                ),
                 message="archive failed",
             )
         )
 
-        with patch("helpers.ticket_views._generate_transcript", new=AsyncMock(return_value=None)):
+        with patch(
+            "helpers.ticket_views._generate_transcript",
+            new=AsyncMock(return_value=None),
+        ):
             with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
                 with patch("helpers.ticket_views.logger.exception") as log_exception:
                     await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
