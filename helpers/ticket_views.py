@@ -169,12 +169,11 @@ async def _post_deleted_ticket_transcript(
             await leadership_channel.send(embed=embed, file=transcript_file)
         else:
             await leadership_channel.send(embed=embed)
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Failed to post deleted ticket transcript for thread %s in guild %s",
             thread.id,
             guild_id,
-            exc_info=e,
         )
 
 

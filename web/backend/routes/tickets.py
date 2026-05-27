@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.dependencies import (
     InternalAPIClient,
@@ -457,14 +457,22 @@ async def list_tickets(
     """List tickets for the active guild with optional status filter."""
     guild_id = ensure_active_guild(current_user)
 
+    def _parse_ticket_user_id(raw_user_id: Any) -> int | None:
+        if raw_user_id is None:
+            return None
+        try:
+            return int(raw_user_id)
+        except (TypeError, ValueError):
+            return None
+
     offset = (page - 1) * page_size
     tickets = await svc.get_tickets(guild_id, status=status, limit=page_size, offset=offset)
     total = await svc.get_ticket_count(guild_id, status=status)
 
     creator_user_ids: set[int] = {
-        int(ticket["user_id"])
+        parsed_user_id
         for ticket in tickets
-        if ticket.get("user_id") is not None
+        if (parsed_user_id := _parse_ticket_user_id(ticket.get("user_id"))) is not None
     }
     creator_map = await _resolve_ticket_creators(
         internal_api,
@@ -472,39 +480,39 @@ async def list_tickets(
         creator_user_ids,
     )
 
-    items = [
-        TicketInfo(
-            id=t["id"],
-            guild_id=str(t["guild_id"]),
-            channel_id=str(t["channel_id"]),
-            thread_id=str(t["thread_id"]),
-            user_id=str(t["user_id"]),
-            creator_username=creator_map.get(int(t["user_id"]), {}).get(
-                "creator_username"
-            ),
-            creator_global_name=creator_map.get(int(t["user_id"]), {}).get(
-                "creator_global_name"
-            ),
-            creator_discriminator=creator_map.get(int(t["user_id"]), {}).get(
-                "creator_discriminator"
-            ),
-            creator_avatar_url=creator_map.get(int(t["user_id"]), {}).get(
-                "creator_avatar_url"
-            ),
-            category_id=t.get("category_id"),
-            status=t["status"],
-            closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
-            created_at=t.get("created_at", 0),
-            closed_at=t.get("closed_at"),
-            claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
-            claimed_at=t.get("claimed_at"),
-            close_reason=t.get("close_reason"),
-            initial_description=t.get("initial_description"),
-            reopened_at=t.get("reopened_at"),
-            reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
+    items: list[TicketInfo] = []
+    for t in tickets:
+        creator_user_id = _parse_ticket_user_id(t.get("user_id"))
+        creator_data = (
+            creator_map.get(creator_user_id, {})
+            if creator_user_id is not None
+            else {}
         )
-        for t in tickets
-    ]
+
+        items.append(
+            TicketInfo(
+                id=t["id"],
+                guild_id=str(t["guild_id"]),
+                channel_id=str(t["channel_id"]),
+                thread_id=str(t["thread_id"]),
+                user_id=str(t["user_id"]),
+                creator_username=creator_data.get("creator_username"),
+                creator_global_name=creator_data.get("creator_global_name"),
+                creator_discriminator=creator_data.get("creator_discriminator"),
+                creator_avatar_url=creator_data.get("creator_avatar_url"),
+                category_id=t.get("category_id"),
+                status=t["status"],
+                closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
+                created_at=t.get("created_at", 0),
+                closed_at=t.get("closed_at"),
+                claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
+                claimed_at=t.get("claimed_at"),
+                close_reason=t.get("close_reason"),
+                initial_description=t.get("initial_description"),
+                reopened_at=t.get("reopened_at"),
+                reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
+            )
+        )
     return TicketListResponse(
         items=items, total=total, page=page, page_size=page_size
     )

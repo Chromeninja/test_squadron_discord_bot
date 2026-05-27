@@ -1395,86 +1395,86 @@ class TicketService(BaseService):
                         if self.extract_column_name(row)
                     }
 
-            if "enable_public_button" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
-                    )
-                    self.logger.info(
-                        "Added missing enable_public_button column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "enable_public_button" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN enable_public_button INTEGER NOT NULL DEFAULT 0"
+                            )
+                            self.logger.info(
+                                "Added missing enable_public_button column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            if "public_button_text" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN public_button_text TEXT NOT NULL "
-                        "DEFAULT 'Create Public Ticket'"
-                    )
-                    self.logger.info(
-                        "Added missing public_button_text column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "public_button_text" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN public_button_text TEXT NOT NULL "
+                                "DEFAULT 'Create Public Ticket'"
+                            )
+                            self.logger.info(
+                                "Added missing public_button_text column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            if "public_button_emoji" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN public_button_emoji TEXT DEFAULT '\U0001f310'"
-                    )
-                    self.logger.info(
-                        "Added missing public_button_emoji column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "public_button_emoji" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN public_button_emoji TEXT DEFAULT '\U0001f310'"
+                            )
+                            self.logger.info(
+                                "Added missing public_button_emoji column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            if "private_button_color" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN private_button_color TEXT DEFAULT NULL"
-                    )
-                    self.logger.info(
-                        "Added missing private_button_color column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "private_button_color" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN private_button_color TEXT DEFAULT NULL"
+                            )
+                            self.logger.info(
+                                "Added missing private_button_color column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            if "public_button_color" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN public_button_color TEXT DEFAULT NULL"
-                    )
-                    self.logger.info(
-                        "Added missing public_button_color column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "public_button_color" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN public_button_color TEXT DEFAULT NULL"
+                            )
+                            self.logger.info(
+                                "Added missing public_button_color column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            if "button_order" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE ticket_channel_configs "
-                        "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
-                    )
-                    self.logger.info(
-                        "Added missing button_order column to ticket_channel_configs"
-                    )
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
+                    if "button_order" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE ticket_channel_configs "
+                                "ADD COLUMN button_order TEXT NOT NULL DEFAULT 'private_first'"
+                            )
+                            self.logger.info(
+                                "Added missing button_order column to ticket_channel_configs"
+                            )
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            self._channel_config_schema_checked = True
+                    self._channel_config_schema_checked = True
 
     # ------------------------------------------------------------------
     # Claim / Assign
