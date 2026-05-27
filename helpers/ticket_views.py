@@ -33,6 +33,7 @@ from discord.ui import (
     View,
 )
 
+from helpers.discord_api import guild_thread_exists
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
 from services.ticket_service import (
@@ -152,9 +153,7 @@ async def _post_deleted_ticket_transcript(
             return
 
         creator_id = ticket.get("user_id")
-        creator_line = (
-            f"<@{creator_id}>" if isinstance(creator_id, int) else "unknown"
-        )
+        creator_line = f"<@{creator_id}>" if isinstance(creator_id, int) else "unknown"
         embed = create_embed(
             title="🗑️ Ticket Deleted",
             description=(
@@ -393,8 +392,12 @@ class TicketPanelView(View):
         self.bot = bot
 
         # Convert color hex codes to Discord button styles
-        private_style = self._color_to_button_style(private_button_color, discord.ButtonStyle.primary)
-        public_style = self._color_to_button_style(public_button_color, discord.ButtonStyle.secondary)
+        private_style = self._color_to_button_style(
+            private_button_color, discord.ButtonStyle.primary
+        )
+        public_style = self._color_to_button_style(
+            public_button_color, discord.ButtonStyle.secondary
+        )
 
         create_btn: Button = Button(
             label=private_button_text,
@@ -424,7 +427,9 @@ class TicketPanelView(View):
                 self.add_item(public_btn)
 
     @staticmethod
-    def _color_to_button_style(color: str | None, default: discord.ButtonStyle) -> discord.ButtonStyle:
+    def _color_to_button_style(
+        color: str | None, default: discord.ButtonStyle
+    ) -> discord.ButtonStyle:
         """Convert a hex color code to a Discord button style.
 
         Supports common color mappings:
@@ -442,7 +447,13 @@ class TicketPanelView(View):
         normalized = color.strip().upper().lstrip("#")
 
         # Map common colors to button styles
-        if normalized in ("5865F2", "5865F3", "5865F4", "0099FF", "3B88F3"):  # Blue/Blurple
+        if normalized in (
+            "5865F2",
+            "5865F3",
+            "5865F4",
+            "0099FF",
+            "3B88F3",
+        ):  # Blue/Blurple
             return discord.ButtonStyle.primary
         elif normalized in ("4E5058", "4F545C", "6C757D", "2C2F33"):  # Gray
             return discord.ButtonStyle.secondary
@@ -483,6 +494,12 @@ class TicketPanelView(View):
         guild_id = interaction.guild.id
         ticket_service = self.bot.services.ticket
         config_service = self.bot.services.config
+        guild = interaction.guild
+
+        await ticket_service.reconcile_missing_open_tickets(
+            guild_id,
+            lambda thread_id: guild_thread_exists(guild, thread_id),
+        )
 
         # --- Rate-limit check ---
         allowed = await ticket_service.check_rate_limit(guild_id, interaction.user.id)
@@ -498,7 +515,9 @@ class TicketPanelView(View):
 
         # --- Max open tickets check ---
         max_open_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.max_open_per_user", default=str(DEFAULT_MAX_OPEN_PER_USER)
+            guild_id,
+            "tickets.max_open_per_user",
+            default=str(DEFAULT_MAX_OPEN_PER_USER),
         )
         try:
             max_open = int(max_open_raw)
@@ -840,7 +859,9 @@ class TicketActionView(View):
         is_staff = False
 
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,
@@ -885,7 +906,9 @@ class TicketActionView(View):
         is_creator = user_id == ticket["user_id"]
         is_staff = False
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,
@@ -901,7 +924,9 @@ class TicketActionView(View):
 
         # Check reopen window
         reopen_window_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.reopen_window_hours", default=str(DEFAULT_REOPEN_WINDOW_HOURS)
+            guild_id,
+            "tickets.reopen_window_hours",
+            default=str(DEFAULT_REOPEN_WINDOW_HOURS),
         )
         try:
             reopen_window = int(reopen_window_raw)
@@ -984,7 +1009,9 @@ class TicketActionView(View):
         is_creator = user_id == ticket["user_id"]
         is_staff = False
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,
@@ -1013,10 +1040,7 @@ class TicketActionView(View):
 
         try:
             await thread.delete(
-                reason=(
-                    f"Ticket deleted by {interaction.user} "
-                    f"({interaction.user.id})"
-                )
+                reason=(f"Ticket deleted by {interaction.user} ({interaction.user.id})")
             )
         except discord.Forbidden as e:
             logger.exception(
@@ -1059,8 +1083,7 @@ class TicketActionView(View):
             guild_id,
             title="🗑️ Ticket Deleted",
             description=(
-                f"**Thread:** `{thread.id}`\n"
-                f"**Deleted by:** {interaction.user.mention}"
+                f"**Thread:** `{thread.id}`\n**Deleted by:** {interaction.user.mention}"
             ),
             color=EmbedColors.WARNING,
         )
@@ -1097,7 +1120,9 @@ async def _start_dynamic_form(
 
     # Create fresh session
     ctx = await ticket_form_service.create_session(
-        guild_id, user_id, category["id"],
+        guild_id,
+        user_id,
+        category["id"],
         interaction_token=interaction.token,
         is_public=is_public,
     )
@@ -1220,9 +1245,7 @@ async def _create_ticket_thread(
     try:
         await thread.add_user(user)
     except discord.Forbidden:
-        logger.debug(
-            "No permission to add user %s to thread %s", user.id, thread.id
-        )
+        logger.debug("No permission to add user %s to thread %s", user.id, thread.id)
     except discord.HTTPException as exc:
         logger.warning(
             "Could not add user %s to thread %s: %s",

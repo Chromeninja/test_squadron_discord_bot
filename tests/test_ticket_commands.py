@@ -63,6 +63,14 @@ def _make_bot() -> MagicMock:
     ts.get_oldest_closed_tickets = AsyncMock(return_value=[])
     ts.get_cleanup_candidates = AsyncMock(return_value=[])
     ts.mark_thread_deleted = AsyncMock(return_value=True)
+    ts.reconcile_missing_open_tickets = AsyncMock(
+        return_value={
+            "checked": 0,
+            "missing": 0,
+            "reconciled": 0,
+            "failed": 0,
+        }
+    )
     bot.services.ticket = ts
 
     # ConfigService mock
@@ -280,6 +288,43 @@ class TestTicketCommandsCleanup:
         embed = interaction.followup.send.call_args.kwargs["embed"]
         assert "Complete" in embed.title
         bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(51001)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_include_open_reconciles_missing_threads(self) -> None:
+        """Cleanup can also repair stale open tickets when requested."""
+        bot = _make_bot()
+        bot.services.ticket.get_cleanup_candidates = AsyncMock(return_value=[])
+        bot.services.ticket.get_missing_open_tickets = AsyncMock(
+            return_value=[{"thread_id": 52001, "created_at": int(time.time())}],
+        )
+        bot.services.ticket.reconcile_missing_open_tickets = AsyncMock(
+            return_value={
+                "checked": 1,
+                "missing": 1,
+                "reconciled": 1,
+                "failed": 0,
+            }
+        )
+
+        with patch("cogs.tickets.commands.spawn"):
+            from cogs.tickets.commands import TicketCommands
+
+            cog = TicketCommands(bot)
+
+        interaction = _interaction_with_guild()
+        cleanup_callback: Any = cog.cleanup.callback
+        await cleanup_callback(
+            cog,
+            interaction,
+            older_than=30,
+            dry_run=False,
+            include_open=True,
+        )
+
+        embed = interaction.followup.send.call_args.kwargs["embed"]
+        assert "Complete" in embed.title
+        assert "Repaired" in embed.description
+        bot.services.ticket.reconcile_missing_open_tickets.assert_awaited_once()
 
 
 class TestThreadHealthCheckTask:
