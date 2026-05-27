@@ -9,19 +9,15 @@ cascading failures when RSI blocks requests.
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
 
 import aiohttp
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 # Import the shared circuit breaker implementation
 from helpers.circuit_breaker import (
     CircuitBreakerState,
     get_rsi_circuit_breaker,
 )
-
-if TYPE_CHECKING:
-    from bs4 import Tag
 
 logger = logging.getLogger(__name__)
 

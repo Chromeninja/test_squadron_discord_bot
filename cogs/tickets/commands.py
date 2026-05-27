@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord  # type: ignore[import-not-found]
 from discord import app_commands  # type: ignore[import-not-found]
 from discord.ext import commands, tasks  # type: ignore[import-not-found]
 
 from helpers.decorators import require_permission_level
-from helpers.discord_api import channel_send_message
+from helpers.discord_api import channel_send_message, guild_thread_exists
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
 from helpers.permissions_helper import PermissionLevel
@@ -149,6 +149,18 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """Shortcut to TicketFormService."""
         return self.bot.services.ticket_form
 
+    async def _reconcile_missing_open_tickets(
+        self,
+        guild: discord.Guild,
+        limit: int | None = None,
+    ) -> dict[str, int]:
+        """Reconcile open ticket rows whose Discord threads are missing."""
+        return await self.ticket_service.reconcile_missing_open_tickets(
+            guild.id,
+            lambda thread_id: guild_thread_exists(guild, thread_id),
+            limit=limit,
+        )
+
     # ------------------------------------------------------------------
     # Periodic cleanup of expired route sessions
     # ------------------------------------------------------------------
@@ -183,6 +195,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """
         for guild in self.bot.guilds:
             try:
+                await self._reconcile_missing_open_tickets(guild, limit=50)
                 health = await self.ticket_service.get_thread_health(guild.id)
                 status = health["status"]
 
@@ -195,9 +208,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                 # Avoid duplicate alerts for the same severity
                 severity_order = {"notice": 1, "warning": 2, "critical": 3}
                 current = severity_order.get(status, 0)
-                last = severity_order.get(
-                    self._last_alert_level.get(guild.id, ""), 0
-                )
+                last = severity_order.get(self._last_alert_level.get(guild.id, ""), 0)
                 if current <= last:
                     continue
 
@@ -251,11 +262,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                 "Use `/tickets health` for details or "
                 "`/tickets cleanup` to remove old threads."
             ),
-            color=(
-                EmbedColors.ERROR
-                if status == "critical"
-                else EmbedColors.WARNING
-            ),
+            color=(EmbedColors.ERROR if status == "critical" else EmbedColors.WARNING),
         )
 
         channel = await resolve_leadership_channel(self.bot, guild.id)
@@ -304,9 +311,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         for guild in targets:
             try:
                 # Discover all channels that have ticket categories
-                channel_ids = await self.ticket_service.get_ticket_channel_ids(
-                    guild.id
-                )
+                channel_ids = await self.ticket_service.get_ticket_channel_ids(guild.id)
 
                 # Fall back to legacy single-channel setting
                 if not channel_ids:
@@ -321,9 +326,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
 
                 for chan_id in channel_ids:
                     channel = guild.get_channel(chan_id)
-                    if channel is None or not isinstance(
-                        channel, discord.TextChannel
-                    ):
+                    if channel is None or not isinstance(channel, discord.TextChannel):
                         continue
 
                     existing_msg_id = panel_ids.get((guild.id, chan_id))
@@ -358,17 +361,11 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         channel_config = await self.ticket_service.get_channel_config(
             guild.id, channel.id
         )
-        title = (
-            (channel_config or {}).get("panel_title")
-            or "🎫 Support Tickets"
-        )
-        description = (
-            (channel_config or {}).get("panel_description")
-            or (
-                "Need help? Click the button below to open a support ticket.\n\n"
-                "A private thread will be created for you and a staff member "
-                "will assist you as soon as possible."
-            )
+        title = (channel_config or {}).get("panel_title") or "🎫 Support Tickets"
+        description = (channel_config or {}).get("panel_description") or (
+            "Need help? Click the button below to open a support ticket.\n\n"
+            "A private thread will be created for you and a staff member "
+            "will assist you as soon as possible."
         )
 
         embed = create_embed(
@@ -388,9 +385,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             public_button_text=(channel_config or {}).get(
                 "public_button_text", "Create Public Ticket"
             ),
-            public_button_emoji=(channel_config or {}).get(
-                "public_button_emoji", "🌐"
-            ),
+            public_button_emoji=(channel_config or {}).get("public_button_emoji", "🌐"),
             private_button_color=(channel_config or {}).get("private_button_color"),
             public_button_color=(channel_config or {}).get("public_button_color"),
             button_order=(channel_config or {}).get("button_order", "private_first"),
@@ -442,6 +437,8 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             )
             return
 
+        await self._reconcile_missing_open_tickets(guild)
+
         data = await self.ticket_service.get_ticket_stats(guild.id)
         health = await self.ticket_service.get_thread_health(guild.id)
         embed = create_embed(
@@ -481,10 +478,10 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             )
             return
 
+        await self._reconcile_missing_open_tickets(guild)
+
         health = await self.ticket_service.get_thread_health(guild.id)
-        oldest = await self.ticket_service.get_oldest_closed_tickets(
-            guild.id, limit=5
-        )
+        oldest = await self.ticket_service.get_oldest_closed_tickets(guild.id, limit=5)
 
         status_emoji = {
             "healthy": "✅",
@@ -509,9 +506,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                 closed_ts = t.get("closed_at")
                 if closed_ts:
                     days_ago = (int(time.time()) - int(closed_ts)) // 86400
-                    lines.append(
-                        f"• <#{t['thread_id']}> — closed {days_ago}d ago"
-                    )
+                    lines.append(f"• <#{t['thread_id']}> — closed {days_ago}d ago")
 
         embed = create_embed(
             title="🏥 Thread Health",
@@ -537,6 +532,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
     @app_commands.describe(
         older_than="Minimum days since ticket was closed (min 30).",
         dry_run="Preview only — do not actually delete threads.",
+        include_open="Also repair open tickets whose threads no longer exist.",
     )
     @app_commands.guild_only()
     @require_permission_level(PermissionLevel.BOT_ADMIN)
@@ -545,6 +541,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         interaction: discord.Interaction,
         older_than: int = 90,
         dry_run: bool = True,
+        include_open: bool = False,
     ) -> None:
         """Delete Discord threads for old closed tickets.
 
@@ -565,41 +562,64 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         candidates = await self.ticket_service.get_cleanup_candidates(
             guild.id, older_than_days=older_than
         )
+        missing_open: list[dict[str, Any]] = []
 
-        if not candidates:
+        if include_open:
+            missing_open = await self.ticket_service.get_missing_open_tickets(
+                guild.id,
+                lambda thread_id: guild_thread_exists(guild, thread_id),
+            )
+
+        if not candidates and not missing_open:
+            if include_open:
+                description = (
+                    f"No closed ticket threads older than {max(older_than, 30)} days "
+                    "or stale open ticket rows found."
+                )
+            else:
+                description = (
+                    f"No closed ticket threads older than {max(older_than, 30)} days "
+                    "found."
+                )
             embed = create_embed(
                 title="🧹 Cleanup — Nothing to do",
-                description=(
-                    f"No closed tickets older than {max(older_than, 30)} "
-                    "days found."
-                ),
+                description=description,
                 color=EmbedColors.INFO,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         if dry_run:
-            lines = [
-                f"Found **{len(candidates)}** thread(s) eligible for deletion "
-                f"(closed >{max(older_than, 30)} days ago):\n"
-            ]
-            for t in candidates[:25]:  # cap preview
-                closed_ts = t.get("closed_at")
-                days_ago = (
-                    (int(time.time()) - int(closed_ts)) // 86400
-                    if closed_ts
-                    else "?"
-                )
+            lines: list[str] = []
+            if candidates:
                 lines.append(
-                    f"• <#{t['thread_id']}> — closed {days_ago}d ago"
+                    f"Found **{len(candidates)}** thread(s) eligible for "
+                    f"deletion (closed >{max(older_than, 30)} days ago):\n"
                 )
-            if len(candidates) > 25:
+                for t in candidates[:25]:  # cap preview
+                    closed_ts = t.get("closed_at")
+                    days_ago = (
+                        (int(time.time()) - int(closed_ts)) // 86400
+                        if closed_ts
+                        else "?"
+                    )
+                    lines.append(f"• <#{t['thread_id']}> — closed {days_ago}d ago")
+                if len(candidates) > 25:
+                    lines.append(f"\n…and {len(candidates) - 25} more.")
+
+            if include_open and missing_open:
+                if lines:
+                    lines.append("")
                 lines.append(
-                    f"\n…and {len(candidates) - 25} more."
+                    f"Found **{len(missing_open)}** open ticket(s) whose "
+                    "threads are missing from Discord:\n"
                 )
-            lines.append(
-                "\nRe-run with `dry_run: False` to delete these threads."
-            )
+                for ticket in missing_open[:25]:
+                    lines.append(f"• <#{ticket['thread_id']}> — stale open row")
+                if len(missing_open) > 25:
+                    lines.append(f"\n…and {len(missing_open) - 25} more.")
+
+            lines.append("\nRe-run with `dry_run: False` to apply these repairs.")
             embed = create_embed(
                 title="🧹 Cleanup — Dry Run",
                 description="\n".join(lines),
@@ -633,9 +653,17 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                 )
                 failed += 1
 
+        repaired = 0
+        if include_open:
+            repair_report = await self._reconcile_missing_open_tickets(guild)
+            repaired = repair_report["reconciled"]
+            failed += repair_report["failed"]
+
         desc = f"Deleted **{deleted}** thread(s)."
+        if repaired:
+            desc += f"\nRepaired **{repaired}** stale open ticket(s)."
         if failed:
-            desc += f"\n**{failed}** thread(s) could not be deleted."
+            desc += f"\n**{failed}** thread(s) could not be deleted or repaired."
 
         embed = create_embed(
             title="🧹 Cleanup Complete",

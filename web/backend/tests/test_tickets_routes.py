@@ -14,6 +14,11 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.contract
 
 
+def _set_session(client: AsyncClient, session: str) -> None:
+    """Authenticate the shared test client for multi-request flows."""
+    client.cookies.set("session", session)
+
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
@@ -24,9 +29,9 @@ async def test_list_categories_empty(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Listing categories for a guild with none returns an empty list."""
+    _set_session(client, mock_admin_session)
     response = await client.get(
         "/api/tickets/categories",
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 200
     data = response.json()
@@ -35,10 +40,9 @@ async def test_list_categories_empty(
 
 
 @pytest.mark.asyncio
-async def test_create_category(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_create_category(client: AsyncClient, mock_admin_session: str) -> None:
     """Creating a category returns the updated category list."""
+    _set_session(client, mock_admin_session)
     payload = {
         "guild_id": "123",
         "name": "General",
@@ -52,7 +56,6 @@ async def test_create_category(
     response = await client.post(
         "/api/tickets/categories",
         json=payload,
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 201
     data = response.json()
@@ -68,6 +71,7 @@ async def test_create_category_guild_mismatch(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Creating a category for a different guild returns 403."""
+    _set_session(client, mock_admin_session)
     payload = {
         "guild_id": "999",  # does not match active guild 123
         "name": "Nope",
@@ -75,21 +79,18 @@ async def test_create_category_guild_mismatch(
     response = await client.post(
         "/api/tickets/categories",
         json=payload,
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_update_category(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_update_category(client: AsyncClient, mock_admin_session: str) -> None:
     """Updating a category changes its fields."""
+    _set_session(client, mock_admin_session)
     # Create first
     create_resp = await client.post(
         "/api/tickets/categories",
         json={"guild_id": "123", "name": "Old"},
-        cookies={"session": mock_admin_session},
     )
     cat_id = create_resp.json()["categories"][0]["id"]
 
@@ -97,7 +98,6 @@ async def test_update_category(
     update_resp = await client.put(
         f"/api/tickets/categories/{cat_id}",
         json={"name": "New"},
-        cookies={"session": mock_admin_session},
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["success"] is True
@@ -108,17 +108,16 @@ async def test_update_category_rejects_channel_change(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Category channel assignment cannot be changed via update payload."""
+    _set_session(client, mock_admin_session)
     create_resp = await client.post(
         "/api/tickets/categories",
         json={"guild_id": "123", "name": "Old", "channel_id": "456"},
-        cookies={"session": mock_admin_session},
     )
     cat_id = create_resp.json()["categories"][0]["id"]
 
     update_resp = await client.put(
         f"/api/tickets/categories/{cat_id}",
         json={"channel_id": "789"},
-        cookies={"session": mock_admin_session},
     )
     assert update_resp.status_code == 422
 
@@ -128,6 +127,7 @@ async def test_create_category_invalid_prerequisite_role_ids(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Invalid prerequisite role IDs are rejected by schema validation."""
+    _set_session(client, mock_admin_session)
     payload = {
         "guild_id": "123",
         "name": "General",
@@ -136,7 +136,6 @@ async def test_create_category_invalid_prerequisite_role_ids(
     response = await client.post(
         "/api/tickets/categories",
         json=payload,
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 422
 
@@ -146,29 +145,26 @@ async def test_update_category_not_found(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Updating a non-existent category returns 404."""
+    _set_session(client, mock_admin_session)
     response = await client.put(
         "/api/tickets/categories/99999",
         json={"name": "X"},
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_category(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_delete_category(client: AsyncClient, mock_admin_session: str) -> None:
     """Deleting a category returns success."""
+    _set_session(client, mock_admin_session)
     create_resp = await client.post(
         "/api/tickets/categories",
         json={"guild_id": "123", "name": "ToDelete"},
-        cookies={"session": mock_admin_session},
     )
     cat_id = create_resp.json()["categories"][-1]["id"]
 
     delete_resp = await client.delete(
         f"/api/tickets/categories/{cat_id}",
-        cookies={"session": mock_admin_session},
     )
     assert delete_resp.status_code == 200
     assert delete_resp.json()["success"] is True
@@ -179,9 +175,9 @@ async def test_delete_category_not_found(
     client: AsyncClient, mock_admin_session: str
 ) -> None:
     """Deleting a non-existent category returns 404."""
+    _set_session(client, mock_admin_session)
     response = await client.delete(
         "/api/tickets/categories/99999",
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 404
 
@@ -196,6 +192,7 @@ async def test_create_channel_config_with_public_button_fields(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Creating a channel config accepts optional public button fields."""
+    _set_session(client, mock_discord_manager_session)
     response = await client.post(
         "/api/tickets/channels",
         json={
@@ -206,7 +203,6 @@ async def test_create_channel_config_with_public_button_fields(
             "public_button_text": "Create Public Ticket",
             "public_button_emoji": "🌍",
         },
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 201
     data = response.json()
@@ -223,10 +219,10 @@ async def test_update_channel_config_public_button_fields(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Updating channel config can toggle public button settings."""
+    _set_session(client, mock_discord_manager_session)
     create_resp = await client.post(
         "/api/tickets/channels",
         json={"guild_id": "123", "channel_id": "789"},
-        cookies={"session": mock_discord_manager_session},
     )
     assert create_resp.status_code == 201
 
@@ -237,14 +233,12 @@ async def test_update_channel_config_public_button_fields(
             "public_button_text": "Open Public Ticket",
             "public_button_emoji": "🌐",
         },
-        cookies={"session": mock_discord_manager_session},
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["success"] is True
 
     list_resp = await client.get(
         "/api/tickets/channels",
-        cookies={"session": mock_discord_manager_session},
     )
     channels = list_resp.json()["channels"]
     target = next((c for c in channels if c["channel_id"] == "789"), None)
@@ -259,6 +253,7 @@ async def test_create_channel_config_with_button_colors_and_order(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Creating a channel config accepts button color and order fields."""
+    _set_session(client, mock_discord_manager_session)
     response = await client.post(
         "/api/tickets/channels",
         json={
@@ -269,7 +264,6 @@ async def test_create_channel_config_with_button_colors_and_order(
             "public_button_color": "ED4245",
             "button_order": "public_first",
         },
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 201
     data = response.json()
@@ -285,6 +279,7 @@ async def test_update_channel_config_button_colors(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Updating channel config can modify button colors and order."""
+    _set_session(client, mock_discord_manager_session)
     # Create config
     create_resp = await client.post(
         "/api/tickets/channels",
@@ -293,7 +288,6 @@ async def test_update_channel_config_button_colors(
             "channel_id": "888",
             "enable_public_button": True,
         },
-        cookies={"session": mock_discord_manager_session},
     )
     assert create_resp.status_code == 201
 
@@ -305,7 +299,6 @@ async def test_update_channel_config_button_colors(
             "public_button_color": "4F545C",
             "button_order": "public_first",
         },
-        cookies={"session": mock_discord_manager_session},
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["success"] is True
@@ -313,7 +306,6 @@ async def test_update_channel_config_button_colors(
     # Verify persistence
     list_resp = await client.get(
         "/api/tickets/channels",
-        cookies={"session": mock_discord_manager_session},
     )
     channels = list_resp.json()["channels"]
     target = next((c for c in channels if c["channel_id"] == "888"), None)
@@ -329,13 +321,11 @@ async def test_update_channel_config_button_colors(
 
 
 @pytest.mark.asyncio
-async def test_list_tickets_empty(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_list_tickets_empty(client: AsyncClient, mock_admin_session: str) -> None:
     """Listing tickets when none exist returns empty list."""
+    _set_session(client, mock_admin_session)
     response = await client.get(
         "/api/tickets/list",
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 200
     data = response.json()
@@ -345,13 +335,11 @@ async def test_list_tickets_empty(
 
 
 @pytest.mark.asyncio
-async def test_ticket_stats_empty(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_ticket_stats_empty(client: AsyncClient, mock_admin_session: str) -> None:
     """Stats with no tickets shows zeroes."""
+    _set_session(client, mock_admin_session)
     response = await client.get(
         "/api/tickets/stats",
-        cookies={"session": mock_admin_session},
     )
     assert response.status_code == 200
     data = response.json()
@@ -371,9 +359,9 @@ async def test_get_settings_default(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Getting settings when nothing is configured returns defaults."""
+    _set_session(client, mock_discord_manager_session)
     response = await client.get(
         "/api/tickets/settings",
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 200
     data = response.json()
@@ -386,6 +374,7 @@ async def test_update_settings(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Updating settings stores the values."""
+    _set_session(client, mock_discord_manager_session)
     payload = {
         "channel_id": "111222333",
         "close_message": "Thanks!",
@@ -393,7 +382,6 @@ async def test_update_settings(
     response = await client.put(
         "/api/tickets/settings",
         json=payload,
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
@@ -401,7 +389,6 @@ async def test_update_settings(
     # Verify persisted
     get_resp = await client.get(
         "/api/tickets/settings",
-        cookies={"session": mock_discord_manager_session},
     )
     settings = get_resp.json()["settings"]
     assert settings["channel_id"] == "111222333"
@@ -413,10 +400,10 @@ async def test_update_settings_rejects_deprecated_panel_fields(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Deprecated global panel fields should be rejected."""
+    _set_session(client, mock_discord_manager_session)
     response = await client.put(
         "/api/tickets/settings",
         json={"panel_title": "Legacy title"},
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 422
 
@@ -431,9 +418,9 @@ async def test_deploy_panel_triggers_internal_api(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """deploy-panel should call the internal API and return the result."""
+    _set_session(client, mock_discord_manager_session)
     response = await client.post(
         "/api/tickets/deploy-panel",
-        cookies={"session": mock_discord_manager_session},
     )
     assert response.status_code == 200
     data = response.json()
@@ -448,9 +435,12 @@ async def test_deploy_panel_propagates_internal_api_error(
     fake_internal_api,
 ) -> None:
     """deploy-panel should preserve upstream HTTP status/detail from internal API."""
+    _set_session(client, mock_discord_manager_session)
 
     async def _raise_upstream_error(
-        guild_id: int, *, channel_id: str | None = None,
+        guild_id: int,
+        *,
+        channel_id: str | None = None,
     ) -> dict:
         request = httpx.Request(
             "POST", f"http://127.0.0.1:8082/guilds/{guild_id}/tickets/deploy-panel"
@@ -470,7 +460,6 @@ async def test_deploy_panel_propagates_internal_api_error(
 
     response = await client.post(
         "/api/tickets/deploy-panel",
-        cookies={"session": mock_discord_manager_session},
     )
 
     assert response.status_code == 503
@@ -494,9 +483,9 @@ async def test_settings_require_discord_manager(
     client: AsyncClient, mock_moderator_session: str
 ) -> None:
     """Moderators should not be able to update settings (requires discord_manager)."""
+    _set_session(client, mock_moderator_session)
     response = await client.put(
         "/api/tickets/settings",
         json={"close_message": "Nope"},
-        cookies={"session": mock_moderator_session},
     )
     assert response.status_code == 403

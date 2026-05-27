@@ -13,6 +13,34 @@ Enqueues each call so they're rate-limited via task_queue.py.
 """
 
 
+async def guild_thread_exists(guild: discord.Guild, thread_id: int) -> bool:
+    """Return whether a thread exists, failing open on permission/API errors."""
+    get_thread = getattr(guild, "get_thread", None)
+    if callable(get_thread) and get_thread(thread_id) is not None:
+        return True
+
+    try:
+        await guild.fetch_channel(thread_id)
+        return True
+    except discord.NotFound:
+        return False
+    except discord.Forbidden:
+        logger.warning(
+            "Missing permissions to verify thread %s in guild %s",
+            thread_id,
+            guild.id,
+        )
+        return True
+    except discord.HTTPException as e:
+        logger.exception(
+            "Failed to verify thread %s in guild %s",
+            thread_id,
+            guild.id,
+            exc_info=e,
+        )
+        return True
+
+
 async def delete_channel(channel: discord.abc.GuildChannel) -> None:
     async def _task() -> None:
         # Check if the channel still exists before deleting
