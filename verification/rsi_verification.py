@@ -1,8 +1,9 @@
 import logging
 import re
 import string
+from typing import TypedDict
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from helpers.circuit_breaker import get_rsi_circuit_breaker
 from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
@@ -10,8 +11,20 @@ from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
+class OrgSelectors(TypedDict):
+    main: list[str]
+    affiliates: list[str]
+    main_sid: list[str]
+    affiliate_sid: list[str]
+
+
+class SelectorRegistry(TypedDict):
+    org: OrgSelectors
+    bio: list[str]
+
+
 # Selector registry for extensibility
-SELECTORS = {
+SELECTORS: SelectorRegistry = {
     "org": {
         "main": [
             'div[class*="org"][class*="main"] a.value',
@@ -194,9 +207,18 @@ def extract_handle(html_content: str | BeautifulSoup) -> str | None:
         handle_paragraph := soup.find(
             "p",
             class_="entry",
-            string=lambda text: text and "Handle name" in text,  # type: ignore[arg-type]
+            string=lambda text: isinstance(text, str) and "Handle name" in text,
         )
-    ) and (handle_strong := handle_paragraph.find("strong", class_="value")):
+    ):
+        if not isinstance(handle_paragraph, Tag):
+            logger.warning("Handle paragraph was not a Tag instance.")
+            return None
+
+        handle_strong = handle_paragraph.find("strong", class_="value")
+        if not isinstance(handle_strong, Tag):
+            logger.warning("Handle strong tag was not found or invalid.")
+            return None
+
         cased_handle = handle_strong.get_text(strip=True)
         logger.debug(f"Extracted cased handle: {cased_handle}")
         return cased_handle

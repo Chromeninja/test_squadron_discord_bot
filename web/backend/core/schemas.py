@@ -1005,6 +1005,10 @@ class TicketInfo(BaseModel):
     channel_id: str
     thread_id: str
     user_id: str
+    creator_username: str | None = None
+    creator_global_name: str | None = None
+    creator_discriminator: str | None = None
+    creator_avatar_url: str | None = None
     category_id: int | None = None
     status: str = "open"
     closed_by: str | None = None

@@ -253,6 +253,14 @@ def _parse_org_name_from_html(
             )
 
         # Extract org name using different strategies
+        if not isinstance(h1_tag, Tag):
+            logger.warning(f"Unexpected <h1> node type in org page for {sid}")
+            return (
+                False,
+                None,
+                "Failed to parse organization page. The page structure may have changed.",
+            )
+
         org_name = _extract_org_name(h1_tag)
 
         if not org_name:

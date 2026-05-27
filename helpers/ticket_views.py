@@ -22,10 +22,10 @@ AI Notes:
 from __future__ import annotations
 
 import io
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-import discord  # type: ignore[import-not-found]
-from discord.ui import (  # type: ignore[import-not-found]
+import discord
+from discord.ui import (
     Button,
     Modal,
     Select,
@@ -34,6 +34,7 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.embeds import EmbedColors, create_embed
+from helpers.leadership_log import resolve_leadership_channel
 from services.ticket_service import (
     DEFAULT_MAX_OPEN_PER_USER,
     DEFAULT_REOPEN_WINDOW_HOURS,
@@ -132,6 +133,47 @@ async def _log_ticket_event(
             "Failed to log ticket event to channel in guild %s",
             guild_id,
             exc_info=e,
+        )
+
+
+async def _post_deleted_ticket_transcript(
+    bot: MyBot,
+    guild_id: int,
+    *,
+    thread: discord.Thread,
+    deleted_by: discord.abc.User,
+    ticket: dict[str, Any],
+    transcript_file: discord.File | None,
+) -> None:
+    """Post delete audit details to the leadership announcement channel."""
+    try:
+        leadership_channel = await resolve_leadership_channel(bot, guild_id)
+        if leadership_channel is None:
+            return
+
+        creator_id = ticket.get("user_id")
+        creator_line = (
+            f"<@{creator_id}>" if isinstance(creator_id, int) else "unknown"
+        )
+        embed = create_embed(
+            title="🗑️ Ticket Deleted",
+            description=(
+                f"**Thread:** `{thread.id}`\n"
+                f"**Deleted by:** {deleted_by.mention}\n"
+                f"**Creator:** {creator_line}"
+            ),
+            color=EmbedColors.WARNING,
+        )
+
+        if transcript_file is not None:
+            await leadership_channel.send(embed=embed, file=transcript_file)
+        else:
+            await leadership_channel.send(embed=embed)
+    except Exception:
+        logger.exception(
+            "Failed to post deleted ticket transcript for thread %s in guild %s",
+            thread.id,
+            guild_id,
         )
 
 
@@ -267,7 +309,7 @@ class TicketDescriptionModal(Modal, title="Describe Your Issue"):
     After submission the actual thread-creation flow continues.
     """
 
-    description_input = TextInput(
+    description_input: TextInput = TextInput(
         label="Description",
         style=discord.TextStyle.paragraph,
         placeholder="Please describe your issue or question…",
@@ -303,7 +345,7 @@ class TicketDescriptionModal(Modal, title="Describe Your Issue"):
 class TicketCloseReasonModal(Modal, title="Close Ticket"):
     """Modal for providing an optional reason when closing a ticket."""
 
-    reason_input = TextInput(
+    reason_input: TextInput = TextInput(
         label="Reason for closing",
         style=discord.TextStyle.paragraph,
         placeholder="Optional — why is this ticket being closed?",
@@ -354,15 +396,15 @@ class TicketPanelView(View):
         private_style = self._color_to_button_style(private_button_color, discord.ButtonStyle.primary)
         public_style = self._color_to_button_style(public_button_color, discord.ButtonStyle.secondary)
 
-        create_btn = Button(
+        create_btn: Button = Button(
             label=private_button_text,
             style=private_style,
             custom_id="ticket_create_button",
             emoji=private_button_emoji,
         )
-        create_btn.callback = self._on_create_private_ticket
+        cast("Any", create_btn).callback = self._on_create_private_ticket
 
-        public_btn = None
+        public_btn: Button | None = None
         if enable_public_button:
             public_btn = Button(
                 label=public_button_text,
@@ -370,7 +412,7 @@ class TicketPanelView(View):
                 custom_id="ticket_create_public_button",
                 emoji=public_button_emoji,
             )
-            public_btn.callback = self._on_create_public_ticket
+            cast("Any", public_btn).callback = self._on_create_public_ticket
 
         # Add buttons in the specified order
         if button_order == "public_first" and public_btn:
@@ -637,43 +679,43 @@ class TicketActionView(View):
         super().__init__(timeout=None)
         self.bot = bot
 
-        claim_btn = Button(
+        claim_btn: Button = Button(
             label="Claim",
             style=discord.ButtonStyle.secondary,
             custom_id="ticket_action_claim_button",
             emoji="🙋",
             disabled=ticket_is_closed,
         )
-        claim_btn.callback = self._on_claim_ticket
+        cast("Any", claim_btn).callback = self._on_claim_ticket
         self.add_item(claim_btn)
 
-        close_btn = Button(
+        close_btn: Button = Button(
             label="Close Ticket",
             style=discord.ButtonStyle.danger,
             custom_id="ticket_action_close_button",
             emoji="🔒",
             disabled=ticket_is_closed,
         )
-        close_btn.callback = self._on_close_ticket
+        cast("Any", close_btn).callback = self._on_close_ticket
         self.add_item(close_btn)
 
-        reopen_btn = Button(
+        reopen_btn: Button = Button(
             label="Reopen Ticket",
             style=discord.ButtonStyle.success,
             custom_id="ticket_action_reopen_button",
             emoji="🔓",
             disabled=(not ticket_is_closed) or (not reopen_enabled),
         )
-        reopen_btn.callback = self._on_reopen_ticket
+        cast("Any", reopen_btn).callback = self._on_reopen_ticket
         self.add_item(reopen_btn)
 
-        delete_btn = Button(
+        delete_btn: Button = Button(
             label="Delete Ticket",
             style=discord.ButtonStyle.danger,
             custom_id="ticket_action_delete_button",
             emoji="🗑️",
         )
-        delete_btn.callback = self._on_delete_ticket
+        cast("Any", delete_btn).callback = self._on_delete_ticket
         self.add_item(delete_btn)
 
     # -- Claim --
@@ -958,6 +1000,17 @@ class TicketActionView(View):
 
         await interaction.response.defer(ephemeral=True)
 
+        transcript_file: discord.File | None = None
+        try:
+            transcript_file = await _generate_transcript(thread)
+        except Exception as e:
+            logger.exception(
+                "Failed to generate transcript for deleted thread %s in guild %s",
+                thread.id,
+                guild_id,
+                exc_info=e,
+            )
+
         try:
             await thread.delete(
                 reason=(
@@ -991,6 +1044,15 @@ class TicketActionView(View):
 
         # Mark the ticket's thread as deleted in the DB for analytics
         await ticket_service.mark_thread_deleted(thread.id)
+
+        await _post_deleted_ticket_transcript(
+            self.bot,
+            guild_id,
+            thread=thread,
+            deleted_by=interaction.user,
+            ticket=ticket,
+            transcript_file=transcript_file,
+        )
 
         await _log_ticket_event(
             self.bot,
