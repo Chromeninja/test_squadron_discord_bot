@@ -9,16 +9,20 @@ reopening, transcripts, and statistics.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sqlite3
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from helpers.role_ids import normalize_role_id_list
 from services.base import BaseService
 from services.db.database import Database
 from services.db.repository import BaseRepository
 from services.db.schema import ensure_ticket_schema_compatibility
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 # Default rate-limit: one ticket per 5 minutes (300 seconds)
 TICKET_RATE_LIMIT_SECONDS = 300
@@ -38,31 +42,69 @@ DEFAULT_THREAD_LIMIT = 1000
 # Special user_id used for guild-wide cooldown reset markers.
 _GLOBAL_COOLDOWN_RESET_USER_ID = 0
 
+# Special user_id used when the bot reconciles orphaned tickets.
+_SYSTEM_RECONCILE_USER_ID = 0
+
 # Column names for ticket SELECT queries — keep in sync with _row_to_ticket()
 _TICKET_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "thread_id", "user_id",
-    "category_id", "status", "closed_by", "created_at", "closed_at",
-    "claimed_by", "claimed_at", "close_reason", "initial_description",
-    "reopened_at", "reopened_by", "deleted_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "thread_id",
+    "user_id",
+    "category_id",
+    "status",
+    "closed_by",
+    "created_at",
+    "closed_at",
+    "claimed_by",
+    "claimed_at",
+    "close_reason",
+    "initial_description",
+    "reopened_at",
+    "reopened_by",
+    "deleted_at",
 ]
 _TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 
 # Column names for category SELECT queries — keep in sync with _row_to_category()
 _CATEGORY_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "name", "description", "welcome_message",
-    "role_ids", "prerequisite_role_ids_all", "prerequisite_role_ids_any",
-    "emoji", "sort_order", "created_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "name",
+    "description",
+    "welcome_message",
+    "role_ids",
+    "prerequisite_role_ids_all",
+    "prerequisite_role_ids_any",
+    "emoji",
+    "sort_order",
+    "created_at",
 ]
 _CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
 
 # Column names for channel config SELECT queries — keep in sync with _row_to_channel_config()
 _CHANNEL_CONFIG_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "panel_title", "panel_description",
-    "panel_color", "button_text", "button_emoji", "enable_public_button",
-    "public_button_text", "public_button_emoji", "private_button_color",
-    "public_button_color", "button_order", "sort_order", "created_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "panel_title",
+    "panel_description",
+    "panel_color",
+    "button_text",
+    "button_emoji",
+    "enable_public_button",
+    "public_button_text",
+    "public_button_emoji",
+    "private_button_color",
+    "public_button_color",
+    "button_order",
+    "sort_order",
+    "created_at",
 ]
 _CHANNEL_CONFIG_COLUMNS = ", ".join(_CHANNEL_CONFIG_COLUMN_NAMES)
+
 
 class TicketService(BaseService):
     """Service for managing the thread-based ticketing system.
@@ -766,7 +808,14 @@ class TicketService(BaseService):
                     (guild_id, channel_id, thread_id, user_id, category_id, initial_description)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (guild_id, channel_id, thread_id, user_id, category_id, initial_description),
+                (
+                    guild_id,
+                    channel_id,
+                    thread_id,
+                    user_id,
+                    category_id,
+                    initial_description,
+                ),
             )
             self.logger.info(
                 "Created ticket %s (thread=%s) for user %s in guild %s",
@@ -813,14 +862,10 @@ class TicketService(BaseService):
                 (closed_by, now, close_reason, ticket_id),
             )
             if rows > 0:
-                self.logger.info(
-                    "Closed ticket %s by user %s", ticket_id, closed_by
-                )
+                self.logger.info("Closed ticket %s by user %s", ticket_id, closed_by)
             return rows > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to close ticket %s", ticket_id, exc_info=e
-            )
+            self.logger.exception("Failed to close ticket %s", ticket_id, exc_info=e)
             return False
 
     async def close_ticket_by_thread(
@@ -930,6 +975,107 @@ class TicketService(BaseService):
         )
         return [self._row_to_ticket(r) for r in rows]
 
+    @staticmethod
+    async def _thread_exists(
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        thread_id: int,
+    ) -> bool:
+        """Resolve a synchronous or async thread-existence callback."""
+        result = thread_exists(thread_id)
+        if inspect.isawaitable(result):
+            return bool(await cast("Awaitable[bool]", result))
+        return bool(result)
+
+    async def get_missing_open_tickets(
+        self,
+        guild_id: int,
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return open tickets whose Discord threads can no longer be found."""
+        tickets = await self.get_open_tickets(guild_id)
+        if limit is not None:
+            tickets = tickets[:limit]
+
+        return await self._find_missing_open_tickets(
+            guild_id,
+            tickets,
+            thread_exists,
+        )
+
+    async def _find_missing_open_tickets(
+        self,
+        guild_id: int,
+        tickets: list[dict[str, Any]],
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+    ) -> list[dict[str, Any]]:
+        """Return already-fetched open tickets whose Discord threads are missing."""
+
+        missing: list[dict[str, Any]] = []
+        for ticket in tickets:
+            thread_id = int(ticket["thread_id"])
+            try:
+                exists = await self._thread_exists(thread_exists, thread_id)
+            except Exception as e:
+                self.logger.exception(
+                    "Failed to check thread %s for guild %s",
+                    thread_id,
+                    guild_id,
+                    exc_info=e,
+                )
+                continue
+            if not exists:
+                missing.append(ticket)
+        return missing
+
+    async def reconcile_missing_open_tickets(
+        self,
+        guild_id: int,
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        limit: int | None = None,
+    ) -> dict[str, int]:
+        """Close and soft-delete open tickets whose Discord threads are gone."""
+        open_tickets = await self.get_open_tickets(guild_id)
+        if limit is not None:
+            open_tickets = open_tickets[:limit]
+
+        missing = await self._find_missing_open_tickets(
+            guild_id,
+            open_tickets,
+            thread_exists,
+        )
+
+        reconciled = 0
+        failed = 0
+        for ticket in missing:
+            thread_id = int(ticket["thread_id"])
+            try:
+                closed = await self.close_ticket_by_thread(
+                    thread_id,
+                    closed_by=_SYSTEM_RECONCILE_USER_ID,
+                    close_reason="Discord thread no longer exists",
+                )
+                deleted = await self.mark_thread_deleted(thread_id)
+                if closed or deleted:
+                    reconciled += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                failed += 1
+                self.logger.exception(
+                    "Failed to reconcile missing open thread %s in guild %s",
+                    thread_id,
+                    guild_id,
+                    exc_info=e,
+                )
+
+        return {
+            "checked": len(open_tickets),
+            "missing": len(missing),
+            "reconciled": reconciled,
+            "failed": failed,
+        }
+
     async def get_tickets(
         self,
         guild_id: int,
@@ -948,7 +1094,7 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
-        where = "WHERE guild_id = ?"
+        where = "WHERE guild_id = ? AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if status:
             where += " AND status = ?"
@@ -967,7 +1113,7 @@ class TicketService(BaseService):
         status: str | None = None,
     ) -> int:
         """Return total ticket count, optionally filtered by status."""
-        where = "WHERE guild_id = ?"
+        where = "WHERE guild_id = ? AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if status:
             where += " AND status = ?"
@@ -988,7 +1134,7 @@ class TicketService(BaseService):
         """
         rows = await BaseRepository.fetch_all(
             "SELECT status, COUNT(*) AS cnt FROM tickets "
-            "WHERE guild_id = ? GROUP BY status",
+            "WHERE guild_id = ? AND deleted_at IS NULL GROUP BY status",
             (guild_id,),
         )
         counts: dict[str, int] = {"open": 0, "closed": 0}
@@ -1049,7 +1195,9 @@ class TicketService(BaseService):
         archived = int((row_data["archived"] if row_data is not None else 0) or 0)
         deleted = int((row_data["deleted"] if row_data is not None else 0) or 0)
         total_threads = active + archived
-        usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
+        usage_pct = (
+            round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
+        )
 
         if usage_pct >= 95:
             status = "critical"
@@ -1374,7 +1522,9 @@ class TicketService(BaseService):
                                 "ALTER TABLE tickets "
                                 "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
                             )
-                            self.logger.info("Added missing deleted_at column to tickets")
+                            self.logger.info(
+                                "Added missing deleted_at column to tickets"
+                            )
                         except sqlite3.OperationalError as e:
                             if "duplicate column name" not in str(e).lower():
                                 raise

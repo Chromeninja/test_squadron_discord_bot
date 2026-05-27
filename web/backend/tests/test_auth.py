@@ -2,9 +2,9 @@
 Tests for authentication endpoints.
 """
 
-import httpx
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from core.security import (
     create_session_token_async,

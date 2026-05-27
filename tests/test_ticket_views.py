@@ -233,10 +233,11 @@ class TestTicketPanelView:
 
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
+        assert interaction.guild is not None
         # Should have called get_categories_for_channel with the panel channel
         bot.services.ticket.get_categories_for_channel.assert_called_once_with(
             interaction.guild.id,
-            8001,  # type: ignore[union-attr]
+            8001,
         )
 
     @pytest.mark.asyncio

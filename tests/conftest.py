@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
-from tests.test_helpers import FakeInteraction, FakeUser
+from tests.test_helpers import FakeInteraction, FakeUser  # noqa: F401
 
 
 @pytest.fixture

@@ -33,6 +33,7 @@ from discord.ui import (
     View,
 )
 
+from helpers.discord_api import guild_thread_exists
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
 from services.ticket_service import (
@@ -521,6 +522,13 @@ class TicketPanelView(View):
         guild_id = interaction.guild.id
         ticket_service = self.bot.services.ticket
         config_service = self.bot.services.config
+        guild = interaction.guild
+
+        await ticket_service.reconcile_missing_open_tickets(
+            guild_id,
+            lambda thread_id: guild_thread_exists(guild, thread_id),
+            limit=20,
+        )
 
         # --- Rate-limit check ---
         allowed = await ticket_service.check_rate_limit(guild_id, interaction.user.id)
