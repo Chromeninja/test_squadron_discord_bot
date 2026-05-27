@@ -152,11 +152,13 @@ class TicketCommands(commands.GroupCog, name="tickets"):
     async def _reconcile_missing_open_tickets(
         self,
         guild: discord.Guild,
+        limit: int | None = None,
     ) -> dict[str, int]:
         """Reconcile open ticket rows whose Discord threads are missing."""
         return await self.ticket_service.reconcile_missing_open_tickets(
             guild.id,
             lambda thread_id: guild_thread_exists(guild, thread_id),
+            limit=limit,
         )
 
     # ------------------------------------------------------------------
@@ -193,7 +195,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         """
         for guild in self.bot.guilds:
             try:
-                await self._reconcile_missing_open_tickets(guild)
+                await self._reconcile_missing_open_tickets(guild, limit=50)
                 health = await self.ticket_service.get_thread_health(guild.id)
                 status = health["status"]
 
@@ -569,10 +571,19 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             )
 
         if not candidates and not missing_open:
-            noun = "closed tickets" if not include_open else "tickets to repair"
+            if include_open:
+                description = (
+                    f"No closed ticket threads older than {max(older_than, 30)} days "
+                    "or stale open ticket rows found."
+                )
+            else:
+                description = (
+                    f"No closed ticket threads older than {max(older_than, 30)} days "
+                    "found."
+                )
             embed = create_embed(
                 title="🧹 Cleanup — Nothing to do",
-                description=(f"No {noun} older than {max(older_than, 30)} days found."),
+                description=description,
                 color=EmbedColors.INFO,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)

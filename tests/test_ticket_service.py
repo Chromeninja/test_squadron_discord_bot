@@ -8,6 +8,7 @@ Uses the ``temp_db`` fixture from conftest so each test gets an isolated databas
 from __future__ import annotations
 
 import time
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1385,6 +1386,44 @@ class TestThreadHealth:
         assert ticket["status"] == "closed"
         assert ticket["deleted_at"] is not None
         assert ticket["closed_by"] == 0
+
+    @pytest.mark.asyncio
+    async def test_reconcile_missing_open_tickets_reuses_open_ticket_query(
+        self,
+        ticket_svc: TicketService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Reconciling uses the same open-ticket slice for checks and repairs."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23503, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23504, USER_ID)
+        original_get_open_tickets = ticket_svc.get_open_tickets
+        calls = 0
+
+        async def counted_get_open_tickets(
+            guild_id: int,
+            user_id: int | None = None,
+        ) -> list[dict[str, Any]]:
+            nonlocal calls
+            calls += 1
+            return await original_get_open_tickets(guild_id, user_id)
+
+        monkeypatch.setattr(
+            ticket_svc,
+            "get_open_tickets",
+            counted_get_open_tickets,
+        )
+
+        report = await ticket_svc.reconcile_missing_open_tickets(
+            GUILD_ID,
+            lambda thread_id: False,
+            limit=1,
+        )
+
+        assert calls == 1
+        assert report["checked"] == 1
+        assert report["missing"] == 1
+        assert report["reconciled"] == 1
+        assert report["failed"] == 0
 
     @pytest.mark.asyncio
     async def test_get_oldest_closed_tickets(self, ticket_svc: TicketService) -> None:

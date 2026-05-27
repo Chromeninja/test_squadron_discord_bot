@@ -997,6 +997,20 @@ class TicketService(BaseService):
         if limit is not None:
             tickets = tickets[:limit]
 
+        return await self._find_missing_open_tickets(
+            guild_id,
+            tickets,
+            thread_exists,
+        )
+
+    async def _find_missing_open_tickets(
+        self,
+        guild_id: int,
+        tickets: list[dict[str, Any]],
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+    ) -> list[dict[str, Any]]:
+        """Return already-fetched open tickets whose Discord threads are missing."""
+
         missing: list[dict[str, Any]] = []
         for ticket in tickets:
             thread_id = int(ticket["thread_id"])
@@ -1025,10 +1039,10 @@ class TicketService(BaseService):
         if limit is not None:
             open_tickets = open_tickets[:limit]
 
-        missing = await self.get_missing_open_tickets(
+        missing = await self._find_missing_open_tickets(
             guild_id,
+            open_tickets,
             thread_exists,
-            limit=limit,
         )
 
         reconciled = 0

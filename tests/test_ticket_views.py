@@ -692,6 +692,8 @@ class TestTicketPanelMaxOpen:
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
 
         bot.services.ticket.reconcile_missing_open_tickets.assert_awaited_once()
+        call_kwargs = bot.services.ticket.reconcile_missing_open_tickets.call_args.kwargs
+        assert call_kwargs["limit"] == 20
 
 
 # ---------------------------------------------------------------------------

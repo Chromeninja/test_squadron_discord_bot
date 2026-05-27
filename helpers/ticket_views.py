@@ -499,6 +499,7 @@ class TicketPanelView(View):
         await ticket_service.reconcile_missing_open_tickets(
             guild_id,
             lambda thread_id: guild_thread_exists(guild, thread_id),
+            limit=20,
         )
 
         # --- Rate-limit check ---

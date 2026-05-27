@@ -62,6 +62,7 @@ def _make_bot() -> MagicMock:
     )
     ts.get_oldest_closed_tickets = AsyncMock(return_value=[])
     ts.get_cleanup_candidates = AsyncMock(return_value=[])
+    ts.get_missing_open_tickets = AsyncMock(return_value=[])
     ts.mark_thread_deleted = AsyncMock(return_value=True)
     ts.reconcile_missing_open_tickets = AsyncMock(
         return_value={
@@ -225,6 +226,32 @@ class TestTicketCommandsCleanup:
         assert "Nothing to do" in embed.title
 
     @pytest.mark.asyncio
+    async def test_cleanup_include_open_no_candidates_names_both_sets(self) -> None:
+        """Dry run with open repair enabled names closed and stale-open checks."""
+        bot = _make_bot()
+        bot.services.ticket.get_cleanup_candidates = AsyncMock(return_value=[])
+        bot.services.ticket.get_missing_open_tickets = AsyncMock(return_value=[])
+
+        with patch("cogs.tickets.commands.spawn"):
+            from cogs.tickets.commands import TicketCommands
+
+            cog = TicketCommands(bot)
+
+        interaction = _interaction_with_guild()
+        cleanup_callback: Any = cog.cleanup.callback
+        await cleanup_callback(
+            cog,
+            interaction,
+            older_than=30,
+            dry_run=True,
+            include_open=True,
+        )
+
+        embed = interaction.followup.send.call_args.kwargs["embed"]
+        assert "closed ticket threads older than 30 days" in embed.description
+        assert "stale open ticket rows" in embed.description
+
+    @pytest.mark.asyncio
     async def test_cleanup_dry_run_with_candidates(self) -> None:
         """Dry run with candidates shows preview list."""
         bot = _make_bot()
@@ -349,6 +376,9 @@ class TestThreadHealthCheckTask:
 
         # No alert level should be stored
         assert guild.id not in cog._last_alert_level
+        bot.services.ticket.reconcile_missing_open_tickets.assert_awaited_once()
+        call_kwargs = bot.services.ticket.reconcile_missing_open_tickets.call_args.kwargs
+        assert call_kwargs["limit"] == 50
 
     @pytest.mark.asyncio
     async def test_warning_status_sends_alert(self) -> None:
