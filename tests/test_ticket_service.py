@@ -654,6 +654,21 @@ class TestMaxOpenTickets:
         assert count == 2
 
     @pytest.mark.asyncio
+    async def test_get_open_ticket_count_excludes_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Deleted ticket threads do not count as open tickets."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21011, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21012, USER_ID)
+
+        deleted = await ticket_svc.mark_thread_deleted(21011)
+
+        count = await ticket_svc.get_open_ticket_count(GUILD_ID, USER_ID)
+
+        assert deleted is True
+        assert count == 1
+
+    @pytest.mark.asyncio
     async def test_check_max_open_tickets_under_limit(self, ticket_svc: TicketService) -> None:
         """User under the limit can open another ticket."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 22001, USER_ID)
@@ -673,6 +688,26 @@ class TestMaxOpenTickets:
         for i in range(DEFAULT_MAX_OPEN_PER_USER):
             await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24000 + i, USER_ID)
         assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID) is False
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_ignores_deleted_threads(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """A deleted thread no longer blocks creating another ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24010, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24011, USER_ID)
+
+        blocked_before = await ticket_svc.check_max_open_tickets(
+            GUILD_ID, USER_ID, max_open=2
+        )
+        deleted = await ticket_svc.mark_thread_deleted(24010)
+        allowed_after = await ticket_svc.check_max_open_tickets(
+            GUILD_ID, USER_ID, max_open=2
+        )
+
+        assert blocked_before is False
+        assert deleted is True
+        assert allowed_after is True
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import asyncio
 import json
 import sqlite3
 import time
-from typing import Any
+from typing import Any, cast
 
 from helpers.role_ids import normalize_role_id_list
 from services.base import BaseService
@@ -392,7 +392,8 @@ class TicketService(BaseService):
         result: list[int] = []
         for row in rows:
             try:
-                val = row["channel_id"] if isinstance(row, dict) else row[0]
+                row_data = cast("Any", row)
+                val = row_data["channel_id"]
                 result.append(int(val))
             except (TypeError, ValueError, KeyError, IndexError):
                 continue
@@ -918,7 +919,7 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
-        where = "WHERE guild_id = ? AND status = 'open'"
+        where = "WHERE guild_id = ? AND status = 'open' AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if user_id is not None:
             where += " AND user_id = ?"
@@ -992,8 +993,9 @@ class TicketService(BaseService):
         )
         counts: dict[str, int] = {"open": 0, "closed": 0}
         for row in rows:
-            status = row["status"] if isinstance(row, dict) else row[0]
-            cnt = row["cnt"] if isinstance(row, dict) else row[1]
+            row_data = cast("Any", row)
+            status = row_data["status"]
+            cnt = row_data["cnt"]
             if status in counts:
                 counts[status] = int(cnt)
         return {
@@ -1042,9 +1044,10 @@ class TicketService(BaseService):
             (guild_id,),
         )
         row = rows[0] if rows else None
-        active = int((row["active"] if isinstance(row, dict) else row[0]) or 0) if row else 0
-        archived = int((row["archived"] if isinstance(row, dict) else row[1]) or 0) if row else 0
-        deleted = int((row["deleted"] if isinstance(row, dict) else row[2]) or 0) if row else 0
+        row_data = cast("Any", row) if row is not None else None
+        active = int((row_data["active"] if row_data is not None else 0) or 0)
+        archived = int((row_data["archived"] if row_data is not None else 0) or 0)
+        deleted = int((row_data["deleted"] if row_data is not None else 0) or 0)
         total_threads = active + archived
         usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
 
@@ -1334,22 +1337,18 @@ class TicketService(BaseService):
             so compatibility ALTER logic has a single source of truth.
             Uses double-checked locking to prevent concurrent runs.
         """
-        if self._category_schema_checked:
-            return
+        if not self._category_schema_checked:
+            async with self._schema_lock:
+                if not self._category_schema_checked:
+                    async with Database.get_connection() as db:
+                        try:
+                            await ensure_ticket_schema_compatibility(db)
+                            await db.commit()
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-        async with self._schema_lock:
-            if self._category_schema_checked:
-                return
-
-            async with Database.get_connection() as db:
-                try:
-                    await ensure_ticket_schema_compatibility(db)
-                    await db.commit()
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
-
-            self._category_schema_checked = True
+                    self._category_schema_checked = True
 
     async def _ensure_ticket_schema_compatibility(self) -> None:
         """Ensure ``deleted_at`` column exists on older DBs.
@@ -1359,50 +1358,42 @@ class TicketService(BaseService):
             Only runs once per process lifetime.  Uses double-checked
             locking via ``_schema_lock``.
         """
-        if self._ticket_schema_checked:
-            return
+        if not self._ticket_schema_checked:
+            async with self._schema_lock:
+                if not self._ticket_schema_checked:
+                    rows = await BaseRepository.fetch_all("PRAGMA table_info(tickets)")
+                    column_names = {
+                        self.extract_column_name(row)
+                        for row in rows
+                        if self.extract_column_name(row)
+                    }
 
-        async with self._schema_lock:
-            if self._ticket_schema_checked:
-                return
+                    if "deleted_at" not in column_names:
+                        try:
+                            await BaseRepository.execute(
+                                "ALTER TABLE tickets "
+                                "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
+                            )
+                            self.logger.info("Added missing deleted_at column to tickets")
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e).lower():
+                                raise
 
-            rows = await BaseRepository.fetch_all("PRAGMA table_info(tickets)")
-            column_names = {
-                self.extract_column_name(row)
-                for row in rows
-                if self.extract_column_name(row)
-            }
-
-            if "deleted_at" not in column_names:
-                try:
-                    await BaseRepository.execute(
-                        "ALTER TABLE tickets "
-                        "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
-                    )
-                    self.logger.info("Added missing deleted_at column to tickets")
-                except sqlite3.OperationalError as e:
-                    if "duplicate column name" not in str(e).lower():
-                        raise
-
-            self._ticket_schema_checked = True
+                    self._ticket_schema_checked = True
 
     async def _ensure_channel_config_schema_compatibility(self) -> None:
         """Ensure public button columns exist on older DBs."""
-        if self._channel_config_schema_checked:
-            return
-
-        async with self._schema_lock:
-            if self._channel_config_schema_checked:
-                return
-
-            rows = await BaseRepository.fetch_all(
-                "PRAGMA table_info(ticket_channel_configs)"
-            )
-            column_names = {
-                self.extract_column_name(row)
-                for row in rows
-                if self.extract_column_name(row)
-            }
+        if not self._channel_config_schema_checked:
+            async with self._schema_lock:
+                if not self._channel_config_schema_checked:
+                    rows = await BaseRepository.fetch_all(
+                        "PRAGMA table_info(ticket_channel_configs)"
+                    )
+                    column_names = {
+                        self.extract_column_name(row)
+                        for row in rows
+                        if self.extract_column_name(row)
+                    }
 
             if "enable_public_button" not in column_names:
                 try:
@@ -1633,6 +1624,7 @@ class TicketService(BaseService):
             """
             SELECT COUNT(*) FROM tickets
             WHERE guild_id = ? AND user_id = ? AND status = 'open'
+                AND deleted_at IS NULL
             """,
             (guild_id, user_id),
             default=0,
