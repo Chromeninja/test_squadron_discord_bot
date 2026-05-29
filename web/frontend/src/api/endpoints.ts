@@ -10,6 +10,8 @@ import { triggerBlobDownload, extractFilename } from '../utils/download';
 export interface GuildPermission {
   guild_id: string;
   role_level: RoleLevel;
+  base_role_level?: RoleLevel | null;
+  assumed_role_level?: RoleLevel | null;
   source: string;
 }
 
@@ -484,6 +486,19 @@ export const authApi = {
     const response = await apiClient.post<{ success: boolean }>(
       '/api/auth/select-guild',
       { guild_id: guildId }
+    );
+    return response.data;
+  },
+  assumeRole: async (roleLevel: RoleLevel) => {
+    const response = await apiClient.post<{ success: boolean; user: UserProfile | null }>(
+      '/api/auth/assume-role',
+      { role_level: roleLevel }
+    );
+    return response.data;
+  },
+  clearAssumedRole: async () => {
+    const response = await apiClient.delete<{ success: boolean; user: UserProfile | null }>(
+      '/api/auth/assume-role'
     );
     return response.data;
   },

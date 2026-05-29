@@ -20,7 +20,12 @@ if TYPE_CHECKING:
 
 from .internal_api_client import InternalAPIClient, get_internal_api_client
 from .request_id import get_request_id
-from .schemas import GuildPermission, UserProfile
+from .role_utils import (
+    normalize_authorized_guilds,
+    normalize_session_user_data,
+    update_guild_base_role,
+)
+from .schemas import UserProfile
 from .security import (
     SESSION_COOKIE_NAME,
     clear_session_cookie,
@@ -76,20 +81,11 @@ async def get_current_user(
         logger.warning("get_current_user: invalid or expired session token")
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
+    user_data = normalize_session_user_data(user_data)
     if "authorized_guilds" in user_data:
-        authorized_guilds_data = user_data["authorized_guilds"] or {}
-        authorized_guilds: dict[str, GuildPermission] = {}
-        for guild_id, perm_data in authorized_guilds_data.items():
-            if isinstance(perm_data, GuildPermission):
-                authorized_guilds[guild_id] = perm_data
-            elif isinstance(perm_data, dict):
-                authorized_guilds[guild_id] = GuildPermission(**perm_data)
-            else:
-                logger.warning(
-                    "get_current_user: skipping invalid guild permission entry",
-                    extra={"guild_id": guild_id, "type": type(perm_data).__name__},
-                )
-        user_data["authorized_guilds"] = authorized_guilds
+        user_data["authorized_guilds"] = normalize_authorized_guilds(
+            user_data.get("authorized_guilds") or {}
+        )
 
     return UserProfile(**user_data)
 
@@ -320,9 +316,17 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915
             continue
 
         roles_validated_at[guild_id_str] = now_ts
-        authorized_map[guild_id_str]["role_level"] = role_level
+        authorized_map[guild_id_str] = update_guild_base_role(
+            authorized_map[guild_id_str],
+            guild_id_str,
+            role_level,
+        ).model_dump()
         if guild_id_str in current_user.authorized_guilds:
-            current_user.authorized_guilds[guild_id_str].role_level = role_level
+            current_user.authorized_guilds[guild_id_str] = update_guild_base_role(
+                current_user.authorized_guilds[guild_id_str],
+                guild_id_str,
+                role_level,
+            )
         session_mutated = True
 
     if removed:
@@ -335,7 +339,9 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915
             user_data["active_guild_id"] = None
             current_user.active_guild_id = None
 
-    user_data["authorized_guilds"] = authorized_map
+    user_data["authorized_guilds"] = normalize_session_user_data(
+        {"authorized_guilds": authorized_map}
+    )["authorized_guilds"]
     user_data["roles_validated_at"] = roles_validated_at
 
     if session_mutated:

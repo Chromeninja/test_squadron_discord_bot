@@ -14,43 +14,13 @@ from fastapi import Cookie, Depends, HTTPException, Request, Response
 
 from .auth import _ensure_fresh_guild_access, get_current_user
 from .internal_api_client import InternalAPIClient, get_internal_api_client
+from .role_utils import _has_minimum_role, get_active_guild_permission
 from .security import SESSION_COOKIE_NAME
 
 if TYPE_CHECKING:
     from .schemas import UserProfile
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Role hierarchy
-# ---------------------------------------------------------------------------
-
-# Higher number = higher privilege.
-ROLE_HIERARCHY: dict[str, int] = {
-    "bot_owner": 7,
-    "bot_admin": 6,
-    "discord_manager": 5,
-    "moderator": 4,
-    "event_coordinator": 3,
-    "staff": 2,
-    "user": 1,
-}
-
-
-def _has_minimum_role(user_role: str, required_role: str) -> bool:
-    """Check if user's role meets minimum requirement.
-
-    Args:
-        user_role: User's role level
-        required_role: Minimum required role level
-
-    Returns:
-        True if user_role >= required_role in hierarchy
-    """
-    user_level = ROLE_HIERARCHY.get(user_role, 0)
-    required_level = ROLE_HIERARCHY.get(required_role, 0)
-    return user_level >= required_level
-
 
 # ---------------------------------------------------------------------------
 # Permission dependency factory
@@ -103,7 +73,7 @@ def require_guild_permission(min_role: str):
         if not current_user.active_guild_id:
             raise HTTPException(status_code=400, detail="No active guild selected")
 
-        guild_perm = current_user.authorized_guilds.get(current_user.active_guild_id)
+        guild_perm = get_active_guild_permission(current_user)
 
         if not guild_perm:
             raise HTTPException(

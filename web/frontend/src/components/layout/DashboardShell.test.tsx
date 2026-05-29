@@ -9,6 +9,8 @@ const { authApi, guildApi, useIsMobile } = vi.hoisted(() => ({
     clearActiveGuild: vi.fn(),
     getGuilds: vi.fn(),
     selectGuild: vi.fn(),
+    assumeRole: vi.fn(),
+    clearAssumedRole: vi.fn(),
   },
   guildApi: {
     getGuildConfig: vi.fn(),
@@ -41,6 +43,25 @@ function createUser() {
         guild_id: '123',
         role_level: 'event_coordinator' as const,
         source: 'event_coordinator_role',
+      },
+    },
+  };
+}
+
+function createBotOwnerUser() {
+  return {
+    user_id: '246604397155581954',
+    username: 'Owner',
+    discriminator: '0001',
+    avatar: null,
+    active_guild_id: '123',
+    is_bot_owner: true,
+    authorized_guilds: {
+      '123': {
+        guild_id: '123',
+        role_level: 'bot_owner' as const,
+        base_role_level: 'bot_owner' as const,
+        source: 'bot_owner',
       },
     },
   };
@@ -85,6 +106,8 @@ describe('DashboardShell Events Navigation', () => {
       ],
     });
     vi.mocked(authApi.selectGuild).mockResolvedValue({ success: true });
+    vi.mocked(authApi.assumeRole).mockResolvedValue({ success: true, user: null });
+    vi.mocked(authApi.clearAssumedRole).mockResolvedValue({ success: true, user: null });
   });
 
   it('shows the event workspace sidebar items when the event module is enabled', async () => {
@@ -112,8 +135,7 @@ describe('DashboardShell Events Navigation', () => {
     });
 
     expect(screen.getByRole('link', { name: 'Events' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Drafts' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Recurring' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Past Events' })).toBeInTheDocument();
   });
 
   it('hides the event workspace sidebar items when the event module is disabled', async () => {
@@ -153,8 +175,7 @@ describe('DashboardShell Events Navigation', () => {
     });
 
     expect(screen.queryByRole('link', { name: 'Events' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Drafts' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Recurring' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Past Events' })).not.toBeInTheDocument();
   });
 
   it('opens a workspace dropdown with available guilds', async () => {
@@ -257,5 +278,37 @@ describe('DashboardShell Events Navigation', () => {
 
     expect(screen.getByRole('menu', { name: 'User options' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+  });
+
+  it('lets bot owners assume a lower role from the user menu', async () => {
+    const onRefreshProfile = vi.fn(async () => {});
+    vi.mocked(authApi.assumeRole).mockResolvedValue({ success: true, user: createBotOwnerUser() });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <DashboardShell
+                user={createBotOwnerUser()}
+                onUserChange={vi.fn()}
+                onRefreshProfile={onRefreshProfile}
+              />
+            }
+          >
+            <Route index element={<div>Dashboard Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open user menu' }));
+    fireEvent.change(screen.getByLabelText('Switch role'), { target: { value: 'staff' } });
+
+    await waitFor(() => {
+      expect(authApi.assumeRole).toHaveBeenCalledWith('staff');
+    });
+    expect(onRefreshProfile).not.toHaveBeenCalled();
   });
 });

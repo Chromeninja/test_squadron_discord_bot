@@ -232,8 +232,6 @@ from .internal_api_client import (
     translate_internal_api_error,
 )
 from .permissions import (
-    ROLE_HIERARCHY,
-    _has_minimum_role,
     require_bot_admin,
     require_bot_owner,
     require_discord_manager,
@@ -243,6 +241,7 @@ from .permissions import (
     require_moderator,
     require_staff,
 )
+from .role_utils import ROLE_HIERARCHY, _has_minimum_role
 
 __all__ = [
     "INTERNAL_API_TIMEOUT_SECONDS",

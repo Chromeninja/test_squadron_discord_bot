@@ -47,6 +47,165 @@ async def test_auth_me_with_admin_session(client: AsyncClient, mock_admin_sessio
 
 
 @pytest.mark.asyncio
+async def test_assume_role_downgrades_bot_owner_session(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bot owners should be able to assume lower roles for dashboard testing."""
+    audit_calls: list[dict] = []
+
+    async def fake_log_admin_action(**kwargs) -> None:
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr("routes.auth.log_admin_action", fake_log_admin_action)
+
+    owner_session = await create_session_token_async(
+        {
+            "user_id": "246604397155581954",
+            "username": "TestOwner",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": "123",
+            "is_bot_owner": True,
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "bot_owner",
+                    "source": "bot_owner",
+                }
+            },
+        }
+    )
+
+    response = await client.post(
+        "/api/auth/assume-role",
+        json={"role_level": "staff"},
+        cookies={"session": owner_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    permission = data["user"]["authorized_guilds"]["123"]
+    assert permission["base_role_level"] == "bot_owner"
+    assert permission["assumed_role_level"] == "staff"
+    assert permission["role_level"] == "staff"
+
+    new_session = response.cookies.get("session")
+    assert new_session
+    decoded = await decode_session_token(new_session)
+    assert decoded is not None
+    assert decoded["authorized_guilds"]["123"]["assumed_role_level"] == "staff"
+    assert audit_calls == [
+        {
+            "admin_user_id": 246604397155581954,
+            "guild_id": 123,
+            "action": "ASSUME_DASHBOARD_ROLE",
+            "details": {"base_role": "bot_owner", "assumed_role": "staff"},
+            "status": "success",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_clear_assumed_role_restores_bot_owner_session(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Clearing an assumed role should restore the base effective role."""
+    audit_calls: list[dict] = []
+
+    async def fake_log_admin_action(**kwargs) -> None:
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr("routes.auth.log_admin_action", fake_log_admin_action)
+
+    owner_session = await create_session_token_async(
+        {
+            "user_id": "246604397155581954",
+            "username": "TestOwner",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": "123",
+            "is_bot_owner": True,
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "staff",
+                    "base_role_level": "bot_owner",
+                    "assumed_role_level": "staff",
+                    "source": "bot_owner",
+                }
+            },
+        }
+    )
+
+    response = await client.delete(
+        "/api/auth/assume-role",
+        cookies={"session": owner_session},
+    )
+
+    assert response.status_code == 200
+    permission = response.json()["user"]["authorized_guilds"]["123"]
+    assert permission["base_role_level"] == "bot_owner"
+    assert permission["assumed_role_level"] is None
+    assert permission["role_level"] == "bot_owner"
+    assert audit_calls == [
+        {
+            "admin_user_id": 246604397155581954,
+            "guild_id": 123,
+            "action": "CLEAR_ASSUMED_DASHBOARD_ROLE",
+            "details": {"base_role": "bot_owner"},
+            "status": "success",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_assume_role_rejects_non_bot_owner(
+    client: AsyncClient,
+    mock_admin_session: str,
+) -> None:
+    """Only bot owners can assume dashboard roles."""
+    response = await client.post(
+        "/api/auth/assume-role",
+        json={"role_level": "staff"},
+        cookies={"session": mock_admin_session},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assume_role_rejects_bot_owner_target(client: AsyncClient) -> None:
+    """Role switching should not allow assuming bot_owner as a target."""
+    owner_session = await create_session_token_async(
+        {
+            "user_id": "246604397155581954",
+            "username": "TestOwner",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": "123",
+            "is_bot_owner": True,
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "bot_owner",
+                    "source": "bot_owner",
+                }
+            },
+        }
+    )
+
+    response = await client.post(
+        "/api/auth/assume-role",
+        json={"role_level": "bot_owner"},
+        cookies={"session": owner_session},
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_auth_me_with_moderator_session(
     client: AsyncClient, mock_moderator_session: str
 ):

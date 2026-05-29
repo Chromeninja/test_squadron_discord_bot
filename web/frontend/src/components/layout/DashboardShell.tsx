@@ -13,7 +13,9 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { cn } from '../../utils/cn';
 import {
+  getPermissionBaseRole,
   getRoleDisplayName,
+  getSwitchableRoles,
   hasPermission,
   type RoleLevel,
 } from '../../utils/permissions';
@@ -161,6 +163,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [guildListLoading, setGuildListLoading] = useState(false);
   const [switchingGuildId, setSwitchingGuildId] = useState<string | null>(null);
+  const [switchingRoleLevel, setSwitchingRoleLevel] = useState<RoleLevel | 'clear' | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -415,14 +418,77 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
     }
   };
 
-  const roleSubtext = (() => {
-    if (user.is_bot_owner) {
-      return 'Bot Owner';
+  const activeGuildPermission = user.active_guild_id
+    ? user.authorized_guilds?.[user.active_guild_id]
+    : null;
+  const baseRoleLevel = getPermissionBaseRole(activeGuildPermission);
+  const effectiveRoleLevel = activeGuildPermission?.role_level || 'user';
+  const assumedRoleLevel = activeGuildPermission?.assumed_role_level || null;
+  const switchableRoles = getSwitchableRoles(baseRoleLevel);
+  const canSwitchRole = Boolean(
+    user.is_bot_owner &&
+      user.active_guild_id &&
+      user.active_guild_id !== ALL_GUILDS_SENTINEL &&
+      activeGuildPermission,
+  );
+
+  const handleAssumeRole = async (roleLevel: RoleLevel) => {
+    if (roleLevel === effectiveRoleLevel) {
+      return;
     }
 
+    setSwitchingRoleLevel(roleLevel);
+    try {
+      const response = await authApi.assumeRole(roleLevel);
+      if (response.user) {
+        onUserChange(response.user);
+      } else {
+        await onRefreshProfile();
+      }
+      setUserMenuOpen(false);
+    } catch (err) {
+      handleApiError(err, 'Failed to switch role');
+    } finally {
+      setSwitchingRoleLevel(null);
+    }
+  };
+
+  const handleClearAssumedRole = async () => {
+    setSwitchingRoleLevel('clear');
+    try {
+      const response = await authApi.clearAssumedRole();
+      if (response.user) {
+        onUserChange(response.user);
+      } else {
+        await onRefreshProfile();
+      }
+      setUserMenuOpen(false);
+    } catch (err) {
+      handleApiError(err, 'Failed to reset role');
+    } finally {
+      setSwitchingRoleLevel(null);
+    }
+  };
+
+  const handleRoleSelectChange = (roleLevel: RoleLevel) => {
+    if (roleLevel === baseRoleLevel) {
+      if (assumedRoleLevel) {
+        void handleClearAssumedRole();
+      }
+      return;
+    }
+
+    void handleAssumeRole(roleLevel);
+  };
+
+  const roleSubtext = (() => {
     if (user.active_guild_id && user.authorized_guilds?.[user.active_guild_id]) {
-      const level = user.authorized_guilds[user.active_guild_id].role_level;
-      return getRoleDisplayName(level);
+      const label = getRoleDisplayName(effectiveRoleLevel);
+      return assumedRoleLevel ? `Assuming ${label}` : label;
+    }
+
+    if (user.is_bot_owner) {
+      return 'Bot Owner';
     }
 
     if (user.is_admin) {
@@ -679,6 +745,46 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
                   <HomeIcon className="h-4 w-4 flex-none text-[#ffbb00]/75" />
                   <span className="grow py-1">Public Home</span>
                 </button>
+                {canSwitchRole ? (
+                  <div
+                    className="border-y border-[#ffbb00]/12 px-2.5 py-2"
+                    role="group"
+                    aria-label="Role switch controls"
+                  >
+                    <label
+                      htmlFor="dashboard-role-switch"
+                      className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ffbb00]/55"
+                    >
+                      Switch Role
+                    </label>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <select
+                        id="dashboard-role-switch"
+                        aria-label="Switch role"
+                        value={effectiveRoleLevel}
+                        disabled={switchingRoleLevel !== null}
+                        onChange={(event) => handleRoleSelectChange(event.target.value as RoleLevel)}
+                        className="min-w-0 flex-1 rounded-xl border border-[#ffbb00]/20 bg-[#120d00] px-2.5 py-2 text-sm font-medium text-[#fff1bf] outline-none transition hover:border-[#ffbb00]/35 focus:border-[#ffbb00]/60 focus:ring-2 focus:ring-[#ffbb00]/20 disabled:cursor-wait disabled:opacity-70"
+                      >
+                        <option value={baseRoleLevel}>{getRoleDisplayName(baseRoleLevel)}</option>
+                        {switchableRoles.map((roleLevel) => (
+                          <option key={roleLevel} value={roleLevel}>
+                            {getRoleDisplayName(roleLevel)}
+                          </option>
+                        ))}
+                      </select>
+                      {switchingRoleLevel !== null ? (
+                        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffcc4d]/80">
+                          {switchingRoleLevel === 'clear' ? 'Resetting...' : 'Switching...'}
+                        </span>
+                      ) : assumedRoleLevel ? (
+                        <span className="shrink-0 rounded-full border border-[#ffbb00]/20 bg-[#ffbb00]/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#ffdd73]">
+                          Active
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"

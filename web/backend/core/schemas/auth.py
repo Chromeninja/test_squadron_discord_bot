@@ -20,6 +20,8 @@ class GuildPermission(BaseModel):
     role_level: (
         str  # One of: bot_owner, bot_admin, discord_manager, event_coordinator, moderator, staff, user
     )
+    base_role_level: str | None = None
+    assumed_role_level: str | None = None
     source: str  # How permission was granted: bot_owner, discord_owner, discord_administrator, bot_admin_role, discord_manager_role, event_coordinator_role, moderator_role, staff_role
 
 
@@ -69,3 +71,9 @@ class SelectGuildResponse(BaseModel):
     """Response payload when a guild selection succeeds."""
 
     success: bool = True
+
+
+class AssumeRoleRequest(BaseModel):
+    """Request payload for bot-owner role switching within the active guild."""
+
+    role_level: str

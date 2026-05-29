@@ -25,9 +25,16 @@ from core.env_config import (
     FRONTEND_URL,
 )
 from core.rate_limit import limiter
+from core.role_utils import (
+    clear_guild_assumed_role,
+    normalize_session_user_data,
+    set_guild_assumed_role,
+)
 from core.schemas import (
+    AssumeRoleRequest,
     AuthMeResponse,
     GuildListResponse,
+    GuildPermission,
     GuildSummary,
     SelectGuildRequest,
     SelectGuildResponse,
@@ -44,6 +51,8 @@ from core.security import (
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+
+from helpers.audit import log_admin_action
 
 router = APIRouter()
 api_router = APIRouter()
@@ -129,6 +138,23 @@ def _sanitize_next_path(next_path: str | None) -> str:
         return "/"
 
     return next_path
+
+
+def _get_active_role_switch_permission(
+    current_user: UserProfile,
+) -> tuple[str, GuildPermission]:
+    """Return the active guild permission for bot-owner role switching."""
+    from core.pagination import ALL_GUILDS_SENTINEL
+
+    active_guild_id = current_user.active_guild_id
+    if not active_guild_id or active_guild_id == ALL_GUILDS_SENTINEL:
+        raise HTTPException(status_code=400, detail="No active guild selected")
+
+    permission = current_user.authorized_guilds.get(active_guild_id)
+    if permission is None:
+        raise HTTPException(status_code=403, detail="Not authorized for active guild")
+
+    return active_guild_id, permission
 
 
 @router.get("/login")
@@ -506,8 +532,80 @@ async def get_me(session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME)):
     if not user_data:
         return AuthMeResponse(success=True, user=None)
 
-    user = UserProfile(**user_data)
+    user = UserProfile(**normalize_session_user_data(user_data))
     return AuthMeResponse(success=True, user=user)
+
+
+@api_router.post("/assume-role", response_model=AuthMeResponse)
+async def assume_role(
+    payload: AssumeRoleRequest,
+    response: Response,
+    current_user: UserProfile = Depends(require_is_bot_owner),
+):
+    """Assume a lower dashboard role for the active guild."""
+    active_guild_id, permission = _get_active_role_switch_permission(current_user)
+
+    try:
+        updated_permission = set_guild_assumed_role(
+            permission,
+            active_guild_id,
+            payload.role_level,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session_payload = current_user.model_dump()
+    session_payload["authorized_guilds"][active_guild_id] = updated_permission.model_dump()
+    session_payload = normalize_session_user_data(session_payload)
+    await set_session_cookie(response, session_payload)
+    await log_admin_action(
+        admin_user_id=int(current_user.user_id),
+        guild_id=int(active_guild_id),
+        action="ASSUME_DASHBOARD_ROLE",
+        details={
+            "base_role": updated_permission.base_role_level,
+            "assumed_role": updated_permission.assumed_role_level,
+        },
+        status="success",
+    )
+
+    logger.info(
+        "Bot owner assumed dashboard role",
+        extra={
+            "user_id": current_user.user_id,
+            "guild_id": active_guild_id,
+            "assumed_role": updated_permission.assumed_role_level,
+        },
+    )
+    return AuthMeResponse(success=True, user=UserProfile(**session_payload))
+
+
+@api_router.delete("/assume-role", response_model=AuthMeResponse)
+async def clear_assumed_role(
+    response: Response,
+    current_user: UserProfile = Depends(require_is_bot_owner),
+):
+    """Clear any assumed role for the active guild."""
+    active_guild_id, permission = _get_active_role_switch_permission(current_user)
+
+    updated_permission = clear_guild_assumed_role(permission, active_guild_id)
+    session_payload = current_user.model_dump()
+    session_payload["authorized_guilds"][active_guild_id] = updated_permission.model_dump()
+    session_payload = normalize_session_user_data(session_payload)
+    await set_session_cookie(response, session_payload)
+    await log_admin_action(
+        admin_user_id=int(current_user.user_id),
+        guild_id=int(active_guild_id),
+        action="CLEAR_ASSUMED_DASHBOARD_ROLE",
+        details={"base_role": updated_permission.base_role_level},
+        status="success",
+    )
+
+    logger.info(
+        "Bot owner cleared assumed dashboard role",
+        extra={"user_id": current_user.user_id, "guild_id": active_guild_id},
+    )
+    return AuthMeResponse(success=True, user=UserProfile(**session_payload))
 
 
 @api_router.get("/guilds", response_model=GuildListResponse)

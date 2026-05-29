@@ -1,6 +1,7 @@
 """Pydantic schemas for API request/response models."""
 
 from .auth import (
+    AssumeRoleRequest,
     AuthMeResponse,
     GuildListResponse,
     GuildPermission,
@@ -122,8 +123,9 @@ from .voice import (
     VoiceUserSettingsSearchResponse,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - grouped by schema module for readability
     # auth
+    "AssumeRoleRequest",
     "AuthMeResponse",
     "GuildListResponse",
     "GuildPermission",

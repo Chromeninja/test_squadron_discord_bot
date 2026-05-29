@@ -1,6 +1,6 @@
 /**
  * Permission hierarchy utilities for frontend role-based access control.
- * 
+ *
  * Matches backend permission levels from core/dependencies.py
  */
 
@@ -22,11 +22,11 @@ export const ROLE_HIERARCHY: Record<RoleLevel, number> = {
 
 /**
  * Check if a user's role meets the minimum required level.
- * 
+ *
  * @param userRole - The user's current role level
  * @param requiredRole - The minimum required role level
  * @returns true if user has sufficient permissions
- * 
+ *
  * @example
  * hasPermission('bot_admin', 'moderator') // true (bot_admin > moderator)
  * hasPermission('staff', 'moderator') // false (staff < moderator)
@@ -77,4 +77,18 @@ export function getRolesAtOrAbove(minRole: RoleLevel): RoleLevel[] {
   return (Object.keys(ROLE_HIERARCHY) as RoleLevel[])
     .filter(role => ROLE_HIERARCHY[role] >= minLevel)
     .sort((a, b) => ROLE_HIERARCHY[b] - ROLE_HIERARCHY[a]); // Descending order
+}
+
+/**
+ * Get roles a bot owner can assume for testing lower-permission views.
+ */
+export function getSwitchableRoles(baseRole: RoleLevel): RoleLevel[] {
+  const baseLevel = ROLE_HIERARCHY[baseRole] || 0;
+  return (Object.keys(ROLE_HIERARCHY) as RoleLevel[])
+    .filter((role) => role !== 'bot_owner' && ROLE_HIERARCHY[role] < baseLevel)
+    .sort((a, b) => ROLE_HIERARCHY[b] - ROLE_HIERARCHY[a]);
+}
+
+export function getPermissionBaseRole(permission?: { base_role_level?: RoleLevel | null; role_level: RoleLevel } | null): RoleLevel {
+  return permission?.base_role_level || permission?.role_level || 'user';
 }
