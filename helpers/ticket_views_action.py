@@ -334,7 +334,7 @@ class TicketActionView(View):
     # -- Delete --
 
     async def _on_delete_ticket(self, interaction: discord.Interaction) -> None:
-        """Handle the 'Delete Ticket' button — delete the Discord thread."""
+        """Handle the 'Delete Ticket' button by showing confirmation first."""
         if interaction.guild is None or not isinstance(
             interaction.channel, discord.Thread
         ):
@@ -373,51 +373,7 @@ class TicketActionView(View):
             )
             return
 
-        await interaction.response.defer(ephemeral=True)
+        from helpers.ticket_views import TicketDeleteConfirmModal
 
-        try:
-            await thread.delete(
-                reason=(
-                    f"Ticket deleted by {interaction.user} "
-                    f"({interaction.user.id})"
-                )
-            )
-        except discord.Forbidden as e:
-            logger.exception(
-                "Failed to delete thread %s in guild %s due to permissions",
-                thread.id,
-                guild_id,
-                exc_info=e,
-            )
-            await interaction.followup.send(
-                "I don't have permission to delete this thread.", ephemeral=True
-            )
-            return
-        except discord.HTTPException as e:
-            logger.exception(
-                "Discord API error while deleting thread %s in guild %s",
-                thread.id,
-                guild_id,
-                exc_info=e,
-            )
-            await interaction.followup.send(
-                "Failed to delete this thread due to a Discord API error.",
-                ephemeral=True,
-            )
-            return
-
-        # Mark the ticket's thread as deleted in the DB for analytics
-        await ticket_service.mark_thread_deleted(thread.id)
-
-        await _log_ticket_event(
-            self.bot,
-            guild_id,
-            title="🗑️ Ticket Deleted",
-            description=(
-                f"**Thread:** `{thread.id}`\n"
-                f"**Deleted by:** {interaction.user.mention}"
-            ),
-            color=EmbedColors.ADMIN,
-        )
-
-        await interaction.followup.send("Ticket thread deleted.", ephemeral=True)
+        modal = TicketDeleteConfirmModal(self.bot, thread)
+        await interaction.response.send_modal(modal)

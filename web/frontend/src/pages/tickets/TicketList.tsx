@@ -16,6 +16,30 @@ interface TicketListProps {
   onPageChange: (page: number) => void;
 }
 
+function getCreatorLabel(ticket: TicketInfo): string {
+  if (ticket.creator_global_name) {
+    return ticket.creator_global_name;
+  }
+  if (ticket.creator_username) {
+    return ticket.creator_username;
+  }
+  return `User ${ticket.user_id.slice(-6)}`;
+}
+
+function getCreatorTag(ticket: TicketInfo): string | null {
+  if (!ticket.creator_username) {
+    return null;
+  }
+  if (!ticket.creator_discriminator) {
+    return ticket.creator_username;
+  }
+  return `${ticket.creator_username}#${ticket.creator_discriminator}`;
+}
+
+function getThreadUrl(ticket: TicketInfo): string {
+  return `https://discord.com/channels/${ticket.guild_id}/${ticket.thread_id}`;
+}
+
 export default function TicketList({
   tickets,
   categories,
@@ -61,6 +85,7 @@ export default function TicketList({
                   <th className="text-left px-3 py-2 font-medium">ID</th>
                   <th className="text-left px-3 py-2 font-medium">Creator</th>
                   <th className="text-left px-3 py-2 font-medium">Category</th>
+                  <th className="text-left px-3 py-2 font-medium">Thread</th>
                   <th className="text-left px-3 py-2 font-medium">Status</th>
                   <th className="text-left px-3 py-2 font-medium">Created</th>
                   <th className="text-left px-3 py-2 font-medium">Closed</th>
@@ -73,11 +98,29 @@ export default function TicketList({
                     className="hover:bg-slate-700/30 transition-colors"
                   >
                     <td className="px-3 py-2 font-mono text-xs">{t.id}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-300">
-                      {t.user_id}
+                    <td className="px-3 py-2 text-xs text-gray-300">
+                      <div className="max-w-[220px] truncate font-medium text-gray-200">
+                        {getCreatorLabel(t)}
+                      </div>
+                      {getCreatorTag(t) && (
+                        <div className="max-w-[220px] truncate text-gray-400">
+                          {getCreatorTag(t)}
+                        </div>
+                      )}
+                      <div className="font-mono text-[11px] text-gray-500">{t.user_id}</div>
                     </td>
                     <td className="px-3 py-2">
                       {getCategoryName(t.category_id, categories)}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <a
+                        href={getThreadUrl(t)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-300 hover:text-indigo-200 hover:underline"
+                      >
+                        Open Thread
+                      </a>
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant={t.status === 'open' ? 'success' : 'neutral'}>

@@ -1,6 +1,7 @@
 import logging
 import re
 import string
+from typing import TypedDict
 
 from bs4 import BeautifulSoup, Tag
 
@@ -10,8 +11,20 @@ from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
+class OrgSelectors(TypedDict):
+    main: list[str]
+    affiliates: list[str]
+    main_sid: list[str]
+    affiliate_sid: list[str]
+
+
+class SelectorRegistry(TypedDict):
+    org: OrgSelectors
+    bio: list[str]
+
+
 # Selector registry for extensibility
-SELECTORS = {
+SELECTORS: SelectorRegistry = {
     "org": {
         "main": [
             'div[class*="org"][class*="main"] a.value',
@@ -190,20 +203,6 @@ def extract_handle(html_content: str | BeautifulSoup) -> str | None:
     logger.debug("Extracting cased handle from profile HTML.")
     soup = _get_soup(html_content)
 
-    if (
-        handle_paragraph := soup.find(
-            "p",
-            attrs={"class": "entry"},
-            string=lambda text: text and "Handle name" in text,  # type: ignore[arg-type]
-        )
-    ) and isinstance(handle_paragraph, Tag) and (
-        handle_strong := handle_paragraph.find("strong", attrs={"class": "value"})
-    ):
-        cased_handle = handle_strong.get_text(strip=True)
-        logger.debug(f"Extracted cased handle: {cased_handle}")
-        return cased_handle
-
-        # Alternative method if the above fails
     for p in soup.find_all("p", class_="entry"):
         label = p.find("span", class_="label")
         if (

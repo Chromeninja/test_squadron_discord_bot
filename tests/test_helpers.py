@@ -38,14 +38,28 @@ class FakeResponse(_FactoryFakeResponse):
 class FakeFollowup(_FactoryFakeFollowup):
     """Re-export the shared fake followup implementation."""
 
+    async def send(
+        self,
+        content: str | None = None,
+        ephemeral: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        return await super().send(content=content, ephemeral=ephemeral, **kwargs)
+
 
 class FakeInteraction:
     """Backward-compatible minimal interaction wrapper for legacy tests."""
 
+    guild: SimpleNamespace | None
+    channel: Any | None
+    channel_id: int | None
+    response: Any
+    followup: Any
+
     def __init__(self, user: FakeUser | None = None) -> None:
         self.user = user or FakeUser()
-        self.response = FakeResponse()
-        self.followup = FakeFollowup()
+        self.response: Any = FakeResponse()
+        self.followup: Any = FakeFollowup()
         self.guild = SimpleNamespace(id=123, name="TestGuild")
         self.channel = None
         self.channel_id = None

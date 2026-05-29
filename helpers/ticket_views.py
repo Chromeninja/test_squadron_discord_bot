@@ -28,7 +28,7 @@ AI Notes:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import discord
 from discord.ui import (
@@ -39,6 +39,8 @@ from discord.ui import (
     View,
 )
 
+from helpers.embeds import EmbedColors, create_embed
+from helpers.leadership_log import resolve_leadership_channel
 from helpers.ticket_views_action import TicketActionView
 from helpers.ticket_views_helpers import (
     _build_missing_role_requirement_message,
@@ -69,11 +71,13 @@ __all__ = [
     "TicketActionView",
     "TicketCategorySelect",
     "TicketCloseReasonModal",
+    "TicketDeleteConfirmModal",
     "TicketDescriptionModal",
     "TicketPanelView",
     "_build_missing_role_requirement_message",
     "_close_ticket",
     "_create_ticket_thread",
+    "_delete_ticket",
     "_format_ticket_thread_name",
     "_generate_transcript",
     "_get_category_role_requirements",
@@ -81,6 +85,7 @@ __all__ = [
     "_get_ticket_category_role_ids",
     "_log_ticket_event",
     "_normalize_category_role_id_set",
+    "_post_deleted_ticket_transcript",
     "_resolve_role_labels",
     "_start_dynamic_form",
 ]
@@ -151,6 +156,157 @@ class TicketCloseReasonModal(Modal, title="Close Ticket"):
         await interaction.response.defer(ephemeral=True)
         reason = self.reason_input.value or None
         await _close_ticket(self.bot, interaction, self._thread, close_reason=reason)
+
+
+class TicketDeleteConfirmModal(Modal, title="Delete Ticket"):
+    """Modal requiring explicit confirmation before deleting a ticket thread."""
+
+    confirm_input: TextInput = TextInput(
+        label="Type DELETE to confirm",
+        style=discord.TextStyle.short,
+        placeholder="DELETE",
+        required=True,
+        max_length=16,
+    )
+
+    def __init__(self, bot: BotProtocol, thread: discord.Thread) -> None:
+        super().__init__()
+        self.bot = bot
+        self._thread = thread
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Validate typed confirmation and proceed with delete flow."""
+        if (self.confirm_input.value or "").strip().upper() != "DELETE":
+            await interaction.response.send_message(
+                "Deletion cancelled. Type DELETE to confirm.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        await _delete_ticket(self.bot, interaction, self._thread)
+
+
+async def _post_deleted_ticket_transcript(
+    bot: BotProtocol,
+    guild_id: int,
+    *,
+    thread: discord.Thread,
+    deleted_by: discord.abc.User,
+    ticket: dict[str, Any],
+    transcript_file: discord.File | None,
+) -> None:
+    """Post delete audit details to the leadership announcement channel."""
+    try:
+        leadership_channel = await resolve_leadership_channel(bot, guild_id)
+        if leadership_channel is None:
+            return
+
+        creator_id = ticket.get("user_id")
+        creator_line = f"<@{creator_id}>" if isinstance(creator_id, int) else "unknown"
+        embed = create_embed(
+            title="🗑️ Ticket Deleted",
+            description=(
+                f"**Thread:** `{thread.id}`\n"
+                f"**Deleted by:** {deleted_by.mention}\n"
+                f"**Creator:** {creator_line}"
+            ),
+            color=EmbedColors.WARNING,
+        )
+
+        if transcript_file is not None:
+            await leadership_channel.send(embed=embed, file=transcript_file)
+        else:
+            await leadership_channel.send(embed=embed)
+    except Exception:
+        logger.exception(
+            "Failed to post deleted ticket transcript for thread %s in guild %s",
+            thread.id,
+            guild_id,
+        )
+
+
+async def _delete_ticket(
+    bot: BotProtocol,
+    interaction: discord.Interaction,
+    thread: discord.Thread,
+) -> None:
+    """Delete a ticket thread after confirmation and preserve audit behavior."""
+    if interaction.guild is None:
+        await interaction.followup.send("Missing guild context.", ephemeral=True)
+        return
+
+    guild_id = interaction.guild.id
+    ticket_service = bot.services.ticket
+
+    ticket = await ticket_service.get_ticket_by_thread(thread.id)
+    if ticket is None:
+        await interaction.followup.send(
+            "Could not find a ticket record for this thread.", ephemeral=True
+        )
+        return
+
+    transcript_file: discord.File | None = None
+    try:
+        transcript_file = await _generate_transcript(thread)
+    except Exception as e:
+        logger.exception(
+            "Failed to generate transcript for deleted thread %s in guild %s",
+            thread.id,
+            guild_id,
+            exc_info=e,
+        )
+
+    try:
+        await thread.delete(
+            reason=f"Ticket deleted by {interaction.user} ({interaction.user.id})"
+        )
+    except discord.Forbidden as e:
+        logger.exception(
+            "Failed to delete thread %s in guild %s due to permissions",
+            thread.id,
+            guild_id,
+            exc_info=e,
+        )
+        await interaction.followup.send(
+            "I don't have permission to delete this thread.", ephemeral=True
+        )
+        return
+    except discord.HTTPException as e:
+        logger.exception(
+            "Discord API error while deleting thread %s in guild %s",
+            thread.id,
+            guild_id,
+            exc_info=e,
+        )
+        await interaction.followup.send(
+            "Failed to delete this thread due to a Discord API error.",
+            ephemeral=True,
+        )
+        return
+
+    await ticket_service.mark_thread_deleted(thread.id)
+
+    await _post_deleted_ticket_transcript(
+        bot,
+        guild_id,
+        thread=thread,
+        deleted_by=interaction.user,
+        ticket=ticket,
+        transcript_file=transcript_file,
+    )
+
+    await _log_ticket_event(
+        bot,
+        guild_id,
+        title="🗑️ Ticket Deleted",
+        description=(
+            f"**Thread:** `{thread.id}`\n"
+            f"**Deleted by:** {interaction.user.mention}"
+        ),
+        color=EmbedColors.WARNING,
+    )
+
+    await interaction.followup.send("Ticket thread deleted.", ephemeral=True)
 
 
 # ---------------------------------------------------------------------------

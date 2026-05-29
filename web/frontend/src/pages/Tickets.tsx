@@ -78,6 +78,8 @@ export default function Tickets({ guildId }: TicketsProps) {
   const [closeMessage, setCloseMessage] = useState('');
   const [staffRoles, setStaffRoles] = useState<string[]>([]);
   const [defaultWelcomeMessage, setDefaultWelcomeMessage] = useState('');
+  const [maxOpenPerUser, setMaxOpenPerUser] = useState(5);
+  const [reopenWindowHours, setReopenWindowHours] = useState(48);
   const [saving, setSaving] = useState(false);
   const [deploying, setDeploying] = useState(false);
 
@@ -101,6 +103,7 @@ export default function Tickets({ guildId }: TicketsProps) {
     useState<string>('0');
   const [catSaving, setCatSaving] = useState(false);
   const [catDeleting, setCatDeleting] = useState(false);
+  const [categoryMoveBusy, setCategoryMoveBusy] = useState(false);
 
   // --- Follow-up form editor state ---
   const [formEditorOpen, setFormEditorOpen] = useState(false);
@@ -185,6 +188,8 @@ export default function Tickets({ guildId }: TicketsProps) {
       setCloseMessage(s.close_message ?? '');
       setStaffRoles(s.staff_roles);
       setDefaultWelcomeMessage(s.default_welcome_message ?? '');
+      setMaxOpenPerUser(s.max_open_per_user ?? 5);
+      setReopenWindowHours(s.reopen_window_hours ?? 48);
       setCategories(catsRes.categories);
       setStatsOpen(statsRes.open);
       setStatsClosed(statsRes.closed);
@@ -242,6 +247,8 @@ export default function Tickets({ guildId }: TicketsProps) {
         close_message: closeMessage || null,
         staff_roles: staffRoles,
         default_welcome_message: defaultWelcomeMessage || null,
+        max_open_per_user: maxOpenPerUser,
+        reopen_window_hours: reopenWindowHours,
       });
       showSuccess('Ticket settings saved');
     } catch (err) {
@@ -412,6 +419,57 @@ export default function Tickets({ guildId }: TicketsProps) {
       handleApiError(err, 'Failed to delete category');
     } finally {
       setCatDeleting(false);
+    }
+  };
+
+  const handleMoveCategory = async (
+    category: TicketCategory,
+    direction: 'up' | 'down',
+  ) => {
+    if (categoryMoveBusy) return;
+
+    const channelKey = category.channel_id ?? '0';
+    const channelCategories = categoriesByChannel.get(channelKey) ?? [];
+    const currentIndex = channelCategories.findIndex((c) => c.id === category.id);
+    if (currentIndex < 0) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= channelCategories.length) {
+      return;
+    }
+
+    const reordered = [...channelCategories];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const updates = reordered
+      .map((item, index) => ({
+        id: item.id,
+        sort_order: index,
+        current_sort_order: item.sort_order,
+      }))
+      .filter((item) => item.sort_order !== item.current_sort_order);
+
+    if (updates.length === 0) {
+      return;
+    }
+
+    setCategoryMoveBusy(true);
+    try {
+      await Promise.all(
+        updates.map((item) =>
+          ticketsApi.updateCategory(item.id, { sort_order: item.sort_order }),
+        ),
+      );
+      const res = await ticketsApi.getCategories();
+      if (isMountedRef.current) {
+        setCategories(res.categories);
+      }
+      showSuccess('Category order updated');
+    } catch (err) {
+      handleApiError(err, 'Failed to reorder categories');
+    } finally {
+      setCategoryMoveBusy(false);
     }
   };
 
@@ -618,6 +676,8 @@ export default function Tickets({ guildId }: TicketsProps) {
                     onEditCategory={openEditCategory}
                     onDeleteCategory={setDeletingCategory}
                     onOpenFormEditor={openFollowUpEditor}
+                    onMoveCategory={handleMoveCategory}
+                    categoryMoveBusy={categoryMoveBusy}
                   />
                 );
               })}
@@ -689,6 +749,40 @@ export default function Tickets({ guildId }: TicketsProps) {
                 onChange={setStaffRoles}
                 placeholder="Search roles…"
                 componentId="ticket-staff-roles"
+              />
+            </div>
+
+            <div>
+              <h5 className="text-sm font-medium text-gray-300 mb-1">Max Open Tickets per User</h5>
+              <p className="text-xs text-gray-500 mb-2">
+                Maximum concurrent open tickets allowed per user.
+              </p>
+              <input
+                type="number"
+                min={1}
+                value={maxOpenPerUser}
+                onChange={(event) => {
+                  const parsed = Number.parseInt(event.target.value, 10);
+                  setMaxOpenPerUser(Number.isNaN(parsed) ? 1 : Math.max(1, parsed));
+                }}
+                className="w-full px-3 py-2 bg-slate-700 text-white border border-slate-600 rounded"
+              />
+            </div>
+
+            <div>
+              <h5 className="text-sm font-medium text-gray-300 mb-1">Reopen Window (Hours)</h5>
+              <p className="text-xs text-gray-500 mb-2">
+                Hours after close when a ticket can still be reopened.
+              </p>
+              <input
+                type="number"
+                min={1}
+                value={reopenWindowHours}
+                onChange={(event) => {
+                  const parsed = Number.parseInt(event.target.value, 10);
+                  setReopenWindowHours(Number.isNaN(parsed) ? 1 : Math.max(1, parsed));
+                }}
+                className="w-full px-3 py-2 bg-slate-700 text-white border border-slate-600 rounded"
               />
             </div>
           </div>

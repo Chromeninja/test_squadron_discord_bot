@@ -18,11 +18,13 @@ from helpers.ticket_views import (
     TicketActionView,
     TicketCategorySelect,
     TicketCloseReasonModal,
+    TicketDeleteConfirmModal,
     TicketDescriptionModal,
     TicketPanelView,
     _close_ticket,
     _create_ticket_thread,
     _log_ticket_event,
+    _post_deleted_ticket_transcript,
 )
 from tests.factories.discord_factories import FakeInteraction, FakeUser
 
@@ -897,7 +899,7 @@ class TestTicketDeleteButton:
 
     @pytest.mark.asyncio
     async def test_delete_ticket_creator_allowed(self) -> None:
-        """Ticket creator can delete the thread."""
+        """Ticket creator can delete the thread after typed confirmation."""
         ticket = {"id": 1, "user_id": 42, "guild_id": 123}
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
         view = TicketActionView(bot)
@@ -917,12 +919,212 @@ class TestTicketDeleteButton:
         thread.delete = AsyncMock()
         interaction.channel = thread
 
-        with patch("helpers.ticket_views_action._log_ticket_event", new=AsyncMock()):
-            await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        assert interaction.response._is_done
+        assert interaction.response.sent_modal is not None
+        assert isinstance(interaction.response.sent_modal, TicketDeleteConfirmModal)
+
+        modal = interaction.response.sent_modal
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = followup_send
+
+        with patch(
+            "helpers.ticket_views._generate_transcript",
+            new=AsyncMock(return_value=None),
+        ):
+            with patch(
+                "helpers.ticket_views._post_deleted_ticket_transcript",
+                new=AsyncMock(),
+            ):
+                with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
 
         thread.delete.assert_awaited_once()
         bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
         followup_send.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_rejects_invalid_confirmation(self) -> None:
+        """Delete modal rejects input other than DELETE and keeps thread."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+
+        modal.confirm_input._value = "NOPE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        await modal.on_submit(cast("discord.Interaction", submit_interaction))
+
+        thread.delete.assert_not_awaited()
+        bot.services.ticket.mark_thread_deleted.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_posts_transcript_to_leadership(self) -> None:
+        """Deleting a ticket posts the transcript to leadership when available."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        interaction.followup.send = AsyncMock()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        transcript = MagicMock(spec=discord.File)
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = interaction.followup.send
+
+        with patch(
+            "helpers.ticket_views._generate_transcript",
+            new=AsyncMock(return_value=transcript),
+        ):
+            with patch(
+                "helpers.ticket_views._post_deleted_ticket_transcript",
+                new=AsyncMock(),
+            ) as leadership_post:
+                with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
+
+        leadership_post.assert_awaited_once()
+        assert leadership_post.await_args is not None
+        kwargs = leadership_post.await_args.kwargs
+        assert kwargs["thread"] is thread
+        assert kwargs["deleted_by"] is user
+        assert kwargs["ticket"] == ticket
+        assert kwargs["transcript_file"] is transcript
+
+    @pytest.mark.asyncio
+    async def test_delete_ticket_continues_without_transcript(self) -> None:
+        """Delete still succeeds if transcript generation fails."""
+        ticket = {"id": 1, "user_id": 42, "guild_id": 123}
+        bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
+        view = TicketActionView(bot)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 42
+        user.roles = []
+        user.mention = "@creator"
+        user.guild_permissions = MagicMock()
+        user.guild_permissions.administrator = False
+
+        interaction = FakeInteraction(user=user)
+        interaction.followup.send = AsyncMock()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        thread.delete = AsyncMock()
+        interaction.channel = thread
+
+        await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = interaction.followup.send
+
+        with patch(
+            "helpers.ticket_views._generate_transcript",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            with patch(
+                "helpers.ticket_views._post_deleted_ticket_transcript",
+                new=AsyncMock(),
+            ) as leadership_post:
+                with patch("helpers.ticket_views._log_ticket_event", new=AsyncMock()):
+                    await modal.on_submit(
+                        cast("discord.Interaction", submit_interaction)
+                    )
+
+        thread.delete.assert_awaited_once()
+        bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
+        leadership_post.assert_awaited_once()
+        assert leadership_post.await_args is not None
+        assert leadership_post.await_args.kwargs["transcript_file"] is None
+
+    @pytest.mark.asyncio
+    async def test_post_deleted_ticket_transcript_without_channel(self) -> None:
+        """Leadership posting is skipped when no leadership channel is configured."""
+        bot = _mock_bot_with_services()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        user = MagicMock(spec=discord.Member)
+        user.mention = "@deleter"
+
+        with patch(
+            "helpers.ticket_views.resolve_leadership_channel",
+            new=AsyncMock(return_value=None),
+        ):
+            await _post_deleted_ticket_transcript(
+                bot,
+                123,
+                thread=thread,
+                deleted_by=user,
+                ticket={"user_id": 42},
+                transcript_file=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_post_deleted_ticket_transcript_sends_embed_and_file(self) -> None:
+        """Leadership posting includes the transcript attachment when present."""
+        bot = _mock_bot_with_services()
+        channel = AsyncMock(spec=discord.TextChannel)
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 55555
+        user = MagicMock(spec=discord.Member)
+        user.mention = "@deleter"
+        transcript = MagicMock(spec=discord.File)
+
+        with patch(
+            "helpers.ticket_views.resolve_leadership_channel",
+            new=AsyncMock(return_value=channel),
+        ):
+            await _post_deleted_ticket_transcript(
+                bot,
+                123,
+                thread=thread,
+                deleted_by=user,
+                ticket={"user_id": 42},
+                transcript_file=transcript,
+            )
+
+        channel.send.assert_awaited_once()
+        kwargs = channel.send.await_args.kwargs
+        assert kwargs["file"] is transcript
+        assert kwargs["embed"].title == "🗑️ Ticket Deleted"
 
     @pytest.mark.asyncio
     async def test_delete_ticket_forbidden_reports_error(self) -> None:
@@ -943,10 +1145,21 @@ class TestTicketDeleteButton:
         interaction.followup.send = followup_send
         thread = MagicMock(spec=discord.Thread)
         thread.id = 55555
-        thread.delete = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "forbidden"))
+        thread.delete = AsyncMock(
+            side_effect=discord.Forbidden(MagicMock(), "forbidden")
+        )
         interaction.channel = thread
 
         await view._on_delete_ticket(interaction)  # type: ignore[arg-type]
+
+        modal = interaction.response.sent_modal
+        assert isinstance(modal, TicketDeleteConfirmModal)
+        modal.confirm_input._value = "DELETE"  # type: ignore[attr-defined]
+
+        submit_interaction = FakeInteraction(user=user)
+        submit_interaction.followup.send = followup_send
+
+        await modal.on_submit(cast("discord.Interaction", submit_interaction))
 
         followup_send.assert_awaited()
         assert followup_send.await_args is not None

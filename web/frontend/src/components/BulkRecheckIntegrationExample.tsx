@@ -1,19 +1,19 @@
 /**
  * Example Integration: Using BulkRecheckResultsModal
- * 
+ *
  * This shows how to integrate the bulk recheck results modal into
  * your admin users page. Add this code to your existing admin page.
  */
 
 import { useState } from 'react';
 import { BulkRecheckResultsModal } from './BulkRecheckResultsModal';
-import { apiClient } from '../api/client';
+import { adminApi, type BulkRecheckResponse } from '../api/endpoints';
 import { handleApiError, showError } from '../utils/toast';
 
 // Example: In your AdminUsersPage component
 export function AdminUsersPageExample() {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  const [recheckResults, setRecheckResults] = useState(null);
+  const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [isRechecking, setIsRechecking] = useState(false);
 
@@ -26,13 +26,10 @@ export function AdminUsersPageExample() {
     setIsRechecking(true);
 
     try {
-      // Call the bulk recheck endpoint
-      const response = await apiClient.post('/api/admin/users/bulk-recheck', {
-        user_ids: selectedUsers,
-      });
+      const response = await adminApi.bulkRecheckUsers(selectedUsers);
 
       // Store results and show modal
-      setRecheckResults(response.data);
+      setRecheckResults(response);
       setShowResultsModal(true);
 
       // Optionally refresh the user list
@@ -50,7 +47,7 @@ export function AdminUsersPageExample() {
       {/* Your existing users list UI */}
       <div className="p-4">
         <h1>Admin Users Management</h1>
-        
+
         {/* Example user selection and bulk recheck button */}
         <div className="flex justify-between items-center mb-4">
           <div className="text-sm text-muted-foreground">
@@ -90,16 +87,14 @@ export function AdminUsersPageExample() {
  * Alternative: Trigger from a context menu or action button
  */
 export function UserRowWithRecheckExample({ userId }: { userId: string }) {
-  const [recheckResults, setRecheckResults] = useState(null);
+  const [recheckResults, setRecheckResults] = useState<BulkRecheckResponse | null>(null);
   const [showResultsModal, setShowResultsModal] = useState(false);
 
   const handleSingleRecheck = async () => {
     try {
-      const response = await apiClient.post('/api/admin/users/bulk-recheck', {
-        user_ids: [userId],
-      });
+      const response = await adminApi.bulkRecheckUsers([userId]);
 
-      setRecheckResults(response.data);
+      setRecheckResults(response);
       setShowResultsModal(true);
     } catch (error) {
       handleApiError(error, 'Failed to recheck user. Please try again.');

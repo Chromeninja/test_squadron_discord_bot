@@ -1289,6 +1289,10 @@ export interface TicketInfo {
   channel_id: string;
   thread_id: string;
   user_id: string;
+  creator_username?: string | null;
+  creator_global_name?: string | null;
+  creator_discriminator?: string | null;
+  creator_avatar_url?: string | null;
   category_id: number | null;
   status: string;
   closed_by: string | null;
@@ -1303,6 +1307,8 @@ export interface TicketSettings {
   close_message: string | null;
   staff_roles: string[];
   default_welcome_message: string | null;
+  max_open_per_user: number;
+  reopen_window_hours: number;
 }
 
 export interface TicketSettingsUpdate {
@@ -1311,6 +1317,8 @@ export interface TicketSettingsUpdate {
   close_message?: string | null;
   staff_roles?: string[];
   default_welcome_message?: string | null;
+  max_open_per_user?: number | null;
+  reopen_window_hours?: number | null;
 }
 
 export interface TicketChannelConfig {

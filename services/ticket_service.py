@@ -9,10 +9,11 @@ reopening, transcripts, and statistics.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sqlite3
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from helpers.role_ids import normalize_role_id_list
 from services.base import BaseService
@@ -20,6 +21,9 @@ from services.db.database import Database
 from services.db.repository import BaseRepository
 from services.db.schema import ensure_ticket_schema_compatibility
 from services.ticket_rate_limiter import TicketRateLimiter
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 # Default max open tickets per user per guild
 DEFAULT_MAX_OPEN_PER_USER = 5
@@ -32,6 +36,9 @@ DEFAULT_REOPEN_WINDOW_HOURS = 48
 # (default ~500 active).  This value is a conservative upper bound
 # representing total tracked ticket threads (active + archived).
 DEFAULT_THREAD_LIMIT = 1000
+
+# Special user_id used when the bot reconciles orphaned tickets.
+_SYSTEM_RECONCILE_USER_ID = 0
 
 # Column names for ticket SELECT queries — keep in sync with _row_to_ticket()
 _TICKET_COLUMN_NAMES = [
@@ -914,7 +921,7 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
-        where = "WHERE guild_id = ? AND status = 'open'"
+        where = "WHERE guild_id = ? AND status = 'open' AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if user_id is not None:
             where += " AND user_id = ?"
@@ -924,6 +931,106 @@ class TicketService(BaseService):
             tuple(params),
         )
         return [self._row_to_ticket(r) for r in rows]
+
+    @staticmethod
+    async def _thread_exists(
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        thread_id: int,
+    ) -> bool:
+        """Resolve a synchronous or async thread-existence callback."""
+        result = thread_exists(thread_id)
+        if inspect.isawaitable(result):
+            return bool(await cast("Awaitable[bool]", result))
+        return bool(result)
+
+    async def get_missing_open_tickets(
+        self,
+        guild_id: int,
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return open tickets whose Discord threads can no longer be found."""
+        tickets = await self.get_open_tickets(guild_id)
+        if limit is not None:
+            tickets = tickets[:limit]
+
+        return await self._find_missing_open_tickets(
+            guild_id,
+            tickets,
+            thread_exists,
+        )
+
+    async def _find_missing_open_tickets(
+        self,
+        guild_id: int,
+        tickets: list[dict[str, Any]],
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+    ) -> list[dict[str, Any]]:
+        """Return already-fetched open tickets whose Discord threads are missing."""
+        missing: list[dict[str, Any]] = []
+        for ticket in tickets:
+            thread_id = int(ticket["thread_id"])
+            try:
+                exists = await self._thread_exists(thread_exists, thread_id)
+            except Exception as e:
+                self.logger.exception(
+                    "Failed to check thread %s for guild %s",
+                    thread_id,
+                    guild_id,
+                    exc_info=e,
+                )
+                continue
+            if not exists:
+                missing.append(ticket)
+        return missing
+
+    async def reconcile_missing_open_tickets(
+        self,
+        guild_id: int,
+        thread_exists: Callable[[int], bool | Awaitable[bool]],
+        limit: int | None = None,
+    ) -> dict[str, int]:
+        """Close and soft-delete open tickets whose Discord threads are gone."""
+        open_tickets = await self.get_open_tickets(guild_id)
+        if limit is not None:
+            open_tickets = open_tickets[:limit]
+
+        missing = await self._find_missing_open_tickets(
+            guild_id,
+            open_tickets,
+            thread_exists,
+        )
+
+        reconciled = 0
+        failed = 0
+        for ticket in missing:
+            thread_id = int(ticket["thread_id"])
+            try:
+                closed = await self.close_ticket_by_thread(
+                    thread_id,
+                    closed_by=_SYSTEM_RECONCILE_USER_ID,
+                    close_reason="Discord thread no longer exists",
+                )
+                deleted = await self.mark_thread_deleted(thread_id)
+                if closed or deleted:
+                    reconciled += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                failed += 1
+                self.logger.exception(
+                    "Failed to reconcile missing open thread %s in guild %s",
+                    thread_id,
+                    guild_id,
+                    exc_info=e,
+                )
+
+        return {
+            "checked": len(open_tickets),
+            "missing": len(missing),
+            "reconciled": reconciled,
+            "failed": failed,
+        }
 
     async def get_tickets(
         self,
@@ -943,7 +1050,7 @@ class TicketService(BaseService):
         Returns:
             List of ticket dicts.
         """
-        where = "WHERE guild_id = ?"
+        where = "WHERE guild_id = ? AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if status:
             where += " AND status = ?"
@@ -962,7 +1069,7 @@ class TicketService(BaseService):
         status: str | None = None,
     ) -> int:
         """Return total ticket count, optionally filtered by status."""
-        where = "WHERE guild_id = ?"
+        where = "WHERE guild_id = ? AND deleted_at IS NULL"
         params: list[Any] = [guild_id]
         if status:
             where += " AND status = ?"
@@ -983,7 +1090,7 @@ class TicketService(BaseService):
         """
         rows = await BaseRepository.fetch_all(
             "SELECT status, COUNT(*) AS cnt FROM tickets "
-            "WHERE guild_id = ? GROUP BY status",
+            "WHERE guild_id = ? AND deleted_at IS NULL GROUP BY status",
             (guild_id,),
         )
         counts: dict[str, int] = {"open": 0, "closed": 0}
@@ -1547,6 +1654,7 @@ class TicketService(BaseService):
             """
             SELECT COUNT(*) FROM tickets
             WHERE guild_id = ? AND user_id = ? AND status = 'open'
+                AND deleted_at IS NULL
             """,
             (guild_id, user_id),
             default=0,

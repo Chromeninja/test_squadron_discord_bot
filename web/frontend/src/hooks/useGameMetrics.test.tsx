@@ -89,7 +89,10 @@ describe('useGameMetrics', () => {
           enabled,
         }),
       {
-        initialProps: { gameName: 'Star Citizen', enabled: true },
+        initialProps: {
+          gameName: 'Star Citizen' as string | null,
+          enabled: true,
+        },
       },
     );
 

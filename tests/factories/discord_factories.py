@@ -276,10 +276,16 @@ class FakeResponse:
         return self._is_done
 
     async def send_message(
-        self, content: str | None = None, ephemeral: bool = False, **kwargs: Any
+        self,
+        content: str | None = None,
+        embed: Any | None = None,
+        ephemeral: bool = False,
+        **kwargs: Any,
     ) -> None:
         self._is_done = True
-        self._messages.append({"content": content, "ephemeral": ephemeral, **kwargs})
+        self._messages.append(
+            {"content": content, "embed": embed, "ephemeral": ephemeral, **kwargs}
+        )
 
     async def defer(self, ephemeral: bool = False, thinking: bool = False) -> None:
         self._is_done = True
@@ -311,6 +317,10 @@ class FakeInteraction:
 
     # Explicit type annotation to allow None
     guild: FakeGuild | None
+    channel: Any | None
+    channel_id: int | None
+    response: Any
+    followup: Any
 
     def __init__(
         self,

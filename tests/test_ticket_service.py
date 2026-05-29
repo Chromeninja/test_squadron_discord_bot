@@ -8,6 +8,7 @@ Uses the ``temp_db`` fixture from conftest so each test gets an isolated databas
 from __future__ import annotations
 
 import time
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -248,7 +249,9 @@ class TestTicketLifecycle:
         assert ticket["status"] == "open"
 
     @pytest.mark.asyncio
-    async def test_get_ticket_by_thread_not_found(self, ticket_svc: TicketService) -> None:
+    async def test_get_ticket_by_thread_not_found(
+        self, ticket_svc: TicketService
+    ) -> None:
         """Non-existent thread ID returns None."""
         assert await ticket_svc.get_ticket_by_thread(99999) is None
 
@@ -355,6 +358,20 @@ class TestTicketQueries:
         assert len(closed_t) == 1
 
     @pytest.mark.asyncio
+    async def test_get_tickets_excludes_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Generic ticket lists exclude soft-deleted ticket rows."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 10011, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 10012, USER_ID)
+        await ticket_svc.mark_thread_deleted(10012)
+
+        tickets = await ticket_svc.get_tickets(GUILD_ID)
+
+        assert len(tickets) == 1
+        assert tickets[0]["thread_id"] == 10011
+
+    @pytest.mark.asyncio
     async def test_get_ticket_count(self, ticket_svc: TicketService) -> None:
         """Counting tickets by status."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 11001, USER_ID)
@@ -365,6 +382,17 @@ class TestTicketQueries:
         assert await ticket_svc.get_ticket_count(GUILD_ID) == 2
         assert await ticket_svc.get_ticket_count(GUILD_ID, status="open") == 1
         assert await ticket_svc.get_ticket_count(GUILD_ID, status="closed") == 1
+
+    @pytest.mark.asyncio
+    async def test_get_ticket_count_excludes_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Generic ticket counts exclude soft-deleted ticket rows."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 11011, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 11012, USER_ID)
+        await ticket_svc.mark_thread_deleted(11012)
+
+        assert await ticket_svc.get_ticket_count(GUILD_ID) == 1
 
     @pytest.mark.asyncio
     async def test_get_ticket_stats(self, ticket_svc: TicketService) -> None:
@@ -379,6 +407,21 @@ class TestTicketQueries:
         assert stats["closed"] == 1
         assert stats["total"] == 2
 
+    @pytest.mark.asyncio
+    async def test_get_ticket_stats_excludes_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Ticket stats exclude soft-deleted ticket rows."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 12011, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 12012, USER_ID)
+        await ticket_svc.mark_thread_deleted(12012)
+
+        stats = await ticket_svc.get_ticket_stats(GUILD_ID)
+
+        assert stats["open"] == 1
+        assert stats["closed"] == 0
+        assert stats["total"] == 1
+
 
 # ---------------------------------------------------------------------------
 # Rate Limiting
@@ -389,7 +432,9 @@ class TestRateLimit:
     """Tests for the 5-minute per-user rate limit."""
 
     @pytest.mark.asyncio
-    async def test_rate_limit_allows_first_ticket(self, ticket_svc: TicketService) -> None:
+    async def test_rate_limit_allows_first_ticket(
+        self, ticket_svc: TicketService
+    ) -> None:
         """First ticket should always be allowed."""
         assert await ticket_svc.check_rate_limit(GUILD_ID, USER_ID) is True
 
@@ -470,14 +515,18 @@ class TestCloseReason:
         """Closing a ticket with a reason stores it."""
         tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 17001, USER_ID)
         assert tid is not None
-        closed = await ticket_svc.close_ticket(tid, closed_by=999, close_reason="Resolved")
+        closed = await ticket_svc.close_ticket(
+            tid, closed_by=999, close_reason="Resolved"
+        )
         assert closed is True
         ticket = await ticket_svc.get_ticket_by_thread(17001)
         assert ticket is not None
         assert ticket["close_reason"] == "Resolved"
 
     @pytest.mark.asyncio
-    async def test_close_ticket_by_thread_with_reason(self, ticket_svc: TicketService) -> None:
+    async def test_close_ticket_by_thread_with_reason(
+        self, ticket_svc: TicketService
+    ) -> None:
         """close_ticket_by_thread with reason stores it."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 17002, USER_ID)
         closed = await ticket_svc.close_ticket_by_thread(
@@ -508,10 +557,15 @@ class TestInitialDescription:
     """Tests for initial_description on ticket creation."""
 
     @pytest.mark.asyncio
-    async def test_create_ticket_with_description(self, ticket_svc: TicketService) -> None:
+    async def test_create_ticket_with_description(
+        self, ticket_svc: TicketService
+    ) -> None:
         """Ticket with initial description stores it."""
         tid = await ticket_svc.create_ticket(
-            GUILD_ID, CHANNEL_ID, 18001, USER_ID,
+            GUILD_ID,
+            CHANNEL_ID,
+            18001,
+            USER_ID,
             initial_description="I need help with X",
         )
         assert tid is not None
@@ -520,7 +574,9 @@ class TestInitialDescription:
         assert ticket["initial_description"] == "I need help with X"
 
     @pytest.mark.asyncio
-    async def test_create_ticket_without_description(self, ticket_svc: TicketService) -> None:
+    async def test_create_ticket_without_description(
+        self, ticket_svc: TicketService
+    ) -> None:
         """Ticket without description stores None."""
         tid = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 18002, USER_ID)
         assert tid is not None
@@ -654,25 +710,72 @@ class TestMaxOpenTickets:
         assert count == 2
 
     @pytest.mark.asyncio
-    async def test_check_max_open_tickets_under_limit(self, ticket_svc: TicketService) -> None:
-        """User under the limit can open another ticket."""
-        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 22001, USER_ID)
-        assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=3) is True
+    async def test_get_open_ticket_count_excludes_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Deleted ticket threads do not count as open tickets."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21011, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 21012, USER_ID)
+
+        deleted = await ticket_svc.mark_thread_deleted(21011)
+
+        count = await ticket_svc.get_open_ticket_count(GUILD_ID, USER_ID)
+
+        assert deleted is True
+        assert count == 1
 
     @pytest.mark.asyncio
-    async def test_check_max_open_tickets_at_limit(self, ticket_svc: TicketService) -> None:
+    async def test_check_max_open_tickets_under_limit(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """User under the limit can open another ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 22001, USER_ID)
+        assert (
+            await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=3)
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_at_limit(
+        self, ticket_svc: TicketService
+    ) -> None:
         """User at the limit cannot open another ticket."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23001, USER_ID)
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23002, USER_ID)
-        assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=2) is False
+        assert (
+            await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID, max_open=2)
+            is False
+        )
 
     @pytest.mark.asyncio
-    async def test_check_max_open_tickets_default(self, ticket_svc: TicketService) -> None:
+    async def test_check_max_open_tickets_default(
+        self, ticket_svc: TicketService
+    ) -> None:
         """Default limit is DEFAULT_MAX_OPEN_PER_USER."""
         # Create DEFAULT_MAX_OPEN_PER_USER tickets
         for i in range(DEFAULT_MAX_OPEN_PER_USER):
             await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24000 + i, USER_ID)
         assert await ticket_svc.check_max_open_tickets(GUILD_ID, USER_ID) is False
+
+    @pytest.mark.asyncio
+    async def test_check_max_open_tickets_ignores_deleted_threads(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """A deleted thread no longer blocks creating another ticket."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24010, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24011, USER_ID)
+
+        blocked_before = await ticket_svc.check_max_open_tickets(
+            GUILD_ID, USER_ID, max_open=2
+        )
+        deleted = await ticket_svc.mark_thread_deleted(24010)
+        allowed_after = await ticket_svc.check_max_open_tickets(
+            GUILD_ID, USER_ID, max_open=2
+        )
+
+        assert blocked_before is False
+        assert deleted is True
+        assert allowed_after is True
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +845,24 @@ class TestRowConverters:
 
     def test_row_to_ticket_full(self) -> None:
         """Full 16-column row is converted correctly."""
-        row = (1, 100, 200, 300, 400, 5, "open", None, 1000, None, 555, 1001, "reason", "desc", 1002, 600)
+        row = (
+            1,
+            100,
+            200,
+            300,
+            400,
+            5,
+            "open",
+            None,
+            1000,
+            None,
+            555,
+            1001,
+            "reason",
+            "desc",
+            1002,
+            600,
+        )
         result = TicketService._row_to_ticket(row)
         assert result["id"] == 1
         assert result["claimed_by"] == 555
@@ -892,25 +1012,15 @@ class TestMultiChannelCategories:
         self, ticket_svc: TicketService
     ) -> None:
         """get_categories_for_channel returns only matching categories."""
-        await ticket_svc.create_category(
-            GUILD_ID, "Alpha", channel_id=PANEL_CHANNEL_A
-        )
-        await ticket_svc.create_category(
-            GUILD_ID, "Beta", channel_id=PANEL_CHANNEL_B
-        )
-        await ticket_svc.create_category(
-            GUILD_ID, "Gamma", channel_id=PANEL_CHANNEL_A
-        )
+        await ticket_svc.create_category(GUILD_ID, "Alpha", channel_id=PANEL_CHANNEL_A)
+        await ticket_svc.create_category(GUILD_ID, "Beta", channel_id=PANEL_CHANNEL_B)
+        await ticket_svc.create_category(GUILD_ID, "Gamma", channel_id=PANEL_CHANNEL_A)
 
-        cats_a = await ticket_svc.get_categories_for_channel(
-            GUILD_ID, PANEL_CHANNEL_A
-        )
+        cats_a = await ticket_svc.get_categories_for_channel(GUILD_ID, PANEL_CHANNEL_A)
         assert len(cats_a) == 2
         assert {c["name"] for c in cats_a} == {"Alpha", "Gamma"}
 
-        cats_b = await ticket_svc.get_categories_for_channel(
-            GUILD_ID, PANEL_CHANNEL_B
-        )
+        cats_b = await ticket_svc.get_categories_for_channel(GUILD_ID, PANEL_CHANNEL_B)
         assert len(cats_b) == 1
         assert cats_b[0]["name"] == "Beta"
 
@@ -923,19 +1033,11 @@ class TestMultiChannelCategories:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_ticket_channel_ids(
-        self, ticket_svc: TicketService
-    ) -> None:
+    async def test_get_ticket_channel_ids(self, ticket_svc: TicketService) -> None:
         """get_ticket_channel_ids returns distinct non-zero channel IDs."""
-        await ticket_svc.create_category(
-            GUILD_ID, "A", channel_id=PANEL_CHANNEL_A
-        )
-        await ticket_svc.create_category(
-            GUILD_ID, "B", channel_id=PANEL_CHANNEL_B
-        )
-        await ticket_svc.create_category(
-            GUILD_ID, "C", channel_id=PANEL_CHANNEL_A
-        )
+        await ticket_svc.create_category(GUILD_ID, "A", channel_id=PANEL_CHANNEL_A)
+        await ticket_svc.create_category(GUILD_ID, "B", channel_id=PANEL_CHANNEL_B)
+        await ticket_svc.create_category(GUILD_ID, "C", channel_id=PANEL_CHANNEL_A)
         # Unassigned category (channel_id=0) should NOT appear
         await ticket_svc.create_category(GUILD_ID, "Unassigned")
 
@@ -960,9 +1062,7 @@ class TestMultiChannelCategories:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_update_category_channel_id(
-        self, ticket_svc: TicketService
-    ) -> None:
+    async def test_update_category_channel_id(self, ticket_svc: TicketService) -> None:
         """Updating channel_id on an existing category persists correctly."""
         cat_id = await ticket_svc.create_category(
             GUILD_ID, "Moveable", channel_id=PANEL_CHANNEL_A
@@ -1024,15 +1124,9 @@ class TestMultiChannelCategories:
     ) -> None:
         """Categories returned by channel are ordered by sort_order."""
         # Create in reverse name order — sort_order auto-increments
-        await ticket_svc.create_category(
-            GUILD_ID, "Zebra", channel_id=PANEL_CHANNEL_A
-        )
-        await ticket_svc.create_category(
-            GUILD_ID, "Apple", channel_id=PANEL_CHANNEL_A
-        )
-        cats = await ticket_svc.get_categories_for_channel(
-            GUILD_ID, PANEL_CHANNEL_A
-        )
+        await ticket_svc.create_category(GUILD_ID, "Zebra", channel_id=PANEL_CHANNEL_A)
+        await ticket_svc.create_category(GUILD_ID, "Apple", channel_id=PANEL_CHANNEL_A)
+        cats = await ticket_svc.get_categories_for_channel(GUILD_ID, PANEL_CHANNEL_A)
         assert len(cats) == 2
         # sort_order is auto-incremented, so Zebra (0) before Apple (1)
         assert cats[0]["name"] == "Zebra"
@@ -1227,9 +1321,7 @@ class TestThreadHealth:
         assert health["status"] == "healthy"
 
     @pytest.mark.asyncio
-    async def test_mark_thread_deleted_success(
-        self, ticket_svc: TicketService
-    ) -> None:
+    async def test_mark_thread_deleted_success(self, ticket_svc: TicketService) -> None:
         """mark_thread_deleted sets deleted_at on matching ticket."""
         await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 22001, USER_ID)
         result = await ticket_svc.mark_thread_deleted(22001)
@@ -1258,9 +1350,83 @@ class TestThreadHealth:
         assert await ticket_svc.mark_thread_deleted(23001) is False
 
     @pytest.mark.asyncio
-    async def test_get_oldest_closed_tickets(
+    async def test_get_missing_open_tickets_detects_missing(
         self, ticket_svc: TicketService
     ) -> None:
+        """Missing open threads are returned for reconciliation."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23501, USER_ID)
+
+        missing = await ticket_svc.get_missing_open_tickets(
+            GUILD_ID,
+            lambda thread_id: thread_id != 23501,
+        )
+
+        assert len(missing) == 1
+        assert missing[0]["thread_id"] == 23501
+
+    @pytest.mark.asyncio
+    async def test_reconcile_missing_open_tickets_closes_and_marks_deleted(
+        self, ticket_svc: TicketService
+    ) -> None:
+        """Reconciling a missing open thread closes and soft-deletes it."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23502, USER_ID)
+
+        report = await ticket_svc.reconcile_missing_open_tickets(
+            GUILD_ID,
+            lambda thread_id: False,
+        )
+
+        assert report["checked"] == 1
+        assert report["missing"] == 1
+        assert report["reconciled"] == 1
+        assert report["failed"] == 0
+
+        ticket = await ticket_svc.get_ticket_by_thread(23502)
+        assert ticket is not None
+        assert ticket["status"] == "closed"
+        assert ticket["deleted_at"] is not None
+        assert ticket["closed_by"] == 0
+
+    @pytest.mark.asyncio
+    async def test_reconcile_missing_open_tickets_reuses_open_ticket_query(
+        self,
+        ticket_svc: TicketService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Reconciling uses the same open-ticket slice for checks and repairs."""
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23503, USER_ID)
+        await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 23504, USER_ID)
+        original_get_open_tickets = ticket_svc.get_open_tickets
+        calls = 0
+
+        async def counted_get_open_tickets(
+            guild_id: int,
+            user_id: int | None = None,
+        ) -> list[dict[str, Any]]:
+            nonlocal calls
+            calls += 1
+            return await original_get_open_tickets(guild_id, user_id)
+
+        monkeypatch.setattr(
+            ticket_svc,
+            "get_open_tickets",
+            counted_get_open_tickets,
+        )
+
+        report = await ticket_svc.reconcile_missing_open_tickets(
+            GUILD_ID,
+            lambda thread_id: False,
+            limit=1,
+        )
+
+        assert calls == 1
+        assert report["checked"] == 1
+        assert report["missing"] == 1
+        assert report["reconciled"] == 1
+        assert report["failed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_oldest_closed_tickets(self, ticket_svc: TicketService) -> None:
         """Returns closed tickets sorted by oldest closed_at first."""
         tid1 = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24001, USER_ID)
         tid2 = await ticket_svc.create_ticket(GUILD_ID, CHANNEL_ID, 24002, USER_ID)

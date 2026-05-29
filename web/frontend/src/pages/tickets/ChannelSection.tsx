@@ -69,6 +69,11 @@ interface ChannelSectionProps {
   onEditCategory: (category: TicketCategory) => void;
   onDeleteCategory: (category: TicketCategory) => void;
   onOpenFormEditor: (category: TicketCategory) => void;
+  onMoveCategory: (
+    category: TicketCategory,
+    direction: 'up' | 'down',
+  ) => Promise<void>;
+  categoryMoveBusy: boolean;
 }
 
 export default function ChannelSection({
@@ -82,6 +87,8 @@ export default function ChannelSection({
   onEditCategory,
   onDeleteCategory,
   onOpenFormEditor,
+  onMoveCategory,
+  categoryMoveBusy,
 }: ChannelSectionProps) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -430,7 +437,10 @@ export default function ChannelSection({
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {categories.map((cat) => (
+                  {categories.map((cat, index) => {
+                    const isFirst = index === 0;
+                    const isLast = index === categories.length - 1;
+                    return (
                     <div
                       key={cat.id}
                       className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-gray-700/50 rounded border border-gray-600/50"
@@ -446,6 +456,28 @@ export default function ChannelSection({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onMoveCategory(cat, 'up')}
+                          disabled={isFirst || categoryMoveBusy}
+                          className="min-h-[36px] px-2"
+                          aria-label={`Move ${cat.name} up`}
+                          title="Move up"
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onMoveCategory(cat, 'down')}
+                          disabled={isLast || categoryMoveBusy}
+                          className="min-h-[36px] px-2"
+                          aria-label={`Move ${cat.name} down`}
+                          title="Move down"
+                        >
+                          ↓
+                        </Button>
                         <Button
                           variant="secondary"
                           size="sm"
@@ -474,7 +506,8 @@ export default function ChannelSection({
                         </Button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
