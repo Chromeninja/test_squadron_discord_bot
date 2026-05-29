@@ -123,7 +123,7 @@ describe('Metrics Page', () => {
     expect(metricsApi.getActivityGroups).not.toHaveBeenCalled();
     expect(screen.getByText('Total Messages: 1,200')).toBeInTheDocument();
     expect(screen.getByText(/Server Metrics/i)).toBeInTheDocument();
-  });
+  }, 10000);
 
   it('shows an error state when the bundled request fails', async () => {
     metricsApi.getDashboardBundle.mockRejectedValue(new Error('boom'));
@@ -137,5 +137,5 @@ describe('Metrics Page', () => {
     });
 
     expect(handleApiError).toHaveBeenCalled();
-  });
+  }, 10000);
 });

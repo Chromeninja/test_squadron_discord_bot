@@ -121,6 +121,9 @@ body {
 }
 
 .dashboard-theme .bg-slate-950,
+.dashboard-theme .bg-slate-950\/82,
+.dashboard-theme .bg-slate-950\/72,
+.dashboard-theme .bg-slate-950\/70,
 .dashboard-theme .bg-slate-900,
 .dashboard-theme .bg-slate-900\/95,
 .dashboard-theme .bg-slate-900\/90,
@@ -136,6 +139,7 @@ body {
   background-color: var(--org-panel) !important;
 }
 
+.dashboard-theme .border-slate-800,
 .dashboard-theme .border-slate-700,
 .dashboard-theme .border-slate-700\/70,
 .dashboard-theme .border-slate-700\/80,

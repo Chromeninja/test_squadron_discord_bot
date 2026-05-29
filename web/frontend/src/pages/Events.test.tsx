@@ -293,7 +293,7 @@ describe('Events Page', () => {
       expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
     });
 
-    expect(screen.getByText(/event module is currently disabled/i)).toBeInTheDocument();
+    expect(await screen.findByText(/event module is currently disabled/i)).toBeInTheDocument();
   });
 
   it('renders the page even if scheduled events fail to load', async () => {
@@ -305,7 +305,9 @@ describe('Events Page', () => {
       expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
     });
 
-    expect(screen.getByText(/taking too long to load/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/taking too long to load/i)).toBeInTheDocument();
+    });
     expect(screen.getByRole('button', { name: 'New Event' })).toBeInTheDocument();
   });
 
@@ -316,7 +318,7 @@ describe('Events Page', () => {
       expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'New Event' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New Event' }));
 
     await waitFor(() => {
       expect(screen.getByText('New event')).toBeInTheDocument();

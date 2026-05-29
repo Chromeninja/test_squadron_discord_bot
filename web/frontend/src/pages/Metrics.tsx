@@ -204,7 +204,7 @@ export default function Metrics() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-[#a89465]">
         <div className="text-center">
           <div className="animate-pulse text-2xl mb-2">📊</div>
           <div>Loading metrics...</div>
@@ -246,8 +246,8 @@ export default function Metrics() {
       {/* Header with time range selector */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-xl font-bold text-white">Server Metrics</h2>
-          <p className="text-sm text-gray-400 mt-1">
+          <h2 className="text-xl font-bold text-[#fff4cc]">Server Metrics</h2>
+          <p className="text-sm text-[#a89465] mt-1">
             Activity tracking &amp; analytics
             {live?.active_voice_users ? (
               <span className="text-green-400 ml-2">
@@ -256,15 +256,15 @@ export default function Metrics() {
             ) : null}
           </p>
         </div>
-        <div className="inline-flex w-full sm:w-auto items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1 overflow-x-auto">
+        <div className="inline-flex w-full sm:w-auto items-center gap-1 rounded-lg border border-[#ffbb00]/18 bg-[#120d00] p-1 overflow-x-auto">
           {([7, 30, 90] as TimeRange[]).map((range) => (
             <button
               key={range}
               onClick={() => handleTimeRangeChange(range)}
               className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap ${
                 days === range
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-slate-700'
+                  ? 'bg-[#ffbb00]/18 border border-[#ffbb00]/35 text-[#fff1bf]'
+                  : 'text-[#a89465] hover:text-[#f5deb3] hover:bg-[#ffbb00]/8'
               }`}
             >
               {range}d
@@ -283,12 +283,12 @@ export default function Metrics() {
               aria-expanded={dimensionDropdownOpen}
               aria-haspopup="listbox"
               aria-label="Activity dimension filter"
-              className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+              className="w-full bg-[#120d00] border border-[#ffbb00]/18 rounded-lg px-4 py-2 text-[#f5deb3] cursor-pointer hover:border-[#ffbb00]/30 transition-colors min-h-[42px] flex items-center justify-between"
               onClick={() => setDimensionDropdownOpen((prev) => !prev)}
             >
               <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
                 {selectedDimensions.length === 1 && selectedDimensions[0] === 'all' ? (
-                  <span className="text-gray-500">All Activity Groups</span>
+                  <span className="text-[#a89465]">All Activity Groups</span>
                 ) : (
                   selectedDimensions.map((dimension) => {
                     const dim = DIMENSIONS.find((item) => item.value === dimension);
@@ -296,7 +296,7 @@ export default function Metrics() {
                       <button
                         key={dimension}
                         type="button"
-                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1 hover:bg-indigo-900/50"
+                        className="px-2 py-0.5 text-xs rounded-full bg-[#ffbb00]/12 text-[#ffdd73] border border-[#ffbb00]/28 flex items-center gap-1 hover:bg-[#ffbb00]/20 transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleDimension(dimension);
@@ -310,23 +310,23 @@ export default function Metrics() {
                   })
                 )}
               </div>
-              <span className="text-gray-400 ml-2">{dimensionDropdownOpen ? '▲' : '▼'}</span>
+              <span className="text-[#a89465] ml-2">{dimensionDropdownOpen ? '▲' : '▼'}</span>
             </div>
 
             {dimensionDropdownOpen && (
-              <div role="listbox" className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+              <div role="listbox" className="absolute z-10 w-full mt-1 bg-[#0f0b00] border border-[#ffbb00]/18 rounded-lg shadow-lg shadow-black/50 max-h-64 overflow-hidden">
                 <div className="max-h-48 overflow-y-auto">
                   {DIMENSIONS.map((dimension) => (
                     <label
                       key={dimension.value}
-                      className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                      className="flex items-center px-4 py-2 hover:bg-[#ffbb00]/8 cursor-pointer text-[#f5deb3] text-sm"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
                         type="checkbox"
                         checked={selectedDimensions.includes(dimension.value)}
                         onChange={() => toggleDimension(dimension.value)}
-                        className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                        className="mr-3 h-4 w-4 accent-[#ffbb00] rounded"
                       />
                       {dimension.label}
                     </label>
@@ -355,10 +355,10 @@ export default function Metrics() {
                   disabled={isDisabledReserve}
                   className={`w-full inline-flex items-center justify-center gap-1 px-1 py-1 text-[10px] sm:text-xs font-medium rounded-full border transition whitespace-nowrap ${
                     isDisabledReserve
-                      ? 'border-slate-700 text-slate-600 bg-transparent cursor-not-allowed opacity-50'
+                      ? 'border-[#ffbb00]/12 text-[#a89465]/40 bg-transparent cursor-not-allowed opacity-50'
                       : isActive
                         ? TIER_COLORS[tier]
-                        : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-slate-800'
+                        : TIER_COLORS_OUTLINE[tier] + ' bg-transparent hover:bg-[#ffbb00]/8'
                   }`}
                 >
                   <span className="hidden sm:inline">{TIER_LABELS[tier]}</span>
@@ -375,14 +375,14 @@ export default function Metrics() {
                   </span>
                   <span
                     className={`inline-flex items-center justify-center text-[9px] sm:text-[10px] min-w-[16px] h-[16px] sm:min-w-[18px] sm:h-[18px] rounded-full px-1 ${
-                      isActive ? 'bg-black/25' : 'bg-slate-800'
+                      isActive ? 'bg-black/25' : 'bg-[#17120a]'
                     }`}
                   >
                     {count}
                   </span>
                 </button>
                 <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-10 hidden group-hover:block z-20">
-                  <div className="whitespace-nowrap rounded bg-slate-900 border border-slate-600 px-2 py-1 text-[11px] text-gray-200 shadow-lg">
+                  <div className="whitespace-nowrap rounded-lg bg-[#0f0b00] border border-[#ffbb00]/18 px-2 py-1 text-[11px] text-[#d4c39b] shadow-lg">
                     {helpText}
                   </div>
                 </div>
@@ -398,7 +398,7 @@ export default function Metrics() {
               setSelectedTiers([]);
               setSelectedDimensions(['all']);
             }}
-            className="text-xs text-gray-400 hover:text-white transition"
+            className="text-xs text-[#a89465] hover:text-[#f5deb3] transition"
           >
             ✕ Clear filters
           </button>
@@ -407,10 +407,10 @@ export default function Metrics() {
 
       {/* Empty server onboarding message */}
       {isEmptyServer && (
-        <div className="bg-indigo-900/20 border border-indigo-700/40 rounded-lg p-6 text-center">
+        <div className="bg-[#ffbb00]/8 border border-[#ffbb00]/18 rounded-xl p-6 text-center">
           <div className="text-3xl mb-3">📊</div>
-          <h3 className="text-lg font-semibold text-white mb-2">Metrics Collection Active</h3>
-          <p className="text-sm text-gray-400 max-w-md mx-auto">
+          <h3 className="text-lg font-semibold text-[#fff4cc] mb-2">Metrics Collection Active</h3>
+          <p className="text-sm text-[#a89465] max-w-md mx-auto">
             No activity data recorded yet for this period. Data will appear automatically as members
             send messages, join voice channels, and play games.
           </p>

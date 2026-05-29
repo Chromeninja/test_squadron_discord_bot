@@ -656,12 +656,12 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
           <AccordionSection title="📁 Bot Administration" level={2}>
             <div className="space-y-4">
               <Alert variant="info" className="mb-4">
-                <h5 className="text-sm font-semibold text-indigo-200 mb-1">Permission Hierarchy</h5>
-                <p className="text-xs text-indigo-100">
+                <h5 className="text-sm font-semibold text-[#ffdd73] mb-1">Permission Hierarchy</h5>
+                <p className="text-xs text-[#f5deb3]">
                   Permissions are inherited from higher levels. Bot Admins have all permissions,
                   Discord Managers can manage users, Moderators handle moderation, and Staff have basic access.
                 </p>
-                <div className="mt-2 text-xs text-indigo-200 font-mono">
+                <div className="mt-2 text-xs text-[#ffdd73] font-mono">
                   Bot Owner &gt; Bot Admin &gt; Discord Manager &gt; Moderator &gt; Event Coordinator &gt; Staff &gt; User
                 </div>
               </Alert>
@@ -831,8 +831,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       <AccordionSection title="📅 Event Module" level={1}>
         <div className="space-y-4">
           <Alert variant="info" className="mb-4">
-            <h5 className="text-sm font-semibold text-indigo-200 mb-1">Event coordination flow</h5>
-            <p className="text-xs text-indigo-100">
+            <h5 className="text-sm font-semibold text-[#ffdd73] mb-1">Event coordination flow</h5>
+            <p className="text-xs text-[#f5deb3]">
               These settings control whether the event module is active for this guild and how the dashboard connects to native Discord scheduled events by default.
             </p>
           </Alert>

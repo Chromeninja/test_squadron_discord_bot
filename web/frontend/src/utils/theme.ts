@@ -1,6 +1,6 @@
 /**
  * Centralized design tokens and theme utilities.
- * 
+ *
  * Single source of truth for colors, variants, and semantic styling.
  * All components should import from here rather than hardcoding Tailwind classes.
  */
@@ -33,25 +33,25 @@ export const colors = {
     bg: 'bg-[#3a2a00]',
     bgLight: 'bg-[#ffbb00]/12',
     text: 'text-[#ffe08a]',
-    border: 'border-[#ffbb00]/30',
+    border: 'border-[rgba(255,187,0,0.3)]',
   },
   neutral: {
     bg: 'bg-[#17120a]',
     bgLight: 'bg-[#120d00]',
     text: 'text-[#d4c39b]',
-    border: 'border-[#ffbb00]/15',
+    border: 'border-[rgba(255,187,0,0.15)]',
   },
   primary: {
     bg: 'bg-[#3a2a00]',
     bgLight: 'bg-[#ffbb00]/14',
     text: 'text-[#ffdd73]',
-    border: 'border-[#ffbb00]/35',
+    border: 'border-[rgba(255,187,0,0.35)]',
   },
   purple: {
     bg: 'bg-[#241a00]',
     bgLight: 'bg-[#ffbb00]/10',
     text: 'text-[#ffe08a]',
-    border: 'border-[#ffbb00]/28',
+    border: 'border-[rgba(255,187,0,0.28)]',
   },
   orange: {
     bg: 'bg-orange-900',
@@ -67,24 +67,24 @@ export const colors = {
 
 export const buttonVariants = {
   // Base styles applied to all buttons
-  base: 'inline-flex items-center justify-center font-medium rounded transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed',
-  
+  base: 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed',
+
   // Variant styles
   variant: {
-    primary: 'border border-[#ffbb00]/45 bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] text-[#fff1bf] focus:ring-[#ffbb00]/45 hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))] disabled:bg-[#17120a] disabled:text-[#7d6c43]',
-    secondary: 'border border-[#ffbb00]/18 bg-[#120d00] hover:bg-[#1a1304] text-[#f5deb3] focus:ring-[#ffbb00]/30 disabled:bg-black disabled:text-[#6e6143]',
+    primary: 'border border-[rgba(255,187,0,0.45)] bg-[linear-gradient(180deg,rgba(255,187,0,0.22),rgba(255,187,0,0.12))] text-[#fff1bf] focus:ring-[rgba(255,187,0,0.45)] hover:bg-[linear-gradient(180deg,rgba(255,187,0,0.3),rgba(255,187,0,0.16))] disabled:bg-[#17120a] disabled:text-[#7d6c43]',
+    secondary: 'border border-[rgba(255,187,0,0.18)] bg-[#120d00] hover:bg-[#1a1304] text-[#f5deb3] focus:ring-[rgba(255,187,0,0.3)] disabled:bg-black disabled:text-[#6e6143]',
     danger: 'bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-700 focus:ring-red-500',
     warning: 'bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-200 border border-yellow-700 focus:ring-yellow-500',
     success: 'bg-green-900/30 hover:bg-green-900/50 text-green-200 border border-green-700 focus:ring-green-500',
-    ghost: 'bg-transparent hover:bg-[#ffbb00]/8 text-[#d6c7a3] focus:ring-[#ffbb00]/30',
-    link: 'bg-transparent text-[#ffcc4d] hover:text-[#fff1bf] underline-offset-4 hover:underline focus:ring-[#ffbb00]/45',
+    ghost: 'bg-transparent hover:bg-[#ffbb00]/8 text-[#d6c7a3] focus:ring-[rgba(255,187,0,0.3)]',
+    link: 'bg-transparent text-[#ffcc4d] hover:text-[#fff1bf] underline-offset-4 hover:underline focus:ring-[rgba(255,187,0,0.45)]',
   },
-  
+
   // Size styles
   size: {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-2.5 text-base',
+    sm: 'px-3 py-1.5 text-xs min-h-[30px]',
+    md: 'px-4 py-2 text-sm min-h-[36px]',
+    lg: 'px-5 py-2.5 text-base min-h-[42px]',
   },
 } as const;
 
@@ -94,24 +94,24 @@ export const buttonVariants = {
 
 export const badgeVariants = {
   // Base styles
-  base: 'inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded',
-  
+  base: 'inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full',
+
   // Semantic variants
   variant: {
     success: 'bg-green-900 text-green-200',
     warning: 'bg-yellow-900 text-yellow-200',
     error: 'bg-red-900 text-red-200',
-    info: 'bg-[#ffbb00]/12 text-[#ffe08a] border border-[#ffbb00]/25',
-    neutral: 'bg-[#17120a] text-[#d4c39b] border border-[#ffbb00]/15',
-    primary: 'bg-[#ffbb00]/14 text-[#ffdd73] border border-[#ffbb00]/30',
-    purple: 'bg-[#241a00] text-[#ffe08a] border border-[#ffbb00]/25',
+    info: 'bg-[#ffbb00]/12 text-[#ffe08a] border border-[rgba(255,187,0,0.25)]',
+    neutral: 'bg-[#17120a] text-[#d4c39b] border border-[rgba(255,187,0,0.15)]',
+    primary: 'bg-[#ffbb00]/14 text-[#ffdd73] border border-[rgba(255,187,0,0.3)]',
+    purple: 'bg-[#241a00] text-[#ffe08a] border border-[rgba(255,187,0,0.25)]',
     orange: 'bg-orange-900 text-orange-200',
     // With border variants (for less prominent badges)
-    'primary-outline': 'bg-[#ffbb00]/12 text-[#ffdd73] border border-[#ffbb00]/30',
+    'primary-outline': 'bg-[#ffbb00]/12 text-[#ffdd73] border border-[rgba(255,187,0,0.3)]',
     'warning-outline': 'bg-yellow-900/30 text-yellow-300 border border-yellow-700',
     'error-outline': 'bg-red-900/30 text-red-300 border border-red-700',
     'success-outline': 'bg-green-900/30 text-green-300 border border-green-700',
-    'neutral-outline': 'bg-[#120d00] text-[#a89465] border border-[#ffbb00]/15',
+    'neutral-outline': 'bg-[#120d00] text-[#a89465] border border-[rgba(255,187,0,0.15)]',
   },
 } as const;
 
@@ -121,13 +121,13 @@ export const badgeVariants = {
 
 export const alertVariants = {
   base: 'px-4 py-3 rounded-lg border',
-  
+
   variant: {
     success: 'bg-green-900/20 border-green-800 text-green-200',
     warning: 'bg-yellow-900/20 border-yellow-800 text-yellow-200',
     error: 'bg-red-900/20 border-red-800 text-red-400',
-    info: 'bg-[#ffbb00]/12 border-[#ffbb00]/28 text-[#ffe08a]',
-    neutral: 'bg-[#120d00] border-[#ffbb00]/15 text-[#d4c39b]',
+    info: 'bg-[#ffbb00]/12 border-[rgba(255,187,0,0.28)] text-[#ffe08a]',
+    neutral: 'bg-[#120d00] border-[rgba(255,187,0,0.15)] text-[#d4c39b]',
   },
 } as const;
 
@@ -136,14 +136,14 @@ export const alertVariants = {
 // ============================================================================
 
 export const cardVariants = {
-  base: 'rounded-lg border shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_0_0_1px_rgba(255,187,0,0.04)]',
-  
+  base: 'rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_0_0_1px_rgba(255,187,0,0.04)]',
+
   variant: {
-    default: 'bg-[linear-gradient(180deg,rgba(20,23,31,0.95),rgba(14,17,24,0.95))] border-[#ffbb00]/18 text-[#f5deb3]',
-    dark: 'bg-[linear-gradient(180deg,rgba(12,14,18,0.96),rgba(8,9,12,0.96))] border-[#ffbb00]/14 text-[#f5deb3]',
-    ghost: 'bg-[#120d00]/80 border-[#ffbb00]/14 text-[#d6c7a3]',
+    default: 'bg-[linear-gradient(180deg,rgba(20,23,31,0.95),rgba(14,17,24,0.95))] border-[rgba(255,187,0,0.12)] text-[#f5deb3]',
+    dark: 'bg-[linear-gradient(180deg,rgba(12,14,18,0.96),rgba(8,9,12,0.96))] border-[rgba(255,187,0,0.1)] text-[#f5deb3]',
+    ghost: 'bg-[#120d00]/80 border-[rgba(255,187,0,0.1)] text-[#d6c7a3]',
   },
-  
+
   padding: {
     none: '',
     sm: 'p-3',
@@ -157,8 +157,8 @@ export const cardVariants = {
 // ============================================================================
 
 export const inputVariants = {
-  base: 'w-full bg-[#120d00] border border-[#ffbb00]/18 rounded px-4 py-2 text-[#fff4cc] placeholder-[#7d6c43] focus:outline-none focus:border-[#ffbb00]/45 focus:ring-1 focus:ring-[#ffbb00]/35 disabled:bg-black disabled:text-[#6e6143] disabled:cursor-not-allowed',
-  
+  base: 'w-full bg-[#120d00] border border-[rgba(255,187,0,0.18)] rounded-lg px-4 py-2 text-[#fff4cc] placeholder-[#7d6c43] focus:outline-none focus:border-[rgba(255,187,0,0.45)] focus:ring-1 focus:ring-[rgba(255,187,0,0.35)] disabled:bg-black disabled:text-[#6e6143] disabled:cursor-not-allowed',
+
   variant: {
     default: '',
     error: 'border-red-600 focus:border-red-500 focus:ring-red-500',
@@ -171,8 +171,8 @@ export const inputVariants = {
 
 export const modalVariants = {
   overlay: 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4',
-  container: 'bg-[linear-gradient(180deg,rgba(18,13,0,0.96),rgba(7,7,7,0.98))] rounded-lg border border-[#ffbb00]/18 w-full overflow-hidden text-[#f5deb3]',
-  
+  container: 'bg-[linear-gradient(180deg,rgba(18,13,0,0.96),rgba(7,7,7,0.98))] rounded-xl border border-[rgba(255,187,0,0.18)] w-full overflow-hidden text-[#f5deb3]',
+
   size: {
     sm: 'max-w-md',
     md: 'max-w-lg',
@@ -180,14 +180,14 @@ export const modalVariants = {
     xl: 'max-w-4xl',
     full: 'max-w-full mx-4',
   },
-  
+
   header: {
     base: 'px-6 py-4 border-b',
-    default: 'border-[#ffbb00]/15 bg-[#120d00]',
+    default: 'border-[rgba(255,187,0,0.15)] bg-[#120d00]',
     warning: 'bg-yellow-900/20 border-yellow-800',
     error: 'bg-red-900/20 border-red-800',
     success: 'bg-green-900/20 border-green-800',
-    info: 'bg-[#ffbb00]/12 border-[#ffbb00]/30',
+    info: 'bg-[#ffbb00]/12 border-[rgba(255,187,0,0.3)]',
   },
 } as const;
 
@@ -196,11 +196,11 @@ export const modalVariants = {
 // ============================================================================
 
 export const tableVariants = {
-  wrapper: 'bg-[#120d00]/80 rounded border border-[#ffbb00]/15 overflow-hidden',
+  wrapper: 'bg-[#120d00]/80 rounded-xl border border-[rgba(255,187,0,0.15)] overflow-hidden',
   table: 'w-full text-sm',
   thead: 'bg-[#17120a] text-xs text-[#a89465]',
   th: 'text-left px-3 py-2 font-medium',
-  tbody: 'divide-y divide-[#ffbb00]/12',
+  tbody: 'divide-y divide-[rgba(255,187,0,0.12)]',
   tr: 'hover:bg-[#ffbb00]/6 transition-colors',
   td: 'px-3 py-2',
 } as const;
@@ -224,6 +224,25 @@ export const membershipStatusLabels: Record<string, string> = {
   unknown: 'Unknown',
   not_verified: 'Not Verified',
 };
+
+// ============================================================================
+// Filter / Dropdown Chip (reused in Users, Metrics, and similar filter bars)
+// ============================================================================
+
+export const filterChipVariants = {
+  chip: 'px-2 py-0.5 text-xs rounded-full bg-[#ffbb00]/12 text-[#ffdd73] border border-[rgba(255,187,0,0.28)] flex items-center gap-1 hover:bg-[#ffbb00]/20 transition-colors',
+  chipRemove: 'hover:text-[#fff1bf] transition-colors',
+  dropdown: 'w-full bg-[#120d00] border border-[rgba(255,187,0,0.18)] rounded-lg px-4 py-2 text-[#f5deb3] cursor-pointer hover:border-[rgba(255,187,0,0.3)] transition-colors min-h-[42px] flex items-center justify-between',
+  dropdownList: 'absolute z-10 w-full mt-1 bg-[#0f0b00] border border-[rgba(255,187,0,0.18)] rounded-lg shadow-lg shadow-black/50 max-h-64 overflow-hidden',
+  dropdownSearch: 'w-full bg-[#17120a] border border-[rgba(255,187,0,0.18)] rounded-lg px-3 py-1.5 text-[#f5deb3] text-sm placeholder-[#7d6c43] focus:outline-none focus:border-[rgba(255,187,0,0.4)]',
+  dropdownItem: 'flex items-center px-4 py-2 hover:bg-[#ffbb00]/8 cursor-pointer text-[#f5deb3] text-sm',
+  dropdownItemDivider: 'border-b border-[rgba(255,187,0,0.12)]',
+  dropdownPlaceholder: 'text-[#a89465]',
+  dropdownArrow: 'text-[#a89465] ml-2',
+  checkbox: 'mr-3 h-4 w-4 accent-[#ffbb00] rounded',
+  activeButton: 'bg-[#ffbb00]/18 border border-[rgba(255,187,0,0.35)] text-[#fff1bf]',
+  inactiveButton: 'text-[#a89465] hover:text-[#f5deb3] hover:bg-[#ffbb00]/8',
+} as const;
 
 // ============================================================================
 // Type exports for component props

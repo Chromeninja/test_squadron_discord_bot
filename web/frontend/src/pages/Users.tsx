@@ -703,7 +703,7 @@ function Users() {
         <div className="flex flex-wrap gap-4 items-start">
           {/* Search Box */}
           <div className="flex-1 min-w-[250px]">
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className="block text-sm font-medium text-[#a89465] mb-2">
               Search
             </label>
             <Input
@@ -715,63 +715,63 @@ function Users() {
 
           {/* Organization Filter */}
           <div className="flex-1 min-w-[250px] relative org-dropdown-container">
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className="block text-sm font-medium text-[#a89465] mb-2">
               Organizations {selectedOrgs.length > 0 && `(${selectedOrgs.length} selected)`}
             </label>
             <div className="relative">
               <div
-                className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+                className="w-full bg-[#120d00] border border-[#ffbb00]/18 rounded-lg px-4 py-2 text-[#f5deb3] cursor-pointer hover:border-[#ffbb00]/30 transition-colors min-h-[42px] flex items-center justify-between"
                 onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
               >
                 <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
                   {selectedOrgs.length === 0 ? (
-                    <span className="text-gray-500">All Organizations</span>
+                    <span className="text-[#a89465]">All Organizations</span>
                   ) : (
                     selectedOrgs.map(org => (
                       <span
                         key={org}
-                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1"
+                        className="px-2 py-0.5 text-xs rounded-full bg-[#ffbb00]/12 text-[#ffdd73] border border-[#ffbb00]/28 flex items-center gap-1 hover:bg-[#ffbb00]/20 transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleOrg(org);
                         }}
                       >
                         {org}
-                        <span className="hover:text-indigo-100">×</span>
+                        <span className="hover:text-[#fff1bf] transition-colors">×</span>
                       </span>
                     ))
                   )}
                 </div>
-                <span className="text-gray-400 ml-2">{orgDropdownOpen ? '▲' : '▼'}</span>
+                <span className="text-[#a89465] ml-2">{orgDropdownOpen ? '▲' : '▼'}</span>
               </div>
 
               {orgDropdownOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
-                  <div className="p-2 border-b border-slate-700">
+                <div className="absolute z-10 w-full mt-1 bg-[#0f0b00] border border-[#ffbb00]/18 rounded-lg shadow-lg shadow-black/50 max-h-64 overflow-hidden">
+                  <div className="p-2 border-b border-[#ffbb00]/12">
                     <input
                       type="text"
                       placeholder="Search organizations..."
                       value={orgSearchQuery}
                       onChange={(e) => setOrgSearchQuery(e.target.value)}
                       onClick={(e) => e.stopPropagation()}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-[#17120a] border border-[#ffbb00]/18 rounded-lg px-3 py-1.5 text-[#f5deb3] text-sm placeholder-[#7d6c43] focus:outline-none focus:border-[#ffbb00]/40"
                     />
                   </div>
                   <div className="max-h-48 overflow-y-auto">
                     {filteredAvailableOrgs.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-gray-500">No organizations found</div>
+                      <div className="px-4 py-3 text-sm text-[#a89465]">No organizations found</div>
                     ) : (
                       filteredAvailableOrgs.map(org => (
                         <label
                           key={org}
-                          className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                          className="flex items-center px-4 py-2 hover:bg-[#ffbb00]/8 cursor-pointer text-[#f5deb3] text-sm"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <input
                             type="checkbox"
                             checked={selectedOrgs.includes(org)}
                             onChange={() => toggleOrg(org)}
-                            className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                            className="mr-3 h-4 w-4 accent-[#ffbb00] rounded"
                           />
                           {org}
                         </label>
@@ -785,23 +785,23 @@ function Users() {
 
           {/* Membership Status Multi-Select */}
           <div className="flex-1 min-w-[250px] relative status-dropdown-container">
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className="block text-sm font-medium text-[#a89465] mb-2">
               Membership Status {selectedStatuses.length > 0 && `(${selectedStatuses.length} selected)`}
             </label>
             <div className="relative">
               <div
-                className="w-full bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white cursor-pointer hover:border-slate-500 transition-colors min-h-[42px] flex items-center justify-between"
+                className="w-full bg-[#120d00] border border-[#ffbb00]/18 rounded-lg px-4 py-2 text-[#f5deb3] cursor-pointer hover:border-[#ffbb00]/30 transition-colors min-h-[42px] flex items-center justify-between"
                 onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
               >
                 <div className="flex flex-wrap gap-1 flex-1 min-h-[26px]">
                   {selectedStatuses.length === 0 ? (
-                    <span className="text-gray-500">All Statuses</span>
+                    <span className="text-[#a89465]">All Statuses</span>
                   ) : (
                     selectedStatuses.map(status => (
                       <button
                         key={status}
                         type="button"
-                        className="px-2 py-0.5 text-xs rounded bg-indigo-900/30 text-indigo-300 border border-indigo-700/50 flex items-center gap-1 hover:bg-indigo-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="px-2 py-0.5 text-xs rounded-full bg-[#ffbb00]/12 text-[#ffdd73] border border-[#ffbb00]/28 flex items-center gap-1 hover:bg-[#ffbb00]/20 focus:outline-none focus:ring-2 focus:ring-[#ffbb00]/45 transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleStatus(status);
@@ -809,28 +809,28 @@ function Users() {
                         aria-label={`Remove ${status.replace('_', ' ')} status filter`}
                       >
                         {status.replace('_', ' ')}
-                        <span className="hover:text-indigo-100" aria-hidden="true">×</span>
+                        <span className="hover:text-[#fff1bf] transition-colors" aria-hidden="true">×</span>
                       </button>
                     ))
                   )}
                 </div>
-                <span className="text-gray-400 ml-2">{statusDropdownOpen ? '▲' : '▼'}</span>
+                <span className="text-[#a89465] ml-2">{statusDropdownOpen ? '▲' : '▼'}</span>
               </div>
 
               {statusDropdownOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-600 rounded shadow-lg max-h-64 overflow-hidden">
+                <div className="absolute z-10 w-full mt-1 bg-[#0f0b00] border border-[#ffbb00]/18 rounded-lg shadow-lg shadow-black/50 max-h-64 overflow-hidden">
                   <div className="max-h-48 overflow-y-auto">
                     {['main', 'affiliate', 'non_member', 'unknown'].map(status => (
                       <label
                         key={status}
-                        className="flex items-center px-4 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm"
+                        className="flex items-center px-4 py-2 hover:bg-[#ffbb00]/8 cursor-pointer text-[#f5deb3] text-sm"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <input
                           type="checkbox"
                           checked={selectedStatuses.includes(status)}
                           onChange={() => toggleStatus(status)}
-                          className="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-600 rounded"
+                          className="mr-3 h-4 w-4 accent-[#ffbb00] rounded"
                         />
                         <span className="capitalize">{status.replace('_', ' ')}</span>
                       </label>
@@ -855,7 +855,7 @@ function Users() {
 
           {/* Page Size Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className="block text-sm font-medium text-[#a89465] mb-2">
               Per Page
             </label>
             <select
@@ -864,7 +864,7 @@ function Users() {
                 setPageSize(Number(e.target.value));
                 setPage(1);
               }}
-              className="bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
+              className="bg-[#120d00] border border-[#ffbb00]/18 rounded-lg px-4 py-2 text-[#f5deb3] focus:outline-none focus:border-[#ffbb00]/45"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>

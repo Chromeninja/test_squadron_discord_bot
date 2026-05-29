@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRequestSequence } from '../hooks/useRequestSequence';
 import { getRoleDisplayName } from '../utils/permissions';
 import { formatEventDate, getStatusTone } from './eventFlowShared';
+import { EventPageHeader, EventStatCard, EventViewTabs } from './eventPageChrome';
 
 interface EventsProps {
   guildId: string;
@@ -186,6 +187,10 @@ function Events({ guildId, view = 'active' }: EventsProps) {
   const sectionTitle = view === 'past' ? 'Past events' : 'Active and upcoming events';
   const emptyStateTitle =
     view === 'past' ? 'No past events yet' : 'No active or upcoming events right now';
+  const pageDescription =
+    view === 'past'
+      ? 'Review completed and older scheduled events without the setup noise of the live coordination view.'
+      : 'Coordinate upcoming Discord events, keep destinations aligned, and scan the next actions without digging through extra chrome.';
   const inventoryLabel =
     view === 'past'
       ? 'past scheduled events visible in this view'
@@ -199,27 +204,77 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     : 'Not configured';
 
   if (loading) {
-    return <div className="py-8 text-center text-gray-300">Loading event coordination...</div>;
+    return (
+      <Card variant="default">
+        <CardBody className="py-10 text-center text-gray-300">
+          Loading event coordination...
+        </CardBody>
+      </Card>
+    );
   }
+
+  const tabs = [
+    {
+      key: 'active',
+      label: 'Active',
+      active: view === 'active',
+      onClick: () => navigate('/events'),
+    },
+    {
+      key: 'past',
+      label: 'Past',
+      active: view === 'past',
+      onClick: () => navigate('/events/past'),
+    },
+  ];
 
   return (
     <div className="space-y-6 lg:space-y-8">
-      <div className="flex flex-wrap items-center justify-end gap-3 rounded-[24px] border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(20,23,31,0.95),rgba(14,17,24,0.95))] p-4 shadow-lg shadow-black/20">
-        <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded bg-[#ffbb00]/12 text-[#ffe08a] border border-[#ffbb00]/25">{roleLabel}</span>
-        <Button onClick={() => navigate('/events/new')} variant="success" size="sm">
-          New Event
-        </Button>
-        <Button
-          onClick={() => {
-            void handleSyncFromDiscord();
-          }}
-          loading={refreshing}
-          variant="secondary"
-          size="sm"
-        >
-          {refreshing ? 'Syncing...' : 'Sync From Discord'}
-        </Button>
-      </div>
+      <EventPageHeader
+        title={sectionTitle}
+        subtitle={guildInfo?.guild_name || 'Current guild'}
+        description={pageDescription}
+        actions={
+          <>
+            <Badge variant="info">{roleLabel}</Badge>
+            <Button onClick={() => navigate('/events/new')} variant="primary" size="sm">
+              New Event
+            </Button>
+            <Button
+              onClick={() => {
+                void handleSyncFromDiscord();
+              }}
+              loading={refreshing}
+              variant="secondary"
+              size="sm"
+            >
+              {refreshing ? 'Syncing...' : 'Sync From Discord'}
+            </Button>
+          </>
+        }
+        footer={
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <EventViewTabs tabs={tabs} />
+            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[42rem] lg:flex-1">
+              <EventStatCard
+                label="Shown"
+                value={<span className="text-2xl font-semibold text-white">{filteredEvents.length}</span>}
+                supportingText={inventoryLabel}
+              />
+              <EventStatCard
+                label="Announcement"
+                value={defaultAnnouncementLabel}
+                supportingText="Default posting destination"
+              />
+              <EventStatCard
+                label="Voice"
+                value={defaultVoiceLabel}
+                supportingText={eventSettings?.default_native_sync === false ? 'Manual sync posture' : 'Native sync enabled'}
+              />
+            </div>
+          </div>
+        }
+      />
 
       {error && <Alert variant="error">{error}</Alert>}
 
@@ -229,112 +284,116 @@ function Events({ guildId, view = 'active' }: EventsProps) {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card variant="default" className="border border-slate-700 bg-slate-900/80">
-          <CardBody>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Defaults</p>
-            <div className="mt-3 space-y-2 text-sm text-slate-300">
-              <div className="flex items-center justify-between gap-4">
-                <span>Native sync</span>
-                <Badge variant={eventSettings?.default_native_sync === false ? 'neutral' : 'success'}>
-                  {eventSettings?.default_native_sync === false ? 'Off' : 'On'}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span>Announcement channel</span>
-                <span className="text-right text-slate-200">{defaultAnnouncementLabel}</span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span>Voice channel</span>
-                <span className="text-right text-slate-200">{defaultVoiceLabel}</span>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card variant="default" className="border border-slate-700 bg-slate-900/80">
-          <CardBody>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live Inventory</p>
-            <div className="mt-3">
-              <p className="text-4xl font-bold text-white">{filteredEvents.length}</p>
-              <p className="mt-1 text-sm text-slate-400">
-                {inventoryLabel}
-              </p>
-              {scheduledEventsLoading && (
-                <p className="mt-2 text-xs text-cyan-300">Refreshing event inventory...</p>
-              )}
-            </div>
-          </CardBody>
-        </Card>
-      </div>
-
       {scheduledEventsError && <Alert variant="warning">{scheduledEventsError}</Alert>}
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h3 className="text-xl font-semibold text-white">{sectionTitle}</h3>
-            {guildInfo?.guild_name && <p className="mt-1 text-sm text-slate-500">{guildInfo.guild_name}</p>}
+            <h3 className="text-xl font-semibold text-[#fff4cc]">Event schedule</h3>
+            <p className="mt-1 text-sm text-[#a89465]">
+              {filteredEvents.length === 0
+                ? 'Nothing needs attention in this view right now.'
+                : `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'} ready to scan.`}
+            </p>
           </div>
+          {scheduledEventsLoading ? (
+            <p className="text-xs uppercase tracking-[0.18em] text-[#ffbb00]/70">Refreshing inventory...</p>
+          ) : null}
         </div>
 
         {filteredEvents.length === 0 ? (
-          <Card variant="default" className="border border-dashed border-slate-700 bg-slate-900/70">
-            <CardBody>
-              <h4 className="text-lg font-semibold text-white">{emptyStateTitle}</h4>
+          <Card variant="ghost" className="border-dashed">
+            <CardBody className="space-y-4 py-8">
+              <h4 className="text-lg font-semibold text-[#fff4cc]">{emptyStateTitle}</h4>
+              <p className="max-w-2xl text-sm leading-6 text-slate-400">
+                {view === 'past'
+                  ? 'Past events appear here after they end or move into a terminal status.'
+                  : 'Create an event or sync from Discord to bring the live schedule into this workspace.'}
+              </p>
+              {view === 'active' ? (
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="primary" onClick={() => navigate('/events/new')}>
+                    Create Event
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      void handleSyncFromDiscord();
+                    }}
+                    loading={refreshing}
+                  >
+                    Refresh from Discord
+                  </Button>
+                </div>
+              ) : null}
             </CardBody>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="divide-y divide-[rgba(255,187,0,0.08)]">
             {filteredEvents.map((event) => (
-              <Card key={event.id} variant="default" className="border border-slate-700 bg-slate-900/85">
-                <CardBody>
+              <div key={event.id} className="space-y-4 py-6">
                   <div className="flex items-start justify-between gap-4">
-                    <div>
+                    <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">{event.entity_type}</p>
+                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#ffbb00]/70">{event.entity_type}</p>
                         <Badge variant={getStatusTone(event.status)}>{event.status}</Badge>
+                        {event.recurrence_rule ? <Badge variant="neutral">Recurring</Badge> : null}
                       </div>
-                      <h4 className="mt-2 text-xl font-semibold text-white">{event.name}</h4>
+                      <div>
+                        <h4 className="text-xl font-semibold text-[#fff4cc]">{event.name}</h4>
+                        {event.description ? (
+                          <p className="mt-2 text-sm leading-6 text-[#d4c39b]">{event.description}</p>
+                        ) : (
+                          <p className="mt-2 text-sm text-[#a89465]">No briefing added yet.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 px-3 py-2 text-right">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">Interested</p>
+                      <p className="mt-1 text-sm font-medium text-[#f5deb3]">
+                        {event.user_count} member{event.user_count === 1 ? '' : 's'}
+                      </p>
                     </div>
                   </div>
 
-                  {event.description && <p className="mt-3 text-sm leading-6 text-slate-300">{event.description}</p>}
-
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Starts</p>
-                      <p className="mt-1 text-sm text-slate-100">{formatEventDate(event.scheduled_start_time)}</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">Starts</p>
+                      <p className="mt-2 text-sm leading-6 text-[#f5deb3]">
+                        {formatEventDate(event.scheduled_start_time)}
+                      </p>
                     </div>
-                    {event.recurrence_rule ? (
-                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Repeats</p>
-                        <p className="mt-1 text-sm text-slate-100">{event.recurrence_rule}</p>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Ends</p>
-                        <p className="mt-1 text-sm text-slate-100">{formatEventDate(event.scheduled_end_time)}</p>
-                      </div>
-                    )}
-                    <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Connection</p>
-                      <p className="mt-1 text-sm text-slate-100">{event.channel_name || event.location || 'No channel attached'}</p>
+                    <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">
+                        {event.recurrence_rule ? 'Repeats' : 'Ends'}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[#f5deb3]">
+                        {event.recurrence_rule || formatEventDate(event.scheduled_end_time)}
+                      </p>
                     </div>
-                    <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Interested</p>
-                      <p className="mt-1 text-sm text-slate-100">{event.user_count} member{event.user_count === 1 ? '' : 's'}</p>
+                    <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">Connection</p>
+                      <p className="mt-2 text-sm leading-6 text-[#f5deb3]">
+                        {event.channel_name || event.location || 'No channel attached'}
+                      </p>
                     </div>
                   </div>
 
-                  {(event.creator_name || event.location) && (
-                    <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400">
-                      {event.creator_name && <span>Created by {event.creator_name}</span>}
-                      {event.location && <span>Location: {event.location}</span>}
+                  <div className="flex flex-col gap-3 border-t border-[rgba(255,187,0,0.1)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[#a89465]">
+                      {event.creator_name ? (
+                        <span className="rounded-full border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 px-3 py-1.5">
+                          Created by {event.creator_name}
+                        </span>
+                      ) : null}
+                      {event.location ? (
+                        <span className="rounded-full border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 px-3 py-1.5">
+                          Location: {event.location}
+                        </span>
+                      ) : null}
                     </div>
-                  )}
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -351,9 +410,9 @@ function Events({ guildId, view = 'active' }: EventsProps) {
                     >
                       Delete Event
                     </Button>
+                    </div>
                   </div>
-                </CardBody>
-              </Card>
+              </div>
             ))}
           </div>
         )}

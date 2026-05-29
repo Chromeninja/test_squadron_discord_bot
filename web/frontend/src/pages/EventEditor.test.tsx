@@ -216,6 +216,10 @@ describe('EventEditor Page', () => {
       expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
     });
 
+    expect(screen.getAllByText('Steps').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Build flow')).not.toBeInTheDocument();
+    expect(screen.queryByText('Live preview')).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText('Event Name'), {
       target: { value: 'Created Event' },
     });

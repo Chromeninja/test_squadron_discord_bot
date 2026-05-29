@@ -380,12 +380,12 @@ function Voice() {
               <span className="text-xs text-gray-500">JTC Channel</span>
               {jtc.jtc_channel_name && !jtc.jtc_channel_name.match(/^(JTC \d+|Channel \d+)$/) ? (
                 <>
-                  <span className="font-medium text-indigo-300">{jtc.jtc_channel_name}</span>
+                  <span className="font-medium text-[#ffdd73]">{jtc.jtc_channel_name}</span>
                   <span className="font-mono text-xs text-gray-500">ID: {jtc.jtc_channel_id}</span>
                 </>
               ) : (
                 <>
-                  <span className="font-mono text-sm text-indigo-400">{jtc.jtc_channel_id}</span>
+                  <span className="font-mono text-sm text-[#ffbb00]/70">{jtc.jtc_channel_id}</span>
                   <Badge variant="warning-outline" title="Channel name could not be resolved">
                     Channel Not Found
                   </Badge>
@@ -573,17 +573,17 @@ function Voice() {
                             {channel.members.map((member) => (
                               <div
                                 key={member.user_id}
-                                className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
+                                className="flex items-center gap-3 py-1.5 px-2 hover:bg-[#ffbb00]/8 rounded text-sm"
                               >
                                 <button
                                   type="button"
-                                  className="flex-1 text-left font-medium text-indigo-300 hover:text-indigo-200 hover:underline"
+                                  className="flex-1 text-left font-medium text-[#ffdd73] hover:text-[#fff1bf] hover:underline"
                                   onClick={() => openUserDetailsModal(member)}
                                   title="Open member details"
                                 >
                                   {member.display_name || member.rsi_handle || member.username || `User ${member.user_id}`}
                                 </button>
-                                <span className="text-gray-500">→</span>
+                                <span className="text-gray-500">&rarr;</span>
                                 <span className="font-mono text-gray-400 text-xs">{member.user_id}</span>
                                 <span className="text-gray-500">-</span>
                                 {member.is_owner && (
@@ -651,11 +651,11 @@ function Voice() {
                         {channel.members.map((member) => (
                           <div
                             key={member.user_id}
-                            className="flex items-center gap-3 py-1.5 px-2 hover:bg-slate-800 rounded text-sm"
+                            className="flex items-center gap-3 py-1.5 px-2 hover:bg-[#ffbb00]/8 rounded text-sm"
                           >
                             <button
                               type="button"
-                              className="flex-1 text-left font-medium text-indigo-300 hover:text-indigo-200 hover:underline"
+                              className="flex-1 text-left font-medium text-[#ffdd73] hover:text-[#fff1bf] hover:underline"
                               onClick={() => openUserDetailsModal(member)}
                               title="Open member details"
                             >
@@ -879,7 +879,7 @@ function Voice() {
                   {resetTargetJtc && (
                     <div>
                       <span className="text-gray-500">JTC Channel:</span>
-                      <span className="ml-2 font-mono text-xs text-indigo-400">{resetTargetJtc}</span>
+                      <span className="ml-2 font-mono text-xs text-[#ffbb00]/70">{resetTargetJtc}</span>
                     </div>
                   )}
                   <div>
