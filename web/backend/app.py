@@ -187,8 +187,12 @@ app.include_router(logs.router)
 
 # Backend-first v1 endpoints (authoritative layer)
 from backend.api.v1.health import router as backend_health_router  # noqa: E402
+from backend.api.internal.events import router as internal_events_router  # noqa: E402
+from backend.api.internal.metrics import router as internal_metrics_router  # noqa: E402
 
 app.include_router(backend_health_router)
+app.include_router(internal_events_router)
+app.include_router(internal_metrics_router)
 
 
 # Serve built frontend assets in production
