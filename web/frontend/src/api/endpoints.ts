@@ -154,7 +154,7 @@ export interface ScheduledEventCreateRequest {
   announcement_message?: string | null;
   scheduled_start_time: string;
   scheduled_end_time: string | null;
-  entity_type: 'voice';
+  entity_type: 'stage_instance' | 'voice' | 'external';
   channel_id: string | null;
   location: string | null;
   announcement_channel_id?: string | null;

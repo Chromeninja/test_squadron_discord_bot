@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ScheduledEventRecurrenceNWeekday(BaseModel):
@@ -67,13 +67,27 @@ class ScheduledEventCreateRequest(BaseModel):
     announcement_message: str | None = Field(default=None, max_length=2000)
     scheduled_start_time: str
     scheduled_end_time: str | None = None
-    entity_type: Literal["voice"]
+    entity_type: Literal["stage_instance", "voice", "external"]
     channel_id: str | None = None
     location: str | None = Field(default=None, max_length=100)
     announcement_channel_id: str | None = None
     signup_role_ids: list[str] = Field(default_factory=list)
     recurrence_rule: ScheduledEventRecurrenceRule | None = None
     image_data: str | None = None
+
+    @model_validator(mode="after")
+    def validate_location_fields(self) -> "ScheduledEventCreateRequest":
+        """Validate mode-specific Discord location fields."""
+        if self.entity_type == "external":
+            if not self.location or not self.location.strip():
+                raise ValueError("External events require a location")
+            if self.channel_id is not None:
+                raise ValueError("External events cannot include a channel_id")
+            return self
+
+        if not self.channel_id:
+            raise ValueError("Stage and voice events require a channel_id")
+        return self
 
 
 class ScheduledEventUpdateRequest(ScheduledEventCreateRequest):

@@ -5,7 +5,6 @@ without hitting Discord API rate limits.
 """
 
 import base64
-import json
 import os
 import secrets
 import time
@@ -1632,7 +1631,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             return None
 
         if not isinstance(recurrence_rule_raw, dict):
-            raise ValueError("recurrence_rule must be an object")
+            raise TypeError("recurrence_rule must be an object")
 
         start_raw = recurrence_rule_raw.get("start")
         start = start_time.isoformat()
@@ -1681,7 +1680,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             by_n_weekday: list[dict[str, int]] = []
             for item in by_n_weekday_raw:
                 if not isinstance(item, dict):
-                    raise ValueError("recurrence_rule.by_n_weekday values must be objects")
+                    raise TypeError("recurrence_rule.by_n_weekday values must be objects")
                 n_raw = item.get("n")
                 day_raw = item.get("day")
                 if not isinstance(n_raw, (int, str)) or not str(n_raw).strip():
@@ -1853,16 +1852,19 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         )
 
         channel = getattr(event, "channel", None)
+        location = getattr(event, "location", None)
         if channel is not None:
             channel_mention = getattr(channel, "mention", None)
             channel_name = getattr(channel, "name", None)
             embed.add_field(
-                name="Voice Channel",
+                name="Location",
                 value=channel_mention
                 if isinstance(channel_mention, str)
                 else (channel_name if isinstance(channel_name, str) else "Configured"),
                 inline=False,
             )
+        elif isinstance(location, str) and location.strip():
+            embed.add_field(name="Location", value=location.strip(), inline=False)
 
         embed.add_field(name="Event Link", value=f"[Open Event]({event_url})", inline=False)
         embed.set_footer(
@@ -1880,6 +1882,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         datetime,
         datetime | None,
         discord.abc.GuildChannel | None,
+        str | None,
         str | None,
         dict[str, object] | None,
         str | None,
@@ -1904,17 +1907,21 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         if not name:
             return web.json_response({"error": "Event name is required"}, status=400)
 
-        if entity_type_name != "voice":
+        entity_type_by_name = {
+            "stage_instance": discord.EntityType.stage_instance,
+            "voice": discord.EntityType.voice,
+            "external": discord.EntityType.external,
+        }
+        entity_type = entity_type_by_name.get(entity_type_name)
+        if entity_type is None:
             return web.json_response(
-                {"error": "Only voice scheduled events are supported"},
+                {"error": "Unsupported scheduled event type"},
                 status=400,
             )
 
-        entity_type = discord.EntityType.voice
-
         try:
             start_time = self._parse_iso_datetime(payload.get("scheduled_start_time"))
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             return web.json_response({"error": str(exc)}, status=400)
 
         end_time_raw = payload.get("scheduled_end_time")
@@ -1954,15 +1961,33 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 return web.json_response({"error": "Invalid channel ID"}, status=400)
 
         description = str(payload.get("description") or "").strip() or None
+        location = str(payload.get("location") or "").strip() or None
 
-        if channel is None:
+        if entity_type is discord.EntityType.external:
+            if channel_id is not None:
+                return web.json_response(
+                    {"error": "External events cannot include a channel"}, status=400
+                )
+            if location is None:
+                return web.json_response(
+                    {"error": "External events require a location"}, status=400
+                )
+            if end_time is None:
+                return web.json_response(
+                    {"error": "External events require an end time"}, status=400
+                )
+        elif channel is None:
             return web.json_response(
-                {"error": "Voice events require a channel"}, status=400
+                {"error": "Stage and voice events require a channel"}, status=400
             )
 
-        if not isinstance(channel, discord.VoiceChannel):
+        if entity_type is discord.EntityType.voice and not isinstance(channel, discord.VoiceChannel):
             return web.json_response(
                 {"error": "Voice events require a voice channel"}, status=400
+            )
+        if entity_type is discord.EntityType.stage_instance and not isinstance(channel, discord.StageChannel):
+            return web.json_response(
+                {"error": "Stage events require a stage channel"}, status=400
             )
 
         return (
@@ -1973,6 +1998,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             recurrence_rule,
             image_data,
@@ -1998,6 +2024,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             *event_request_rest,
         ) = event_request
@@ -2020,8 +2047,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 "start_time": start_time,
                 "entity_type": entity_type,
                 "privacy_level": discord.PrivacyLevel.guild_only,
-                "channel": cast("discord.abc.Snowflake", channel),
             }
+            if channel is not None:
+                create_kwargs["channel"] = cast("discord.abc.Snowflake", channel)
+            if location is not None:
+                create_kwargs["location"] = location
             if end_time is not None:
                 create_kwargs["end_time"] = end_time
             if description is not None:
@@ -2035,7 +2065,8 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     entity_type=entity_type,
                     start_time=start_time,
                     end_time=end_time,
-                    channel=cast("discord.abc.Snowflake", channel),
+                    channel=cast("discord.abc.Snowflake | None", channel),
+                    location=location,
                     description=description,
                     recurrence_rule=recurrence_rule,
                     image_data=image_data,
@@ -2229,6 +2260,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             *event_request_rest,
         ) = event_request
@@ -2270,9 +2302,13 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 "start_time": start_time,
                 "end_time": end_time,
                 "entity_type": entity_type,
-                "channel": cast("discord.abc.Snowflake", channel),
-                "location": None,
             }
+            if channel is not None:
+                edit_kwargs["channel"] = cast("discord.abc.Snowflake", channel)
+                edit_kwargs["location"] = None
+            else:
+                edit_kwargs["channel"] = None
+                edit_kwargs["location"] = location
             if recurrence_rule is None and image_data is None:
                 updated_event = await event_any.edit(**edit_kwargs)
             else:
@@ -2283,7 +2319,8 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     entity_type=entity_type,
                     start_time=start_time,
                     end_time=end_time,
-                    channel=cast("discord.abc.Snowflake", channel),
+                    channel=cast("discord.abc.Snowflake | None", channel),
+                    location=location,
                     description=description,
                     recurrence_rule=recurrence_rule,
                     image_data=image_data,
@@ -2396,7 +2433,8 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         entity_type: discord.EntityType,
         start_time: datetime,
         end_time: datetime | None,
-        channel: discord.abc.Snowflake,
+        channel: discord.abc.Snowflake | None,
+        location: str | None,
         description: str | None,
         recurrence_rule: dict[str, object] | None,
         image_data: str | None,
@@ -2411,9 +2449,13 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "scheduled_start_time": start_time.isoformat(),
             "entity_type": entity_type.value,
             "privacy_level": discord.PrivacyLevel.guild_only.value,
-            "channel_id": str(channel.id),
-            "entity_metadata": None,
         }
+        if channel is not None:
+            payload["channel_id"] = str(channel.id)
+            payload["entity_metadata"] = None
+        else:
+            payload["channel_id"] = None
+            payload["entity_metadata"] = {"location": location}
         if recurrence_rule is not None:
             payload["recurrence_rule"] = recurrence_rule
         if image_data is not None:
@@ -2438,7 +2480,8 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         entity_type: discord.EntityType,
         start_time: datetime,
         end_time: datetime | None,
-        channel: discord.abc.Snowflake,
+        channel: discord.abc.Snowflake | None,
+        location: str | None,
         description: str | None,
         recurrence_rule: dict[str, object] | None,
         image_data: str | None,
@@ -2454,9 +2497,13 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "scheduled_start_time": start_time.isoformat(),
             "scheduled_end_time": end_time.isoformat() if end_time is not None else None,
             "entity_type": entity_type.value,
-            "channel_id": str(channel.id),
-            "entity_metadata": None,
         }
+        if channel is not None:
+            payload["channel_id"] = str(channel.id)
+            payload["entity_metadata"] = None
+        else:
+            payload["channel_id"] = None
+            payload["entity_metadata"] = {"location": location}
         if recurrence_rule is not None:
             payload["recurrence_rule"] = recurrence_rule
         if image_data is not None:

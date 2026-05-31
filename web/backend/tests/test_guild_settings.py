@@ -910,16 +910,16 @@ async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
 
 
 @pytest.mark.asyncio
-async def test_create_discord_scheduled_event_rejects_external_entity_type(
+async def test_create_discord_scheduled_event_accepts_external_entity_type(
     client: AsyncClient,
     mock_event_coordinator_session: str,
 ) -> None:
-    """Scheduled event create should reject non-voice entity types."""
+    """Scheduled event create should accept external location events."""
     response = await client.post(
         "/api/guilds/123/events/scheduled",
         json={
             "name": "External Test",
-            "description": "Should fail validation",
+            "description": "External location event",
             "scheduled_start_time": "2026-04-10T20:00:00+00:00",
             "scheduled_end_time": "2026-04-10T21:00:00+00:00",
             "entity_type": "external",
@@ -929,7 +929,11 @@ async def test_create_discord_scheduled_event_rejects_external_entity_type(
         cookies={"session": mock_event_coordinator_session},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["event"]["entity_type"] == "external"
+    assert data["event"]["location"] == "Spectrum"
+    assert data["event"]["channel_id"] is None
 
 
 @pytest.mark.asyncio

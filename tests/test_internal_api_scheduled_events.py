@@ -178,6 +178,7 @@ async def test_create_scheduled_event_raw_payload_includes_image_data() -> None:
         start_time=datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
         end_time=None,
         channel=channel,
+        location=None,
         description="Cover art test",
         recurrence_rule=None,
         image_data=image_data,
@@ -221,6 +222,7 @@ async def test_update_scheduled_event_raw_payload_includes_image_data() -> None:
         start_time=datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
         end_time=None,
         channel=channel,
+        location=None,
         description="Replacement cover art test",
         recurrence_rule=None,
         image_data=image_data,
@@ -471,8 +473,8 @@ def test_invalidate_events_cache_ignores_missing_guild() -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_scheduled_event_request_rejects_non_voice_entity_type() -> None:
-    """Only voice scheduled events should be accepted by request validation."""
+async def test_load_scheduled_event_request_rejects_unknown_entity_type() -> None:
+    """Unknown scheduled event entity types should be rejected."""
     server = object.__new__(InternalAPIServer)
     guild = cast("Any", SimpleNamespace(id=123))
     server.bot = cast("Any", SimpleNamespace(get_guild=lambda guild_id: guild))
@@ -483,8 +485,8 @@ async def test_load_scheduled_event_request_rejects_non_voice_entity_type() -> N
             match_info={"guild_id": "123"},
             json=AsyncMock(
                 return_value={
-                    "name": "External Attempt",
-                    "entity_type": "external",
+                    "name": "Unknown Attempt",
+                    "entity_type": "webinar",
                     "scheduled_start_time": "2026-04-10T20:00:00+00:00",
                 }
             ),
@@ -496,7 +498,38 @@ async def test_load_scheduled_event_request_rejects_non_voice_entity_type() -> N
     assert isinstance(result, web.Response)
     assert result.status == 400
     payload = json.loads(result.text or "{}")
-    assert payload["error"] == "Only voice scheduled events are supported"
+    assert payload["error"] == "Unsupported scheduled event type"
+
+
+@pytest.mark.asyncio
+async def test_load_scheduled_event_request_accepts_external_location() -> None:
+    """External scheduled events should validate location instead of channel."""
+    server = object.__new__(InternalAPIServer)
+    guild = cast("Any", SimpleNamespace(id=123))
+    server.bot = cast("Any", SimpleNamespace(get_guild=lambda guild_id: guild))
+
+    request = cast(
+        "web.Request",
+        SimpleNamespace(
+            match_info={"guild_id": "123"},
+            json=AsyncMock(
+                return_value={
+                    "name": "External Event",
+                    "entity_type": "external",
+                    "scheduled_start_time": "2026-04-10T20:00:00+00:00",
+                    "scheduled_end_time": "2026-04-10T22:00:00+00:00",
+                    "location": "Area 18",
+                }
+            ),
+        ),
+    )
+
+    result = await server._load_scheduled_event_request(request)
+
+    assert not isinstance(result, web.Response)
+    assert result[3] is discord.EntityType.external
+    assert result[6] is None
+    assert result[7] == "Area 18"
 
 
 @pytest.mark.asyncio
@@ -567,6 +600,7 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
             start_time,
             None,
             voice_channel,
+            None,
             None,
         )
     )
@@ -641,6 +675,7 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
             start_time,
             None,
             voice_channel,
+            None,
             "test event brief",
         )
     )
