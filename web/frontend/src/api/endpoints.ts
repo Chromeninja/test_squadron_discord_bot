@@ -168,6 +168,7 @@ export interface ScheduledEventCreateRequest {
     by_month?: number[];
     by_month_day?: number[];
   } | null;
+  image_data?: string | null;
 }
 
 export interface ScheduledEventUpdateRequest extends ScheduledEventCreateRequest {}

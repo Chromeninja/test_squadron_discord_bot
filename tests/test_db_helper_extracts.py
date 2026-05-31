@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+from services.db.database import Database
 from services.db.database import derive_membership_status as derive_from_database
 from services.db.managed_event_mapper import (
     decode_signup_role_ids,
@@ -71,6 +74,8 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
         "user_count_current": 7,
         "created_by_user_id": "111",
         "created_by_name": "Tester",
+        "channel_name": "Event Coms",
+        "image_url": "https://cdn.discordapp.com/guild-events/222/banner.png",
         "discord_event_id": "222",
         "announcement_message_id": "333",
         "signup_message_id": "444",
@@ -92,4 +97,52 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
     assert mapped["id"] == "42"
     assert mapped["user_count"] == 7
     assert mapped["signup_role_ids"] == ["9", "10"]
+    assert mapped["channel_name"] == "Event Coms"
+    assert mapped["image_url"] == "https://cdn.discordapp.com/guild-events/222/banner.png"
     assert mapped["source_of_truth"] == "db"
+
+
+@pytest.mark.asyncio
+async def test_upsert_managed_event_from_discord_preserves_display_metadata(
+    temp_db: str,
+) -> None:
+    """Discord event imports should preserve UI display metadata."""
+    # Arrange
+    del temp_db
+    recurrence_payload = {
+        "start": "2026-06-02T20:00:00+00:00",
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [1],
+    }
+    discord_event_payload: dict[str, object | None] = {
+        "id": "999888777666555444",
+        "name": "Repeat Test",
+        "description": "Weekly op",
+        "scheduled_start_time": "2026-06-02T20:00:00+00:00",
+        "scheduled_end_time": None,
+        "status": "scheduled",
+        "entity_type": "voice",
+        "channel_id": "1182812153271558255",
+        "channel_name": "Event Coms",
+        "location": None,
+        "user_count": 1,
+        "image_url": "https://cdn.discordapp.com/guild-events/999888777666555444/banner.png",
+        "recurrence_rule": "Weekly on Tuesday",
+        "recurrence_rule_payload": recurrence_payload,
+    }
+
+    # Act
+    imported_event = await Database.upsert_managed_event_from_discord(
+        123,
+        discord_event_payload,
+    )
+
+    # Assert
+    assert imported_event["channel_name"] == "Event Coms"
+    assert (
+        imported_event["image_url"]
+        == "https://cdn.discordapp.com/guild-events/999888777666555444/banner.png"
+    )
+    assert imported_event["recurrence_rule"] == "Weekly on Tuesday"
+    assert imported_event["recurrence_rule_payload"] == recurrence_payload

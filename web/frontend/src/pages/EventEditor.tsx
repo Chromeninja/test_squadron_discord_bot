@@ -77,10 +77,6 @@ function getStepValidationError(step: BuilderStep, draft: EventDraft): string | 
       return 'Choose a voice destination before continuing.';
     }
 
-    if (!draft.announcementChannelId) {
-      return 'Choose where the announcement should be posted.';
-    }
-
     return null;
   }
 
@@ -276,6 +272,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         announcement_channel_id: draft.announcementChannelId,
         signup_role_ids: draft.signupRoleIds ?? [],
         recurrence_rule: buildRecurrenceRule(draft),
+        image_data: draft.imageData,
       };
 
       if (isEditing && eventId) {

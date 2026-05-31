@@ -88,6 +88,152 @@ def test_serialize_scheduled_event_formats_weekly_recurrence() -> None:
     }
 
 
+def test_serialize_scheduled_event_uses_raw_recurrence_and_image_fallback() -> None:
+    """Serialization should preserve REST-only recurrence and image metadata."""
+    start_time = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=999888777666555444,
+            name="Repeat Test",
+            description="Weekly op",
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=None,
+            location=None,
+            user_count=1,
+            creator=None,
+            cover_image=None,
+        ),
+    )
+    raw_event_data = {
+        "id": "999888777666555444",
+        "image": "event-image-hash",
+        "recurrence_rule": {
+            "start": "2026-06-02T20:00:00+00:00",
+            "frequency": 2,
+            "interval": 1,
+            "by_weekday": [1],
+        },
+    }
+
+    payload = InternalAPIServer._serialize_scheduled_event(
+        event,
+        raw_event_data=raw_event_data,
+    )
+
+    assert payload["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/"
+        "999888777666555444/event-image-hash.png?size=1024"
+    )
+    assert payload["recurrence_rule"] == "Weekly on Tuesday"
+    assert payload["recurrence_rule_payload"] == {
+        "start": "2026-06-02T20:00:00+00:00",
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [1],
+    }
+
+
+def test_internal_api_allows_event_cover_upload_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Internal API request body limit should allow Discord image data payloads."""
+    monkeypatch.setenv("ENV", "test")
+    server = InternalAPIServer(cast("Any", SimpleNamespace(bot=None)))
+
+    assert server.app._client_max_size >= 12 * 1024 * 1024
+
+
+@pytest.mark.asyncio
+async def test_create_scheduled_event_raw_payload_includes_image_data() -> None:
+    """Raw scheduled event creation should pass image data to Discord."""
+    image_data = "data:image/png;base64,iVBORw0KGgo="
+    captured_payload: dict[str, object] = {}
+
+    async def request(route: object, json: dict[str, object]) -> dict[str, object]:
+        del route
+        captured_payload.update(json)
+        return {"id": "999888777666555444", "image": "event-image-hash"}
+
+    event = cast("Any", SimpleNamespace(id=999888777666555444))
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=123456789,
+            _state=SimpleNamespace(http=SimpleNamespace(request=request)),
+            fetch_scheduled_event=AsyncMock(return_value=event),
+        ),
+    )
+    channel = cast("Any", SimpleNamespace(id=222333444))
+    server = object.__new__(InternalAPIServer)
+
+    result, raw_data = await server._create_scheduled_event_with_recurrence(
+        guild=guild,
+        name="Image Event",
+        entity_type=discord.EntityType.voice,
+        start_time=datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
+        end_time=None,
+        channel=channel,
+        description="Cover art test",
+        recurrence_rule=None,
+        image_data=image_data,
+    )
+
+    assert result is event
+    assert captured_payload["image"] == image_data
+    assert captured_payload["channel_id"] == "222333444"
+    assert "recurrence_rule" not in captured_payload
+    assert raw_data["image"] == "event-image-hash"
+
+
+@pytest.mark.asyncio
+async def test_update_scheduled_event_raw_payload_includes_image_data() -> None:
+    """Raw scheduled event update should pass replacement image data to Discord."""
+    image_data = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+    captured_payload: dict[str, object | None] = {}
+
+    async def request(route: object, json: dict[str, object | None]) -> dict[str, object]:
+        del route
+        captured_payload.update(json)
+        return {"id": "999888777666555444", "image": "replacement-image-hash"}
+
+    event = cast("Any", SimpleNamespace(id=999888777666555444))
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=123456789,
+            _state=SimpleNamespace(http=SimpleNamespace(request=request)),
+            fetch_scheduled_event=AsyncMock(return_value=event),
+        ),
+    )
+    channel = cast("Any", SimpleNamespace(id=222333444))
+    server = object.__new__(InternalAPIServer)
+
+    result, raw_data = await server._update_scheduled_event_with_recurrence(
+        guild=guild,
+        event_id=999888777666555444,
+        name="Image Event Updated",
+        entity_type=discord.EntityType.voice,
+        start_time=datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
+        end_time=None,
+        channel=channel,
+        description="Replacement cover art test",
+        recurrence_rule=None,
+        image_data=image_data,
+    )
+
+    assert result is event
+    assert captured_payload["image"] == image_data
+    assert captured_payload["channel_id"] == "222333444"
+    assert "location" not in captured_payload
+    assert "recurrence_rule" not in captured_payload
+    assert raw_data["image"] == "replacement-image-hash"
+
+
 def test_serialize_scheduled_event_uses_guild_channel_fallback() -> None:
     """Scheduled event serialization should resolve the channel from the guild if needed."""
     start_time = datetime(2026, 4, 23, 1, 0, tzinfo=UTC)
@@ -223,6 +369,84 @@ async def test_fetch_and_cache_events_uses_cache_on_second_call() -> None:
     guild.fetch_scheduled_events.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_fetch_and_cache_events_preserves_raw_recurrence_metadata() -> None:
+    """Fetch cache should keep recurrence metadata only present in raw REST data."""
+    start_time = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=999888777666555444,
+            name="Raw Recurring Event",
+            description="Weekly op",
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=222333444,
+            location=None,
+            user_count=1,
+            creator=None,
+            cover_image=None,
+        ),
+    )
+    raw_event_data = {
+        "id": "999888777666555444",
+        "guild_id": "123456789",
+        "entity_id": None,
+        "name": "Raw Recurring Event",
+        "description": "Weekly op",
+        "scheduled_start_time": "2026-06-02T20:00:00+00:00",
+        "scheduled_end_time": None,
+        "privacy_level": 2,
+        "status": 1,
+        "entity_type": 2,
+        "channel_id": "222333444",
+        "entity_metadata": None,
+        "user_count": 1,
+        "image": "event-image-hash",
+        "recurrence_rule": {
+            "start": "2026-06-02T20:00:00+00:00",
+            "frequency": 2,
+            "interval": 1,
+            "by_weekday": [1],
+        },
+    }
+    http_client = SimpleNamespace(
+        get_scheduled_events=AsyncMock(return_value=[raw_event_data]),
+    )
+    state = SimpleNamespace(http=http_client)
+    channel = SimpleNamespace(id=222333444, name="Event Coms")
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=123456789,
+            _state=state,
+            fetch_scheduled_events=AsyncMock(return_value=[event]),
+            get_channel=lambda channel_id: channel if channel_id == channel.id else None,
+        ),
+    )
+
+    server = object.__new__(InternalAPIServer)
+    server._events_cache = {}
+
+    result = await server._fetch_and_cache_events(guild)
+
+    assert result[0]["channel_name"] == "Event Coms"
+    assert result[0]["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/"
+        "999888777666555444/event-image-hash.png?size=1024"
+    )
+    assert result[0]["recurrence_rule"] == "Weekly on Tuesday"
+    assert result[0]["recurrence_rule_payload"] == {
+        "start": "2026-06-02T20:00:00+00:00",
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [1],
+    }
+
+
 def test_invalidate_events_cache_removes_entry() -> None:
     """_invalidate_events_cache should remove the guild entry."""
     server = object.__new__(InternalAPIServer)
@@ -290,8 +514,9 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
     def serialize_scheduled_event(
         event: Any,
         guild: Any = None,
+            raw_data: dict[str, object] | None = None,
     ) -> dict[str, str]:
-        del event, guild
+        del event, guild, raw_data
         return {"id": "123", "name": "TEST 2"}
 
     cast("Any", server)._check_auth = check_auth
@@ -371,9 +596,10 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
 
     cast("Any", server)._check_auth = lambda request: True
     cast("Any", server)._invalidate_events_cache = lambda guild_id: guild_id
-    cast("Any", server)._serialize_scheduled_event = (
-        lambda event, guild=None: {"id": "123", "name": "TEST 2"}
-    )
+    cast("Any", server)._serialize_scheduled_event = lambda event, guild=None, raw_data=None: {
+        "id": "123",
+        "name": "TEST 2",
+    }
 
     announcement_channel = cast("Any", AsyncMock(spec=discord.TextChannel))
     announcement_channel.send = AsyncMock()

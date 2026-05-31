@@ -170,6 +170,26 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
             },
         )
 
+    if "channel_name" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN channel_name TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "managed_events", "column": "channel_name"},
+        )
+
+    if "image_url" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE managed_events "
+            "ADD COLUMN image_url TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "managed_events", "column": "image_url"},
+        )
+
     if "user_count_current" not in existing_columns:
         await db.execute(
             "ALTER TABLE managed_events "
@@ -545,7 +565,9 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             scheduled_end_time TEXT DEFAULT NULL,
             entity_type TEXT NOT NULL DEFAULT 'voice',
             channel_id TEXT DEFAULT NULL,
+            channel_name TEXT DEFAULT NULL,
             location TEXT DEFAULT NULL,
+            image_url TEXT DEFAULT NULL,
             announcement_channel_id TEXT DEFAULT NULL,
             signup_role_ids TEXT NOT NULL DEFAULT '[]',
             announcement_message_id TEXT DEFAULT NULL,
@@ -571,6 +593,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    await _ensure_managed_event_columns(db)
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_managed_events_guild ON managed_events(guild_id, deleted_at)"
     )

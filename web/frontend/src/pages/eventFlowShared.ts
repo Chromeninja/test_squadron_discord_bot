@@ -48,6 +48,10 @@ export interface EventDraft {
   recurrenceFrequency: RecurrenceFrequency;
   recurrenceInterval: string;
   recurrenceWeekdays: RecurrenceWeekday[];
+  imageData: string | null;
+  imagePreviewUrl: string | null;
+  imageName: string | null;
+  imageSize: number | null;
 }
 
 export const BUILDER_STEPS: Array<{
@@ -154,6 +158,10 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     recurrenceFrequency: 2,
     recurrenceInterval: '1',
     recurrenceWeekdays: [],
+    imageData: null,
+    imagePreviewUrl: null,
+    imageName: null,
+    imageSize: null,
   };
 }
 
@@ -190,6 +198,10 @@ export function createDraftFromEvent(
     recurrenceWeekdays: (recurrencePayload?.by_weekday ?? []).filter(
       (day): day is RecurrenceWeekday => Number.isInteger(day) && day >= 0 && day <= 6,
     ),
+    imageData: null,
+    imagePreviewUrl: event.image_url,
+    imageName: event.image_url ? 'Current Discord cover' : null,
+    imageSize: null,
   };
 }
 
@@ -246,6 +258,39 @@ export function formatRecurrenceSummary(draft: EventDraft): string {
   }
 
   return `${prefix} on ${dayLabels.join(', ')}`;
+}
+
+export function formatRecurrencePayloadSummary(
+  recurrencePayload: ScheduledEventSummary['recurrence_rule_payload'] | null | undefined,
+): string | null {
+  if (!recurrencePayload) {
+    return null;
+  }
+
+  return formatRecurrenceSummary({
+    name: '',
+    description: '',
+    announcementMessage: '',
+    channelId: null,
+    startDate: '',
+    startTime: '',
+    endMode: 'open',
+    durationMinutes: '120',
+    endDate: '',
+    endTime: '',
+    announcementChannelId: null,
+    signupRoleIds: [],
+    recurrenceEnabled: true,
+    recurrenceFrequency: recurrencePayload.frequency,
+    recurrenceInterval: String(recurrencePayload.interval ?? 1),
+    recurrenceWeekdays: (recurrencePayload.by_weekday ?? []).filter(
+      (day): day is RecurrenceWeekday => Number.isInteger(day) && day >= 0 && day <= 6,
+    ),
+    imageData: null,
+    imagePreviewUrl: null,
+    imageName: null,
+    imageSize: null,
+  });
 }
 
 export function buildRecurrenceRule(
@@ -326,10 +371,6 @@ export function validateDraft(draft: EventDraft): string | null {
 
   if (!draft.channelId) {
     return 'Voice events require a voice channel.';
-  }
-
-  if (!draft.announcementChannelId) {
-    return 'Announcement channel is required.';
   }
 
   if (draft.endMode === 'manual' && ((!draft.endDate && draft.endTime) || (draft.endDate && !draft.endTime))) {

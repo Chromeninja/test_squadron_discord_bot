@@ -159,6 +159,7 @@ class EventService:
             "signup_role_ids": event.get("signup_role_ids") or [],
             "created_by_name": event.get("creator_name"),
             "recurrence_rule": event.get("recurrence_rule_payload"),
+            "image_data": event.get("image_data"),
         }
 
     @staticmethod
@@ -194,6 +195,11 @@ class EventService:
                 event_id=local_event_id,
                 discord_event_id=projected_id,
             )
+            if projected_id is not None:
+                await Database.upsert_managed_event_from_discord(
+                    guild_id,
+                    projected_event,
+                )
             await Database.record_managed_event_sync_audit(
                 guild_id=guild_id,
                 event_id=local_event_id,

@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import SearchableSelect from '../components/SearchableSelect';
 import SearchableMultiSelect from '../components/SearchableMultiSelect';
 import { Alert, Card, CardBody, Input, Textarea } from '../components/ui';
@@ -26,6 +28,30 @@ import {
 type SelectOption = Array<{ id: string; name: string; category?: string }>;
 type RoleOption = Array<{ id: string; name: string }>;
 type DraftUpdater = (patch: Partial<EventDraft>) => void;
+const EVENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+function formatFileSize(bytes: number | null): string {
+  if (bytes === null) {
+    return 'Stored by Discord';
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function readImageAsDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Image data could not be read.'));
+    });
+    reader.addEventListener('error', () => reject(new Error('Image data could not be read.')));
+    reader.readAsDataURL(file);
+  });
+}
 
 interface DetailsStepProps {
   draft: EventDraft;
@@ -34,6 +60,40 @@ interface DetailsStepProps {
 }
 
 export function DetailsStep({ draft, updateDraft, computedEndTime }: DetailsStepProps) {
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setImageError('Use a PNG or JPEG image for Discord event covers.');
+      return;
+    }
+
+    if (file.size > EVENT_IMAGE_MAX_BYTES) {
+      setImageError('Event cover images must be 8 MiB or smaller.');
+      return;
+    }
+
+    try {
+      const imageData = await readImageAsDataUri(file);
+      setImageError(null);
+      updateDraft({
+        imageData,
+        imagePreviewUrl: imageData,
+        imageName: file.name,
+        imageSize: file.size,
+      });
+    } catch {
+      setImageError('Could not read that image. Try a different PNG or JPEG.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <EventSection
@@ -65,6 +125,65 @@ export function DetailsStep({ draft, updateDraft, computedEndTime }: DetailsStep
           }}
           placeholder="Add the mission brief, prep notes, or agenda"
         />
+
+        <div className="space-y-3 rounded-2xl border border-[#ffbb00]/12 bg-black/20 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Discord cover</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Upload a PNG or JPEG cover. Discord hosts the final image after publish.
+              </p>
+            </div>
+            {draft.imageData ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setImageError(null);
+                  updateDraft({
+                    imageData: null,
+                    imagePreviewUrl: null,
+                    imageName: null,
+                    imageSize: null,
+                  });
+                }}
+                className={getOptionButtonClass(false, 'compact')}
+              >
+                Clear selection
+              </button>
+            ) : null}
+          </div>
+
+          {draft.imagePreviewUrl ? (
+            <div className="overflow-hidden rounded-2xl border border-[#ffbb00]/15 bg-[#120d00]/60">
+              <img
+                src={draft.imagePreviewUrl}
+                alt="Event cover preview"
+                className="aspect-video w-full object-cover"
+              />
+            </div>
+          ) : null}
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-300" htmlFor="event-cover-image">
+              Cover Image
+            </label>
+            <input
+              id="event-cover-image"
+              type="file"
+              accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+              onChange={(event) => {
+                void handleImageChange(event);
+              }}
+              className={inputVariants.base}
+            />
+            {draft.imageName ? (
+              <p className="text-xs leading-5 text-slate-400">
+                {draft.imageName} · {formatFileSize(draft.imageSize)}
+              </p>
+            ) : null}
+            {imageError ? <p className="text-sm text-red-300">{imageError}</p> : null}
+          </div>
+        </div>
       </EventSection>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -280,7 +399,7 @@ export function ConnectionsStep({
       <EventSection
         eyebrow="Destinations"
         title="Where should this live?"
-        description="Choose the live voice destination and the announcement channel together so the routing is easy to confirm at a glance."
+        description="Choose the live voice destination. Add an announcement channel only when this event needs a posted update."
       >
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-300">Event Channel</label>
@@ -293,7 +412,7 @@ export function ConnectionsStep({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-300">Announcement Channel</label>
+          <label className="mb-1 block text-sm font-medium text-gray-300">Announcement Channel (optional)</label>
           <SearchableSelect
             options={announcementChannelOptions}
             selected={draft.announcementChannelId}
@@ -412,6 +531,10 @@ export function ReviewStep({
               <ReviewRow label="Ends" value={formatEventDate(computedEndTime)} />
               <ReviewRow label="Recurrence" value={formatRecurrenceSummary(draft)} />
               <ReviewRow
+                label="Cover image"
+                value={draft.imagePreviewUrl ? draft.imageName || 'Discord cover selected' : 'None'}
+              />
+              <ReviewRow
                 label="Voice destination"
                 value={
                   draft.channelId
@@ -465,6 +588,13 @@ export function ReviewStep({
             </div>
 
             <div className="space-y-3 rounded-2xl border border-[#ffbb00]/12 bg-black/20 p-4 text-sm leading-6 text-[#d4c39b]">
+              {draft.imagePreviewUrl ? (
+                <img
+                  src={draft.imagePreviewUrl}
+                  alt="Event cover preview"
+                  className="aspect-video w-full rounded-xl border border-[#ffbb00]/12 object-cover"
+                />
+              ) : null}
               <p>
                 <span className="font-medium text-[#fff4cc]">Member preview:</span>{' '}
                 {draft.description || 'No mission brief added yet.'}

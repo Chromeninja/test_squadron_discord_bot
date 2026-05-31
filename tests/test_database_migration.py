@@ -67,3 +67,55 @@ async def test_init_schema_backfills_legacy_ticket_categories_channel_id() -> No
         )
         index_columns = [row[2] for row in await cursor.fetchall()]
         assert index_columns == ["guild_id", "channel_id"]
+
+
+@pytest.mark.asyncio
+async def test_init_schema_backfills_legacy_managed_event_display_columns() -> None:
+    async with aiosqlite.connect(":memory:") as db:
+        await db.execute(
+            """
+            CREATE TABLE managed_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                discord_event_id TEXT DEFAULT NULL,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT NULL,
+                announcement_message TEXT DEFAULT NULL,
+                scheduled_start_time TEXT NOT NULL,
+                scheduled_end_time TEXT DEFAULT NULL,
+                entity_type TEXT NOT NULL DEFAULT 'voice',
+                channel_id TEXT DEFAULT NULL,
+                location TEXT DEFAULT NULL,
+                announcement_channel_id TEXT DEFAULT NULL,
+                signup_role_ids TEXT NOT NULL DEFAULT '[]',
+                announcement_message_id TEXT DEFAULT NULL,
+                signup_message_id TEXT DEFAULT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                revision INTEGER NOT NULL DEFAULT 1,
+                sync_status TEXT NOT NULL DEFAULT 'pending',
+                sync_error TEXT DEFAULT NULL,
+                user_count_current INTEGER NOT NULL DEFAULT 0,
+                user_count_last_synced_at INTEGER DEFAULT NULL,
+                last_synced_at INTEGER DEFAULT NULL,
+                last_projected_hash TEXT DEFAULT NULL,
+                source TEXT NOT NULL DEFAULT 'dashboard',
+                created_by_user_id TEXT DEFAULT NULL,
+                created_by_name TEXT DEFAULT NULL,
+                updated_by_user_id TEXT DEFAULT NULL,
+                updated_by_name TEXT DEFAULT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                deleted_at INTEGER DEFAULT NULL,
+                recurrence_rule TEXT DEFAULT NULL,
+                recurrence_rule_payload TEXT DEFAULT NULL
+            )
+            """
+        )
+        await db.commit()
+
+        await init_schema(db)
+
+        cursor = await db.execute("PRAGMA table_info(managed_events)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        assert "channel_name" in columns
+        assert "image_url" in columns

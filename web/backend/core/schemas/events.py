@@ -73,6 +73,7 @@ class ScheduledEventCreateRequest(BaseModel):
     announcement_channel_id: str | None = None
     signup_role_ids: list[str] = Field(default_factory=list)
     recurrence_rule: ScheduledEventRecurrenceRule | None = None
+    image_data: str | None = None
 
 
 class ScheduledEventUpdateRequest(ScheduledEventCreateRequest):

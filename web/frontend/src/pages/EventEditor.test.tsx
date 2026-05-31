@@ -259,6 +259,47 @@ describe('EventEditor Page', () => {
     });
   });
 
+  it('submits selected cover image data when creating an event', async () => {
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.change(screen.getByLabelText('Event Name'), {
+      target: { value: 'Image Event' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-10' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '20:00' },
+    });
+
+    const imageFile = new File(['event-cover'], 'event-cover.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('Cover Image'), {
+      target: { files: [imageFile] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Event cover preview' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'Image Event',
+          image_data: expect.stringMatching(/^data:image\/png;base64,/),
+        }),
+      );
+    });
+  });
+
   it('edits an event through the full-page builder', async () => {
     renderWithRouter('/events/555/edit');
 
@@ -287,6 +328,49 @@ describe('EventEditor Page', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Active and upcoming events')).toBeInTheDocument();
+    });
+  });
+
+  it('previews existing Discord cover image without resubmitting image data', async () => {
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '555',
+        name: 'Fleet Night',
+        description: 'Weekly op',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: '2099-04-09T22:00:00+00:00',
+        status: 'scheduled',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
+        user_count: 12,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: 'https://cdn.discordapp.com/guild-events/555/hash.png?size=1024',
+      },
+    });
+
+    renderWithRouter('/events/555/edit');
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Event cover preview' })).toHaveAttribute(
+        'src',
+        'https://cdn.discordapp.com/guild-events/555/hash.png?size=1024',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(eventsApi.updateScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        '555',
+        expect.objectContaining({ image_data: null }),
+      );
     });
   });
 
@@ -364,6 +448,79 @@ describe('EventEditor Page', () => {
             interval: 1,
             by_weekday: [2],
           }),
+        }),
+      );
+    });
+  });
+
+  it('allows publishing without an announcement channel', async () => {
+    vi.mocked(guildApi.getGuildConfig).mockResolvedValue({
+      success: true,
+      data: {
+        roles: {
+          bot_admins: [],
+          discord_managers: [],
+          moderators: [],
+          event_coordinators: [],
+          staff: [],
+          bot_verified_role: [],
+          main_role: [],
+          affiliate_role: [],
+          nonmember_role: [],
+          delegation_policies: [],
+        },
+        channels: {
+          verification_channel_id: null,
+          bot_spam_channel_id: null,
+          public_announcement_channel_id: null,
+          leadership_announcement_channel_id: null,
+        },
+        voice: { selectable_roles: [] },
+        metrics: { excluded_channel_ids: [] },
+        organization: {
+          organization_sid: null,
+          organization_name: null,
+          organization_logo_url: null,
+        },
+        events: {
+          enabled: true,
+          default_native_sync: true,
+          default_announcement_channel_id: null,
+          default_voice_channel_id: '11',
+        },
+      },
+    });
+    vi.mocked(guildApi.getDiscordChannels).mockResolvedValue({
+      success: true,
+      channels: [{ id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 }],
+    });
+
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.change(screen.getByLabelText('Event Name'), {
+      target: { value: 'No Announcement Event' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-16' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '16:00' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'No Announcement Event',
+          announcement_channel_id: null,
         }),
       );
     });
