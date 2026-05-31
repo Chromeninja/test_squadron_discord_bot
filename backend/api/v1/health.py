@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
+from backend.auth.api_key import require_bot_api_key
 from services.db.database import Database
 
 router = APIRouter(tags=["health"])
@@ -39,8 +40,8 @@ async def health_check() -> dict:
     }
 
 
-@router.get("/api/v1/metrics", response_class=PlainTextResponse)
-async def metrics() -> str:
+@router.get("/api/v1/metrics", response_class=PlainTextResponse, include_in_schema=False)
+async def metrics(_: str = Depends(require_bot_api_key)) -> str:
     """Prometheus-format metrics endpoint (stub — expand with prometheus_client)."""
     uptime = int(time.time() - _START_TIME)
     return (

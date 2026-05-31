@@ -161,6 +161,11 @@ app.add_middleware(
 # Add request ID middleware for correlation tracking
 app.add_middleware(RequestIDMiddleware)
 
+# Structured JSON access logging (correlation IDs, duration, status)
+from backend.middleware.logging import StructuredLoggingMiddleware  # noqa: E402
+
+app.add_middleware(StructuredLoggingMiddleware)
+
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
@@ -179,6 +184,11 @@ app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
 app.include_router(health.router)
 app.include_router(errors.router)
 app.include_router(logs.router)
+
+# Backend-first v1 endpoints (authoritative layer)
+from backend.api.v1.health import router as backend_health_router  # noqa: E402
+
+app.include_router(backend_health_router)
 
 
 # Serve built frontend assets in production
