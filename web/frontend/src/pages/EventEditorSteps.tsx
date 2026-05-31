@@ -141,6 +141,17 @@ interface DetailsStepProps {
 
 export function DetailsStep({ draft, updateDraft, computedEndTime }: DetailsStepProps) {
   const [imageError, setImageError] = useState<string | null>(null);
+  const endModeOptions =
+    draft.locationMode === 'external'
+      ? [
+          { id: 'duration', label: 'Use duration' },
+          { id: 'manual', label: 'Set end time' },
+        ]
+      : [
+          { id: 'duration', label: 'Use duration' },
+          { id: 'manual', label: 'Set end time' },
+          { id: 'open', label: 'Open-ended' },
+        ];
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -182,11 +193,7 @@ export function DetailsStep({ draft, updateDraft, computedEndTime }: DetailsStep
 
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2">
-          {[
-            { id: 'duration', label: 'Use duration' },
-            { id: 'manual', label: 'Set end time' },
-            { id: 'open', label: 'Open-ended' },
-          ].map((option) => (
+          {endModeOptions.map((option) => (
             <button key={option.id} type="button" onClick={() => updateDraft({ endMode: option.id as EndMode })} className={getOptionButtonClass(draft.endMode === option.id)}>
               {option.label}
             </button>

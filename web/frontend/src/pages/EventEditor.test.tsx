@@ -251,6 +251,7 @@ describe('EventEditor Page', () => {
         expect.objectContaining({
           name: 'Created Event',
           entity_type: 'voice',
+          scheduled_end_time: null,
           channel_id: '11',
           location: null,
           announcement_channel_id: '10',
@@ -331,6 +332,8 @@ describe('EventEditor Page', () => {
       target: { value: '20:00' },
     });
 
+    expect(screen.queryByRole('button', { name: 'Open-ended' })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
@@ -341,8 +344,56 @@ describe('EventEditor Page', () => {
         expect.objectContaining({
           name: 'External Briefing',
           entity_type: 'external',
+          scheduled_end_time: expect.any(String),
           channel_id: null,
           location: 'Area 18 expo hall',
+        }),
+      );
+    });
+  });
+
+  it('recovers malformed external events without end time by defaulting to duration mode', async () => {
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '556',
+        name: 'External Event Missing End',
+        description: 'Imported external event',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: null,
+        status: 'scheduled',
+        entity_type: 'external',
+        channel_id: null,
+        channel_name: null,
+        location: 'Area 18 expo hall',
+        user_count: 2,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: null,
+      },
+    });
+
+    renderWithRouter('/events/556/edit');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '556');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(screen.queryByRole('button', { name: 'Open-ended' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(eventsApi.updateScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        '556',
+        expect.objectContaining({
+          entity_type: 'external',
+          scheduled_end_time: expect.any(String),
         }),
       );
     });
