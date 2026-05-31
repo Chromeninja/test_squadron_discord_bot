@@ -117,6 +117,7 @@ describe('EventEditor Page', () => {
       channels: [
         { id: '10', name: 'events-feed', category: 'Ops', position: 1, type: 0 },
         { id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 },
+        { id: '12', name: 'Town Hall', category: 'Ops', position: 3, type: 13 },
       ],
     });
     vi.mocked(guildApi.getDiscordRoles).mockResolvedValue({
@@ -216,11 +217,13 @@ describe('EventEditor Page', () => {
       expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
     });
 
-    expect(screen.getAllByText('Steps').length).toBeGreaterThan(0);
+    expect(screen.getByText('Where is your event?')).toBeInTheDocument();
     expect(screen.queryByText('Build flow')).not.toBeInTheDocument();
     expect(screen.queryByText('Live preview')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Event Name'), {
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
       target: { value: 'Created Event' },
     });
     fireEvent.change(screen.getByLabelText('Start Date'), {
@@ -233,20 +236,24 @@ describe('EventEditor Page', () => {
       target: { value: 'test event' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Publish Event' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Create Event' })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
     await waitFor(() => {
       expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
         '123',
         expect.objectContaining({
           name: 'Created Event',
+          entity_type: 'voice',
+          scheduled_end_time: null,
+          channel_id: '11',
+          location: null,
           announcement_channel_id: '10',
           announcement_message: 'test event',
           signup_role_ids: [],
@@ -255,7 +262,140 @@ describe('EventEditor Page', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Active and upcoming events')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete Fleet Night' })).toBeInTheDocument();
+    });
+  });
+
+  it('submits selected cover image data when creating an event', async () => {
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
+      target: { value: 'Image Event' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-10' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '20:00' },
+    });
+
+    const imageFile = new File(['event-cover'], 'event-cover.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('Cover Image'), {
+      target: { files: [imageFile] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Event cover preview' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'Image Event',
+          image_data: expect.stringMatching(/^data:image\/png;base64,/),
+        }),
+      );
+    });
+  });
+
+  it('creates an external event with a location instead of a channel', async () => {
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Somewhere Else/ }));
+    fireEvent.change(screen.getByLabelText('Enter a location'), {
+      target: { value: 'Area 18 expo hall' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
+      target: { value: 'External Briefing' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-10' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '20:00' },
+    });
+
+    expect(screen.queryByRole('button', { name: 'Open-ended' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'External Briefing',
+          entity_type: 'external',
+          scheduled_end_time: expect.any(String),
+          channel_id: null,
+          location: 'Area 18 expo hall',
+        }),
+      );
+    });
+  });
+
+  it('recovers malformed external events without end time by defaulting to duration mode', async () => {
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '556',
+        name: 'External Event Missing End',
+        description: 'Imported external event',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: null,
+        status: 'scheduled',
+        entity_type: 'external',
+        channel_id: null,
+        channel_name: null,
+        location: 'Area 18 expo hall',
+        user_count: 2,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: null,
+      },
+    });
+
+    renderWithRouter('/events/556/edit');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '556');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(screen.queryByRole('button', { name: 'Open-ended' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(eventsApi.updateScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        '556',
+        expect.objectContaining({
+          entity_type: 'external',
+          scheduled_end_time: expect.any(String),
+        }),
+      );
     });
   });
 
@@ -266,14 +406,16 @@ describe('EventEditor Page', () => {
       expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '555');
     });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
     expect(screen.getByDisplayValue('Fleet Night')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Event Name'), {
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
       target: { value: 'Fleet Night Updated' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
 
@@ -286,7 +428,56 @@ describe('EventEditor Page', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Active and upcoming events')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete Fleet Night' })).toBeInTheDocument();
+    });
+  });
+
+  it('previews existing Discord cover image without resubmitting image data', async () => {
+    vi.mocked(eventsApi.getScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '555',
+        name: 'Fleet Night',
+        description: 'Weekly op',
+        scheduled_start_time: '2099-04-09T20:00:00+00:00',
+        scheduled_end_time: '2099-04-09T22:00:00+00:00',
+        status: 'scheduled',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
+        user_count: 12,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: 'https://cdn.discordapp.com/guild-events/555/hash.png?size=1024',
+      },
+    });
+
+    renderWithRouter('/events/555/edit');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '555');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Event cover preview' })).toHaveAttribute(
+        'src',
+        'https://cdn.discordapp.com/guild-events/555/hash.png?size=1024',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(eventsApi.updateScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        '555',
+        expect.objectContaining({ image_data: null }),
+      );
     });
   });
 
@@ -297,7 +488,9 @@ describe('EventEditor Page', () => {
       expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
     });
 
-    fireEvent.change(screen.getByLabelText('Event Name'), {
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
       target: { value: 'Apollo TEST' },
     });
     fireEvent.change(screen.getByLabelText('Description'), {
@@ -310,14 +503,14 @@ describe('EventEditor Page', () => {
       target: { value: '16:00' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     fireEvent.change(screen.getByLabelText('Announcement Message'), {
       target: { value: 'Custom channel briefing for this op.' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
     await waitFor(() => {
       expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
@@ -337,7 +530,9 @@ describe('EventEditor Page', () => {
       expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
     });
 
-    fireEvent.change(screen.getByLabelText('Event Name'), {
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
       target: { value: 'Recurring Ops' },
     });
     fireEvent.change(screen.getByLabelText('Start Date'), {
@@ -347,12 +542,12 @@ describe('EventEditor Page', () => {
       target: { value: '16:00' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Disabled' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Does not repeat' }));
     fireEvent.click(screen.getByRole('button', { name: 'Wed' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Publish Event' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
     await waitFor(() => {
       expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
@@ -364,6 +559,81 @@ describe('EventEditor Page', () => {
             interval: 1,
             by_weekday: [2],
           }),
+        }),
+      );
+    });
+  });
+
+  it('allows publishing without an announcement channel', async () => {
+    vi.mocked(guildApi.getGuildConfig).mockResolvedValue({
+      success: true,
+      data: {
+        roles: {
+          bot_admins: [],
+          discord_managers: [],
+          moderators: [],
+          event_coordinators: [],
+          staff: [],
+          bot_verified_role: [],
+          main_role: [],
+          affiliate_role: [],
+          nonmember_role: [],
+          delegation_policies: [],
+        },
+        channels: {
+          verification_channel_id: null,
+          bot_spam_channel_id: null,
+          public_announcement_channel_id: null,
+          leadership_announcement_channel_id: null,
+        },
+        voice: { selectable_roles: [] },
+        metrics: { excluded_channel_ids: [] },
+        organization: {
+          organization_sid: null,
+          organization_name: null,
+          organization_logo_url: null,
+        },
+        events: {
+          enabled: true,
+          default_native_sync: true,
+          default_announcement_channel_id: null,
+          default_voice_channel_id: '11',
+        },
+      },
+    });
+    vi.mocked(guildApi.getDiscordChannels).mockResolvedValue({
+      success: true,
+      channels: [{ id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 }],
+    });
+
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
+      target: { value: 'No Announcement Event' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-16' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '16:00' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'No Announcement Event',
+          announcement_channel_id: null,
         }),
       );
     });

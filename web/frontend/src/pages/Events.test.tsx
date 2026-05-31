@@ -244,7 +244,7 @@ describe('Events Page', () => {
     });
 
     expect(screen.getByText('Fleet Night')).toBeInTheDocument();
-    expect(screen.getByText('events-feed')).toBeInTheDocument();
+    expect(screen.getByText('1 Scheduled event')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New Event' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sync From Discord' })).toBeInTheDocument();
   });
@@ -302,7 +302,7 @@ describe('Events Page', () => {
     renderWithRouter();
 
     await waitFor(() => {
-      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+      expect(guildApi.getGuildConfig).toHaveBeenCalledWith('123');
     });
 
     await waitFor(() => {
@@ -410,6 +410,59 @@ describe('Events Page', () => {
     expect(screen.getByText('Weekly on Tuesday, Thursday')).toBeInTheDocument();
   });
 
+  it('renders Discord image, channel fallback, and recurrence payload details', async () => {
+    const imageUrl = 'https://cdn.discordapp.com/guild-events/901/event-image.png?size=1024';
+    vi.mocked(guildApi.getDiscordChannels).mockResolvedValue({
+      success: true,
+      channels: [
+        { id: '10', name: 'events-feed', category: 'Ops', position: 1, type: 0 },
+        { id: '11', name: 'Event Voice', category: 'Voice', position: 2, type: 2 },
+        { id: '12', name: 'Event Coms', category: 'Voice', position: 3, type: 2 },
+      ],
+    });
+    vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
+      success: true,
+      events: [
+        {
+          id: '901',
+          name: 'Recurring Fleet Night',
+          description: 'Recurring op',
+          scheduled_start_time: '2099-04-09T20:00:00+00:00',
+          scheduled_end_time: null,
+          status: 'scheduled',
+          entity_type: 'voice',
+          channel_id: '12',
+          channel_name: null,
+          location: null,
+          user_count: 5,
+          creator_id: '444333222',
+          creator_name: 'Coordinator',
+          image_url: imageUrl,
+          recurrence_rule: null,
+          recurrence_rule_payload: {
+            start: '2099-04-09T20:00:00+00:00',
+            frequency: 2,
+            interval: 1,
+            by_weekday: [1],
+          },
+        },
+      ],
+    });
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
+    });
+
+    expect(
+      screen.getByRole('img', { name: 'Recurring Fleet Night event artwork' }),
+    ).toHaveAttribute('src', imageUrl);
+    expect(screen.getByText('Event Coms')).toBeInTheDocument();
+    expect(screen.getByText('Repeats')).toBeInTheDocument();
+    expect(screen.getByText('Weekly on Tue')).toBeInTheDocument();
+  });
+
   it('keeps past events out of the default events view', async () => {
     vi.mocked(eventsApi.getScheduledEvents).mockResolvedValue({
       success: true,
@@ -508,7 +561,7 @@ describe('Events Page', () => {
       expect(eventsApi.getScheduledEvents).toHaveBeenCalledWith('123');
     });
 
-    expect(screen.getByText('Past events')).toBeInTheDocument();
+    expect(screen.getByText('Events')).toBeInTheDocument();
     expect(screen.getByText('Past Fleet Op')).toBeInTheDocument();
     expect(screen.queryByText('Future Fleet Op')).not.toBeInTheDocument();
   });

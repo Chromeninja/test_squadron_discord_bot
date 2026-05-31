@@ -5,27 +5,48 @@ import {
   guildApi,
   type DiscordChannel,
   type EventModuleSettingsPayload,
-  type GuildInfo,
   type ScheduledEventSummary,
 } from '../api/endpoints';
 import { Alert, Badge, Button, Card, CardBody, ConfirmationModal } from '../components/ui';
-import { useAuth } from '../contexts/AuthContext';
 import { useRequestSequence } from '../hooks/useRequestSequence';
-import { getRoleDisplayName } from '../utils/permissions';
-import { formatEventDate, getStatusTone } from './eventFlowShared';
-import { EventPageHeader, EventStatCard, EventViewTabs } from './eventPageChrome';
+import {
+  formatEventDate,
+  formatRecurrencePayloadSummary,
+  getStatusTone,
+} from './eventFlowShared';
+import { EventPageHeader } from './eventPageChrome';
 
 interface EventsProps {
   guildId: string;
   view?: 'active' | 'past';
 }
 
+function getEventRecurrenceLabel(event: ScheduledEventSummary): string | null {
+  return event.recurrence_rule || formatRecurrencePayloadSummary(event.recurrence_rule_payload);
+}
+
+function getEventConnectionLabel(
+  event: ScheduledEventSummary,
+  channelNameById: Map<string, string>,
+): string {
+  if (event.channel_name) {
+    return event.channel_name;
+  }
+
+  if (event.channel_id) {
+    const channelName = channelNameById.get(event.channel_id);
+    if (channelName) {
+      return channelName;
+    }
+  }
+
+  return event.location || 'No channel attached';
+}
+
 function Events({ guildId, view = 'active' }: EventsProps) {
   const navigate = useNavigate();
-  const { user, getUserRoleLevel } = useAuth();
   const coreRequestSequence = useRequestSequence();
   const eventsRequestSequence = useRequestSequence();
-  const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [eventSettings, setEventSettings] = useState<EventModuleSettingsPayload | null>(null);
   const [scheduledEvents, setScheduledEvents] = useState<ScheduledEventSummary[]>([]);
@@ -46,8 +67,7 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     setError(null);
 
     try {
-      const [guildResponse, configResponse, channelsResponse] = await Promise.all([
-        guildApi.getGuildInfo(guildId),
+      const [configResponse, channelsResponse] = await Promise.all([
         guildApi.getGuildConfig(guildId),
         guildApi.getDiscordChannels(guildId),
       ]);
@@ -56,7 +76,6 @@ function Events({ guildId, view = 'active' }: EventsProps) {
         return;
       }
 
-      setGuildInfo(guildResponse.guild);
       setEventSettings(configResponse.data.events);
       setChannels(channelsResponse.channels);
     } catch {
@@ -145,14 +164,6 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     }
   }, [eventPendingDelete, guildId]);
 
-  const roleLabel = useMemo(() => {
-    if (!user) {
-      return 'User';
-    }
-
-    return getRoleDisplayName(getUserRoleLevel());
-  }, [getUserRoleLevel, user]);
-
   const isPastEvent = useCallback((event: ScheduledEventSummary): boolean => {
     const normalizedStatus = event.status.toLowerCase();
     const terminalStatuses = new Set(['completed', 'ended', 'cancelled', 'canceled']);
@@ -161,7 +172,7 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     }
 
     // Recurring events can have an old anchor date while still being active.
-    if (event.recurrence_rule) {
+    if (getEventRecurrenceLabel(event)) {
       return false;
     }
 
@@ -184,24 +195,9 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     return scheduledEvents.filter((event) => (view === 'past' ? isPastEvent(event) : !isPastEvent(event)));
   }, [isPastEvent, scheduledEvents, view]);
 
-  const sectionTitle = view === 'past' ? 'Past events' : 'Active and upcoming events';
   const emptyStateTitle =
     view === 'past' ? 'No past events yet' : 'No active or upcoming events right now';
-  const pageDescription =
-    view === 'past'
-      ? 'Review completed and older scheduled events without the setup noise of the live coordination view.'
-      : 'Coordinate upcoming Discord events, keep destinations aligned, and scan the next actions without digging through extra chrome.';
-  const inventoryLabel =
-    view === 'past'
-      ? 'past scheduled events visible in this view'
-      : 'active or upcoming scheduled events visible in this view';
-
-  const defaultAnnouncementLabel = eventSettings?.default_announcement_channel_id
-    ? channelNameById.get(eventSettings.default_announcement_channel_id) || 'Configured channel'
-    : 'Not configured';
-  const defaultVoiceLabel = eventSettings?.default_voice_channel_id
-    ? channelNameById.get(eventSettings.default_voice_channel_id) || 'Configured channel'
-    : 'Not configured';
+  const scheduledEventsSummary = `${filteredEvents.length} Scheduled event${filteredEvents.length === 1 ? '' : 's'}`;
 
   if (loading) {
     return (
@@ -213,30 +209,13 @@ function Events({ guildId, view = 'active' }: EventsProps) {
     );
   }
 
-  const tabs = [
-    {
-      key: 'active',
-      label: 'Active',
-      active: view === 'active',
-      onClick: () => navigate('/events'),
-    },
-    {
-      key: 'past',
-      label: 'Past',
-      active: view === 'past',
-      onClick: () => navigate('/events/past'),
-    },
-  ];
-
   return (
     <div className="space-y-6 lg:space-y-8">
       <EventPageHeader
-        title={sectionTitle}
-        subtitle={guildInfo?.guild_name || 'Current guild'}
-        description={pageDescription}
+        eyebrow="Events"
+        description={scheduledEventsSummary}
         actions={
           <>
-            <Badge variant="info">{roleLabel}</Badge>
             <Button onClick={() => navigate('/events/new')} variant="primary" size="sm">
               New Event
             </Button>
@@ -252,28 +231,6 @@ function Events({ guildId, view = 'active' }: EventsProps) {
             </Button>
           </>
         }
-        footer={
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <EventViewTabs tabs={tabs} />
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[42rem] lg:flex-1">
-              <EventStatCard
-                label="Shown"
-                value={<span className="text-2xl font-semibold text-white">{filteredEvents.length}</span>}
-                supportingText={inventoryLabel}
-              />
-              <EventStatCard
-                label="Announcement"
-                value={defaultAnnouncementLabel}
-                supportingText="Default posting destination"
-              />
-              <EventStatCard
-                label="Voice"
-                value={defaultVoiceLabel}
-                supportingText={eventSettings?.default_native_sync === false ? 'Manual sync posture' : 'Native sync enabled'}
-              />
-            </div>
-          </div>
-        }
       />
 
       {error && <Alert variant="error">{error}</Alert>}
@@ -286,21 +243,11 @@ function Events({ guildId, view = 'active' }: EventsProps) {
 
       {scheduledEventsError && <Alert variant="warning">{scheduledEventsError}</Alert>}
 
-      <div className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 className="text-xl font-semibold text-[#fff4cc]">Event schedule</h3>
-            <p className="mt-1 text-sm text-[#a89465]">
-              {filteredEvents.length === 0
-                ? 'Nothing needs attention in this view right now.'
-                : `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'} ready to scan.`}
-            </p>
-          </div>
-          {scheduledEventsLoading ? (
-            <p className="text-xs uppercase tracking-[0.18em] text-[#ffbb00]/70">Refreshing inventory...</p>
-          ) : null}
-        </div>
+      {scheduledEventsLoading ? (
+        <p className="text-xs uppercase tracking-[0.18em] text-[#ffbb00]/70">Refreshing inventory...</p>
+      ) : null}
 
+      <div className="space-y-4">
         {filteredEvents.length === 0 ? (
           <Card variant="ghost" className="border-dashed">
             <CardBody className="space-y-4 py-8">
@@ -330,14 +277,28 @@ function Events({ guildId, view = 'active' }: EventsProps) {
           </Card>
         ) : (
           <div className="divide-y divide-[rgba(255,187,0,0.08)]">
-            {filteredEvents.map((event) => (
-              <div key={event.id} className="space-y-4 py-6">
+            {filteredEvents.map((event) => {
+              const recurrenceLabel = getEventRecurrenceLabel(event);
+              const connectionLabel = getEventConnectionLabel(event, channelNameById);
+
+              return (
+                <div key={event.id} className="space-y-4 py-6">
+                  {event.image_url ? (
+                    <div className="overflow-hidden rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60">
+                      <img
+                        src={event.image_url}
+                        alt={`${event.name} event artwork`}
+                        loading="lazy"
+                        className="h-40 w-full object-cover sm:h-48"
+                      />
+                    </div>
+                  ) : null}
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-[11px] uppercase tracking-[0.24em] text-[#ffbb00]/70">{event.entity_type}</p>
                         <Badge variant={getStatusTone(event.status)}>{event.status}</Badge>
-                        {event.recurrence_rule ? <Badge variant="neutral">Recurring</Badge> : null}
+                        {recurrenceLabel ? <Badge variant="neutral">Recurring</Badge> : null}
                       </div>
                       <div>
                         <h4 className="text-xl font-semibold text-[#fff4cc]">{event.name}</h4>
@@ -365,16 +326,16 @@ function Events({ guildId, view = 'active' }: EventsProps) {
                     </div>
                     <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 p-3">
                       <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">
-                        {event.recurrence_rule ? 'Repeats' : 'Ends'}
+                        {recurrenceLabel ? 'Repeats' : 'Ends'}
                       </p>
                       <p className="mt-2 text-sm leading-6 text-[#f5deb3]">
-                        {event.recurrence_rule || formatEventDate(event.scheduled_end_time)}
+                        {recurrenceLabel || formatEventDate(event.scheduled_end_time)}
                       </p>
                     </div>
                     <div className="rounded-2xl border border-[rgba(255,187,0,0.12)] bg-[#120d00]/60 p-3">
                       <p className="text-[11px] uppercase tracking-[0.22em] text-[#a89465]">Connection</p>
                       <p className="mt-2 text-sm leading-6 text-[#f5deb3]">
-                        {event.channel_name || event.location || 'No channel attached'}
+                        {connectionLabel}
                       </p>
                     </div>
                   </div>
@@ -394,26 +355,27 @@ function Events({ guildId, view = 'active' }: EventsProps) {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      aria-label={`Edit ${event.name}`}
-                      onClick={() => navigate(`/events/${event.id}/edit`)}
-                    >
-                      Edit Event
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      aria-label={`Delete ${event.name}`}
-                      onClick={() => setEventPendingDelete(event)}
-                    >
-                      Delete Event
-                    </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        aria-label={`Edit ${event.name}`}
+                        onClick={() => navigate(`/events/${event.id}/edit`)}
+                      >
+                        Edit Event
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        aria-label={`Delete ${event.name}`}
+                        onClick={() => setEventPendingDelete(event)}
+                      >
+                        Delete Event
+                      </Button>
                     </div>
                   </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -6,8 +6,9 @@ import {
 } from '../api/endpoints';
 import { type BadgeVariant } from '../utils/theme';
 
-export type BuilderStep = 'details' | 'connections' | 'review';
+export type BuilderStep = 'location' | 'details' | 'custom' | 'review';
 export type EndMode = 'duration' | 'manual' | 'open';
+export type EventLocationMode = 'stage' | 'voice' | 'external';
 export type RecurrenceFrequency = 0 | 1 | 2 | 3;
 export type RecurrenceWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -35,7 +36,9 @@ export interface EventDraft {
   name: string;
   description: string;
   announcementMessage: string;
+  locationMode: EventLocationMode;
   channelId: string | null;
+  location: string;
   startDate: string;
   startTime: string;
   endMode: EndMode;
@@ -48,6 +51,10 @@ export interface EventDraft {
   recurrenceFrequency: RecurrenceFrequency;
   recurrenceInterval: string;
   recurrenceWeekdays: RecurrenceWeekday[];
+  imageData: string | null;
+  imagePreviewUrl: string | null;
+  imageName: string | null;
+  imageSize: number | null;
 }
 
 export const BUILDER_STEPS: Array<{
@@ -56,18 +63,23 @@ export const BUILDER_STEPS: Array<{
   description: string;
 }> = [
   {
-    id: 'details',
-    title: 'Event details',
-    description: 'Core schedule, type, and presentation.',
+    id: 'location',
+    title: 'Location',
+    description: 'Choose where members will meet.',
   },
   {
-    id: 'connections',
-    title: 'Connections',
-    description: 'Channels and announcements.',
+    id: 'details',
+    title: 'Event Info',
+    description: 'Topic, schedule, description, and cover.',
+  },
+  {
+    id: 'custom',
+    title: 'Bot Options',
+    description: 'Announcement and signup settings.',
   },
   {
     id: 'review',
-    title: 'Review & publish',
+    title: 'Review',
     description: 'Confirm the event before syncing.',
   },
 ];
@@ -141,10 +153,12 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     name: '',
     description: '',
     announcementMessage: '',
+    locationMode: 'voice',
     channelId: settings?.default_voice_channel_id ?? null,
+    location: '',
     startDate: '',
     startTime: '',
-    endMode: 'duration',
+    endMode: 'open',
     durationMinutes: '120',
     endDate: '',
     endTime: '',
@@ -154,6 +168,10 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     recurrenceFrequency: 2,
     recurrenceInterval: '1',
     recurrenceWeekdays: [],
+    imageData: null,
+    imagePreviewUrl: null,
+    imageName: null,
+    imageSize: null,
   };
 }
 
@@ -170,18 +188,38 @@ export function createDraftFromEvent(
       ? String(Math.round((endTime.getTime() - startTime.getTime()) / 60000))
       : '120';
   const recurrencePayload = event.recurrence_rule_payload;
+  const locationMode = getLocationModeFromEntityType(event.entity_type);
+  const hasScheduledEndTime = Boolean(event.scheduled_end_time);
+  let endMode: EndMode = hasScheduledEndTime ? 'manual' : 'open';
+  let endDate = end.date;
+  let endTimeValue = end.time;
+
+  // External events require an end time. If a malformed event has none,
+  // fall back to duration mode so the editor can recover safely.
+  if (!hasScheduledEndTime && locationMode === 'external') {
+    endMode = 'duration';
+    if (start.date && start.time) {
+      const startDateTime = new Date(combineDateAndTime(start.date, start.time));
+      const fallbackEndDateTime = new Date(startDateTime.getTime() + 120 * 60000);
+      const fallbackEnd = splitDateAndTime(fallbackEndDateTime.toISOString());
+      endDate = fallbackEnd.date;
+      endTimeValue = fallbackEnd.time;
+    }
+  }
 
   return {
     name: event.name,
     description: event.description ?? '',
     announcementMessage: event.description ?? '',
-    channelId: event.channel_id ?? settings?.default_voice_channel_id ?? null,
+    locationMode,
+    channelId: event.channel_id ?? (locationMode === 'voice' ? settings?.default_voice_channel_id ?? null : null),
+    location: event.location ?? '',
     startDate: start.date,
     startTime: start.time,
-    endMode: event.scheduled_end_time ? 'manual' : 'open',
+    endMode,
     durationMinutes,
-    endDate: end.date,
-    endTime: end.time,
+    endDate,
+    endTime: endTimeValue,
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
     signupRoleIds: [],
     recurrenceEnabled: !!recurrencePayload,
@@ -190,7 +228,49 @@ export function createDraftFromEvent(
     recurrenceWeekdays: (recurrencePayload?.by_weekday ?? []).filter(
       (day): day is RecurrenceWeekday => Number.isInteger(day) && day >= 0 && day <= 6,
     ),
+    imageData: null,
+    imagePreviewUrl: event.image_url,
+    imageName: event.image_url ? 'Current Discord cover' : null,
+    imageSize: null,
   };
+}
+
+export function getLocationModeFromEntityType(entityType: string | null | undefined): EventLocationMode {
+  if (entityType === 'stage_instance' || entityType === 'stage') {
+    return 'stage';
+  }
+
+  if (entityType === 'external') {
+    return 'external';
+  }
+
+  return 'voice';
+}
+
+export function getEntityTypeForLocationMode(
+  locationMode: EventLocationMode,
+): ScheduledEventCreateRequest['entity_type'] {
+  if (locationMode === 'stage') {
+    return 'stage_instance';
+  }
+
+  if (locationMode === 'external') {
+    return 'external';
+  }
+
+  return 'voice';
+}
+
+export function formatLocationMode(locationMode: EventLocationMode): string {
+  if (locationMode === 'stage') {
+    return 'Stage Channel';
+  }
+
+  if (locationMode === 'external') {
+    return 'Somewhere Else';
+  }
+
+  return 'Voice Channel';
 }
 
 export function formatDuration(minutesValue: string): string {
@@ -248,6 +328,41 @@ export function formatRecurrenceSummary(draft: EventDraft): string {
   return `${prefix} on ${dayLabels.join(', ')}`;
 }
 
+export function formatRecurrencePayloadSummary(
+  recurrencePayload: ScheduledEventSummary['recurrence_rule_payload'] | null | undefined,
+): string | null {
+  if (!recurrencePayload) {
+    return null;
+  }
+
+  return formatRecurrenceSummary({
+    name: '',
+    description: '',
+    announcementMessage: '',
+    locationMode: 'voice',
+    channelId: null,
+    location: '',
+    startDate: '',
+    startTime: '',
+    endMode: 'open',
+    durationMinutes: '120',
+    endDate: '',
+    endTime: '',
+    announcementChannelId: null,
+    signupRoleIds: [],
+    recurrenceEnabled: true,
+    recurrenceFrequency: recurrencePayload.frequency,
+    recurrenceInterval: String(recurrencePayload.interval ?? 1),
+    recurrenceWeekdays: (recurrencePayload.by_weekday ?? []).filter(
+      (day): day is RecurrenceWeekday => Number.isInteger(day) && day >= 0 && day <= 6,
+    ),
+    imageData: null,
+    imagePreviewUrl: null,
+    imageName: null,
+    imageSize: null,
+  });
+}
+
 export function buildRecurrenceRule(
   draft: EventDraft,
 ): ScheduledEventCreateRequest['recurrence_rule'] {
@@ -280,9 +395,19 @@ export function getAnnouncementChannelOptions(channels: DiscordChannel[]) {
     }));
 }
 
-export function getEventChannelOptions(channels: DiscordChannel[]) {
+export function getVoiceChannelOptions(channels: DiscordChannel[]) {
   return channels
     .filter((channel) => channel.type === 2)
+    .map((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      category: channel.category ?? undefined,
+    }));
+}
+
+export function getStageChannelOptions(channels: DiscordChannel[]) {
+  return channels
+    .filter((channel) => channel.type === 13)
     .map((channel) => ({
       id: channel.id,
       name: channel.name,
@@ -316,6 +441,14 @@ export function calculateScheduledEndTime(draft: EventDraft): string | null {
 }
 
 export function validateDraft(draft: EventDraft): string | null {
+  if (draft.locationMode === 'external') {
+    if (!draft.location.trim()) {
+      return 'Location is required.';
+    }
+  } else if (!draft.channelId) {
+    return `${formatLocationMode(draft.locationMode)} is required.`;
+  }
+
   if (!draft.name.trim()) {
     return 'Event name is required.';
   }
@@ -324,12 +457,8 @@ export function validateDraft(draft: EventDraft): string | null {
     return 'Start date and time are required.';
   }
 
-  if (!draft.channelId) {
-    return 'Voice events require a voice channel.';
-  }
-
-  if (!draft.announcementChannelId) {
-    return 'Announcement channel is required.';
+  if (draft.locationMode === 'external' && !calculateScheduledEndTime(draft)) {
+    return 'External events require an end time.';
   }
 
   if (draft.endMode === 'manual' && ((!draft.endDate && draft.endTime) || (draft.endDate && !draft.endTime))) {
@@ -373,7 +502,7 @@ export function validateDraft(draft: EventDraft): string | null {
 export function getReviewHighlights(draft: EventDraft): string[] {
   const highlights: string[] = [];
   const signupRoleIds = draft.signupRoleIds ?? [];
-  highlights.push('Voice attendance');
+  highlights.push(formatLocationMode(draft.locationMode));
 
   if (draft.endMode === 'duration') {
     highlights.push(`Duration: ${formatDuration(draft.durationMinutes)}`);

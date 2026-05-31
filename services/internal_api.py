@@ -5,7 +5,6 @@ without hitting Discord API rate limits.
 """
 
 import base64
-import json
 import os
 import secrets
 import time
@@ -18,6 +17,7 @@ from aiohttp import web
 
 from helpers.announcement import send_admin_bulk_check_summary
 from helpers.bulk_check import StatusRow, build_summary_embed
+from helpers.discord_image_data import validate_discord_event_image_data
 from helpers.leadership_log import InitiatorKind, InitiatorSource
 from services.db.repository import BaseRepository
 from services.internal_api_metrics_mixin import InternalAPIMetricsMixin
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _EVENTS_CACHE_TTL_SECONDS = 30.0
+_INTERNAL_API_MAX_REQUEST_BYTES = 12 * 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -125,7 +126,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         self.services = services
         # Store bot reference for easy access
         self.bot = cast("MyBot | None", services.bot)
-        self.app = web.Application()
+        self.app = web.Application(client_max_size=_INTERNAL_API_MAX_REQUEST_BYTES)
         self.runner = None
         self.site = None
 
@@ -1030,16 +1031,24 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             return cached.events
 
         t0 = time.monotonic()
-        scheduled_events = await guild.fetch_scheduled_events()
+        raw_scheduled_events = await self._fetch_raw_scheduled_events(guild)
         duration_ms = (time.monotonic() - t0) * 1000
 
         events_payload: list[dict[str, object | None]] = []
-        for event in sorted(
-            scheduled_events,
-            key=lambda item: getattr(item, "start_time", None)
-            or datetime.min.replace(tzinfo=UTC),
-        ):
-            events_payload.append(self._serialize_scheduled_event(event, guild))
+        if raw_scheduled_events is not None:
+            for event_data in sorted(
+                raw_scheduled_events,
+                key=lambda item: str(item.get("scheduled_start_time") or ""),
+            ):
+                events_payload.append(self._serialize_raw_scheduled_event(event_data, guild))
+        else:
+            scheduled_events = await guild.fetch_scheduled_events()
+            for event in sorted(
+                scheduled_events,
+                key=lambda item: getattr(item, "start_time", None)
+                or datetime.min.replace(tzinfo=UTC),
+            ):
+                events_payload.append(self._serialize_scheduled_event(event, guild))
 
         self._events_cache[guild_id] = _ScheduledEventsCache(
             events=events_payload,
@@ -1112,6 +1121,12 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 if ev.get("id") == str(event_id):
                     return web.json_response({"event": ev})
 
+        raw_event_data = await self._fetch_raw_scheduled_event(guild, event_id)
+        if raw_event_data is not None:
+            return web.json_response(
+                {"event": self._serialize_raw_scheduled_event(raw_event_data, guild)}
+            )
+
         # Fall back to direct fetch
         try:
             scheduled_event = await guild.fetch_scheduled_event(event_id)
@@ -1135,8 +1150,159 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         )
 
     @staticmethod
+    async def _fetch_raw_scheduled_events(
+        guild: discord.Guild,
+    ) -> list[dict[str, Any]] | None:
+        """Fetch raw scheduled event payloads from Discord when available."""
+        state = getattr(guild, "_state", None)
+        http_client = getattr(state, "http", None)
+        get_scheduled_events = getattr(http_client, "get_scheduled_events", None)
+        if not callable(get_scheduled_events):
+            return None
+
+        try:
+            raw_events = await cast("Any", get_scheduled_events)(guild.id, True)
+        except Exception as exc:
+            logger.debug(
+                "Raw scheduled event fetch failed for guild %s: %s",
+                guild.id,
+                exc,
+            )
+            return None
+
+        if not isinstance(raw_events, list):
+            return None
+
+        return [event for event in raw_events if isinstance(event, dict)]
+
+    @staticmethod
+    async def _fetch_raw_scheduled_event(
+        guild: discord.Guild,
+        event_id: int,
+    ) -> dict[str, Any] | None:
+        """Fetch one raw scheduled event payload from Discord when available."""
+        state = getattr(guild, "_state", None)
+        http_client = getattr(state, "http", None)
+        get_scheduled_event = getattr(http_client, "get_scheduled_event", None)
+        if not callable(get_scheduled_event):
+            return None
+
+        try:
+            raw_event = await cast("Any", get_scheduled_event)(guild.id, event_id, True)
+        except Exception as exc:
+            logger.debug(
+                "Raw scheduled event fetch failed for guild %s event %s: %s",
+                guild.id,
+                event_id,
+                exc,
+            )
+            return None
+
+        return raw_event if isinstance(raw_event, dict) else None
+
+    @staticmethod
+    def _serialize_raw_scheduled_event(
+        event_data: dict[str, Any],
+        guild: discord.Guild | None = None,
+    ) -> dict[str, object | None]:
+        """Convert raw Discord scheduled event data into a dashboard-safe payload."""
+        event_id = int(str(event_data.get("id") or "0"))
+        channel_id_raw = event_data.get("channel_id")
+        channel_id = str(channel_id_raw) if channel_id_raw is not None else None
+        channel = None
+        if guild is not None and channel_id is not None:
+            try:
+                channel = guild.get_channel(int(channel_id))
+            except (TypeError, ValueError):
+                channel = None
+
+        entity_metadata = event_data.get("entity_metadata")
+        location = (
+            entity_metadata.get("location")
+            if isinstance(entity_metadata, dict)
+            and isinstance(entity_metadata.get("location"), str)
+            else None
+        )
+        creator = event_data.get("creator")
+        creator_id = None
+        creator_name = None
+        if isinstance(creator, dict):
+            creator_id_raw = creator.get("id")
+            creator_id = str(creator_id_raw) if creator_id_raw is not None else None
+            creator_name_raw = creator.get("global_name") or creator.get("username")
+            creator_name = str(creator_name_raw) if creator_name_raw is not None else None
+
+        recurrence_payload = InternalAPIServer._serialize_recurrence_rule(
+            event_data.get("recurrence_rule"),
+            None,
+        )
+
+        return {
+            "id": str(event_id),
+            "name": str(event_data.get("name") or ""),
+            "description": event_data.get("description"),
+            "scheduled_start_time": event_data.get("scheduled_start_time"),
+            "scheduled_end_time": event_data.get("scheduled_end_time"),
+            "status": InternalAPIServer._scheduled_event_status_name(
+                event_data.get("status")
+            ),
+            "entity_type": InternalAPIServer._scheduled_event_entity_type_name(
+                event_data.get("entity_type")
+            ),
+            "channel_id": channel_id,
+            "channel_name": getattr(channel, "name", None) if channel else None,
+            "location": location,
+            "user_count": int(event_data.get("user_count") or 0),
+            "creator_id": creator_id,
+            "creator_name": creator_name,
+            "image_url": InternalAPIServer._scheduled_event_image_url_from_raw(
+                event_data,
+                event_id,
+            ),
+            "recurrence_rule": InternalAPIServer._format_recurrence_payload_label(
+                recurrence_payload
+            ),
+            "recurrence_rule_payload": recurrence_payload,
+        }
+
+    @staticmethod
+    def _scheduled_event_status_name(value: object) -> str:
+        """Normalize Discord scheduled event status values."""
+        if isinstance(value, str) and value.strip():
+            if value.isdigit():
+                value = int(value)
+            else:
+                return value
+        if isinstance(value, int):
+            return {
+                1: "scheduled",
+                2: "active",
+                3: "completed",
+                4: "cancelled",
+            }.get(value, "scheduled")
+        return "scheduled"
+
+    @staticmethod
+    def _scheduled_event_entity_type_name(value: object) -> str:
+        """Normalize Discord scheduled event entity type values."""
+        if isinstance(value, str) and value.strip():
+            if value.isdigit():
+                value = int(value)
+            else:
+                return value
+        if isinstance(value, int):
+            return {
+                1: "stage_instance",
+                2: "voice",
+                3: "external",
+            }.get(value, "voice")
+        return "voice"
+
+    @staticmethod
     def _serialize_scheduled_event(
-        event: discord.ScheduledEvent, guild: discord.Guild | None = None
+        event: discord.ScheduledEvent,
+        guild: discord.Guild | None = None,
+        raw_event_data: dict[str, Any] | None = None,
     ) -> dict[str, object | None]:
         """Convert a Discord scheduled event into a dashboard-safe payload."""
         channel = getattr(event, "channel", None)
@@ -1146,6 +1312,8 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         scheduled_end_time = getattr(event, "end_time", None)
         cover_image = getattr(event, "cover_image", None)
         recurrence_rule_raw = getattr(event, "recurrence_rule", None)
+        if recurrence_rule_raw is None and isinstance(raw_event_data, dict):
+            recurrence_rule_raw = raw_event_data.get("recurrence_rule")
 
         if channel is None:
             channel_id = getattr(event, "channel_id", None)
@@ -1156,6 +1324,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             cover_image_url = str(getattr(cover_image, "url", None)) if cover_image else None
         except Exception:
             cover_image_url = None
+        if cover_image_url is None:
+            cover_image_url = InternalAPIServer._scheduled_event_image_url_from_raw(
+                raw_event_data,
+                int(event.id),
+            )
 
         return {
             "id": str(event.id),
@@ -1187,6 +1360,167 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         }
 
     @staticmethod
+    def _scheduled_event_image_url_from_raw(
+        raw_event_data: dict[str, Any] | None,
+        event_id: int,
+    ) -> str | None:
+        """Build a scheduled event CDN image URL from raw Discord event data."""
+        if not isinstance(raw_event_data, dict):
+            return None
+
+        image_hash_raw = raw_event_data.get("image")
+        if not isinstance(image_hash_raw, str) or not image_hash_raw.strip():
+            return None
+
+        image_hash = image_hash_raw.strip()
+        return (
+            "https://cdn.discordapp.com/guild-events/"
+            f"{event_id}/{image_hash}.png?size=1024"
+        )
+
+    @staticmethod
+    def _format_recurrence_payload_label(
+        recurrence_payload: dict[str, object] | None,
+    ) -> str | None:
+        """Format normalized recurrence payload data into a dashboard label."""
+        if not recurrence_payload:
+            return None
+
+        frequency_raw = recurrence_payload.get("frequency")
+        interval_raw = recurrence_payload.get("interval", 1)
+        frequency = int(frequency_raw) if isinstance(frequency_raw, int) else -1
+        interval = int(interval_raw) if isinstance(interval_raw, int) else 1
+
+        frequency_label = {
+            0: "Yearly",
+            1: "Monthly",
+            2: "Weekly",
+            3: "Daily",
+        }.get(frequency, "Recurring")
+        if interval > 1:
+            frequency_label = {
+                0: f"Every {interval} years",
+                1: f"Every {interval} months",
+                2: f"Every {interval} weeks",
+                3: f"Every {interval} days",
+            }.get(frequency, frequency_label)
+
+        by_weekday_raw = recurrence_payload.get("by_weekday")
+        if isinstance(by_weekday_raw, list) and by_weekday_raw:
+            weekday_names = (
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            )
+            day_names: list[str] = []
+            for weekday_raw in by_weekday_raw:
+                if isinstance(weekday_raw, int) and 0 <= weekday_raw < len(weekday_names):
+                    day_names.append(weekday_names[weekday_raw])
+            if day_names:
+                return f"{frequency_label} on {', '.join(day_names)}"
+
+        return frequency_label
+
+    @staticmethod
+    def _serialize_raw_recurrence_rule(
+        rule: dict[str, object],
+        fallback_start: datetime | None,
+    ) -> dict[str, object] | None:
+        """Serialize raw Discord recurrence payloads into API-safe dict data."""
+        start_raw = rule.get("start")
+        if isinstance(start_raw, str) and start_raw.strip():
+            start = start_raw.strip()
+        elif isinstance(fallback_start, datetime):
+            start = fallback_start.isoformat()
+        else:
+            return None
+
+        frequency_raw = rule.get("frequency")
+        if isinstance(frequency_raw, str) and frequency_raw.strip():
+            frequency = int(frequency_raw)
+        elif isinstance(frequency_raw, int):
+            frequency = frequency_raw
+        else:
+            return None
+        if frequency not in {0, 1, 2, 3}:
+            return None
+
+        interval_raw = rule.get("interval", 1)
+        if isinstance(interval_raw, str) and interval_raw.strip():
+            interval = int(interval_raw)
+        elif isinstance(interval_raw, int):
+            interval = interval_raw
+        else:
+            interval = 1
+
+        result: dict[str, object] = {
+            "start": start,
+            "frequency": frequency,
+            "interval": max(1, interval),
+        }
+
+        by_weekday_raw = rule.get("by_weekday")
+        if isinstance(by_weekday_raw, list):
+            by_weekday: list[int] = []
+            for weekday_raw in by_weekday_raw:
+                if isinstance(weekday_raw, str) and weekday_raw.strip():
+                    weekday = int(weekday_raw)
+                elif isinstance(weekday_raw, int):
+                    weekday = weekday_raw
+                else:
+                    continue
+                if 0 <= weekday <= 6:
+                    by_weekday.append(weekday)
+            if by_weekday:
+                result["by_weekday"] = by_weekday
+
+        by_n_weekday_raw = rule.get("by_n_weekday")
+        if isinstance(by_n_weekday_raw, list):
+            by_n_weekday: list[dict[str, int]] = []
+            for entry_raw in by_n_weekday_raw:
+                if not isinstance(entry_raw, dict):
+                    continue
+                n_raw = entry_raw.get("n")
+                day_raw = entry_raw.get("day")
+                n_value = int(n_raw) if isinstance(n_raw, int) else None
+                day_value = int(day_raw) if isinstance(day_raw, int) else None
+                if (
+                    n_value is not None
+                    and 1 <= n_value <= 5
+                    and day_value is not None
+                    and 0 <= day_value <= 6
+                ):
+                    by_n_weekday.append({"n": n_value, "day": day_value})
+            if by_n_weekday:
+                result["by_n_weekday"] = by_n_weekday
+
+        for key, lower_bound, upper_bound in (
+            ("by_month", 1, 12),
+            ("by_month_day", 1, 31),
+        ):
+            raw_values = rule.get(key)
+            if not isinstance(raw_values, list):
+                continue
+            values: list[int] = []
+            for value_raw in raw_values:
+                if isinstance(value_raw, str) and value_raw.strip():
+                    value = int(value_raw)
+                elif isinstance(value_raw, int):
+                    value = value_raw
+                else:
+                    continue
+                if lower_bound <= value <= upper_bound:
+                    values.append(value)
+            if values:
+                result[key] = values
+
+        return result
+
+    @staticmethod
     def _serialize_recurrence_rule(
         rule: object,
         fallback_start: datetime | None,
@@ -1194,6 +1528,12 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         """Serialize Discord recurrence objects into API-safe dict payloads."""
         if rule is None:
             return None
+
+        if isinstance(rule, dict):
+            return InternalAPIServer._serialize_raw_recurrence_rule(
+                rule,
+                fallback_start,
+            )
 
         start_raw = getattr(rule, "start", None)
         if isinstance(start_raw, datetime):
@@ -1291,7 +1631,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             return None
 
         if not isinstance(recurrence_rule_raw, dict):
-            raise ValueError("recurrence_rule must be an object")
+            raise TypeError("recurrence_rule must be an object")
 
         start_raw = recurrence_rule_raw.get("start")
         start = start_time.isoformat()
@@ -1340,7 +1680,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             by_n_weekday: list[dict[str, int]] = []
             for item in by_n_weekday_raw:
                 if not isinstance(item, dict):
-                    raise ValueError("recurrence_rule.by_n_weekday values must be objects")
+                    raise TypeError("recurrence_rule.by_n_weekday values must be objects")
                 n_raw = item.get("n")
                 day_raw = item.get("day")
                 if not isinstance(n_raw, (int, str)) or not str(n_raw).strip():
@@ -1398,6 +1738,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         """Format a Discord recurrence rule into a dashboard-friendly label."""
         if rule is None:
             return None
+
+        if isinstance(rule, dict):
+            return InternalAPIServer._format_recurrence_payload_label(
+                InternalAPIServer._serialize_raw_recurrence_rule(rule, None)
+            )
 
         frequency = getattr(rule, "frequency", None)
         interval = int(getattr(rule, "interval", 1) or 1)
@@ -1507,16 +1852,19 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         )
 
         channel = getattr(event, "channel", None)
+        location = getattr(event, "location", None)
         if channel is not None:
             channel_mention = getattr(channel, "mention", None)
             channel_name = getattr(channel, "name", None)
             embed.add_field(
-                name="Voice Channel",
+                name="Location",
                 value=channel_mention
                 if isinstance(channel_mention, str)
                 else (channel_name if isinstance(channel_name, str) else "Configured"),
                 inline=False,
             )
+        elif isinstance(location, str) and location.strip():
+            embed.add_field(name="Location", value=location.strip(), inline=False)
 
         embed.add_field(name="Event Link", value=f"[Open Event]({event_url})", inline=False)
         embed.set_footer(
@@ -1535,7 +1883,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         datetime | None,
         discord.abc.GuildChannel | None,
         str | None,
+        str | None,
         dict[str, object] | None,
+        str | None,
     ] | web.Response:
         """Parse and validate a scheduled event request body."""
         try:
@@ -1557,17 +1907,21 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         if not name:
             return web.json_response({"error": "Event name is required"}, status=400)
 
-        if entity_type_name != "voice":
+        entity_type_by_name = {
+            "stage_instance": discord.EntityType.stage_instance,
+            "voice": discord.EntityType.voice,
+            "external": discord.EntityType.external,
+        }
+        entity_type = entity_type_by_name.get(entity_type_name)
+        if entity_type is None:
             return web.json_response(
-                {"error": "Only voice scheduled events are supported"},
+                {"error": "Unsupported scheduled event type"},
                 status=400,
             )
 
-        entity_type = discord.EntityType.voice
-
         try:
             start_time = self._parse_iso_datetime(payload.get("scheduled_start_time"))
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             return web.json_response({"error": str(exc)}, status=400)
 
         end_time_raw = payload.get("scheduled_end_time")
@@ -1593,6 +1947,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         except ValueError as exc:
             return web.json_response({"error": str(exc)}, status=400)
 
+        try:
+            image_data = validate_discord_event_image_data(payload.get("image_data"))
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
         channel_id = payload.get("channel_id")
         channel = None
         if channel_id is not None:
@@ -1602,15 +1961,33 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 return web.json_response({"error": "Invalid channel ID"}, status=400)
 
         description = str(payload.get("description") or "").strip() or None
+        location = str(payload.get("location") or "").strip() or None
 
-        if channel is None:
+        if entity_type is discord.EntityType.external:
+            if channel_id is not None:
+                return web.json_response(
+                    {"error": "External events cannot include a channel"}, status=400
+                )
+            if location is None:
+                return web.json_response(
+                    {"error": "External events require a location"}, status=400
+                )
+            if end_time is None:
+                return web.json_response(
+                    {"error": "External events require an end time"}, status=400
+                )
+        elif channel is None:
             return web.json_response(
-                {"error": "Voice events require a channel"}, status=400
+                {"error": "Stage and voice events require a channel"}, status=400
             )
 
-        if not isinstance(channel, discord.VoiceChannel):
+        if entity_type is discord.EntityType.voice and not isinstance(channel, discord.VoiceChannel):
             return web.json_response(
                 {"error": "Voice events require a voice channel"}, status=400
+            )
+        if entity_type is discord.EntityType.stage_instance and not isinstance(channel, discord.StageChannel):
+            return web.json_response(
+                {"error": "Stage events require a stage channel"}, status=400
             )
 
         return (
@@ -1621,8 +1998,10 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             recurrence_rule,
+            image_data,
         )
 
     async def create_guild_scheduled_event(self, request: web.Request) -> web.Response:
@@ -1645,12 +2024,21 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             *event_request_rest,
         ) = event_request
-        recurrence_rule = event_request_rest[0] if event_request_rest else None
+        recurrence_rule = cast(
+            "dict[str, object] | None",
+            event_request_rest[0] if event_request_rest else None,
+        )
+        image_data = cast(
+            "str | None",
+            event_request_rest[1] if len(event_request_rest) > 1 else None,
+        )
 
         guild_id = guild.id
+        raw_event_data: dict[str, Any] | None = None
 
         try:
             guild_any = cast("Any", guild)
@@ -1659,24 +2047,29 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 "start_time": start_time,
                 "entity_type": entity_type,
                 "privacy_level": discord.PrivacyLevel.guild_only,
-                "channel": cast("discord.abc.Snowflake", channel),
             }
+            if channel is not None:
+                create_kwargs["channel"] = cast("discord.abc.Snowflake", channel)
+            if location is not None:
+                create_kwargs["location"] = location
             if end_time is not None:
                 create_kwargs["end_time"] = end_time
             if description is not None:
                 create_kwargs["description"] = description
-            if recurrence_rule is None:
+            if recurrence_rule is None and image_data is None:
                 event = await guild_any.create_scheduled_event(**create_kwargs)
             else:
-                event = await self._create_scheduled_event_with_recurrence(
+                event, raw_event_data = await self._create_scheduled_event_with_recurrence(
                     guild=guild,
                     name=name,
                     entity_type=entity_type,
                     start_time=start_time,
                     end_time=end_time,
-                    channel=cast("discord.abc.Snowflake", channel),
+                    channel=cast("discord.abc.Snowflake | None", channel),
+                    location=location,
                     description=description,
                     recurrence_rule=recurrence_rule,
+                    image_data=image_data,
                 )
         except discord.Forbidden:
             return web.json_response(
@@ -1843,7 +2236,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             )
 
         self._invalidate_events_cache(guild_id)
-        return web.json_response({"event": self._serialize_scheduled_event(event, guild)})
+        return web.json_response(
+            {"event": self._serialize_scheduled_event(event, guild, raw_event_data)}
+        )
 
     async def update_guild_scheduled_event(self, request: web.Request) -> web.Response:
         """Update a scheduled event for a guild."""
@@ -1865,10 +2260,18 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start_time,
             end_time,
             channel,
+            location,
             description,
             *event_request_rest,
         ) = event_request
-        recurrence_rule = event_request_rest[0] if event_request_rest else None
+        recurrence_rule = cast(
+            "dict[str, object] | None",
+            event_request_rest[0] if event_request_rest else None,
+        )
+        image_data = cast(
+            "str | None",
+            event_request_rest[1] if len(event_request_rest) > 1 else None,
+        )
 
         try:
             event_id = int(request.match_info["event_id"])
@@ -1891,6 +2294,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             )
 
         try:
+            raw_event_data: dict[str, Any] | None = None
             event_any = cast("Any", scheduled_event)
             edit_kwargs: dict[str, object] = {
                 "name": name,
@@ -1898,22 +2302,28 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 "start_time": start_time,
                 "end_time": end_time,
                 "entity_type": entity_type,
-                "channel": cast("discord.abc.Snowflake", channel),
-                "location": None,
             }
-            if recurrence_rule is None:
+            if channel is not None:
+                edit_kwargs["channel"] = cast("discord.abc.Snowflake", channel)
+                edit_kwargs["location"] = None
+            else:
+                edit_kwargs["channel"] = None
+                edit_kwargs["location"] = location
+            if recurrence_rule is None and image_data is None:
                 updated_event = await event_any.edit(**edit_kwargs)
             else:
-                updated_event = await self._update_scheduled_event_with_recurrence(
+                updated_event, raw_event_data = await self._update_scheduled_event_with_recurrence(
                     guild=guild,
                     event_id=event_id,
                     name=name,
                     entity_type=entity_type,
                     start_time=start_time,
                     end_time=end_time,
-                    channel=cast("discord.abc.Snowflake", channel),
+                    channel=cast("discord.abc.Snowflake | None", channel),
+                    location=location,
                     description=description,
                     recurrence_rule=recurrence_rule,
+                    image_data=image_data,
                 )
         except discord.Forbidden:
             return web.json_response(
@@ -1946,7 +2356,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
         self._invalidate_events_cache(guild.id)
         return web.json_response(
-            {"event": self._serialize_scheduled_event(updated_event, guild)}
+            {"event": self._serialize_scheduled_event(updated_event, guild, raw_event_data)}
         )
 
     async def delete_guild_scheduled_event(self, request: web.Request) -> web.Response:
@@ -2023,10 +2433,12 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         entity_type: discord.EntityType,
         start_time: datetime,
         end_time: datetime | None,
-        channel: discord.abc.Snowflake,
+        channel: discord.abc.Snowflake | None,
+        location: str | None,
         description: str | None,
-        recurrence_rule: dict[str, object],
-    ) -> discord.ScheduledEvent:
+        recurrence_rule: dict[str, object] | None,
+        image_data: str | None,
+    ) -> tuple[discord.ScheduledEvent, dict[str, Any]]:
         """Create a scheduled event via raw HTTP with recurrence payload support."""
         from discord.http import Route
 
@@ -2037,10 +2449,17 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "scheduled_start_time": start_time.isoformat(),
             "entity_type": entity_type.value,
             "privacy_level": discord.PrivacyLevel.guild_only.value,
-            "channel_id": str(channel.id),
-            "entity_metadata": None,
-            "recurrence_rule": recurrence_rule,
         }
+        if channel is not None:
+            payload["channel_id"] = str(channel.id)
+            payload["entity_metadata"] = None
+        else:
+            payload["channel_id"] = None
+            payload["entity_metadata"] = {"location": location}
+        if recurrence_rule is not None:
+            payload["recurrence_rule"] = recurrence_rule
+        if image_data is not None:
+            payload["image"] = image_data
         if end_time is not None:
             payload["scheduled_end_time"] = end_time.isoformat()
         if description is not None:
@@ -2051,7 +2470,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             json=payload,
         )
         event_id = int(data["id"])
-        return await guild.fetch_scheduled_event(event_id)
+        return await guild.fetch_scheduled_event(event_id), data
 
     async def _update_scheduled_event_with_recurrence(
         self,
@@ -2061,10 +2480,12 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         entity_type: discord.EntityType,
         start_time: datetime,
         end_time: datetime | None,
-        channel: discord.abc.Snowflake,
+        channel: discord.abc.Snowflake | None,
+        location: str | None,
         description: str | None,
-        recurrence_rule: dict[str, object],
-    ) -> discord.ScheduledEvent:
+        recurrence_rule: dict[str, object] | None,
+        image_data: str | None,
+    ) -> tuple[discord.ScheduledEvent, dict[str, Any]]:
         """Update a scheduled event via raw HTTP with recurrence payload support."""
         from discord.http import Route
 
@@ -2076,12 +2497,19 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "scheduled_start_time": start_time.isoformat(),
             "scheduled_end_time": end_time.isoformat() if end_time is not None else None,
             "entity_type": entity_type.value,
-            "channel_id": str(channel.id),
-            "entity_metadata": None,
-            "location": None,
-            "recurrence_rule": recurrence_rule,
         }
-        await http_client.request(
+        if channel is not None:
+            payload["channel_id"] = str(channel.id)
+            payload["entity_metadata"] = None
+        else:
+            payload["channel_id"] = None
+            payload["entity_metadata"] = {"location": location}
+        if recurrence_rule is not None:
+            payload["recurrence_rule"] = recurrence_rule
+        if image_data is not None:
+            payload["image"] = image_data
+
+        data = await http_client.request(
             Route(
                 "PATCH",
                 "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}",
@@ -2090,7 +2518,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             ),
             json=payload,
         )
-        return await guild.fetch_scheduled_event(event_id)
+        return await guild.fetch_scheduled_event(event_id), data
 
     @staticmethod
     def _parse_iso_datetime(value: object) -> datetime:

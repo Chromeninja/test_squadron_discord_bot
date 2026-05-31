@@ -717,7 +717,9 @@ class Database:
                     scheduled_end_time,
                     entity_type,
                     channel_id,
+                    channel_name,
                     location,
+                    image_url,
                     announcement_channel_id,
                     signup_role_ids,
                     status,
@@ -730,7 +732,7 @@ class Database:
                     last_synced_at,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
                 ON CONFLICT(guild_id, discord_event_id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -738,7 +740,9 @@ class Database:
                     scheduled_end_time = excluded.scheduled_end_time,
                     entity_type = excluded.entity_type,
                     channel_id = excluded.channel_id,
+                    channel_name = excluded.channel_name,
                     location = excluded.location,
+                    image_url = excluded.image_url,
                     status = excluded.status,
                     user_count_current = excluded.user_count_current,
                     user_count_last_synced_at = excluded.user_count_last_synced_at,
@@ -759,7 +763,9 @@ class Database:
                     payload.get("scheduled_end_time"),
                     str(payload.get("entity_type") or "voice"),
                     payload.get("channel_id"),
+                    payload.get("channel_name"),
                     payload.get("location"),
+                    payload.get("image_url"),
                     str(payload.get("status") or "scheduled"),
                     user_count,
                     now,

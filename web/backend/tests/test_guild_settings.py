@@ -355,6 +355,7 @@ async def test_create_discord_scheduled_event_forwards_announcement_message(
     client: AsyncClient,
     mock_event_coordinator_session: str,
     fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Create route should forward announcement_message to internal API."""
     captured_payload: dict[str, object] = {}
@@ -379,7 +380,7 @@ async def test_create_discord_scheduled_event_forwards_announcement_message(
             "image_url": None,
         }
 
-    fake_internal_api.create_guild_scheduled_event = create_event
+    monkeypatch.setattr(fake_internal_api, "create_guild_scheduled_event", create_event)
 
     response = await client.post(
         "/api/guilds/123/events/scheduled",
@@ -402,10 +403,66 @@ async def test_create_discord_scheduled_event_forwards_announcement_message(
 
 
 @pytest.mark.asyncio
+async def test_create_discord_scheduled_event_forwards_image_data_transiently(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Create route should forward upload image data without storing it locally."""
+    captured_payload: dict[str, object] = {}
+    image_data = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+
+    async def create_event(guild_id: int, payload: dict) -> dict:
+        del guild_id
+        captured_payload.update(payload)
+        return {
+            "id": "900000000000000002",
+            "name": payload.get("name", "Ops Night"),
+            "description": payload.get("description"),
+            "scheduled_start_time": payload.get("scheduled_start_time"),
+            "scheduled_end_time": payload.get("scheduled_end_time"),
+            "status": "scheduled",
+            "entity_type": payload.get("entity_type", "voice"),
+            "channel_id": payload.get("channel_id"),
+            "channel_name": "Mock Event Channel",
+            "location": payload.get("location"),
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": "https://cdn.discordapp.com/guild-events/900000000000000002/hash.png?size=1024",
+        }
+
+    monkeypatch.setattr(fake_internal_api, "create_guild_scheduled_event", create_event)
+
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Create route test",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+            "image_data": image_data,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    assert captured_payload["image_data"] == image_data
+    assert response.json()["event"]["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/900000000000000002/hash.png?size=1024"
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_discord_scheduled_event_forwards_recurrence_rule(
     client: AsyncClient,
     mock_event_coordinator_session: str,
     fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Create route should forward recurrence_rule payload to internal API."""
     captured_payload: dict[str, object] = {}
@@ -432,7 +489,7 @@ async def test_create_discord_scheduled_event_forwards_recurrence_rule(
             "recurrence_rule_payload": payload.get("recurrence_rule"),
         }
 
-    fake_internal_api.create_guild_scheduled_event = create_event
+    monkeypatch.setattr(fake_internal_api, "create_guild_scheduled_event", create_event)
 
     response = await client.post(
         "/api/guilds/123/events/scheduled",
@@ -507,6 +564,163 @@ async def test_update_discord_scheduled_event_proxies_internal_api(
     assert data["event"]["location"] is None
     assert data["event"]["source_of_truth"] == "db"
     assert fake_internal_api.scheduled_events_by_guild[123][0]["entity_type"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_update_discord_scheduled_event_forwards_replacement_image_data(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Update route should forward replacement cover image data transiently."""
+    image_data = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+    captured_payload: dict[str, object] = {}
+
+    created_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Initial description",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert created_response.status_code == 200
+    local_event_id = created_response.json()["event"]["id"]
+
+    async def update_event(guild_id: int, event_id: int, payload: dict) -> dict:
+        del guild_id, event_id
+        captured_payload.update(payload)
+        return {
+            "id": "900000000000000000",
+            "name": payload.get("name", "Ops Night Updated"),
+            "description": payload.get("description"),
+            "scheduled_start_time": payload.get("scheduled_start_time"),
+            "scheduled_end_time": payload.get("scheduled_end_time"),
+            "status": "scheduled",
+            "entity_type": payload.get("entity_type", "voice"),
+            "channel_id": payload.get("channel_id"),
+            "channel_name": "Mock Event Channel",
+            "location": payload.get("location"),
+            "user_count": 0,
+            "creator_id": "444333222",
+            "creator_name": "TestEventCoordinator",
+            "image_url": "https://cdn.discordapp.com/guild-events/900000000000000000/replacement.png?size=1024",
+        }
+
+    monkeypatch.setattr(fake_internal_api, "update_guild_scheduled_event", update_event)
+
+    response = await client.put(
+        f"/api/guilds/123/events/scheduled/{local_event_id}",
+        json={
+            "name": "Ops Night Updated",
+            "description": "Updated description",
+            "scheduled_start_time": "2026-04-10T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-10T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+            "image_data": image_data,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 200
+    assert captured_payload["image_data"] == image_data
+    assert response.json()["event"]["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/900000000000000000/replacement.png?size=1024"
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_discord_scheduled_event_reports_image_projection_error(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+    fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Image upload projection failures should not look like successful saves."""
+    image_data = "data:image/png;base64,iVBORw0KGgo="
+
+    created_response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Initial description",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+    assert created_response.status_code == 200
+    local_event_id = created_response.json()["event"]["id"]
+
+    async def update_event(guild_id: int, event_id: int, payload: dict) -> dict:
+        del guild_id, event_id, payload
+        request = httpx.Request("PUT", "http://test/internal-event")
+        response = httpx.Response(
+            400,
+            json={"error": "Invalid Form Body: image is invalid"},
+            request=request,
+        )
+        raise httpx.HTTPStatusError(
+            "400 Bad Request",
+            request=request,
+            response=response,
+        )
+
+    monkeypatch.setattr(fake_internal_api, "update_guild_scheduled_event", update_event)
+
+    response = await client.put(
+        f"/api/guilds/123/events/scheduled/{local_event_id}",
+        json={
+            "name": "Ops Night Updated",
+            "description": "Updated description",
+            "scheduled_start_time": "2026-04-10T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-10T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+            "image_data": image_data,
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid Form Body: image is invalid"
+
+
+@pytest.mark.asyncio
+async def test_create_discord_scheduled_event_rejects_invalid_image_data(
+    client: AsyncClient,
+    mock_event_coordinator_session: str,
+) -> None:
+    """Invalid event cover image data should be rejected before projection."""
+    response = await client.post(
+        "/api/guilds/123/events/scheduled",
+        json={
+            "name": "Ops Night",
+            "description": "Create route test",
+            "scheduled_start_time": "2026-04-09T20:00:00+00:00",
+            "scheduled_end_time": "2026-04-09T22:00:00+00:00",
+            "entity_type": "voice",
+            "location": None,
+            "channel_id": "1182812153271558255",
+            "image_data": "data:image/png;base64,not-valid-base64!",
+        },
+        cookies={"session": mock_event_coordinator_session},
+    )
+
+    assert response.status_code == 400
+    assert "Event image" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -606,6 +820,7 @@ async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
     client: AsyncClient,
     mock_event_coordinator_session: str,
     fake_internal_api,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Manual reconcile should persist Discord interested counts into DB-backed reads."""
     create_response = await client.post(
@@ -624,6 +839,41 @@ async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
     assert create_response.status_code == 200
 
     fake_internal_api.scheduled_events_by_guild[123][0]["user_count"] = 27
+    fake_internal_api.scheduled_events_by_guild[123][0]["channel_name"] = "Event Coms"
+    fake_internal_api.scheduled_events_by_guild[123][0]["image_url"] = (
+        "https://cdn.discordapp.com/guild-events/900000000000000000/banner.png"
+    )
+    fake_internal_api.scheduled_events_by_guild[123][0]["recurrence_rule"] = (
+        "Weekly on Tuesday"
+    )
+    fake_internal_api.scheduled_events_by_guild[123][0]["recurrence_rule_payload"] = {
+        "start": "2026-04-11T20:00:00+00:00",
+        "frequency": 2,
+        "interval": 1,
+        "by_weekday": [1],
+    }
+
+    async def update_event(guild_id: int, event_id: int, payload: dict) -> dict:
+        events = fake_internal_api.scheduled_events_by_guild[guild_id]
+        event_id_str = str(event_id)
+        for index, event in enumerate(events):
+            if event.get("id") != event_id_str:
+                continue
+            updated_event = {
+                **event,
+                "name": payload.get("name"),
+                "description": payload.get("description"),
+                "scheduled_start_time": payload.get("scheduled_start_time"),
+                "scheduled_end_time": payload.get("scheduled_end_time"),
+                "entity_type": payload.get("entity_type"),
+                "channel_id": payload.get("channel_id"),
+                "location": payload.get("location"),
+            }
+            events[index] = updated_event
+            return updated_event
+        raise RuntimeError("Scheduled event not found")
+
+    monkeypatch.setattr(fake_internal_api, "update_guild_scheduled_event", update_event)
 
     sync_response = await client.post(
         "/api/guilds/123/events/scheduled/sync",
@@ -634,6 +884,16 @@ async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
     assert sync_response.status_code == 200
     sync_data = sync_response.json()
     assert sync_data["events"][0]["user_count"] == 27
+    assert sync_data["events"][0]["channel_name"] == "Event Coms"
+    assert sync_data["events"][0]["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/900000000000000000/banner.png"
+    )
+    assert sync_data["events"][0]["recurrence_rule"] == "Weekly on Tuesday"
+    recurrence_rule_payload = sync_data["events"][0]["recurrence_rule_payload"]
+    assert recurrence_rule_payload["start"] == "2026-04-11T20:00:00+00:00"
+    assert recurrence_rule_payload["frequency"] == 2
+    assert recurrence_rule_payload["interval"] == 1
+    assert recurrence_rule_payload["by_weekday"] == [1]
 
     list_response = await client.get(
         "/api/guilds/123/events/scheduled",
@@ -643,19 +903,23 @@ async def test_manual_event_sync_reconcile_persists_user_count_from_discord(
     assert list_response.status_code == 200
     list_data = list_response.json()
     assert list_data["events"][0]["user_count"] == 27
+    assert list_data["events"][0]["channel_name"] == "Event Coms"
+    assert list_data["events"][0]["image_url"] == (
+        "https://cdn.discordapp.com/guild-events/900000000000000000/banner.png"
+    )
 
 
 @pytest.mark.asyncio
-async def test_create_discord_scheduled_event_rejects_external_entity_type(
+async def test_create_discord_scheduled_event_accepts_external_entity_type(
     client: AsyncClient,
     mock_event_coordinator_session: str,
 ) -> None:
-    """Scheduled event create should reject non-voice entity types."""
+    """Scheduled event create should accept external location events."""
     response = await client.post(
         "/api/guilds/123/events/scheduled",
         json={
             "name": "External Test",
-            "description": "Should fail validation",
+            "description": "External location event",
             "scheduled_start_time": "2026-04-10T20:00:00+00:00",
             "scheduled_end_time": "2026-04-10T21:00:00+00:00",
             "entity_type": "external",
@@ -665,7 +929,11 @@ async def test_create_discord_scheduled_event_rejects_external_entity_type(
         cookies={"session": mock_event_coordinator_session},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["event"]["entity_type"] == "external"
+    assert data["event"]["location"] == "Spectrum"
+    assert data["event"]["channel_id"] is None
 
 
 @pytest.mark.asyncio

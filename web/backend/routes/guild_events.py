@@ -31,6 +31,7 @@ from core.validation import (
     safe_int,
 )
 from fastapi import APIRouter, Depends, HTTPException
+from helpers.discord_image_data import validate_discord_event_image_data
 
 if TYPE_CHECKING:
     pass
@@ -201,6 +202,11 @@ async def create_discord_scheduled_event(
     ensure_guild_match(guild_id, current_user)
 
     channel_id = parse_snowflake_id_optional(payload.channel_id)
+    try:
+        image_data = validate_discord_event_image_data(payload.image_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     create_payload: dict[str, object | None] = {
         "name": payload.name,
         "description": payload.description,
@@ -228,9 +234,12 @@ async def create_discord_scheduled_event(
     )
 
     try:
+        event_for_projection = dict(created_event)
+        if image_data is not None:
+            event_for_projection["image_data"] = image_data
         projected_event = await EventService.sync_db_event_to_discord(
             guild_id=guild_id,
-            event=created_event,
+            event=event_for_projection,
             projection_client=internal_api,
         )
         return ScheduledEventResponse(
@@ -242,6 +251,11 @@ async def create_discord_scheduled_event(
             created_event.get("id"),
             exc,
         )
+        if image_data is not None:
+            raise translate_internal_api_error(
+                exc,
+                "Discord rejected the event cover image",
+            ) from exc
 
     latest_event = await EventService.get_event(guild_id, int(str(created_event["id"])))
     if latest_event is None:
@@ -265,6 +279,11 @@ async def update_discord_scheduled_event(
     ensure_guild_match(guild_id, current_user)
 
     channel_id = parse_snowflake_id_optional(payload.channel_id)
+    try:
+        image_data = validate_discord_event_image_data(payload.image_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     update_payload: dict[str, object | None] = {
         "name": payload.name,
         "description": payload.description,
@@ -294,9 +313,12 @@ async def update_discord_scheduled_event(
         raise HTTPException(status_code=404, detail="Scheduled event not found")
 
     try:
+        event_for_projection = dict(updated_event)
+        if image_data is not None:
+            event_for_projection["image_data"] = image_data
         projected_event = await EventService.sync_db_event_to_discord(
             guild_id=guild_id,
-            event=updated_event,
+            event=event_for_projection,
             projection_client=internal_api,
         )
         return ScheduledEventResponse(
@@ -308,6 +330,11 @@ async def update_discord_scheduled_event(
             updated_event.get("id"),
             exc,
         )
+        if image_data is not None:
+            raise translate_internal_api_error(
+                exc,
+                "Discord rejected the event cover image",
+            ) from exc
 
     latest_event = await EventService.get_event(guild_id, event_id)
     if latest_event is None:

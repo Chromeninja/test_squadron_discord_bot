@@ -127,18 +127,6 @@ function HomeIcon({ className = 'h-4 w-4' }: { className?: string }) {
   );
 }
 
-function ChevronUpDownIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M10.53 3.47a.75.75 0 0 0-1.06 0L6.22 6.72a.75.75 0 0 0 1.06 1.06L10 5.06l2.72 2.72a.75.75 0 1 0 1.06-1.06l-3.25-3.25Zm-4.31 9.81 3.25 3.25a.75.75 0 0 0 1.06 0l3.25-3.25a.75.75 0 1 0-1.06-1.06L10 14.94l-2.72-2.72a.75.75 0 0 0-1.06 1.06Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
 function CheckIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
@@ -552,20 +540,15 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
                 setUserMenuOpen(false);
                 setWorkspaceMenuOpen((open) => !open);
               }}
-              className="group inline-flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-bold tracking-wide text-[#f5deb3] transition hover:text-[#ffcc4d]"
+              className="group inline-flex w-full items-center px-2.5 py-1.5 text-left font-bold tracking-wide text-[#f5deb3] transition hover:text-[#ffcc4d]"
               aria-haspopup="menu"
               aria-expanded={workspaceMenuOpen}
               aria-label="Switch workspace"
             >
               <span className="absolute inset-0 scale-50 rounded-lg bg-[#ffbb00]/8 opacity-0 transition ease-out group-hover:scale-100 group-hover:opacity-100 group-active:scale-105 group-active:bg-[#ffbb00]/14" />
-              <span className="relative inline-flex min-w-0 flex-1 items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  {renderAvatar(guildAvatar, guildLabel, 'h-8 w-8 shrink-0 rounded-lg')}
-                  <span className="truncate text-base font-semibold text-[#fff4cc]">{guildLabel}</span>
-                </span>
-                <span className="shrink-0 text-[#ffbb00]/70 transition group-hover:text-[#ffcc4d]">
-                  <ChevronUpDownIcon className="h-5 w-5" />
-                </span>
+              <span className="relative inline-flex min-w-0 flex-1 items-center gap-2">
+                {renderAvatar(guildAvatar, guildLabel, 'h-8 w-8 shrink-0 rounded-lg')}
+                <span className="truncate text-base font-semibold text-[#fff4cc]">{guildLabel}</span>
               </span>
             </button>
 
@@ -813,7 +796,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       <Toaster />
 
       <div className="flex min-h-screen">
-        <div className="hidden w-72 shrink-0 lg:block">{sidebar}</div>
+        <div className="hidden w-64 shrink-0 lg:block">{sidebar}</div>
 
         {isMobile && sidebarOpen && (
           <>
@@ -822,7 +805,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
               onClick={() => setSidebarOpen(false)}
               aria-hidden="true"
             />
-            <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[86vw] shadow-2xl shadow-black/50">
+            <div className="fixed inset-y-0 left-0 z-50 w-64 max-w-[86vw] shadow-2xl shadow-black/50">
               {sidebar}
             </div>
           </>

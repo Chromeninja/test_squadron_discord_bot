@@ -8,7 +8,7 @@ import {
   type GuildInfo,
   type GuildRole,
 } from '../api/endpoints';
-import { Alert, Badge, Button, Card, CardBody } from '../components/ui';
+import { Alert, Button, Card, CardBody } from '../components/ui';
 import {
   BUILDER_STEPS,
   buildRecurrenceRule,
@@ -16,31 +16,38 @@ import {
   combineDateAndTime,
   createDraftFromEvent,
   createEmptyDraft,
-  formatEventDate,
+  formatLocationMode,
   getAnnouncementChannelOptions,
-  getEventChannelOptions,
+  getEntityTypeForLocationMode,
   getReviewHighlights,
+  getStageChannelOptions,
+  getVoiceChannelOptions,
   type BuilderStep,
   type EventDraft,
   validateDraft,
 } from './eventFlowShared';
-import { ConnectionsStep, DetailsStep, ReviewStep } from './EventEditorSteps';
-import {
-  StepNavigator,
-} from './EventEditorComponents';
-import { EventPageHeader, EventStatCard } from './eventPageChrome';
+import { CustomStep, DetailsStep, LocationStep, ReviewStep } from './EventEditorSteps';
+import { StepProgress } from './EventEditorComponents';
 
 interface EventEditorProps {
   guildId: string;
   mode: 'create' | 'edit';
 }
 
-const STEP_SEQUENCE: BuilderStep[] = ['details', 'connections', 'review'];
+const STEP_SEQUENCE: BuilderStep[] = ['location', 'details', 'custom', 'review'];
 
 function getStepValidationError(step: BuilderStep, draft: EventDraft): string | null {
+  if (step === 'location') {
+    if (draft.locationMode === 'external') {
+      return draft.location.trim() ? null : 'Enter a location before moving on.';
+    }
+
+    return draft.channelId ? null : `Choose a ${formatLocationMode(draft.locationMode).toLowerCase()} before moving on.`;
+  }
+
   if (step === 'details') {
     if (!draft.name.trim()) {
-      return 'Add an event name before moving on.';
+      return 'Add an event topic before moving on.';
     }
 
     if (!draft.startDate || !draft.startTime) {
@@ -58,6 +65,10 @@ function getStepValidationError(step: BuilderStep, draft: EventDraft): string | 
       }
     }
 
+    if (draft.locationMode === 'external' && draft.endMode === 'open') {
+      return 'External events need a finish time before moving on.';
+    }
+
     if (draft.recurrenceEnabled) {
       const intervalRaw = Number(draft.recurrenceInterval);
       if (!Number.isFinite(intervalRaw) || intervalRaw <= 0) {
@@ -72,15 +83,7 @@ function getStepValidationError(step: BuilderStep, draft: EventDraft): string | 
     return null;
   }
 
-  if (step === 'connections') {
-    if (!draft.channelId) {
-      return 'Choose a voice destination before continuing.';
-    }
-
-    if (!draft.announcementChannelId) {
-      return 'Choose where the announcement should be posted.';
-    }
-
+  if (step === 'custom') {
     return null;
   }
 
@@ -94,7 +97,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [eventSettings, setEventSettings] = useState<EventModuleSettingsPayload | null>(null);
-  const [builderStep, setBuilderStep] = useState<BuilderStep>('details');
+  const [builderStep, setBuilderStep] = useState<BuilderStep>('location');
   const [draft, setDraft] = useState<EventDraft>(() => createEmptyDraft(null));
   const [builderError, setBuilderError] = useState<string | null>(null);
   const [builderSaving, setBuilderSaving] = useState(false);
@@ -107,7 +110,8 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     [channels]
   );
   const roleNameById = useMemo(() => new Map(roles.map((role) => [role.id, role.name])), [roles]);
-  const eventChannelOptions = useMemo(() => getEventChannelOptions(channels), [channels]);
+  const stageChannelOptions = useMemo(() => getStageChannelOptions(channels), [channels]);
+  const voiceChannelOptions = useMemo(() => getVoiceChannelOptions(channels), [channels]);
   const announcementChannelOptions = useMemo(() => getAnnouncementChannelOptions(channels), [channels]);
   const signupRoleOptions = useMemo(
     () => roles.map((role) => ({ id: role.id, name: role.name })),
@@ -119,20 +123,21 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   const computedEndTime = draft.startDate && draft.startTime ? calculateScheduledEndTime(draft) : null;
   const reviewHighlights = getReviewHighlights(draft);
   const currentStep = BUILDER_STEPS[stepIndex];
-  const startSummary =
-    draft.startDate && draft.startTime
-      ? formatEventDate(combineDateAndTime(draft.startDate, draft.startTime))
-      : 'Schedule not set';
-  const destinationSummary = draft.channelId
-    ? channelNameById.get(draft.channelId) || 'Configured voice channel'
-    : 'Pick in connections';
 
   const updateDraft = useCallback((patch: Partial<EventDraft>) => {
     setBuilderError(null);
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      ...patch,
-    }));
+    setDraft((currentDraft) => {
+      const nextDraft = {
+        ...currentDraft,
+        ...patch,
+      };
+
+      if (nextDraft.locationMode === 'external' && nextDraft.endMode === 'open') {
+        nextDraft.endMode = 'duration';
+      }
+
+      return nextDraft;
+    });
   }, []);
 
   const loadEditorData = useCallback(async () => {
@@ -187,8 +192,19 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     setDraft((currentDraft) => {
       const nextDraft = { ...currentDraft };
 
-      if (!nextDraft.channelId || !eventChannelOptions.some((option) => option.id === nextDraft.channelId)) {
-        nextDraft.channelId = eventChannelOptions[0]?.id ?? null;
+      if (nextDraft.locationMode === 'voice') {
+        if (!nextDraft.channelId || !voiceChannelOptions.some((option) => option.id === nextDraft.channelId)) {
+          nextDraft.channelId = eventSettings?.default_voice_channel_id ?? voiceChannelOptions[0]?.id ?? null;
+        }
+      } else if (nextDraft.locationMode === 'stage') {
+        if (!nextDraft.channelId || !stageChannelOptions.some((option) => option.id === nextDraft.channelId)) {
+          nextDraft.channelId = stageChannelOptions[0]?.id ?? null;
+        }
+      } else {
+        nextDraft.channelId = null;
+        if (nextDraft.endMode === 'open') {
+          nextDraft.endMode = 'duration';
+        }
       }
 
       if (
@@ -201,7 +217,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
 
       return nextDraft;
     });
-  }, [announcementChannelOptions, eventChannelOptions, eventSettings, loading]);
+  }, [announcementChannelOptions, eventSettings, loading, stageChannelOptions, voiceChannelOptions]);
 
   const attemptStepChange = useCallback(
     (nextStep: BuilderStep) => {
@@ -233,7 +249,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   }, [attemptStepChange, builderStep, stepIndex]);
 
   const goToPreviousStep = useCallback(() => {
-    if (builderStep === 'details') {
+    if (builderStep === 'location') {
       return;
     }
 
@@ -249,10 +265,12 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     if (nextValidationError) {
       setBuilderError(nextValidationError);
 
-      if (getStepValidationError('details', draft)) {
+      if (getStepValidationError('location', draft)) {
+        setBuilderStep('location');
+      } else if (getStepValidationError('details', draft)) {
         setBuilderStep('details');
-      } else if (getStepValidationError('connections', draft)) {
-        setBuilderStep('connections');
+      } else if (getStepValidationError('custom', draft)) {
+        setBuilderStep('custom');
       } else {
         setBuilderStep('review');
       }
@@ -270,12 +288,13 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         announcement_message: draft.announcementMessage.trim() || draft.description.trim() || null,
         scheduled_start_time: combineDateAndTime(draft.startDate, draft.startTime),
         scheduled_end_time: calculateScheduledEndTime(draft),
-        entity_type: 'voice' as const,
-        channel_id: draft.channelId,
-        location: null,
+        entity_type: getEntityTypeForLocationMode(draft.locationMode),
+        channel_id: draft.locationMode === 'external' ? null : draft.channelId,
+        location: draft.locationMode === 'external' ? draft.location.trim() : null,
         announcement_channel_id: draft.announcementChannelId,
         signup_role_ids: draft.signupRoleIds ?? [],
         recurrence_rule: buildRecurrenceRule(draft),
+        image_data: draft.imageData,
       };
 
       if (isEditing && eventId) {
@@ -302,33 +321,16 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   }
 
   return (
-    <div className="space-y-6 lg:space-y-8">
-      <EventPageHeader
-        title={isEditing ? 'Edit event' : 'New event'}
-        subtitle={guildInfo?.guild_name || 'Current guild'}
-        description="Build the event in three passes: define the schedule, connect it to the right channels, then review what members will actually see."
-        actions={
-          <Button variant="secondary" size="sm" onClick={() => navigate('/events')}>
-            Back to Events
-          </Button>
-        }
-        footer={
-          <div className="grid gap-3 sm:grid-cols-3">
-            <EventStatCard
-              label="Current step"
-              value={
-                <span className="flex items-center gap-2">
-                  <Badge variant="info">{`Step ${stepIndex + 1}`}</Badge>
-                  <span>{currentStep?.title}</span>
-                </span>
-              }
-              supportingText={currentStep?.description}
-            />
-            <EventStatCard label="Schedule" value={startSummary} supportingText="Start date and time for the next publish." />
-            <EventStatCard label="Destination" value={destinationSummary} supportingText="Voice channel used for the event itself." />
-          </div>
-        }
-      />
+    <div className="mx-auto max-w-3xl space-y-4 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-[#c8c9d0]">{guildInfo?.guild_name || 'Current guild'}</p>
+          <h1 className="text-2xl font-bold text-[#fff4cc]">{isEditing ? 'Edit event' : 'Create event'}</h1>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/events')}>
+          Back to Events
+        </Button>
+      </div>
 
       {error && <Alert variant="error">{error}</Alert>}
 
@@ -338,103 +340,89 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         </Alert>
       )}
 
-      <div className="lg:hidden">
-        <StepNavigator builderStep={builderStep} stepIndex={stepIndex} onStepChange={attemptStepChange} />
-      </div>
+      <Card variant="default" className="rounded-xl border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(18,13,0,0.96),rgba(7,7,7,0.98))] text-[#f5deb3] shadow-2xl shadow-black/35">
+        <CardBody className="space-y-7 p-6 sm:p-8">
+          <StepProgress builderStep={builderStep} stepIndex={stepIndex} onStepChange={attemptStepChange} />
 
-      <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)]">
-        <div className="hidden lg:block">
-          <StepNavigator builderStep={builderStep} stepIndex={stepIndex} onStepChange={attemptStepChange} />
-        </div>
-
-        <div className="space-y-6">
           {builderError && <Alert variant="error">{builderError}</Alert>}
 
-          <Card variant="default" className="rounded-[28px] border border-[#ffbb00]/18 bg-[linear-gradient(180deg,rgba(18,22,31,0.96),rgba(10,12,18,0.98))]">
-            <CardBody className="space-y-6 p-6">
-              <div className="border-b border-[#ffbb00]/12 pb-5">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-[#a89465]">{`Step ${stepIndex + 1} of ${BUILDER_STEPS.length}`}</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">{currentStep?.title}</h3>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#d4c39b]">{currentStep?.description}</p>
-              </div>
+          {builderStep === 'location' ? (
+            <LocationStep
+              draft={draft}
+              updateDraft={updateDraft}
+              stageChannelOptions={stageChannelOptions}
+              voiceChannelOptions={voiceChannelOptions}
+            />
+          ) : null}
 
-              {builderStep === 'details' ? (
-                <DetailsStep draft={draft} updateDraft={updateDraft} computedEndTime={computedEndTime} />
+          {builderStep === 'details' ? (
+            <DetailsStep draft={draft} updateDraft={updateDraft} computedEndTime={computedEndTime} />
+          ) : null}
+
+          {builderStep === 'custom' ? (
+            <CustomStep
+              draft={draft}
+              updateDraft={updateDraft}
+              announcementChannelOptions={announcementChannelOptions}
+              signupRoleOptions={signupRoleOptions}
+            />
+          ) : null}
+
+          {builderStep === 'review' ? (
+            <ReviewStep
+              draft={draft}
+              validationError={validationError}
+              computedEndTime={computedEndTime}
+              reviewHighlights={reviewHighlights}
+              channelNameById={channelNameById}
+              roleNameById={roleNameById}
+            />
+          ) : null}
+
+          <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-6 text-[#d4c39b]">
+              {builderStep === 'review'
+                ? 'Make sure the preview looks right before posting.'
+                : currentStepError
+                  ? currentStepError
+                  : currentStep?.description}
+            </p>
+
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {builderStep !== 'location' ? (
+                <Button variant="secondary" onClick={goToPreviousStep}>
+                  Back
+                </Button>
               ) : null}
-
-              {builderStep === 'connections' ? (
-                <ConnectionsStep
-                  draft={draft}
-                  updateDraft={updateDraft}
-                  eventChannelOptions={eventChannelOptions}
-                  announcementChannelOptions={announcementChannelOptions}
-                  signupRoleOptions={signupRoleOptions}
-                  channelNameById={channelNameById}
-                  eventSettings={eventSettings}
-                />
-              ) : null}
-
+              <Button variant="secondary" onClick={() => navigate('/events')}>
+                Cancel
+              </Button>
               {builderStep === 'review' ? (
-                <ReviewStep
-                  draft={draft}
-                  validationError={validationError}
-                  computedEndTime={computedEndTime}
-                  reviewHighlights={reviewHighlights}
-                  channelNameById={channelNameById}
-                  roleNameById={roleNameById}
-                  eventSettings={eventSettings}
-                />
-              ) : null}
-
-              <div className="flex flex-col gap-3 border-t border-[#ffbb00]/12 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#a89465]">
-                    {`Step ${stepIndex + 1} of ${BUILDER_STEPS.length}`}
-                  </p>
-                  <p className="text-sm text-[#d4c39b]">
-                    {builderStep === 'review'
-                      ? 'Make sure the summary and destinations look right before posting.'
-                      : currentStepError
-                        ? currentStepError
-                        : 'This section is ready to continue.'}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button variant="secondary" onClick={() => navigate('/events')}>
-                    Cancel
-                  </Button>
-                  <Button variant="secondary" onClick={goToPreviousStep} disabled={builderStep === 'details'}>
-                    Back
-                  </Button>
-                  {builderStep === 'review' ? (
-                    <Button
-                      variant="success"
-                      onClick={() => {
-                        void handleSubmitEvent();
-                      }}
-                      loading={builderSaving}
-                      disabled={!!validationError}
-                    >
-                      {builderSaving
-                        ? isEditing
-                          ? 'Saving...'
-                          : 'Publishing...'
-                        : isEditing
-                          ? 'Save Changes'
-                          : 'Publish Event'}
-                    </Button>
-                  ) : (
-                    <Button variant="success" onClick={goToNextStep} disabled={!!currentStepError}>
-                      Continue
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
+                <Button
+                  variant="success"
+                  onClick={() => {
+                    void handleSubmitEvent();
+                  }}
+                  loading={builderSaving}
+                  disabled={!!validationError}
+                >
+                  {builderSaving
+                    ? isEditing
+                      ? 'Saving...'
+                      : 'Creating...'
+                    : isEditing
+                      ? 'Save Changes'
+                      : 'Create Event'}
+                </Button>
+              ) : (
+                <Button variant="success" onClick={goToNextStep} disabled={!!currentStepError}>
+                  Next
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }

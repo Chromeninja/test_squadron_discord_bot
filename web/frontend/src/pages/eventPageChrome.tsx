@@ -3,9 +3,9 @@ import { Card, CardBody } from '../components/ui';
 
 interface EventPageHeaderProps {
   eyebrow?: string;
-  title: string;
+  title?: string;
   subtitle?: string | null;
-  description: string;
+  description?: string;
   actions?: ReactNode;
   footer?: ReactNode;
 }
@@ -25,13 +25,15 @@ export function EventPageHeader({
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#ffbb00]/70">
             {eyebrow}
           </p>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h2 className="text-3xl font-bold text-[#fff4cc]">{title}</h2>
-            {subtitle && (
-              <span className="text-base font-medium text-[#c9b27a] lg:text-lg">{subtitle}</span>
-            )}
-          </div>
-          <p className="max-w-2xl text-sm leading-6 text-[#d4c39b]">{description}</p>
+          {title || subtitle ? (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              {title ? <h2 className="text-3xl font-bold text-[#fff4cc]">{title}</h2> : null}
+              {subtitle ? (
+                <span className="text-base font-medium text-[#c9b27a] lg:text-lg">{subtitle}</span>
+              ) : null}
+            </div>
+          ) : null}
+          {description ? <p className="max-w-2xl text-sm leading-6 text-[#d4c39b]">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
