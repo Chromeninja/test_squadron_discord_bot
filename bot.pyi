@@ -7,6 +7,8 @@ from helpers.http_helper import HTTPClient
 from services.service_container import ServiceContainer
 
 if TYPE_CHECKING:
+    from connectors.api_client import BotAPIConnector
+    from connectors.registry import ConnectorRegistry
     from services.internal_api import InternalAPIServer
 
 class MyBot(commands.Bot):
@@ -21,6 +23,8 @@ class MyBot(commands.Bot):
         start_time: Monotonic timestamp when bot started
         owner_id: Discord user ID of the bot owner
         internal_api: Internal API server for web dashboard
+        api: BotAPIConnector instance, or None if BACKEND_URL/BOT_API_KEY not set
+        connectors: Typed domain connector registry, or None if not configured
     """
 
     config: dict[str, Any]
@@ -30,6 +34,8 @@ class MyBot(commands.Bot):
     start_time: float
     owner_id: int | None
     internal_api: InternalAPIServer | None
+    api: BotAPIConnector | None
+    connectors: ConnectorRegistry | None
 
     # Private attributes for internal tracking
     _missing_role_warned_guilds: set[int]

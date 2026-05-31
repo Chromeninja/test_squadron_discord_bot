@@ -8,14 +8,15 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
+from starlette.responses import Response
 
 
 class StructuredLoggingMiddleware(BaseHTTPMiddleware):
     """Emit one structured JSON log line per request to the backend.access logger."""
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start = time.time()
         # Validate inbound header to UUID format to prevent header-injection attacks.
         # Any non-UUID value is replaced with a fresh one.

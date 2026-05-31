@@ -80,7 +80,7 @@ class VerificationRepository:
             )
             await db.commit()
 
-        result = await self.get_verification(guild_id, int(user_id))  # type: ignore[arg-type]
+        result = await self.get_verification(guild_id, int(user_id))  # type: ignore[call-overload]
         if result is None:
             raise RuntimeError("Created verification row could not be loaded")
         return result

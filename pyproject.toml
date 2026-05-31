@@ -215,3 +215,7 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["backend.api.*", "web.backend.routes.*", "web.backend.core.*"]
+disallow_untyped_decorators = false

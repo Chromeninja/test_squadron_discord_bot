@@ -1,0 +1,15 @@
+FROM python:3.12-slim-bookworm AS builder
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+FROM python:3.12-slim-bookworm
+WORKDIR /app
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+# Copy project (exclude frontend, tests, docs via .dockerignore)
+COPY . .
+ENV DISCORD_TOKEN=""
+ENV BACKEND_URL="http://backend:8000"
+ENV BOT_API_KEY=""
+CMD ["python", "bot.py"]

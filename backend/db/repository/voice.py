@@ -86,7 +86,7 @@ class VoiceRepository:
         if row_id is None:
             raise RuntimeError("Failed to create voice channel row")
 
-        result = await self.get_voice_channel(guild_id, int(data["voice_channel_id"]))  # type: ignore[arg-type]
+        result = await self.get_voice_channel(guild_id, int(data["voice_channel_id"]))  # type: ignore[call-overload]
         if result is None:
             raise RuntimeError("Created voice channel row could not be loaded")
         return result
