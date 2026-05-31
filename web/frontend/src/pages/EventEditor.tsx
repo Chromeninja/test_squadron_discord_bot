@@ -126,10 +126,18 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
 
   const updateDraft = useCallback((patch: Partial<EventDraft>) => {
     setBuilderError(null);
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      ...patch,
-    }));
+    setDraft((currentDraft) => {
+      const nextDraft = {
+        ...currentDraft,
+        ...patch,
+      };
+
+      if (nextDraft.locationMode === 'external' && nextDraft.endMode === 'open') {
+        nextDraft.endMode = 'duration';
+      }
+
+      return nextDraft;
+    });
   }, []);
 
   const loadEditorData = useCallback(async () => {
@@ -194,6 +202,9 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         }
       } else {
         nextDraft.channelId = null;
+        if (nextDraft.endMode === 'open') {
+          nextDraft.endMode = 'duration';
+        }
       }
 
       if (

@@ -158,7 +158,7 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     location: '',
     startDate: '',
     startTime: '',
-    endMode: 'duration',
+    endMode: 'open',
     durationMinutes: '120',
     endDate: '',
     endTime: '',
@@ -189,6 +189,23 @@ export function createDraftFromEvent(
       : '120';
   const recurrencePayload = event.recurrence_rule_payload;
   const locationMode = getLocationModeFromEntityType(event.entity_type);
+  const hasScheduledEndTime = Boolean(event.scheduled_end_time);
+  let endMode: EndMode = hasScheduledEndTime ? 'manual' : 'open';
+  let endDate = end.date;
+  let endTimeValue = end.time;
+
+  // External events require an end time. If a malformed event has none,
+  // fall back to duration mode so the editor can recover safely.
+  if (!hasScheduledEndTime && locationMode === 'external') {
+    endMode = 'duration';
+    if (start.date && start.time) {
+      const startDateTime = new Date(combineDateAndTime(start.date, start.time));
+      const fallbackEndDateTime = new Date(startDateTime.getTime() + 120 * 60000);
+      const fallbackEnd = splitDateAndTime(fallbackEndDateTime.toISOString());
+      endDate = fallbackEnd.date;
+      endTimeValue = fallbackEnd.time;
+    }
+  }
 
   return {
     name: event.name,
@@ -199,10 +216,10 @@ export function createDraftFromEvent(
     location: event.location ?? '',
     startDate: start.date,
     startTime: start.time,
-    endMode: event.scheduled_end_time ? 'manual' : 'open',
+    endMode,
     durationMinutes,
-    endDate: end.date,
-    endTime: end.time,
+    endDate,
+    endTime: endTimeValue,
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
     signupRoleIds: [],
     recurrenceEnabled: !!recurrencePayload,
