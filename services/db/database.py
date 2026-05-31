@@ -501,7 +501,6 @@ class Database:
                     channel_id,
                     location,
                     announcement_channel_id,
-                    signup_role_ids,
                     recurrence_rule,
                     recurrence_rule_payload,
                     status,
@@ -513,7 +512,7 @@ class Database:
                     updated_by_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'dashboard', 'pending', ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'dashboard', 'pending', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guild_id,
@@ -526,7 +525,6 @@ class Database:
                     payload.get("channel_id"),
                     payload.get("location"),
                     payload.get("announcement_channel_id"),
-                    json.dumps(payload.get("signup_role_ids") or []),
                     recurrence_rule_label,
                     recurrence_payload_json,
                     created_by_user_id,
@@ -582,7 +580,6 @@ class Database:
                     channel_id = ?,
                     location = ?,
                     announcement_channel_id = ?,
-                    signup_role_ids = ?,
                     recurrence_rule = ?,
                     recurrence_rule_payload = ?,
                     sync_status = 'pending',
@@ -603,7 +600,6 @@ class Database:
                     payload.get("channel_id"),
                     payload.get("location"),
                     payload.get("announcement_channel_id"),
-                    json.dumps(payload.get("signup_role_ids") or []),
                     recurrence_rule_label,
                     recurrence_payload_json,
                     updated_by_user_id,
@@ -721,7 +717,6 @@ class Database:
                     location,
                     image_url,
                     announcement_channel_id,
-                    signup_role_ids,
                     status,
                     user_count_current,
                     user_count_last_synced_at,
@@ -732,7 +727,7 @@ class Database:
                     last_synced_at,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'discord_import', 'synced', ?, ?, ?)
                 ON CONFLICT(guild_id, discord_event_id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,

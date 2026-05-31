@@ -574,13 +574,11 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
     )
 
     guild_any = cast("Any", SimpleNamespace(create_scheduled_event=AsyncMock(return_value=event)))
-    signup_role = cast("Any", SimpleNamespace(id=20, name="Pilot"))
     guild = cast(
         "Any",
         SimpleNamespace(
             id=123,
             get_channel=lambda channel_id: announcement_channel if channel_id == 555 else None,
-            get_role=lambda role_id: signup_role if role_id == 20 else None,
             fetch_scheduled_events=AsyncMock(return_value=[]),
             create_scheduled_event=guild_any.create_scheduled_event,
         ),
@@ -593,7 +591,6 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
                 "announcement_channel_id": "555",
                 "announcement_message": "Custom announcement body",
                 "created_by_name": "T.Riley",
-                "signup_role_ids": ["20"],
             },
             "TEST 2",
             discord.EntityType.voice,
@@ -610,16 +607,13 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
     response = await server.create_guild_scheduled_event(request)
 
     assert response.status == 200
-    assert announcement_channel.send.await_count == 2
+    assert announcement_channel.send.await_count == 1
     first_call = announcement_channel.send.await_args_list[0]
     assert "embed" in first_call.kwargs
     embed = first_call.kwargs["embed"]
     assert isinstance(embed, discord.Embed)
     assert embed.description == "Custom announcement body"
     assert embed.footer.text == "Created by T.Riley"
-
-    second_call = announcement_channel.send.await_args_list[1]
-    assert "view" in second_call.kwargs
 
 
 @pytest.mark.asyncio

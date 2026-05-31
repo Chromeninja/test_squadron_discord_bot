@@ -44,76 +44,6 @@ class _ScheduledEventsCache:
         return (time.monotonic() - self.fetched_at) < _EVENTS_CACHE_TTL_SECONDS
 
 
-class EventSignupRoleButton(discord.ui.Button[discord.ui.View]):
-    """Button that toggles a Discord role for event signup."""
-
-    def __init__(self, role_id: int, role_name: str) -> None:
-        super().__init__(
-            label=role_name[:80],
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"event_signup_role:{role_id}",
-        )
-        self.role_id = role_id
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        """Toggle the target role for the interacting member."""
-        guild = interaction.guild
-        member = interaction.user
-        if guild is None or not isinstance(member, discord.Member):
-            await interaction.response.send_message(
-                "Signup can only be used inside the server.",
-                ephemeral=True,
-            )
-            return
-
-        role = guild.get_role(self.role_id)
-        if role is None:
-            await interaction.response.send_message(
-                "This signup role no longer exists.",
-                ephemeral=True,
-            )
-            return
-
-        try:
-            if role in member.roles:
-                await member.remove_roles(
-                    role,
-                    reason="Event role signup toggle",
-                )
-                await interaction.response.send_message(
-                    f"Removed role: {role.mention}",
-                    ephemeral=True,
-                )
-            else:
-                await member.add_roles(
-                    role,
-                    reason="Event role signup toggle",
-                )
-                await interaction.response.send_message(
-                    f"Signed up for role: {role.mention}",
-                    ephemeral=True,
-                )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "I don't have permission to manage that role.",
-                ephemeral=True,
-            )
-        except discord.HTTPException:
-            await interaction.response.send_message(
-                "Discord rejected the role update. Please try again.",
-                ephemeral=True,
-            )
-
-
-class EventSignupRoleView(discord.ui.View):
-    """Role-signup button view posted with event announcements."""
-
-    def __init__(self, role_pairs: list[tuple[int, str]]) -> None:
-        super().__init__(timeout=None)
-        for role_id, role_name in role_pairs[:15]:
-            self.add_item(EventSignupRoleButton(role_id, role_name))
-
-
 class InternalAPIServer(InternalAPIMetricsMixin):
     """
     Lightweight internal HTTP server for exposing bot state to web dashboard.
@@ -2101,7 +2031,6 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         announcement_channel_id = _payload.get("announcement_channel_id")
         announcement_message_payload = _payload.get("announcement_message")
         created_by_name_payload = _payload.get("created_by_name")
-        signup_role_ids_payload = _payload.get("signup_role_ids")
         announcement_message = self._normalize_announcement_message(
             announcement_message_payload
         )
@@ -2109,25 +2038,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
         logger.info(
             "Scheduled event create payload routing for guild %s: "
-            "announcement_channel_id=%s signup_role_ids=%s announcement_message_set=%s",
+            "announcement_channel_id=%s announcement_message_set=%s",
             guild_id,
             announcement_channel_id,
-            signup_role_ids_payload,
             bool(announcement_message),
         )
-
-        signup_role_ids: list[int] = []
-        if isinstance(signup_role_ids_payload, list):
-            for role_id_value in signup_role_ids_payload:
-                if isinstance(role_id_value, (str, int)):
-                    try:
-                        signup_role_ids.append(int(str(role_id_value)))
-                    except ValueError:
-                        logger.warning(
-                            "Invalid signup role id for guild %s: %s",
-                            guild_id,
-                            role_id_value,
-                        )
 
         if announcement_channel_id is not None:
             try:
@@ -2192,43 +2107,6 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                             event.id,
                             exc_info=e,
                         )
-                if signup_role_ids and announcement_channel_any is not None:
-                    role_pairs: list[tuple[int, str]] = []
-                    for role_id in signup_role_ids:
-                        role = guild.get_role(role_id)
-                        if role is None:
-                            continue
-                        role_pairs.append((role.id, role.name))
-
-                    if role_pairs:
-                        signup_text = (
-                            f"Signup roles for **{event.name}**\n"
-                            "Click a button to toggle your role."
-                        )
-                        try:
-                            await announcement_channel_any.send(
-                                signup_text,
-                                view=EventSignupRoleView(role_pairs),
-                            )
-                            logger.info(
-                                "Posted role signup buttons for guild %s event %s (%d roles)",
-                                guild_id,
-                                event.id,
-                                len(role_pairs),
-                            )
-                        except discord.Forbidden:
-                            logger.warning(
-                                "Missing permissions to post role signup buttons for guild %s in channel %s",
-                                guild_id,
-                                announcement_channel_int,
-                            )
-                        except discord.HTTPException as e:
-                            logger.exception(
-                                "Failed to post role signup buttons for guild %s event %s",
-                                guild_id,
-                                event.id,
-                                exc_info=e,
-                            )
         else:
             logger.warning(
                 "No announcement_channel_id provided for scheduled event create in guild %s",

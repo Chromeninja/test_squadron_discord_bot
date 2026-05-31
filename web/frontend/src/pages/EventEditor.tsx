@@ -6,7 +6,6 @@ import {
   type DiscordChannel,
   type EventModuleSettingsPayload,
   type GuildInfo,
-  type GuildRole,
 } from '../api/endpoints';
 import { Alert, Button, Card, CardBody } from '../components/ui';
 import {
@@ -94,7 +93,6 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   const navigate = useNavigate();
   const { eventId } = useParams<{ eventId: string }>();
   const [guildInfo, setGuildInfo] = useState<GuildInfo | null>(null);
-  const [roles, setRoles] = useState<GuildRole[]>([]);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [eventSettings, setEventSettings] = useState<EventModuleSettingsPayload | null>(null);
   const [builderStep, setBuilderStep] = useState<BuilderStep>('location');
@@ -109,14 +107,9 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     () => new Map(channels.map((channel) => [channel.id, channel.name])),
     [channels]
   );
-  const roleNameById = useMemo(() => new Map(roles.map((role) => [role.id, role.name])), [roles]);
   const stageChannelOptions = useMemo(() => getStageChannelOptions(channels), [channels]);
   const voiceChannelOptions = useMemo(() => getVoiceChannelOptions(channels), [channels]);
   const announcementChannelOptions = useMemo(() => getAnnouncementChannelOptions(channels), [channels]);
-  const signupRoleOptions = useMemo(
-    () => roles.map((role) => ({ id: role.id, name: role.name })),
-    [roles]
-  );
   const stepIndex = BUILDER_STEPS.findIndex((step) => step.id === builderStep);
   const validationError = validateDraft(draft);
   const currentStepError = getStepValidationError(builderStep, draft);
@@ -145,17 +138,15 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
     setError(null);
 
     try {
-      const [guildResponse, configResponse, channelsResponse, rolesResponse] = await Promise.all([
+      const [guildResponse, configResponse, channelsResponse] = await Promise.all([
         guildApi.getGuildInfo(guildId),
         guildApi.getGuildConfig(guildId),
         guildApi.getDiscordChannels(guildId),
-        guildApi.getDiscordRoles(guildId),
       ]);
 
       setGuildInfo(guildResponse.guild);
       setEventSettings(configResponse.data.events);
       setChannels(channelsResponse.channels);
-      setRoles(rolesResponse.roles);
 
       if (isEditing) {
         if (!eventId) {
@@ -292,7 +283,6 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         channel_id: draft.locationMode === 'external' ? null : draft.channelId,
         location: draft.locationMode === 'external' ? draft.location.trim() : null,
         announcement_channel_id: draft.announcementChannelId,
-        signup_role_ids: draft.signupRoleIds ?? [],
         recurrence_rule: buildRecurrenceRule(draft),
         image_data: draft.imageData,
       };
@@ -364,7 +354,6 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
               draft={draft}
               updateDraft={updateDraft}
               announcementChannelOptions={announcementChannelOptions}
-              signupRoleOptions={signupRoleOptions}
             />
           ) : null}
 
@@ -375,7 +364,6 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
               computedEndTime={computedEndTime}
               reviewHighlights={reviewHighlights}
               channelNameById={channelNameById}
-              roleNameById={roleNameById}
             />
           ) : null}
 

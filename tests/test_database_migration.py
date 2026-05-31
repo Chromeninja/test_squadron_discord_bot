@@ -119,3 +119,4 @@ async def test_init_schema_backfills_legacy_managed_event_display_columns() -> N
         columns = {row[1] for row in await cursor.fetchall()}
         assert "channel_name" in columns
         assert "image_url" in columns
+        assert "signup_role_ids" not in columns

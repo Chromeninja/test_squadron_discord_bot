@@ -46,7 +46,6 @@ export interface EventDraft {
   endDate: string;
   endTime: string;
   announcementChannelId: string | null;
-  signupRoleIds: string[];
   recurrenceEnabled: boolean;
   recurrenceFrequency: RecurrenceFrequency;
   recurrenceInterval: string;
@@ -163,7 +162,6 @@ export function createEmptyDraft(settings: EventModuleSettingsPayload | null): E
     endDate: '',
     endTime: '',
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
-    signupRoleIds: [],
     recurrenceEnabled: false,
     recurrenceFrequency: 2,
     recurrenceInterval: '1',
@@ -221,7 +219,6 @@ export function createDraftFromEvent(
     endDate,
     endTime: endTimeValue,
     announcementChannelId: settings?.default_announcement_channel_id ?? null,
-    signupRoleIds: [],
     recurrenceEnabled: !!recurrencePayload,
     recurrenceFrequency: recurrencePayload?.frequency ?? 2,
     recurrenceInterval: String(recurrencePayload?.interval ?? 1),
@@ -349,7 +346,6 @@ export function formatRecurrencePayloadSummary(
     endDate: '',
     endTime: '',
     announcementChannelId: null,
-    signupRoleIds: [],
     recurrenceEnabled: true,
     recurrenceFrequency: recurrencePayload.frequency,
     recurrenceInterval: String(recurrencePayload.interval ?? 1),
@@ -501,17 +497,12 @@ export function validateDraft(draft: EventDraft): string | null {
 
 export function getReviewHighlights(draft: EventDraft): string[] {
   const highlights: string[] = [];
-  const signupRoleIds = draft.signupRoleIds ?? [];
   highlights.push(formatLocationMode(draft.locationMode));
 
   if (draft.endMode === 'duration') {
     highlights.push(`Duration: ${formatDuration(draft.durationMinutes)}`);
   } else if (draft.endMode === 'open') {
     highlights.push('Open-ended');
-  }
-
-  if (signupRoleIds.length > 0) {
-    highlights.push(`Signup roles: ${signupRoleIds.length}`);
   }
 
   if (draft.recurrenceEnabled) {

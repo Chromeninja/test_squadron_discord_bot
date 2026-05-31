@@ -288,7 +288,6 @@ async def test_get_discord_scheduled_events_proxies_internal_api(
             "channel_id": "1182812153271558255",
             "location": None,
             "announcement_channel_id": "1182812153271558256",
-            "signup_role_ids": [],
         },
         created_by_user_id="444333222",
         created_by_name="TestEventCoordinator",

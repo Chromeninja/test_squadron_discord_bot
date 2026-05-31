@@ -158,7 +158,6 @@ export interface ScheduledEventCreateRequest {
   channel_id: string | null;
   location: string | null;
   announcement_channel_id?: string | null;
-  signup_role_ids?: string[];
   recurrence_rule?: {
     start: string;
     frequency: 0 | 1 | 2 | 3;

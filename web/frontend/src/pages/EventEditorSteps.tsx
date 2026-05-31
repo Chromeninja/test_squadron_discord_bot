@@ -1,6 +1,5 @@
 import { useState } from 'react';
 
-import SearchableMultiSelect from '../components/SearchableMultiSelect';
 import SearchableSelect from '../components/SearchableSelect';
 import { Alert, Input, Textarea } from '../components/ui';
 import { inputVariants } from '../utils/theme';
@@ -22,7 +21,6 @@ import {
 import { ReviewRow, getOptionButtonClass } from './EventEditorComponents';
 
 type SelectOption = Array<{ id: string; name: string; category?: string }>;
-type RoleOption = Array<{ id: string; name: string }>;
 type DraftUpdater = (patch: Partial<EventDraft>) => void;
 
 const EVENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -298,10 +296,9 @@ interface CustomStepProps {
   draft: EventDraft;
   updateDraft: DraftUpdater;
   announcementChannelOptions: SelectOption;
-  signupRoleOptions: RoleOption;
 }
 
-export function CustomStep({ draft, updateDraft, announcementChannelOptions, signupRoleOptions }: CustomStepProps) {
+export function CustomStep({ draft, updateDraft, announcementChannelOptions }: CustomStepProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -315,11 +312,6 @@ export function CustomStep({ draft, updateDraft, announcementChannelOptions, sig
       </div>
 
       <Textarea label="Announcement Message" value={draft.announcementMessage} onChange={(event) => updateDraft({ announcementMessage: event.target.value })} placeholder="Defaults to the event description. Keep it short if the event brief already has the details." />
-
-      <div>
-        <label className="mb-2 block text-sm font-semibold text-[#fff4cc]">Signup Roles</label>
-        <SearchableMultiSelect options={signupRoleOptions} selected={draft.signupRoleIds ?? []} onChange={(value) => updateDraft({ signupRoleIds: value })} placeholder="Type to search server roles..." componentId="event-signup-roles" />
-      </div>
     </div>
   );
 }
@@ -330,10 +322,9 @@ interface ReviewStepProps {
   computedEndTime: string | null;
   reviewHighlights: string[];
   channelNameById: Map<string, string>;
-  roleNameById: Map<string, string>;
 }
 
-export function ReviewStep({ draft, validationError, computedEndTime, reviewHighlights, channelNameById, roleNameById }: ReviewStepProps) {
+export function ReviewStep({ draft, validationError, computedEndTime, reviewHighlights, channelNameById }: ReviewStepProps) {
   return (
     <div className="space-y-6">
       {validationError ? <Alert variant="warning">{validationError}</Alert> : null}
@@ -371,7 +362,6 @@ export function ReviewStep({ draft, validationError, computedEndTime, reviewHigh
         <div className="space-y-3 rounded-lg border border-[#ffbb00]/15 bg-[#120d00] p-4 text-sm">
           <p className="text-[11px] uppercase tracking-[0.24em] text-[#ffbb00]/70">Bot options</p>
           <ReviewRow label="Announcement channel" value={draft.announcementChannelId ? channelNameById.get(draft.announcementChannelId) || 'Configured channel' : 'Not set'} />
-          <ReviewRow label="Signup roles" value={(draft.signupRoleIds ?? []).length > 0 ? (draft.signupRoleIds ?? []).map((roleId) => roleNameById.get(roleId) || `Role ${roleId}`).join(', ') : 'None'} />
           <ReviewRow label="Announcement message" value={draft.announcementMessage.trim() || draft.description.trim() || 'Default summary'} multiLine />
         </div>
       </div>

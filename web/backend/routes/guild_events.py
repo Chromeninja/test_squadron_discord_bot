@@ -217,7 +217,6 @@ async def create_discord_scheduled_event(
         "channel_id": str(channel_id) if channel_id is not None else None,
         "location": payload.location,
         "announcement_channel_id": payload.announcement_channel_id,
-        "signup_role_ids": payload.signup_role_ids,
         "recurrence_rule": (
             payload.recurrence_rule.model_dump(exclude_none=True)
             if payload.recurrence_rule is not None
@@ -294,7 +293,6 @@ async def update_discord_scheduled_event(
         "channel_id": str(channel_id) if channel_id is not None else None,
         "location": payload.location,
         "announcement_channel_id": payload.announcement_channel_id,
-        "signup_role_ids": payload.signup_role_ids,
         "recurrence_rule": (
             payload.recurrence_rule.model_dump(exclude_none=True)
             if payload.recurrence_rule is not None

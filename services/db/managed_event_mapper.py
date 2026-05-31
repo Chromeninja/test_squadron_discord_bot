@@ -9,26 +9,6 @@ if TYPE_CHECKING:
     import aiosqlite
 
 
-def decode_signup_role_ids(raw_value: str | None) -> list[str]:
-    """Decode persisted signup role IDs from JSON into a normalized list."""
-    if not raw_value:
-        return []
-
-    try:
-        decoded = json.loads(raw_value)
-    except Exception:
-        return []
-
-    if not isinstance(decoded, list):
-        return []
-
-    normalized: list[str] = []
-    for role_id in decoded:
-        if isinstance(role_id, (str, int)) and not isinstance(role_id, bool):
-            normalized.append(str(role_id))
-    return normalized
-
-
 def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
     """Convert a managed event row into API-facing event payload fields."""
     recurrence_rule_payload_raw = row["recurrence_rule_payload"]
@@ -65,7 +45,6 @@ def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
         "sync_error": row["sync_error"],
         "last_synced_at": row["last_synced_at"],
         "announcement_channel_id": row["announcement_channel_id"],
-        "signup_role_ids": decode_signup_role_ids(row["signup_role_ids"]),
         "revision": int(row["revision"]),
         "recurrence_rule": row["recurrence_rule"],
         "recurrence_rule_payload": recurrence_rule_payload,

@@ -256,7 +256,6 @@ describe('EventEditor Page', () => {
           location: null,
           announcement_channel_id: '10',
           announcement_message: 'test event',
-          signup_role_ids: [],
         }),
       );
     });

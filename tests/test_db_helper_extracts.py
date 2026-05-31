@@ -8,10 +8,7 @@ import pytest
 
 from services.db.database import Database
 from services.db.database import derive_membership_status as derive_from_database
-from services.db.managed_event_mapper import (
-    decode_signup_role_ids,
-    managed_event_row_to_dict,
-)
+from services.db.managed_event_mapper import managed_event_row_to_dict
 from services.db.membership import derive_membership_status as derive_from_membership
 
 
@@ -28,33 +25,6 @@ def test_derive_membership_status_reexport_compatibility() -> None:
     # Assert
     assert database_result == "main"
     assert membership_result == "main"
-
-
-def test_decode_signup_role_ids_normalizes_values() -> None:
-    """Decode helper should keep string/int IDs and drop unsupported types."""
-    # Arrange
-    raw_value = '["123", 456, null, true, "789"]'
-
-    # Act
-    decoded = decode_signup_role_ids(raw_value)
-
-    # Assert
-    assert decoded == ["123", "456", "789"]
-
-
-def test_decode_signup_role_ids_invalid_payload_returns_empty_list() -> None:
-    """Invalid JSON or non-list payloads should safely return an empty list."""
-    # Arrange
-    invalid_json = "{bad"
-    invalid_type = '{"id": "123"}'
-
-    # Act
-    decoded_invalid_json = decode_signup_role_ids(invalid_json)
-    decoded_invalid_type = decode_signup_role_ids(invalid_type)
-
-    # Assert
-    assert decoded_invalid_json == []
-    assert decoded_invalid_type == []
 
 
 def test_managed_event_row_to_dict_maps_expected_fields() -> None:
@@ -83,7 +53,6 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
         "sync_error": None,
         "last_synced_at": 1715600000,
         "announcement_channel_id": "555",
-        "signup_role_ids": '["9", 10]',
         "revision": 3,
         "recurrence_rule": None,
         "recurrence_rule_payload": None,
@@ -96,7 +65,6 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
     # Assert
     assert mapped["id"] == "42"
     assert mapped["user_count"] == 7
-    assert mapped["signup_role_ids"] == ["9", "10"]
     assert mapped["channel_name"] == "Event Coms"
     assert mapped["image_url"] == "https://cdn.discordapp.com/guild-events/222/banner.png"
     assert mapped["source_of_truth"] == "db"
