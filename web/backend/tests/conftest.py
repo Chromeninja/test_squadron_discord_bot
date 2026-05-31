@@ -113,8 +113,8 @@ async def temp_db():
 
 
 @pytest_asyncio.fixture
-async def client(temp_db):
-    """Create a test client for the FastAPI app."""
+async def backend_test_runtime(temp_db):
+    """Initialize backend services shared by test fixtures."""
     # Ensure clean ConfigLoader state so CONFIG_PATH overrides apply per-test
     ConfigLoader.reset()
 
@@ -141,6 +141,15 @@ async def client(temp_db):
     await session_store.initialize()  # defaults to :memory:
     limiter.reset()  # clear rate-limit counters between tests
 
+    yield
+
+    await session_store.close()
+
+
+@pytest_asyncio.fixture
+async def client(backend_test_runtime):
+    """Create a test client for the FastAPI app."""
+
     # Import app after database and services are initialized
     from app import app
 
@@ -149,11 +158,9 @@ async def client(temp_db):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    await session_store.close()
-
 
 @pytest_asyncio.fixture
-async def mock_admin_session():
+async def mock_admin_session(backend_test_runtime):
     """Create a mock session token for an admin user."""
     from core.security import create_session_token_async
 
@@ -186,7 +193,7 @@ async def mock_admin_session():
 
 
 @pytest_asyncio.fixture
-async def mock_moderator_session():
+async def mock_moderator_session(backend_test_runtime):
     """Create a mock session token for a moderator user."""
     from core.security import create_session_token_async
 
@@ -209,7 +216,7 @@ async def mock_moderator_session():
 
 
 @pytest_asyncio.fixture
-async def mock_discord_manager_session():
+async def mock_discord_manager_session(backend_test_runtime):
     """Create a mock session token for a discord manager user."""
     from core.security import create_session_token_async
 
@@ -232,7 +239,7 @@ async def mock_discord_manager_session():
 
 
 @pytest_asyncio.fixture
-async def mock_event_coordinator_session():
+async def mock_event_coordinator_session(backend_test_runtime):
     """Create a mock session token for an event coordinator user."""
     from core.security import create_session_token_async
 
@@ -255,7 +262,7 @@ async def mock_event_coordinator_session():
 
 
 @pytest_asyncio.fixture
-async def mock_staff_session():
+async def mock_staff_session(backend_test_runtime):
     """Create a mock session token for a staff user."""
     from core.security import create_session_token_async
 
@@ -278,7 +285,7 @@ async def mock_staff_session():
 
 
 @pytest_asyncio.fixture
-async def mock_unauthorized_session():
+async def mock_unauthorized_session(backend_test_runtime):
     """Create a mock session token for an unauthorized user."""
     from core.security import create_session_token_async
 
