@@ -120,6 +120,9 @@ ignore = [
 "web/backend/tests/conftest.py" = ["PTH108"]
 "web/backend/routes/**/*" = ["B008", "PLR0913", "PLR0912", "PLR0915"]  # FastAPI Depends pattern + complexity
 "web/backend/core/**/*" = ["B008", "PLR0913", "F811"]  # FastAPI Depends pattern
+"backend/**/*" = ["B008", "PLR0913", "PLR0912", "PLR0915"]  # FastAPI Depends pattern + complexity
+"backend/**/test_*.py" = ["S101", "TID252", "ARG"]  # Test files
+"connectors/**/*" = ["PLR0913"]  # Connector methods may need many args
 "cogs/**/*" = ["PLR0913", "PLR0912", "PLR0915", "ARG003"]  # Discord cogs often have complex command handlers
 "helpers/**/*" = ["PLR0913", "PLR0912", "PLR0915"]  # Helper functions may need many args
 "services/**/*" = ["PLR0913", "PLR0912", "PLR0915", "ERA001"]  # Service methods may be complex
@@ -131,7 +134,7 @@ ignore = [
 "**/migration*.py" = []  # Migration files are fine
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "web/backend/tests"]
+testpaths = ["tests", "web/backend/tests", "backend"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

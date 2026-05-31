@@ -25,8 +25,15 @@ pytest --cov --cov-fail-under=50       # With coverage (50% minimum)
 # Linting / type checking
 ruff check .                           # Lint
 ruff format .                          # Format
-mypy --strict bot.py cogs/ services/ helpers/ verification/ utils/  # Type check
+mypy --strict bot.py cogs/ services/ helpers/ verification/ utils/  # Type check (legacy)
+mypy backend/ connectors/ --ignore-missing-imports --no-strict-optional \
+  --follow-imports=silent --disable-error-code=untyped-decorator \
+  --disable-error-code=no-any-return   # Type check (new backend-first layer)
 bandit -r . --exclude tests/,web/frontend/  # Security scan
+
+# Docker (local dev)
+docker compose up                      # Start bot + backend + sqlite volume
+docker compose up backend              # Backend only (no bot)
 
 # Pre-commit (runs all quality gates)
 pre-commit run --all-files
@@ -43,6 +50,18 @@ The project runs as three separate processes that communicate:
 3. **Web dashboard** (`web/backend/app.py`) — Separate FastAPI server handling OAuth and the management UI; calls the internal API via `web/backend/core/internal_api_client.py`
 
 The web frontend (`web/frontend/`) is a React + TypeScript SPA that calls the web backend.
+
+### Backend-first layer (in progress)
+
+A new `backend/` package is being built as the authoritative data layer. New code should use it; existing code is being migrated incrementally:
+
+- **`backend/db/repository/`** — guild-scoped DB query methods (one file per domain). All new DB access should go through these classes rather than calling `Database` directly.
+- **`backend/api/internal/`** — FastAPI routes protected by `X-Bot-Api-Key` header (`BOT_API_KEY` env var). These will replace the embedded `InternalAPIServer` for DB-backed operations.
+- **`backend/api/v1/`** — Public versioned endpoints (`/api/v1/health`, `/api/v1/metrics`).
+- **`backend/middleware/`** — Structured JSON logging with correlation IDs; global error handler.
+- **`backend/auth/api_key.py`** — FastAPI `Depends` for bot-to-backend API key auth.
+- **`connectors/`** — HTTP client layer for the bot to call the backend (`BotAPIConnector` + domain connectors). Access via `self.bot.connectors.<domain>` — available when `BACKEND_URL` and `BOT_API_KEY` are set.
+- **`connectors/registry.py`** — `ConnectorRegistry` dataclass; the typed handle for all domain connectors.
 
 ### Bot startup flow
 
