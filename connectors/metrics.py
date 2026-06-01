@@ -1,4 +1,11 @@
-"""Connector for bot→backend metrics operations (/internal/guilds/{guild_id}/metrics)."""
+"""Connector for bot→backend metrics READ operations.
+
+Only dashboard-facing reads and GDPR erasure go through the backend. Metric
+*ingestion* (recording voice/message/game events) is a hot path that fires on
+every gateway event, so it stays in-process via ``MetricsService`` rather than
+incurring an HTTP round-trip per event. There is intentionally no ``track()``
+method here.
+"""
 
 from .api_client import BotAPIConnector
 
@@ -6,13 +13,6 @@ from .api_client import BotAPIConnector
 class MetricsConnector:
     def __init__(self, client: BotAPIConnector):
         self._c = client
-
-    async def track(self, guild_id: int, event_type: str, data: dict) -> dict | None:
-        """Record a metrics event to the backend."""
-        return await self._c.post(
-            f"/internal/guilds/{guild_id}/metrics/track",
-            json={"event_type": event_type, **data},
-        )
 
     async def get_overview(self, guild_id: int, days: int = 7) -> dict:
         return await self._c.get(

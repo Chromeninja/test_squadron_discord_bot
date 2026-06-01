@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.db.repository.config import ConfigRepository
 from backend.db.repository.tickets import TicketRepository
 from backend.db.repository.verification import VerificationRepository
 from backend.db.repository.voice import VoiceRepository
@@ -120,3 +121,31 @@ async def test_verification_create_and_fetch(temp_db: str) -> None:
     rec = await repo.get_verification(GUILD_ID, USER_ID)
     assert rec is not None
     assert rec["rsi_handle"] == "TestPilot"
+
+
+@pytest.mark.asyncio
+async def test_config_set_get_roundtrip(temp_db: str) -> None:
+    """Config set/get roundtrip against the real guild_settings schema."""
+    repo = ConfigRepository()
+
+    # set_setting with a string value
+    await repo.set_setting(GUILD_ID, "prefix", "!")
+    result = await repo.get_setting(GUILD_ID, "prefix")
+    assert result == "!"
+
+    # set_setting with a dict value (JSON-encoded)
+    dict_value = {"role_id": 12345, "enabled": True}
+    await repo.set_setting(GUILD_ID, "moderation", dict_value)
+    result = await repo.get_setting(GUILD_ID, "moderation")
+    assert result == dict_value
+
+    # get_config returns all settings for a guild
+    await repo.set_setting(GUILD_ID, "timezone", "UTC")
+    config = await repo.get_config(GUILD_ID)
+    assert config["prefix"] == "!"
+    assert config["moderation"] == dict_value
+    assert config["timezone"] == "UTC"
+
+    # get_setting on non-existent setting returns None
+    result = await repo.get_setting(GUILD_ID, "nonexistent")
+    assert result is None

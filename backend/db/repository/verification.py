@@ -148,3 +148,14 @@ class VerificationRepository:
             )
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+    async def set_needs_reverify(self, user_id: int, value: bool = True) -> bool:
+        """Flag a user's verification for re-check. Returns True if a row was updated."""
+        now = int(time.time())
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "UPDATE verification SET needs_reverify = ?, needs_reverify_at = ? WHERE user_id = ?",
+                (1 if value else 0, now if value else None, user_id),
+            )
+            await db.commit()
+        return cursor.rowcount > 0

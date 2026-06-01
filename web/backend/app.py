@@ -162,7 +162,7 @@ app.add_middleware(
 app.add_middleware(RequestIDMiddleware)
 
 # Structured JSON access logging (correlation IDs, duration, status)
-from backend.middleware.logging import StructuredLoggingMiddleware  # noqa: E402
+from backend.middleware.logging import StructuredLoggingMiddleware
 
 app.add_middleware(StructuredLoggingMiddleware)
 
@@ -186,13 +186,33 @@ app.include_router(errors.router)
 app.include_router(logs.router)
 
 # Backend-first v1 endpoints (authoritative layer)
-from backend.api.v1.health import router as backend_health_router  # noqa: E402
-from backend.api.internal.events import router as internal_events_router  # noqa: E402
-from backend.api.internal.metrics import router as internal_metrics_router  # noqa: E402
+from backend.api.internal import (
+    config_router as internal_config_router,
+)
+from backend.api.internal import (
+    events_router as internal_events_router,
+)
+from backend.api.internal import (
+    metrics_router as internal_metrics_router,
+)
+from backend.api.internal import (
+    tickets_router as internal_tickets_router,
+)
+from backend.api.internal import (
+    verification_router as internal_verification_router,
+)
+from backend.api.internal import (
+    voice_router as internal_voice_router,
+)
+from backend.api.v1.health import router as backend_health_router
 
 app.include_router(backend_health_router)
 app.include_router(internal_events_router)
 app.include_router(internal_metrics_router)
+app.include_router(internal_config_router)
+app.include_router(internal_tickets_router)
+app.include_router(internal_verification_router)
+app.include_router(internal_voice_router)
 
 
 # Serve built frontend assets in production

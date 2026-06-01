@@ -164,3 +164,14 @@ class TicketRepository:
             )
             await db.commit()
         return cursor.rowcount > 0
+
+    async def delete_ticket(self, guild_id: int, ticket_id: int) -> bool:
+        """Soft-delete a ticket by setting deleted_at. Returns True if a row was updated."""
+        now = int(time.time())
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                "UPDATE tickets SET deleted_at = ? WHERE guild_id = ? AND id = ? AND deleted_at IS NULL",
+                (now, guild_id, ticket_id),
+            )
+            await db.commit()
+        return cursor.rowcount > 0
