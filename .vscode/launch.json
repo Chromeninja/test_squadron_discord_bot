@@ -47,11 +47,64 @@
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Backend API (standalone, port 8000)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "web.backend.app:app",
+        "--reload",
+        "--port",
+        "8000",
+        "--host",
+        "0.0.0.0"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "pytest (backend integration tests)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "backend/",
+        "-v",
+        "--tb=short"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "pytest (all tests)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/",
+        "web/backend/tests/",
+        "backend/",
+        "-v",
+        "--tb=short"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
     }
   ],
   "compounds": [
     {
-      "name": "🚀 Full Stack (Bot + Web Admin)",
+      "name": "Full Stack (Bot + Web Admin)",
       "configurations": [
         "Start Bot (start_bot.py)",
         "Web Backend (FastAPI)",
@@ -61,6 +114,19 @@
         "hidden": false,
         "group": "Full Stack",
         "order": 1
+      },
+      "stopAll": true
+    },
+    {
+      "name": "Backend-first (Bot + Backend API)",
+      "configurations": [
+        "Backend API (standalone, port 8000)",
+        "Start Bot (start_bot.py)"
+      ],
+      "presentation": {
+        "hidden": false,
+        "group": "Full Stack",
+        "order": 2
       },
       "stopAll": true
     }

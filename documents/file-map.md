@@ -1,6 +1,6 @@
 # Repository File Map
 
-Last updated: 2026-05-20
+Last updated: 2026-06-01
 
 This map provides a quick view of how the repository is organized, with each major folder and its files/subfolders.
 
@@ -38,6 +38,43 @@ This map provides a quick view of how the repository is organized, with each maj
 
 ## Top-level directories
 
+### `backend/`
+Authoritative data layer — the only place that reads/writes the database. New feature code goes here.
+
+- `__init__.py`
+- `conftest.py` — pytest fixtures for backend integration tests (provides `temp_db`)
+- `api/`
+  - `internal/`
+    - `events.py` — `/internal/guilds/{guild_id}/managed-events` (bot-only, API key auth)
+    - `metrics.py` — `/internal/guilds/{guild_id}/metrics` (bot-only, API key auth)
+  - `v1/`
+    - `health.py` — `GET /api/v1/health` and `GET /api/v1/metrics` (Prometheus)
+- `auth/`
+  - `api_key.py` — FastAPI `Depends` for `X-Bot-Api-Key` header validation (`BOT_API_KEY` env var)
+- `db/`
+  - `repository/`
+    - `events.py` — Guild-scoped managed-event query methods
+    - `tickets.py` — Guild-scoped ticket CRUD (create/get/update/close)
+    - `verification.py` — Guild-scoped verification upsert and fetch
+    - `voice.py` — Guild-scoped voice channel CRUD (soft-delete)
+    - `test_repositories.py` — Integration tests against real SQLite schema
+- `middleware/`
+  - `errors.py` — Global error handler → structured JSON 500 response
+  - `logging.py` — Structured JSON access log with UUID-validated X-Correlation-ID
+
+### `connectors/`
+HTTP client layer for bot → backend communication. Instances are available at `bot.connectors.<domain>`.
+
+- `__init__.py`
+- `api_client.py` — `BotAPIConnector`: httpx.AsyncClient, `X-Bot-Api-Key` auth, 3× retry with backoff
+- `config.py` — Guild config and per-key settings endpoints
+- `events.py` — Managed event endpoints
+- `metrics.py` — Metrics push endpoints
+- `registry.py` — `ConnectorRegistry` dataclass (typed handle for all domain connectors)
+- `tickets.py` — Ticket CRUD endpoints
+- `verification.py` — Verification upsert/fetch endpoints
+- `voice.py` — Voice channel CRUD endpoints
+
 ### `.github/`
 GitHub automation, CI, and coding instructions.
 
@@ -54,6 +91,7 @@ GitHub automation, CI, and coding instructions.
   - `security-scan/`
 - `workflows/`
   - `codeql.yml`
+  - `lint.yml` — ruff check/format + mypy on `backend/` and `connectors/`
   - `tests.yml`
 - `copilot-instructions.md`
 - `dependabot.yml`

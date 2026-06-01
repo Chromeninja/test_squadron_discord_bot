@@ -17,37 +17,62 @@ Welcome to the **TEST Squadron Discord Bot** repository. This bot helps manage u
 
 ## 🏗️ Architecture Overview
 
-### Core Components
+The project uses a **backend-first design**: the FastAPI backend is the single source of truth for all business logic and data access. The Discord bot and React frontend are API clients that communicate with the backend over HTTP — neither touches the database directly.
 
-- **`bot.py`**: The main bot script initializing the bot, loading environment variables, configuration, and setting up logging.
-- **`config/`**: Configuration management with type-safe loading
-  - **`config.yaml`**: Stores core runtime settings (prefixes, rate limits, org metadata). Role mappings now live in the database and are managed via the Web Dashboard.
-- **`cogs/`**: Discord.py command modules
-  - **`verification.py`**: Handles user verification process
-  - **`voice.py`**: Voice channel management system
-  - **`admin.py`**: Administrative commands
-- **`helpers/`**: Utility modules for common functionality
-  - **`http_helper.py`**: HTTP client with retry mechanisms
-  - **`embeds.py`**: Discord embed creation utilities with factory patterns
-  - **`discord_reply.py`**: Unified interaction response helpers
-  - **`permissions_helper.py`**: Permission level checking with hierarchy support
-  - **`error_messages.py`**: User-facing error message formatting
-- **`services/db/`**: Database access layer
-  - **`repository.py`**: BaseRepository pattern for unified DB access
-  - **`database.py`**: Connection management and schema
-- **`docs/`**: Developer documentation
-  - **`DRY_PATTERNS.md`**: Code patterns and utilities reference
-- **`prompts/`**: AI-agent friendly templates and schemas
-  - **`schemas/`**: JSON schemas for data validation
-  - **`messages/`**: User-facing message templates
-  - **`system/`**: Development and debugging templates
-- **`verification/`**: RSI verification logic
-- **`config/`**: Configuration management
-  - **`config_loader.py`**: Handles loading and providing access to configuration data
-  - **`config.yaml`**: Runtime settings (rate limits, voice settings, RSI config)
-- **`requirements.txt`**: Lists the dependencies required for the project
-- **`SETUP.md`**: Production deployment guide
-- **`VS_CODE_SETUP.md`**: Local development setup guide
+```
+Discord Bot  ──→  connectors/  ──→  ┐
+React Frontend  ──────────────────→  ├──→  FastAPI Backend (web/backend/)  ──→  SQLite DB
+Future clients  ──────────────────→  ┘         (single source of truth)
+```
+
+### Packages
+
+| Package | Purpose |
+|---------|---------|
+| `bot.py` + `cogs/` | Discord event handling and slash commands |
+| `connectors/` | HTTP client layer — bot calls to the backend API (`BotAPIConnector` + domain connectors) |
+| `backend/` | Authoritative data layer: repositories, internal API routes, middleware, auth |
+| `web/backend/` | FastAPI app entrypoint: mounts all routers, handles OAuth2 for the dashboard |
+| `web/frontend/` | React + TypeScript dashboard (Vite) |
+| `services/` | Legacy in-process services (being migrated to `backend/` incrementally) |
+
+### backend/ package
+
+New code goes here. Never write direct DB calls in the bot or in `services/`.
+
+- **`backend/db/repository/`** — guild-scoped query methods (one file per domain). All DB access lives here.
+- **`backend/api/internal/`** — Bot-only routes protected by `X-Bot-Api-Key` header.
+- **`backend/api/v1/`** — Public versioned endpoints (`/api/v1/health`, `/api/v1/metrics`).
+- **`backend/middleware/`** — Structured JSON logging with correlation IDs; global error handler.
+- **`backend/auth/api_key.py`** — FastAPI `Depends` for `X-Bot-Api-Key` auth (`BOT_API_KEY` env var).
+
+### connectors/ package
+
+The bot accesses the backend through typed HTTP connectors. All connector instances are available at `bot.connectors.<domain>` when `BACKEND_URL` and `BOT_API_KEY` are set.
+
+- **`connectors/api_client.py`** — `BotAPIConnector`: httpx client, retry with exponential backoff.
+- **`connectors/registry.py`** — `ConnectorRegistry` dataclass; typed handle for all domain connectors.
+- **`connectors/events.py`**, **`voice.py`**, **`tickets.py`**, **`verification.py`**, **`config.py`**, **`metrics.py`** — per-domain connector classes.
+
+### Legacy components (services/)
+
+- **`services/service_container.py`** — All service singletons; injected into cogs. Access via `bot.service_container.<service>`.
+- **`services/db/`** — Legacy DB access layer (being replaced by `backend/db/repository/`).
+- **`services/internal_api.py`** — Embedded HTTP server (being absorbed into `backend/api/internal/`).
+
+### Auth
+
+| Caller | Method | Where validated |
+|--------|--------|-----------------|
+| React frontend | Discord OAuth2 session cookie | `web/backend/core/auth.py` |
+| Discord bot | `X-Bot-Api-Key: <BOT_API_KEY>` | `backend/auth/api_key.py` |
+
+### Configuration
+
+- **`config/config.yaml`** — Runtime settings (channel IDs, rate limits, org metadata).
+- **`.env`** — Secrets and deployment settings (see `.env.example`).
+- **`SETUP.md`** — Production deployment guide.
+- **`VS_CODE_SETUP.md`** — Local development setup guide.
 
 ## 🛠️ Getting Started
 
