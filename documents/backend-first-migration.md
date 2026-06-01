@@ -55,12 +55,15 @@ service exposes, add the matching `backend/api/internal/<domain>.py` routes, exp
 domain connector, and add integration tests against the real schema. The bot keeps using
 `ServiceContainer`, so nothing breaks during this stage.
 
-- [ ] **Config** — full `ConfigService` read/write surface (foundational; everything depends on it)
-- [ ] **Tickets** — categories, channel configs, ticket lifecycle, stats, rate-limit
-- [ ] **Ticket forms** — steps, questions, sessions, responses
-- [ ] **Verification** — global state store/fetch, bulk status rows
+- [x] **Config** — full `ConfigService` read/write surface (foundational; everything depends on it)
+- [x] **Tickets** — categories, channel configs, ticket lifecycle, stats
+- [x] **Ticket forms** — steps, questions, sessions, responses
+- [x] **Verification** — covered by Phase A `VerificationRepository` (the `verification` table is the
+      global state store; `store_global_state`/`get_global_state` map to `create`/`get_verification`).
+      `compute_global_state` (RSI HTTP scrape) and `VerificationBulkService` are Discord-orchestration
+      and stay in the bot by design — no backend port needed.
 - [ ] **Voice (command-path only)** — JTC config, ownership transfer/claim, settings snapshots, admin reset/purge
-- [ ] **Metrics** — confirm `routes/metrics.py` covers all read queries (no new work expected)
+- [x] **Metrics** — reads already served by `web/backend/routes/metrics.py`; ingestion stays in-process. No port needed.
 
 ### Stage 2 — Coordinated breaking cutover (bot requires backend after this)
 One pass, behind a release boundary:
