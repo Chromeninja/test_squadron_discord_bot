@@ -219,6 +219,7 @@ class MyBot(commands.Bot):
                 from connectors.api_client import BotAPIConnector
                 from connectors.config import ConfigConnector
                 from connectors.events import EventsConnector
+                from connectors.forms import FormsConnector
                 from connectors.metrics import MetricsConnector
                 from connectors.registry import ConnectorRegistry
                 from connectors.tickets import TicketsConnector
@@ -231,6 +232,7 @@ class MyBot(commands.Bot):
                     events=EventsConnector(self.api),
                     voice=VoiceConnector(self.api),
                     tickets=TicketsConnector(self.api),
+                    forms=FormsConnector(self.api),
                     verification=VerificationConnector(self.api),
                     config=ConfigConnector(self.api),
                     metrics=MetricsConnector(self.api),

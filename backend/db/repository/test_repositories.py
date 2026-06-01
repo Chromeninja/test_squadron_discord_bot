@@ -181,9 +181,7 @@ async def test_config_get_guild_channels(temp_db: str) -> None:
     # Set channel IDs as integers
     await repo.set_setting(GUILD_ID, "channels.verification_channel_id", 1001)
     await repo.set_setting(GUILD_ID, "channels.bot_spam_channel_id", 1002)
-    await repo.set_setting(
-        GUILD_ID, "channels.public_announcement_channel_id", 1003
-    )
+    await repo.set_setting(GUILD_ID, "channels.public_announcement_channel_id", 1003)
     await repo.set_setting(
         GUILD_ID, "channels.leadership_announcement_channel_id", 1004
     )
@@ -231,10 +229,650 @@ async def test_config_get_single_setting_int(temp_db: str) -> None:
     # Set a channel ID
     await repo.set_setting(GUILD_ID, "channels.verification_channel_id", 5001)
 
-    channel_id = await repo.get_single_setting_int(GUILD_ID, "channels.verification_channel_id")
+    channel_id = await repo.get_single_setting_int(
+        GUILD_ID, "channels.verification_channel_id"
+    )
     assert channel_id == 5001
     assert isinstance(channel_id, int)
 
     # Non-existent setting returns None
     result = await repo.get_single_setting_int(GUILD_ID, "nonexistent")
     assert result is None
+
+
+# ------------------------------------------------------------------
+# Ticket Category Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ticket_category_create_get_update_delete(temp_db: str) -> None:
+    """Full category lifecycle against the real ticket_categories schema."""
+    repo = TicketRepository()
+
+    # Create a category
+    cat_id = await repo.create_category(
+        GUILD_ID,
+        name="Support",
+        description="General support requests",
+        welcome_message="Welcome to support!",
+        role_ids=[100, 200],
+        emoji="🎫",
+        channel_id=1001,
+    )
+    assert cat_id is not None
+    assert isinstance(cat_id, int)
+
+    # Get the category
+    category = await repo.get_category(cat_id)
+    assert category is not None
+    assert category["name"] == "Support"
+    assert category["guild_id"] == GUILD_ID
+    assert category["channel_id"] == 1001
+
+    # List categories for guild
+    categories = await repo.get_categories(GUILD_ID)
+    assert any(c["id"] == cat_id for c in categories)
+
+    # Update category
+    updated = await repo.update_category(cat_id, name="Premium Support", emoji="✨")
+    assert updated is True
+
+    fetched = await repo.get_category(cat_id)
+    assert fetched is not None
+    assert fetched["name"] == "Premium Support"
+    assert fetched["emoji"] == "✨"
+
+    # Delete category
+    deleted = await repo.delete_category(cat_id)
+    assert deleted is True
+
+    # Verify it's gone
+    gone = await repo.get_category(cat_id)
+    assert gone is None
+
+
+@pytest.mark.asyncio
+async def test_ticket_channel_ids(temp_db: str) -> None:
+    """Test get_ticket_channel_ids returns distinct channels with categories."""
+    repo = TicketRepository()
+
+    # Create categories on channels 1001, 1002
+    await repo.create_category(GUILD_ID, name="Cat1", channel_id=1001)
+    await repo.create_category(GUILD_ID, name="Cat2", channel_id=1002)
+    await repo.create_category(
+        GUILD_ID, name="Cat3", channel_id=1001
+    )  # Another on 1001
+
+    channel_ids = await repo.get_ticket_channel_ids(GUILD_ID)
+    assert 1001 in channel_ids
+    assert 1002 in channel_ids
+    assert len(set(channel_ids)) == len(channel_ids)  # No duplicates
+
+
+# ------------------------------------------------------------------
+# Channel Config Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_channel_config_create_get_update_delete(temp_db: str) -> None:
+    """Full channel config lifecycle against the real ticket_channel_configs schema."""
+    repo = TicketRepository()
+
+    # Create channel config
+    config_id = await repo.create_channel_config(
+        GUILD_ID,
+        channel_id=1001,
+        panel_title="Support Tickets",
+        panel_description="Click to create a support ticket",
+        panel_color="#0099ff",
+        button_text="Create Ticket",
+        button_emoji="🎫",
+    )
+    assert config_id is not None
+
+    # Get the config
+    config = await repo.get_channel_config(GUILD_ID, 1001)
+    assert config is not None
+    assert config["panel_title"] == "Support Tickets"
+    assert config["button_emoji"] == "🎫"
+
+    # List all configs for guild
+    configs = await repo.get_channel_configs(GUILD_ID)
+    assert any(c["id"] == config_id for c in configs)
+
+    # Update config
+    updated = await repo.update_channel_config(
+        GUILD_ID,
+        channel_id=1001,
+        panel_title="Premium Support",
+        enable_public_button=True,
+    )
+    assert updated is True
+
+    fetched = await repo.get_channel_config(GUILD_ID, 1001)
+    assert fetched is not None
+    assert fetched["panel_title"] == "Premium Support"
+
+    # Delete config
+    deleted = await repo.delete_channel_config(GUILD_ID, 1001)
+    assert deleted is True
+
+    # Verify it's gone
+    gone = await repo.get_channel_config(GUILD_ID, 1001)
+    assert gone is None
+
+
+# ------------------------------------------------------------------
+# Ticket Query & Lifecycle Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ticket_stats(temp_db: str) -> None:
+    """Test get_ticket_stats returns correct counts."""
+    repo = TicketRepository()
+
+    # Create and track some tickets
+    t1 = await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2002,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Close one ticket
+    ticket_id_1 = int(t1["id"])  # type: ignore[arg-type]
+    await repo.close_ticket(GUILD_ID, ticket_id_1, closed_by=999)
+
+    # Get stats
+    stats = await repo.get_ticket_stats(GUILD_ID)
+    assert stats["open"] == 1
+    assert stats["closed"] == 1
+    assert stats["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_ticket_claim_unclaim(temp_db: str) -> None:
+    """Test claim and unclaim ticket by thread."""
+    repo = TicketRepository()
+
+    # Create a ticket
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Claim it
+    claimed = await repo.claim_ticket(2001, claimed_by=999)
+    assert claimed is True
+
+    # Verify claimed
+    ticket = await repo.get_ticket_by_thread(2001)
+    assert ticket is not None
+    assert ticket["claimed_by"] == 999
+
+    # Unclaim it
+    unclaimed = await repo.unclaim_ticket(2001)
+    assert unclaimed is True
+
+    # Verify unclaimed
+    ticket = await repo.get_ticket_by_thread(2001)
+    assert ticket is not None
+    assert ticket["claimed_by"] is None
+
+
+@pytest.mark.asyncio
+async def test_ticket_reopen_lifecycle(temp_db: str) -> None:
+    """Test reopen ticket by thread."""
+    repo = TicketRepository()
+
+    # Create a ticket
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Close it
+    closed = await repo.close_ticket_by_thread(2001, closed_by=999)
+    assert closed is True
+
+    ticket = await repo.get_ticket_by_thread(2001)
+    assert ticket is not None
+    assert ticket["status"] == "closed"
+
+    # Check if within reopen window (should be)
+    can_reopen = await repo.can_reopen(2001)
+    assert can_reopen is True
+
+    # Reopen it
+    reopened = await repo.reopen_ticket(2001, reopened_by=888)
+    assert reopened is True
+
+    # Verify reopened
+    ticket = await repo.get_ticket_by_thread(2001)
+    assert ticket is not None
+    assert ticket["status"] == "open"
+    assert ticket["reopened_by"] == 888
+
+
+@pytest.mark.asyncio
+async def test_mark_thread_deleted(temp_db: str) -> None:
+    """Test marking a thread as deleted."""
+    repo = TicketRepository()
+
+    # Create a ticket
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Mark as deleted
+    marked = await repo.mark_thread_deleted(2001)
+    assert marked is True
+
+    # Verify deleted_at is set
+    ticket = await repo.get_ticket_by_thread(2001)
+    assert ticket is not None
+    assert ticket["deleted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_open_ticket_count(temp_db: str) -> None:
+    """Test get_open_ticket_count for a user."""
+    repo = TicketRepository()
+
+    # Create multiple open tickets for a user
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2002,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Create one for a different user
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2003,
+            "user_id": 888,
+        },
+    )
+
+    # Count for USER_ID
+    count = await repo.get_open_ticket_count(GUILD_ID, USER_ID)
+    assert count == 2
+
+    # Count for other user
+    other_count = await repo.get_open_ticket_count(GUILD_ID, 888)
+    assert other_count == 1
+
+
+# ------------------------------------------------------------------
+# Ticket Form Integration Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_form_step_create_get_update_delete(temp_db: str) -> None:
+    """Full form step lifecycle against the real schema."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    repo = TicketFormRepository()
+    ticket_repo = TicketRepository()
+
+    # Create a category first
+    category_id = await ticket_repo.create_category(
+        GUILD_ID,
+        name="Test Category",
+        description="Test",
+        channel_id=9001,
+    )
+    assert category_id is not None
+
+    # Create a step
+    step_id = await repo.create_step(category_id, 1, "Step 1")
+    assert step_id is not None
+
+    # Get steps
+    steps = await repo.get_steps(category_id)
+    assert len(steps) == 1
+    assert steps[0]["step_number"] == 1
+    assert steps[0]["title"] == "Step 1"
+
+    # Get single step
+    step = await repo.get_step(category_id, 1)
+    assert step is not None
+    assert step["id"] == step_id
+
+    # Update step
+    updated = await repo.update_step(step_id, title="Updated Step 1")
+    assert updated is True
+    step = await repo.get_step(category_id, 1)
+    assert step["title"] == "Updated Step 1"
+
+    # Delete step
+    deleted = await repo.delete_step(step_id)
+    assert deleted is True
+    steps = await repo.get_steps(category_id)
+    assert len(steps) == 0
+
+
+@pytest.mark.asyncio
+async def test_form_question_create_get_update_delete(temp_db: str) -> None:
+    """Full form question lifecycle."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    repo = TicketFormRepository()
+    ticket_repo = TicketRepository()
+
+    # Create category and step
+    category_id = await ticket_repo.create_category(
+        GUILD_ID,
+        name="Test Category",
+        description="Test",
+        channel_id=9001,
+    )
+    assert category_id is not None
+    step_id = await repo.create_step(category_id, 1, "Step 1")
+    assert step_id is not None
+
+    # Create question
+    qid = await repo.create_question(
+        step_id,
+        "q1",
+        "Your Name",
+        placeholder="Enter your name",
+        style="short",
+        required=True,
+    )
+    assert qid is not None
+
+    # Get questions
+    questions = await repo.get_questions(step_id)
+    assert len(questions) == 1
+    assert questions[0]["question_id"] == "q1"
+    assert questions[0]["label"] == "Your Name"
+    assert questions[0]["required"] is True
+
+    # Update question
+    updated = await repo.update_question(
+        qid, label="Full Name", placeholder="Enter your full name"
+    )
+    assert updated is True
+    questions = await repo.get_questions(step_id)
+    assert questions[0]["label"] == "Full Name"
+    assert questions[0]["placeholder"] == "Enter your full name"
+
+    # Delete question
+    deleted = await repo.delete_question(qid)
+    assert deleted is True
+    questions = await repo.get_questions(step_id)
+    assert len(questions) == 0
+
+
+@pytest.mark.asyncio
+async def test_form_session_create_get_update_delete(temp_db: str) -> None:
+    """Full session lifecycle."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    repo = TicketFormRepository()
+    ticket_repo = TicketRepository()
+
+    # category_id has a FK to ticket_categories — create a real category first.
+    category_id = await ticket_repo.create_category(
+        GUILD_ID,
+        name="Test Category",
+        description="Test",
+        channel_id=9001,
+    )
+    assert category_id is not None
+
+    # Create session
+    session = await repo.create_session(
+        GUILD_ID,
+        USER_ID,
+        category_id,
+        interaction_token="token123",  # noqa: S106
+        is_public=True,
+    )
+    assert session is not None
+    assert session["user_id"] == USER_ID
+    assert session["category_id"] == category_id
+    assert session["current_step"] == 1
+
+    # Get session
+    fetched = await repo.get_session(GUILD_ID, USER_ID)
+    assert fetched is not None
+    assert fetched["user_id"] == USER_ID
+
+    # Update session
+    answers = {"q1": {"answer": "John", "label": "Name", "step": 1}}
+    updated = await repo.update_session(
+        GUILD_ID,
+        USER_ID,
+        2,
+        answers,
+        interaction_token="token456",  # noqa: S106
+    )
+    assert updated is True
+    fetched = await repo.get_session(GUILD_ID, USER_ID)
+    assert fetched["current_step"] == 2
+
+    # Delete session
+    deleted = await repo.delete_session(GUILD_ID, USER_ID)
+    assert deleted is True
+    fetched = await repo.get_session(GUILD_ID, USER_ID)
+    assert fetched is None
+
+
+@pytest.mark.asyncio
+async def test_form_get_form_config(temp_db: str) -> None:
+    """Test getting full form config tree."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    repo = TicketFormRepository()
+    ticket_repo = TicketRepository()
+
+    # Create category
+    category_id = await ticket_repo.create_category(
+        GUILD_ID,
+        name="Test Category",
+        description="Test",
+        channel_id=9001,
+    )
+    assert category_id is not None
+
+    # Create steps and questions
+    step1_id = await repo.create_step(category_id, 1, "Step 1")
+    await repo.create_question(step1_id, "q1", "Name")
+    await repo.create_question(step1_id, "q2", "Email", sort_order=1)
+
+    step2_id = await repo.create_step(category_id, 2, "Step 2")
+    await repo.create_question(step2_id, "q3", "Message")
+
+    # Get full config
+    config = await repo.get_form_config(category_id)
+    assert config is not None
+    assert len(config["steps"]) == 2
+    assert len(config["steps"][0]["questions"]) == 2
+    assert len(config["steps"][1]["questions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_form_save_get_responses(temp_db: str) -> None:
+    """Test saving and retrieving form responses."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    repo = TicketFormRepository()
+    ticket_repo = TicketRepository()
+
+    # Create a ticket
+    ticket = await ticket_repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+    ticket_id = int(ticket["id"])
+
+    # Save responses
+    collected = {
+        "q1": {"answer": "John Doe", "label": "Name", "step": 1, "sort_order": 0},
+        "q2": {
+            "answer": "john@example.com",
+            "label": "Email",
+            "step": 1,
+            "sort_order": 1,
+        },
+    }
+    saved = await repo.save_responses(ticket_id, collected)
+    assert saved is True
+
+    # Get responses
+    responses = await repo.get_responses(ticket_id)
+    assert len(responses) == 2
+    assert responses[0]["question_id"] == "q1"
+    assert responses[0]["answer"] == "John Doe"
+    assert responses[1]["question_id"] == "q2"
+    assert responses[1]["answer"] == "john@example.com"
+
+
+# ------------------------------------------------------------------
+# Ticket Category Extended Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ticket_categories_for_channel(temp_db: str) -> None:
+    """Test get_categories_for_channel returns only categories on specific channel."""
+    repo = TicketRepository()
+
+    # Create categories on different channels
+    cat1 = await repo.create_category(GUILD_ID, name="Support", channel_id=1001)
+    cat2 = await repo.create_category(GUILD_ID, name="Billing", channel_id=1002)
+    cat3 = await repo.create_category(GUILD_ID, name="Other Support", channel_id=1001)
+
+    # Get categories for channel 1001
+    cats_1001 = await repo.get_categories_for_channel(GUILD_ID, 1001)
+    assert len(cats_1001) == 2
+    assert all(c["channel_id"] == 1001 for c in cats_1001)
+    assert any(c["id"] == cat1 for c in cats_1001)
+    assert any(c["id"] == cat3 for c in cats_1001)
+
+    # Get categories for channel 1002
+    cats_1002 = await repo.get_categories_for_channel(GUILD_ID, 1002)
+    assert len(cats_1002) == 1
+    assert cats_1002[0]["id"] == cat2
+
+
+# ------------------------------------------------------------------
+# Ticket Open Tickets Extended Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_open_tickets_unfiltered(temp_db: str) -> None:
+    """Test get_open_tickets returns all open tickets for a guild."""
+    repo = TicketRepository()
+
+    # Create multiple open tickets for different users
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2002,
+            "user_id": 888,
+        },
+    )
+
+    # Close one ticket
+    await repo.close_ticket(GUILD_ID, 1, closed_by=999)
+
+    # Get all open tickets
+    open_tickets = await repo.get_open_tickets(GUILD_ID)
+    assert len(open_tickets) == 1
+    assert open_tickets[0]["user_id"] == 888
+
+
+@pytest.mark.asyncio
+async def test_get_open_tickets_filtered_by_user(temp_db: str) -> None:
+    """Test get_open_tickets filtered by user_id."""
+    repo = TicketRepository()
+
+    # Create multiple tickets for the same user
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+        },
+    )
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2002,
+            "user_id": USER_ID,
+        },
+    )
+
+    # Create one for a different user
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2003,
+            "user_id": 888,
+        },
+    )
+
+    # Get open tickets for USER_ID
+    user_tickets = await repo.get_open_tickets(GUILD_ID, user_id=USER_ID)
+    assert len(user_tickets) == 2
+    assert all(t["user_id"] == USER_ID for t in user_tickets)

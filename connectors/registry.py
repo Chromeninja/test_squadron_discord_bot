@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .config import ConfigConnector
     from .events import EventsConnector
+    from .forms import FormsConnector
     from .metrics import MetricsConnector
     from .tickets import TicketsConnector
     from .verification import VerificationConnector
@@ -26,6 +27,7 @@ class ConnectorRegistry:
     events: EventsConnector
     voice: VoiceConnector
     tickets: TicketsConnector
+    forms: FormsConnector
     verification: VerificationConnector
     config: ConfigConnector
     metrics: MetricsConnector

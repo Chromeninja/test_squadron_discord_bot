@@ -44,6 +44,9 @@ class BotAPIConnector:
     async def patch(self, path: str, json: Any = None, **kwargs: Any) -> Any:
         return await self._request("PATCH", path, json=json, **kwargs)
 
+    async def put(self, path: str, json: Any = None, **kwargs: Any) -> Any:
+        return await self._request("PUT", path, json=json, **kwargs)
+
     async def delete(self, path: str, **kwargs: Any) -> Any:
         return await self._request("DELETE", path, **kwargs)
 

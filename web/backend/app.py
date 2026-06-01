@@ -196,6 +196,9 @@ from backend.api.internal import (
     metrics_router as internal_metrics_router,
 )
 from backend.api.internal import (
+    ticket_forms_router as internal_ticket_forms_router,
+)
+from backend.api.internal import (
     tickets_router as internal_tickets_router,
 )
 from backend.api.internal import (
@@ -211,6 +214,7 @@ app.include_router(internal_events_router)
 app.include_router(internal_metrics_router)
 app.include_router(internal_config_router)
 app.include_router(internal_tickets_router)
+app.include_router(internal_ticket_forms_router)
 app.include_router(internal_verification_router)
 app.include_router(internal_voice_router)
 
