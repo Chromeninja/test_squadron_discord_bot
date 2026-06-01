@@ -149,3 +149,115 @@ class ConfigRepository:
         for key, value in data.items():
             await self.set_setting(guild_id, key, value, changed_by_user_id)
         return await self.get_config(guild_id)
+
+    async def get_guild_roles(self, guild_id: int) -> dict[str, object | None]:
+        """Return role configuration for a guild, mirroring ConfigService.get_guild_roles.
+
+        Returns a dict with role names as keys and role IDs (int or list[int]) as values,
+        extracted from guild_settings using the same key names and parsing logic as ConfigService.
+        """
+        roles: dict[str, object | None] = {}
+
+        # Single role IDs (stored as list but we extract first element)
+        single_role_keys = [
+            ("roles.bot_verified_role", "bot_verified_role_id"),
+            ("roles.main_role", "main_role_id"),
+            ("roles.affiliate_role", "affiliate_role_id"),
+            ("roles.non_member_role", "non_member_role_id"),
+        ]
+
+        for setting_key, output_key in single_role_keys:
+            role_ids = await self.get_setting(guild_id, setting_key)
+            if role_ids:
+                # Handle both list and single values
+                if isinstance(role_ids, list) and role_ids:
+                    roles[output_key] = role_ids[0]
+                elif not isinstance(role_ids, list):
+                    roles[output_key] = role_ids
+
+        # List-based role IDs (already parsed as list[int])
+        admin_roles = await self.get_setting(guild_id, "roles.bot_admins")
+        if admin_roles and isinstance(admin_roles, list):
+            roles["bot_admin_role_ids"] = admin_roles
+
+        event_coordinator_roles = await self.get_setting(
+            guild_id, "roles.event_coordinators"
+        )
+        if event_coordinator_roles and isinstance(event_coordinator_roles, list):
+            roles["event_coordinator_role_ids"] = event_coordinator_roles
+
+        selectable_roles = await self.get_setting(guild_id, "selectable_roles")
+        if selectable_roles and isinstance(selectable_roles, list):
+            roles["selectable_roles"] = selectable_roles
+
+        return roles
+
+    async def get_guild_channels(self, guild_id: int) -> dict[str, object | None]:
+        """Return channel configuration for a guild, mirroring ConfigService.get_guild_channels.
+
+        Returns a dict with channel names as keys and channel IDs (int) as values,
+        extracted from guild_settings using the same key names and parsing logic as ConfigService.
+        """
+        channels: dict[str, object | None] = {}
+
+        channel_keys = [
+            "verification_channel_id",
+            "bot_spam_channel_id",
+            "public_announcement_channel_id",
+            "leadership_announcement_channel_id",
+        ]
+
+        for channel_key in channel_keys:
+            channel_id = await self.get_setting(guild_id, f"channels.{channel_key}")
+            if isinstance(channel_id, (int, str)):
+                try:
+                    channels[channel_key] = int(channel_id)
+                except (TypeError, ValueError):
+                    pass
+
+        return channels
+
+    async def get_jtc_channels(self, guild_id: int) -> list[int]:
+        """Return join-to-create voice channels for a guild as list[int].
+
+        Mirrors ConfigService.get_guild_jtc_channels.
+        """
+        channels = await self.get_setting(guild_id, "voice.jtc_channels")
+        if not channels:
+            return []
+        if not isinstance(channels, list):
+            return []
+        try:
+            return [int(c) for c in channels]
+        except (TypeError, ValueError):
+            return []
+
+    async def get_role_ids(self, guild_id: int, role_key: str) -> list[int]:
+        """Get a list of role IDs for a given setting key.
+
+        Generic method used by get_bot_admin_role_ids, get_discord_manager_role_ids, etc.
+        Replicates the storage format: stored as list[int] in JSON, parsed to list[int].
+        """
+        value = await self.get_setting(guild_id, role_key)
+        if not value:
+            return []
+        if not isinstance(value, list):
+            return []
+        try:
+            return [int(v) for v in value if v is not None]
+        except (TypeError, ValueError):
+            return []
+
+    async def get_single_setting_int(self, guild_id: int, key: str) -> int | None:
+        """Get a single setting and parse it as an int.
+
+        Used by get_verified_role_id, channel IDs, etc.
+        Replicates ConfigService._safe_int parsing logic.
+        """
+        value = await self.get_setting(guild_id, key)
+        if not isinstance(value, (int, str)):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None

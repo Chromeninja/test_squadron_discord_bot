@@ -37,3 +37,18 @@ class ConfigConnector:
             f"/internal/guilds/{guild_id}/config/refresh",
             json={"source": source} if source else {},
         )
+
+    async def get_roles(self, guild_id: int) -> dict:
+        """Get role configuration for a guild."""
+        resp = await self._c.get(f"/internal/guilds/{guild_id}/config/roles")
+        return (resp or {}).get("roles", {})
+
+    async def get_channels(self, guild_id: int) -> dict:
+        """Get channel configuration for a guild."""
+        resp = await self._c.get(f"/internal/guilds/{guild_id}/config/channels")
+        return (resp or {}).get("channels", {})
+
+    async def get_jtc_channels(self, guild_id: int) -> list:
+        """Get join-to-create voice channels for a guild."""
+        resp = await self._c.get(f"/internal/guilds/{guild_id}/config/jtc-channels")
+        return (resp or {}).get("channels", [])

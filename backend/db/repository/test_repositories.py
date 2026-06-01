@@ -149,3 +149,92 @@ async def test_config_set_get_roundtrip(temp_db: str) -> None:
     # get_setting on non-existent setting returns None
     result = await repo.get_setting(GUILD_ID, "nonexistent")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_config_get_guild_roles(temp_db: str) -> None:
+    """Test get_guild_roles with single and list role configs."""
+    repo = ConfigRepository()
+
+    # Set single role IDs (stored as list, extract first)
+    await repo.set_setting(GUILD_ID, "roles.bot_verified_role", [123])
+    await repo.set_setting(GUILD_ID, "roles.main_role", [456])
+    await repo.set_setting(GUILD_ID, "roles.non_member_role", [789])
+
+    # Set admin roles (stored as list)
+    await repo.set_setting(GUILD_ID, "roles.bot_admins", [111, 222, 333])
+    await repo.set_setting(GUILD_ID, "roles.event_coordinators", [444, 555])
+
+    roles = await repo.get_guild_roles(GUILD_ID)
+    assert roles["bot_verified_role_id"] == 123
+    assert roles["main_role_id"] == 456
+    assert roles["non_member_role_id"] == 789
+    assert roles["bot_admin_role_ids"] == [111, 222, 333]
+    assert roles["event_coordinator_role_ids"] == [444, 555]
+
+
+@pytest.mark.asyncio
+async def test_config_get_guild_channels(temp_db: str) -> None:
+    """Test get_guild_channels with channel IDs."""
+    repo = ConfigRepository()
+
+    # Set channel IDs as integers
+    await repo.set_setting(GUILD_ID, "channels.verification_channel_id", 1001)
+    await repo.set_setting(GUILD_ID, "channels.bot_spam_channel_id", 1002)
+    await repo.set_setting(
+        GUILD_ID, "channels.public_announcement_channel_id", 1003
+    )
+    await repo.set_setting(
+        GUILD_ID, "channels.leadership_announcement_channel_id", 1004
+    )
+
+    channels = await repo.get_guild_channels(GUILD_ID)
+    assert channels["verification_channel_id"] == 1001
+    assert channels["bot_spam_channel_id"] == 1002
+    assert channels["public_announcement_channel_id"] == 1003
+    assert channels["leadership_announcement_channel_id"] == 1004
+
+
+@pytest.mark.asyncio
+async def test_config_get_jtc_channels(temp_db: str) -> None:
+    """Test get_jtc_channels with list of channel IDs."""
+    repo = ConfigRepository()
+
+    # Set JTC channels as list of integers
+    jtc_list = [2001, 2002, 2003]
+    await repo.set_setting(GUILD_ID, "voice.jtc_channels", jtc_list)
+
+    channels = await repo.get_jtc_channels(GUILD_ID)
+    assert channels == jtc_list
+    assert isinstance(channels, list)
+    assert all(isinstance(c, int) for c in channels)
+
+
+@pytest.mark.asyncio
+async def test_config_get_role_ids(temp_db: str) -> None:
+    """Test get_role_ids generic method for list role configs."""
+    repo = ConfigRepository()
+
+    # Set a list of role IDs
+    role_list = [100, 200, 300]
+    await repo.set_setting(GUILD_ID, "roles.moderators", role_list)
+
+    roles = await repo.get_role_ids(GUILD_ID, "roles.moderators")
+    assert roles == role_list
+
+
+@pytest.mark.asyncio
+async def test_config_get_single_setting_int(temp_db: str) -> None:
+    """Test get_single_setting_int for channel/role ID parsing."""
+    repo = ConfigRepository()
+
+    # Set a channel ID
+    await repo.set_setting(GUILD_ID, "channels.verification_channel_id", 5001)
+
+    channel_id = await repo.get_single_setting_int(GUILD_ID, "channels.verification_channel_id")
+    assert channel_id == 5001
+    assert isinstance(channel_id, int)
+
+    # Non-existent setting returns None
+    result = await repo.get_single_setting_int(GUILD_ID, "nonexistent")
+    assert result is None

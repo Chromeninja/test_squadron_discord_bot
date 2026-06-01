@@ -96,3 +96,36 @@ async def refresh_config(
         "guild_id": guild_id,
         "source": payload.get("source"),
     }
+
+
+@router.get("/guilds/{guild_id}/config/roles")
+async def get_roles(
+    guild_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: ConfigRepository = Depends(get_config_repository),
+) -> dict[str, Any]:
+    """Return role configuration for a guild."""
+    roles = await repo.get_guild_roles(guild_id)
+    return {"roles": roles}
+
+
+@router.get("/guilds/{guild_id}/config/channels")
+async def get_channels(
+    guild_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: ConfigRepository = Depends(get_config_repository),
+) -> dict[str, Any]:
+    """Return channel configuration for a guild."""
+    channels = await repo.get_guild_channels(guild_id)
+    return {"channels": channels}
+
+
+@router.get("/guilds/{guild_id}/config/jtc-channels")
+async def get_jtc_channels(
+    guild_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: ConfigRepository = Depends(get_config_repository),
+) -> dict[str, Any]:
+    """Return join-to-create voice channels for a guild."""
+    channels = await repo.get_jtc_channels(guild_id)
+    return {"channels": channels}
