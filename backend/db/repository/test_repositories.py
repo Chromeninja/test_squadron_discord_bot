@@ -876,3 +876,151 @@ async def test_get_open_tickets_filtered_by_user(temp_db: str) -> None:
     user_tickets = await repo.get_open_tickets(GUILD_ID, user_id=USER_ID)
     assert len(user_tickets) == 2
     assert all(t["user_id"] == USER_ID for t in user_tickets)
+
+
+# ------------------------------------------------------------------
+# VoiceRepository — command-path methods
+# ------------------------------------------------------------------
+
+JTC_ID = 9001
+VC_ID = 9002
+
+
+@pytest.mark.asyncio
+async def test_voice_cooldown_check_and_update(temp_db: str) -> None:
+    """check_cooldown returns False before an update and True after."""
+    repo = VoiceRepository()
+
+    # No cooldown set yet
+    assert await repo.check_cooldown(GUILD_ID, JTC_ID, USER_ID, 60) is False
+
+    # Set cooldown
+    await repo.update_cooldown(GUILD_ID, JTC_ID, USER_ID)
+
+    # Now on cooldown (60s window)
+    assert await repo.check_cooldown(GUILD_ID, JTC_ID, USER_ID, 60) is True
+
+    # Window of 0s → already expired
+    assert await repo.check_cooldown(GUILD_ID, JTC_ID, USER_ID, 0) is False
+
+
+@pytest.mark.asyncio
+async def test_voice_user_channel_queries(temp_db: str) -> None:
+    """get_user_channel_in_jtc, get_any_user_channel, get_user_channel_info."""
+    repo = VoiceRepository()
+
+    # Nothing exists yet
+    assert await repo.get_user_channel_in_jtc(GUILD_ID, JTC_ID, USER_ID) is None
+    assert await repo.get_any_user_channel(GUILD_ID, USER_ID) is None
+    assert await repo.get_user_channel_info(GUILD_ID, USER_ID) is None
+
+    # Insert a channel row
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+
+    assert await repo.get_user_channel_in_jtc(GUILD_ID, JTC_ID, USER_ID) == VC_ID
+    assert await repo.get_any_user_channel(GUILD_ID, USER_ID) == VC_ID
+
+    info = await repo.get_user_channel_info(GUILD_ID, USER_ID)
+    assert info is not None
+    assert info["voice_channel_id"] == VC_ID
+    assert info["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_voice_jtc_for_owned_channel(temp_db: str) -> None:
+    """get_jtc_for_owned_channel returns jtc_channel_id for the owning user."""
+    repo = VoiceRepository()
+
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+
+    assert await repo.get_jtc_for_owned_channel(GUILD_ID, VC_ID, USER_ID) == JTC_ID
+    # Wrong owner → None
+    assert await repo.get_jtc_for_owned_channel(GUILD_ID, VC_ID, 9999) is None
+
+
+@pytest.mark.asyncio
+async def test_voice_active_channels_list(temp_db: str) -> None:
+    """get_all_active_channels and get_active_channel_ids return correct rows."""
+    repo = VoiceRepository()
+
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": 888, "voice_channel_id": 9003},
+    )
+
+    channels = await repo.get_all_active_channels(GUILD_ID)
+    assert len(channels) == 2
+    assert all("voice_channel_id" in c for c in channels)
+
+    ids = await repo.get_active_channel_ids(GUILD_ID)
+    assert set(ids) == {VC_ID, 9003}
+
+
+@pytest.mark.asyncio
+async def test_voice_cleanup_channel_records(temp_db: str) -> None:
+    """cleanup_channel_records removes both channel and settings rows."""
+    repo = VoiceRepository()
+
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+
+    # Confirm it exists
+    assert await repo.get_voice_channel(GUILD_ID, VC_ID) is not None
+
+    await repo.cleanup_channel_records(GUILD_ID, VC_ID)
+
+    # Hard-deleted — row is gone
+    assert await repo.get_voice_channel(GUILD_ID, VC_ID) is None
+
+
+@pytest.mark.asyncio
+async def test_voice_purge_voice_data(temp_db: str) -> None:
+    """purge_voice_data deletes all voice rows for a guild."""
+    repo = VoiceRepository()
+
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+
+    deleted = await repo.purge_voice_data(GUILD_ID)
+    assert deleted["voice_channels"] >= 1
+
+    # All gone
+    assert await repo.get_active_channel_ids(GUILD_ID) == []
+
+
+@pytest.mark.asyncio
+async def test_voice_purge_stale_jtc_data(temp_db: str) -> None:
+    """purge_stale_jtc_data deletes rows for stale JTC IDs only."""
+    repo = VoiceRepository()
+
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": JTC_ID, "owner_id": USER_ID, "voice_channel_id": VC_ID},
+    )
+    await repo.create_voice_channel(
+        GUILD_ID,
+        {"jtc_channel_id": 9999, "owner_id": 888, "voice_channel_id": 9004},
+    )
+
+    # Only purge the stale JTC_ID
+    deleted = await repo.purge_stale_jtc_data(GUILD_ID, {JTC_ID})
+    assert deleted["voice_channels"] >= 1
+
+    # VC_ID row gone; 9004 row survives
+    remaining = await repo.get_active_channel_ids(GUILD_ID)
+    assert 9004 in remaining
+    assert VC_ID not in remaining
