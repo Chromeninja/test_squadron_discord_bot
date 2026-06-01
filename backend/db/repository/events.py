@@ -21,9 +21,7 @@ class EventRepository:
     are properly scoped to a single guild.
     """
 
-    async def get_managed_events(
-        self, guild_id: int
-    ) -> list[dict[str, object | None]]:
+    async def get_managed_events(self, guild_id: int) -> list[dict[str, object | None]]:
         """Return all non-deleted managed events for a guild ordered by start time."""
         return await Database.list_managed_events_by_guild(guild_id)
 
@@ -89,9 +87,7 @@ class EventRepository:
             updated_by_name=deleted_by_name,
         )
 
-    async def get_pending_sync(
-        self, guild_id: int
-    ) -> list[dict[str, object | None]]:
+    async def get_pending_sync(self, guild_id: int) -> list[dict[str, object | None]]:
         """Return all non-deleted managed events for a guild that have pending sync status.
 
         These are events created or updated in the DB that have not yet been

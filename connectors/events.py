@@ -1,4 +1,5 @@
 """Connector for bot→backend event operations (/internal/guilds/{guild_id}/events)."""
+
 from .api_client import BotAPIConnector
 
 
@@ -17,5 +18,6 @@ class EventsConnector:
 
     async def push_to_discord(self, guild_id: int, event_id: int) -> dict:
         return await self._c.post(
-            f"/internal/guilds/{guild_id}/events/{event_id}/sync", json={"direction": "push"}
+            f"/internal/guilds/{guild_id}/events/{event_id}/sync",
+            json={"direction": "push"},
         )

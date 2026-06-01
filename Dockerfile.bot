@@ -5,11 +5,14 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim-bookworm
 WORKDIR /app
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Run as a non-root user (security: avoid root inside the container)
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --create-home app
+COPY --from=builder /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH
 # Copy project (exclude frontend, tests, docs via .dockerignore)
-COPY . .
+COPY --chown=app:app . .
 ENV DISCORD_TOKEN=""
 ENV BACKEND_URL="http://backend:8000"
 ENV BOT_API_KEY=""
+USER app
 CMD ["python", "bot.py"]

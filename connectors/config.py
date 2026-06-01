@@ -1,4 +1,5 @@
 """Connector for bot→backend guild config operations (/internal/guilds/{guild_id}/config)."""
+
 import httpx
 
 from .api_client import BotAPIConnector
@@ -17,7 +18,9 @@ class ConfigConnector:
     async def get_setting(self, guild_id: int, key: str) -> dict | None:
         """Return setting value or None for 404; all other errors propagate."""
         try:
-            return await self._c.get(f"/internal/guilds/{guild_id}/config/settings/{key}")
+            return await self._c.get(
+                f"/internal/guilds/{guild_id}/config/settings/{key}"
+            )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None

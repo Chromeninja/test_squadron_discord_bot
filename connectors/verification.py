@@ -1,4 +1,5 @@
 """Connector for bot→backend verification operations (/internal/guilds/{guild_id}/verification)."""
+
 from .api_client import BotAPIConnector
 
 
@@ -19,7 +20,9 @@ class VerificationConnector:
             f"/internal/guilds/{guild_id}/verification/members/{user_id}", json=data
         )
 
-    async def recheck_member(self, guild_id: int, user_id: int, data: dict | None = None) -> dict:
+    async def recheck_member(
+        self, guild_id: int, user_id: int, data: dict | None = None
+    ) -> dict:
         return await self._c.post(
             f"/internal/guilds/{guild_id}/verification/members/{user_id}/recheck",
             json=data or {},

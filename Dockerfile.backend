@@ -4,10 +4,15 @@ COPY web/backend/requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim-bookworm
+# Run as a non-root user (security: avoid root inside the container)
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --create-home app
 WORKDIR /app/web/backend
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+COPY --from=builder /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH
 # Copy full project so relative imports (web/backend/core -> services/ etc) work
-COPY . /app
+COPY --chown=app:app . /app
+# Writable mount point for the shared SQLite volume
+RUN mkdir -p /app/data && chown -R app:app /app/data
+USER app
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

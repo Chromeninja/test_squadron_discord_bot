@@ -6,17 +6,22 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+    from starlette.responses import Response
 
 
 class StructuredLoggingMiddleware(BaseHTTPMiddleware):
     """Emit one structured JSON log line per request to the backend.access logger."""
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         start = time.time()
         # Validate inbound header to UUID format to prevent header-injection attacks.
         # Any non-UUID value is replaced with a fresh one.
@@ -31,7 +36,7 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
 
         duration_ms = int((time.time() - start) * 1000)
         log = {
-            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "timestamp": datetime.now(tz=UTC).isoformat(),
             "level": "INFO",
             "method": request.method,
             "path": request.url.path,

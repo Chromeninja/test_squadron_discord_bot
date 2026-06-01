@@ -1,4 +1,5 @@
 """Connector for bot→backend ticket operations (/internal/guilds/{guild_id}/tickets)."""
+
 from .api_client import BotAPIConnector
 
 
@@ -24,7 +25,9 @@ class TicketsConnector:
         )
 
     async def close_ticket(self, guild_id: int, ticket_id: int) -> dict:
-        return await self._c.post(f"/internal/guilds/{guild_id}/tickets/{ticket_id}/close")
+        return await self._c.post(
+            f"/internal/guilds/{guild_id}/tickets/{ticket_id}/close"
+        )
 
     async def delete_ticket(self, guild_id: int, ticket_id: int) -> None:
         await self._c.delete(f"/internal/guilds/{guild_id}/tickets/{ticket_id}")

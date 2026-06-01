@@ -1,10 +1,10 @@
 """TicketRepository — wrapper around Database for ticket queries.
 
-The Database class does not expose dedicated ticket CRUD methods at the time
-of writing. This repository issues raw queries via Database.get_connection()
-targeting the tickets table (if it exists) or stubs the interface for future use.
-
-TODO: Confirm exact ticket table schema once fully defined in services/db/schema.py.
+Issues raw queries via Database.get_connection() against the tickets table.
+Schema (services/db/schema.py): id, guild_id, channel_id, thread_id (NOT NULL
+UNIQUE), user_id, category_id, status ('open'|'closed'), closed_by, created_at
+(INTEGER unix seconds), closed_at, claimed_by, claimed_at, close_reason,
+initial_description, reopened_at, reopened_by, deleted_at.
 """
 
 from __future__ import annotations
@@ -23,18 +23,14 @@ class TicketRepository:
     async def get_tickets(
         self, guild_id: int, status: str | None = None
     ) -> list[dict[str, object | None]]:
-        """Return tickets for a guild, optionally filtered by status.
-
-        TODO: Database class does not yet expose list_tickets(guild_id, status).
-        Direct query issued via get_connection().
-        """
+        """Return non-deleted tickets for a guild, optionally filtered by status."""
         async with Database.get_connection() as db:
             if status is not None:
                 cursor = await db.execute(
                     """
                     SELECT *
                     FROM tickets
-                    WHERE guild_id = ?  AND status = ?
+                    WHERE guild_id = ? AND status = ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
                     """,
                     (guild_id, status),
@@ -44,7 +40,7 @@ class TicketRepository:
                     """
                     SELECT *
                     FROM tickets
-                    WHERE guild_id = ?
+                    WHERE guild_id = ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
                     """,
                     (guild_id,),
@@ -71,21 +67,33 @@ class TicketRepository:
     ) -> dict[str, object | None]:
         """Insert a new ticket row and return the created row.
 
-        TODO: Database class does not yet expose create_ticket(guild_id, data).
+        Requires channel_id, thread_id, and user_id in `data` (all NOT NULL in
+        the schema; thread_id is also UNIQUE). created_at defaults to now.
         """
+        required = ("channel_id", "thread_id", "user_id")
+        missing = [k for k in required if data.get(k) is None]
+        if missing:
+            raise ValueError(
+                f"create_ticket missing required field(s): {', '.join(missing)}"
+            )
+
         now = int(time.time())
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """
-                INSERT INTO tickets (guild_id, user_id, channel_id, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO tickets
+                    (guild_id, channel_id, thread_id, user_id, category_id,
+                     status, initial_description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guild_id,
-                    data.get("user_id"),
                     data.get("channel_id"),
+                    data.get("thread_id"),
+                    data.get("user_id"),
+                    data.get("category_id"),
                     data.get("status", "open"),
-                    now,
+                    data.get("initial_description"),
                     now,
                 ),
             )
@@ -103,22 +111,36 @@ class TicketRepository:
     async def update_ticket(
         self, guild_id: int, ticket_id: int, data: dict[str, object | None]
     ) -> dict[str, object | None] | None:
-        """Update mutable fields on a ticket row. Returns updated row or None."""
-        now = int(time.time())
+        """Update mutable fields on a ticket row. Returns updated row or None.
+
+        Supports updating status, category_id, claimed_by/claimed_at, and
+        close_reason. Only fields present in `data` are changed.
+        """
+        # Whitelist of columns that may be updated and their incoming keys.
+        updatable = (
+            "status",
+            "category_id",
+            "claimed_by",
+            "claimed_at",
+            "close_reason",
+        )
+        set_clauses: list[str] = []
+        params: list[object | None] = []
+        for col in updatable:
+            if col in data:
+                set_clauses.append(f"{col} = ?")
+                params.append(data[col])
+
+        if not set_clauses:
+            # Nothing to update; return current row (or None if not found).
+            return await self.get_ticket(guild_id, ticket_id)
+
+        params.extend([guild_id, ticket_id])
         async with Database.get_connection() as db:
             cursor = await db.execute(
-                """
-                UPDATE tickets
-                SET status = COALESCE(?, status),
-                    updated_at = ?
-                WHERE guild_id = ? AND id = ?
-                """,
-                (
-                    data.get("status"),
-                    now,
-                    guild_id,
-                    ticket_id,
-                ),
+                f"UPDATE tickets SET {', '.join(set_clauses)} "
+                "WHERE guild_id = ? AND id = ?",
+                tuple(params),
             )
             await db.commit()
             if cursor.rowcount <= 0:
@@ -126,17 +148,19 @@ class TicketRepository:
 
         return await self.get_ticket(guild_id, ticket_id)
 
-    async def close_ticket(self, guild_id: int, ticket_id: int) -> bool:
-        """Set ticket status to 'closed'. Returns True if a row was updated."""
+    async def close_ticket(
+        self, guild_id: int, ticket_id: int, closed_by: int | None = None
+    ) -> bool:
+        """Set ticket status to 'closed' with closed_at/closed_by. Returns True if updated."""
         now = int(time.time())
         async with Database.get_connection() as db:
             cursor = await db.execute(
                 """
                 UPDATE tickets
-                SET status = 'closed', updated_at = ?
+                SET status = 'closed', closed_at = ?, closed_by = ?
                 WHERE guild_id = ? AND id = ? AND status != 'closed'
                 """,
-                (now, guild_id, ticket_id),
+                (now, closed_by, guild_id, ticket_id),
             )
             await db.commit()
         return cursor.rowcount > 0

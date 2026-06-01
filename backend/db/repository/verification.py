@@ -71,11 +71,17 @@ class VerificationRepository:
                 (
                     user_id,
                     data.get("rsi_handle", ""),
-                    json.dumps(data.get("main_orgs")) if data.get("main_orgs") is not None else None,
-                    json.dumps(data.get("affiliate_orgs")) if data.get("affiliate_orgs") is not None else None,
+                    json.dumps(data.get("main_orgs"))
+                    if data.get("main_orgs") is not None
+                    else None,
+                    json.dumps(data.get("affiliate_orgs"))
+                    if data.get("affiliate_orgs") is not None
+                    else None,
                     data.get("community_moniker"),
                     data.get("last_updated", now),
-                    json.dumps(data.get("verification_payload")) if data.get("verification_payload") is not None else None,
+                    json.dumps(data.get("verification_payload"))
+                    if data.get("verification_payload") is not None
+                    else None,
                 ),
             )
             await db.commit()
@@ -109,7 +115,9 @@ class VerificationRepository:
                 (
                     data.get("rsi_handle"),
                     json.dumps(data["main_orgs"]) if "main_orgs" in data else None,
-                    json.dumps(data["affiliate_orgs"]) if "affiliate_orgs" in data else None,
+                    json.dumps(data["affiliate_orgs"])
+                    if "affiliate_orgs" in data
+                    else None,
                     data.get("community_moniker"),
                     now,
                     user_id,
@@ -121,9 +129,7 @@ class VerificationRepository:
 
         return await self.get_verification(guild_id, user_id)
 
-    async def get_all_verified(
-        self, guild_id: int
-    ) -> list[dict[str, object | None]]:
+    async def get_all_verified(self, guild_id: int) -> list[dict[str, object | None]]:
         """Return all verification rows for users active in a guild.
 
         Joins user_guild_membership to scope results to a specific guild.

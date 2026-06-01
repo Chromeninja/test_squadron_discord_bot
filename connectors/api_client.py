@@ -2,10 +2,12 @@
 HTTP client for bot→backend communication.
 All requests use X-Bot-Api-Key auth (set BOT_API_KEY env var, same value in backend).
 """
-import os
-import logging
+
 import asyncio
+import logging
+import os
 from typing import Any, TypeVar
+
 import httpx
 
 T = TypeVar("T")
@@ -16,7 +18,9 @@ class BotAPIConnector:
     """Thin httpx wrapper with retry logic and structured error handling."""
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None):
-        self.base_url = base_url or os.environ.get("BACKEND_URL", "http://localhost:8000")
+        self.base_url = base_url or os.environ.get(
+            "BACKEND_URL", "http://localhost:8000"
+        )
         self._api_key = api_key or os.environ.get("BOT_API_KEY", "")
         self._client: httpx.AsyncClient | None = None
 
@@ -43,7 +47,9 @@ class BotAPIConnector:
     async def delete(self, path: str, **kwargs: Any) -> Any:
         return await self._request("DELETE", path, **kwargs)
 
-    async def _request(self, method: str, path: str, retries: int = 3, **kwargs: Any) -> Any:
+    async def _request(
+        self, method: str, path: str, retries: int = 3, **kwargs: Any
+    ) -> Any:
         """Execute request with exponential backoff retry (network errors only)."""
         for attempt in range(retries):
             try:
@@ -54,14 +60,24 @@ class BotAPIConnector:
                     return response.json()
                 return None
             except httpx.HTTPStatusError as e:
-                # Don't retry 4xx — those are our fault
-                log.error("Backend returned %s for %s %s", e.response.status_code, method, path)
+                # Don't retry 4xx/5xx status errors — the request reached the backend.
+                log.exception(
+                    "Backend returned %s for %s %s",
+                    e.response.status_code,
+                    method,
+                    path,
+                )
                 raise
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
+            except (httpx.ConnectError, httpx.TimeoutException):
                 if attempt == retries - 1:
-                    log.error("Backend unreachable after %d attempts: %s %s", retries, method, path)
+                    log.exception(
+                        "Backend unreachable after %d attempts: %s %s",
+                        retries,
+                        method,
+                        path,
+                    )
                     raise
-                wait = 2 ** attempt  # 1s, 2s, 4s
+                wait = 2**attempt  # 1s, 2s, 4s
                 log.warning(
                     "Backend request failed (attempt %d/%d), retrying in %ds",
                     attempt + 1,

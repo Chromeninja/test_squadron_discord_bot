@@ -1,14 +1,17 @@
 """Typed connector registry attached to the bot instance."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from .config import ConfigConnector
-from .events import EventsConnector
-from .metrics import MetricsConnector
-from .tickets import TicketsConnector
-from .verification import VerificationConnector
-from .voice import VoiceConnector
+if TYPE_CHECKING:
+    from .config import ConfigConnector
+    from .events import EventsConnector
+    from .metrics import MetricsConnector
+    from .tickets import TicketsConnector
+    from .verification import VerificationConnector
+    from .voice import VoiceConnector
 
 
 @dataclass

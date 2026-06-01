@@ -11,9 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from backend.auth.api_key import require_bot_api_key
-
 import services.metrics_queries as _queries
+from backend.auth.api_key import require_bot_api_key
 
 router = APIRouter(prefix="/internal", tags=["internal-metrics"])
 logger = logging.getLogger(__name__)
@@ -121,12 +120,11 @@ async def delete_user_metrics(
                 )
                 deleted[table] = cursor.rowcount
             await db.commit()
-    except Exception as exc:
-        logger.error(
-            "Failed to delete metrics for user %s in guild %s: %s",
+    except Exception:
+        logger.exception(
+            "Failed to delete metrics for user %s in guild %s",
             user_id,
             guild_id,
-            exc,
         )
         raise
 

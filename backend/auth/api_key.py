@@ -22,7 +22,9 @@ async def require_bot_api_key(api_key: str | None = Security(_API_KEY_HEADER)) -
     """FastAPI dependency that validates the bot API key header."""
     expected = os.environ.get("BOT_API_KEY", "")
     if not expected:
-        raise HTTPException(status_code=503, detail="BOT_API_KEY not configured on server")
+        raise HTTPException(
+            status_code=503, detail="BOT_API_KEY not configured on server"
+        )
     if not api_key or not secrets.compare_digest(api_key, expected):
         raise HTTPException(status_code=401, detail="Invalid bot API key")
     return api_key

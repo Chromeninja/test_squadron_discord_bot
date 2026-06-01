@@ -1,4 +1,5 @@
 """Connector for bot→backend metrics operations (/internal/guilds/{guild_id}/metrics)."""
+
 from .api_client import BotAPIConnector
 
 
@@ -36,4 +37,6 @@ class MetricsConnector:
 
     async def delete_user_data(self, guild_id: int, user_id: int) -> dict:
         """Delete all metrics data for a user (data erasure)."""
-        return await self._c.delete(f"/internal/guilds/{guild_id}/metrics/user/{user_id}")
+        return await self._c.delete(
+            f"/internal/guilds/{guild_id}/metrics/user/{user_id}"
+        )

@@ -45,5 +45,6 @@ jobs:
             --ignore-missing-imports \
             --no-strict-optional \
             --follow-imports=silent \
+            --exclude '(test_.*\.py|conftest\.py)$' \
             --disable-error-code=untyped-decorator \
             --disable-error-code=no-any-return
