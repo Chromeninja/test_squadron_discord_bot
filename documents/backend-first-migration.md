@@ -62,7 +62,7 @@ domain connector, and add integration tests against the real schema. The bot kee
       global state store; `store_global_state`/`get_global_state` map to `create`/`get_verification`).
       `compute_global_state` (RSI HTTP scrape) and `VerificationBulkService` are Discord-orchestration
       and stay in the bot by design — no backend port needed.
-- [ ] **Voice (command-path only)** — JTC config, ownership transfer/claim, settings snapshots, admin reset/purge
+- [x] **Voice (command-path only)** — cooldown, ownership queries, active channel lists, cleanup/purge; gateway event path stays in-process
 - [x] **Metrics** — reads already served by `web/backend/routes/metrics.py`; ingestion stays in-process. No port needed.
 
 ### Stage 2 — Coordinated breaking cutover (bot requires backend after this)
