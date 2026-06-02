@@ -31,9 +31,6 @@ from utils.tasks import spawn
 
 if TYPE_CHECKING:
     from bot import MyBot
-    from services.config_service import ConfigService
-    from services.ticket_form_service import TicketFormService
-    from services.ticket_service import TicketService
 
 logger = get_logger(__name__)
 
@@ -72,7 +69,7 @@ async def _load_panel_message_ids() -> dict[tuple[int, int], int]:
                     # Legacy key — channel_id unknown, use 0 as placeholder
                     channel_id = 0
                 elif key.startswith(f"{_PANEL_KEY_PREFIX}."):
-                    channel_id = int(key.split(".")[-1])
+                    channel_id = int(key.rsplit(".", maxsplit=1)[-1])
                 else:
                     continue
                 ids[(guild_id, channel_id)] = msg_id
@@ -133,21 +130,59 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         self._thread_health_check_task.start()  # pylint: disable=no-member
 
     @property
-    def ticket_service(self) -> TicketService:
-        """Shortcut to TicketService."""
+    def tickets_api(self):
+        """Shortcut to the backend TicketsConnector."""
+        if not hasattr(self.bot, "connectors") or self.bot.connectors is None:
+            raise RuntimeError(
+                "Bot connectors not initialized (BACKEND_URL/BOT_API_KEY required)"
+            )
+        return self.bot.connectors.tickets
+
+    @property
+    def config_api(self):
+        """Shortcut to the backend ConfigConnector."""
+        if not hasattr(self.bot, "connectors") or self.bot.connectors is None:
+            raise RuntimeError(
+                "Bot connectors not initialized (BACKEND_URL/BOT_API_KEY required)"
+            )
+        return self.bot.connectors.config
+
+    @property
+    def forms_api(self):
+        """Shortcut to the backend FormsConnector."""
+        if not hasattr(self.bot, "connectors") or self.bot.connectors is None:
+            raise RuntimeError(
+                "Bot connectors not initialized (BACKEND_URL/BOT_API_KEY required)"
+            )
+        return self.bot.connectors.forms
+
+    @property
+    def guild_config_service(self):
+        """Shortcut to GuildConfigHelper — stays in-process (Discord-orchestration)."""
         if not hasattr(self.bot, "services") or self.bot.services is None:
             raise RuntimeError("Bot services not initialized")
-        return self.bot.services.ticket
+        return self.bot.services.guild_config
 
-    @property
-    def config_service(self) -> ConfigService:
-        """Shortcut to ConfigService."""
-        return self.bot.services.config
+    async def _get_ticket_channel_ids(self, guild_id: int) -> list[int]:
+        """Return distinct channel IDs that have ticket categories assigned.
 
-    @property
-    def ticket_form_service(self) -> TicketFormService:
-        """Shortcut to TicketFormService."""
-        return self.bot.services.ticket_form
+        Derived locally from ``list_categories`` because the backend does not
+        expose a dedicated channel-ids endpoint. Mirrors the repository's
+        ``get_ticket_channel_ids`` (distinct ``channel_id`` values, excluding 0).
+        """
+        categories = await self.tickets_api.list_categories(guild_id)
+        seen: list[int] = []
+        for category in categories:
+            raw = category.get("channel_id")
+            if raw in (None, 0):
+                continue
+            try:
+                chan_id = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if chan_id != 0 and chan_id not in seen:
+                seen.append(chan_id)
+        return seen
 
     async def _reconcile_missing_open_tickets(
         self,
@@ -155,11 +190,49 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         limit: int | None = None,
     ) -> dict[str, int]:
         """Reconcile open ticket rows whose Discord threads are missing."""
-        return await self.ticket_service.reconcile_missing_open_tickets(
-            guild.id,
-            lambda thread_id: guild_thread_exists(guild, thread_id),
-            limit=limit,
-        )
+        open_tickets = await self.tickets_api.list_open_tickets(guild.id)
+        if limit is not None:
+            open_tickets = open_tickets[:limit]
+
+        missing = [
+            ticket
+            for ticket in open_tickets
+            if not await guild_thread_exists(guild, int(ticket["thread_id"]))
+        ]
+
+        reconciled = 0
+        failed = 0
+        for ticket in missing:
+            thread_id = int(ticket["thread_id"])
+            try:
+                closed = await self.tickets_api.close_ticket_by_thread(
+                    guild.id,
+                    thread_id,
+                    closed_by=0,
+                    close_reason="Discord thread no longer exists",
+                )
+                deleted = await self.tickets_api.mark_thread_deleted(
+                    guild.id, thread_id
+                )
+                if closed or deleted:
+                    reconciled += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                failed += 1
+                self.logger.exception(
+                    "Failed to reconcile missing open thread %s in guild %s",
+                    thread_id,
+                    guild.id,
+                    exc_info=e,
+                )
+
+        return {
+            "checked": len(open_tickets),
+            "missing": len(missing),
+            "reconciled": reconciled,
+            "failed": failed,
+        }
 
     # ------------------------------------------------------------------
     # Periodic cleanup of expired route sessions
@@ -169,7 +242,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
     async def _session_cleanup_task(self) -> None:
         """Periodically remove expired ticket route sessions."""
         try:
-            await self.ticket_form_service.cleanup_expired_sessions()
+            await self.forms_api.cleanup_expired_sessions()
         except Exception as e:
             self.logger.exception(
                 "Error during ticket route session cleanup", exc_info=e
@@ -196,7 +269,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         for guild in self.bot.guilds:
             try:
                 await self._reconcile_missing_open_tickets(guild, limit=50)
-                health = await self.ticket_service.get_thread_health(guild.id)
+                health = await self.tickets_api.get_thread_health(guild.id)
                 status = health["status"]
 
                 # Only alert on non-healthy statuses
@@ -248,8 +321,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         emoji = status_emoji.get(status, "ℹ️")
 
         # Build admin role mentions
-        guild_config = self.bot.services.guild_config
-        admin_roles = await guild_config.get_admin_roles(guild.id, guild)
+        admin_roles = await self.guild_config_service.get_admin_roles(guild.id, guild)
         mentions = " ".join(r.mention for r in admin_roles)
 
         embed = create_embed(
@@ -311,15 +383,15 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         for guild in targets:
             try:
                 # Discover all channels that have ticket categories
-                channel_ids = await self.ticket_service.get_ticket_channel_ids(guild.id)
+                channel_ids = await self._get_ticket_channel_ids(guild.id)
 
                 # Fall back to legacy single-channel setting
                 if not channel_ids:
-                    legacy_id = await self.config_service.get_guild_setting(
+                    legacy_id = await self.config_api.get_guild_setting(
                         guild.id, "tickets.channel_id"
                     )
                     if legacy_id:
-                        channel_ids = [int(legacy_id)]
+                        channel_ids = [int(legacy_id)]  # type: ignore[arg-type]
 
                 if not channel_ids:
                     continue
@@ -358,7 +430,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         channel: discord.TextChannel,
     ) -> discord.Message | None:
         """Create and send the ticket panel embed + view to a channel."""
-        channel_config = await self.ticket_service.get_channel_config(
+        channel_config = await self.tickets_api.get_channel_config(
             guild.id, channel.id
         )
         title = (channel_config or {}).get("panel_title") or "🎫 Support Tickets"
@@ -439,8 +511,8 @@ class TicketCommands(commands.GroupCog, name="tickets"):
 
         await self._reconcile_missing_open_tickets(guild)
 
-        data = await self.ticket_service.get_ticket_stats(guild.id)
-        health = await self.ticket_service.get_thread_health(guild.id)
+        data = await self.tickets_api.get_ticket_stats(guild.id)
+        health = await self.tickets_api.get_thread_health(guild.id)
         embed = create_embed(
             title="🎫 Ticket Statistics",
             description=(
@@ -480,8 +552,8 @@ class TicketCommands(commands.GroupCog, name="tickets"):
 
         await self._reconcile_missing_open_tickets(guild)
 
-        health = await self.ticket_service.get_thread_health(guild.id)
-        oldest = await self.ticket_service.get_oldest_closed_tickets(guild.id, limit=5)
+        health = await self.tickets_api.get_thread_health(guild.id)
+        oldest = await self.tickets_api.get_oldest_closed_tickets(guild.id, 5)
 
         status_emoji = {
             "healthy": "✅",
@@ -559,16 +631,18 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             )
             return
 
-        candidates = await self.ticket_service.get_cleanup_candidates(
-            guild.id, older_than_days=older_than
+        candidates = await self.tickets_api.get_cleanup_candidates(
+            guild.id, older_than
         )
         missing_open: list[dict[str, Any]] = []
 
         if include_open:
-            missing_open = await self.ticket_service.get_missing_open_tickets(
-                guild.id,
-                lambda thread_id: guild_thread_exists(guild, thread_id),
-            )
+            open_tickets = await self.tickets_api.list_open_tickets(guild.id)
+            missing_open = [
+                ticket
+                for ticket in open_tickets
+                if not await guild_thread_exists(guild, int(ticket["thread_id"]))
+            ]
 
         if not candidates and not missing_open:
             if include_open:
@@ -637,15 +711,15 @@ class TicketCommands(commands.GroupCog, name="tickets"):
                 thread = guild.get_thread(thread_id)
                 if thread is None:
                     # Thread already gone from Discord — just mark it
-                    await self.ticket_service.mark_thread_deleted(thread_id)
+                    await self.tickets_api.mark_thread_deleted(guild.id, thread_id)
                     deleted += 1
                     continue
                 await thread.delete()
-                await self.ticket_service.mark_thread_deleted(thread_id)
+                await self.tickets_api.mark_thread_deleted(guild.id, thread_id)
                 deleted += 1
             except discord.NotFound:
                 # Already deleted in Discord
-                await self.ticket_service.mark_thread_deleted(thread_id)
+                await self.tickets_api.mark_thread_deleted(guild.id, thread_id)
                 deleted += 1
             except Exception as e:
                 self.logger.exception(
