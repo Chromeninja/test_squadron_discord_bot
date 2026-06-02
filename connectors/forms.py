@@ -226,6 +226,11 @@ class FormsConnector:
         except Exception:
             return False
 
+    async def cleanup_expired_sessions(self) -> int:
+        """Delete all expired route sessions globally; returns count deleted."""
+        resp = await self._c.delete("/internal/ticket-forms/sessions/expired")
+        return int((resp or {}).get("deleted", 0))
+
     # ------------------------------------------------------------------
     # Form Responses
     # ------------------------------------------------------------------

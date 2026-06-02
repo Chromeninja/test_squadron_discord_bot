@@ -371,3 +371,13 @@ async def get_responses(
     """Return all form responses for a ticket."""
     responses = await repo.get_responses(ticket_id)
     return {"responses": responses}
+
+
+@router.delete("/ticket-forms/sessions/expired")
+async def cleanup_expired_sessions(
+    _: str = Depends(require_bot_api_key),
+    repo: TicketFormRepository = Depends(get_ticket_form_repository),
+) -> dict[str, Any]:
+    """Delete all expired route sessions (global cleanup); returns count deleted."""
+    deleted = await repo.cleanup_expired_sessions()
+    return {"deleted": deleted}

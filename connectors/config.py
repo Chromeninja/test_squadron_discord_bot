@@ -31,6 +31,16 @@ class ConfigConnector:
             f"/internal/guilds/{guild_id}/config/settings/{key}", json={"value": value}
         )
 
+    async def get_guild_setting(self, guild_id: int, key: str) -> object | None:
+        """Return the raw value for a single setting, or None if unset.
+
+        Convenience wrapper over ``get_setting`` that unwraps the
+        ``{"key", "value"}`` envelope to match the legacy
+        ``ConfigService.get_guild_setting`` contract.
+        """
+        resp = await self.get_setting(guild_id, key)
+        return resp.get("value") if resp else None
+
     async def notify_refresh(self, guild_id: int, source: str | None = None) -> dict:
         """Notify the backend that guild configuration has changed."""
         return await self._c.post(
