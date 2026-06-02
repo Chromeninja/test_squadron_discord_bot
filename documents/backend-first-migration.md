@@ -67,16 +67,24 @@ domain connector, and add integration tests against the real schema. The bot kee
 
 ### Stage 2 — Coordinated breaking cutover (bot requires backend after this)
 One pass, behind a release boundary:
-- [ ] Rewire command cogs to `self.bot.connectors.<domain>` (keep voice EVENTS + metrics
-      ingestion in-process)
-- [ ] Slim `ServiceContainer`: keep `VoiceService` (events) + `MetricsService` (ingestion);
-      drop migrated DB-only services
-- [ ] Invert dashboard: `web/backend/routes/*` call `backend/services/` in-process instead
-      of the bot's `internal_api`; retire `services/internal_api.py` + `internal_api_client`
-- [ ] Delete migrated direct-DB service code
-- [ ] `frontend/src/api/endpoints.ts` base URL → unified backend
+- [x] **Tickets cog** — rewired to `bot.connectors.tickets/forms/config`; MIXED methods
+      (reconcile, get_missing_open) split: DB reads via connector, Discord loop stays in cog;
+      `GuildConfigHelper` stays in-process (resolves DB role IDs → live `discord.Role` objects)
+- [ ] **Verification cog** — rewire to `bot.connectors.verification/config`
+- [ ] **Voice command cogs** — rewire command path to `bot.connectors.voice`; events stay in-process
+- [ ] **Admin cog** — rewire DB-only calls to appropriate connectors
+- [ ] **Slim `ServiceContainer`**: keep `VoiceService` (events) + `MetricsService` (ingestion) +
+      `GuildConfigHelper` (Discord-orch); drop migrated DB-only services
+- [ ] **Delete migrated direct-DB service code** (TicketService, TicketFormService, GuildService, etc.)
 - [ ] Deployment: `docker compose up` becomes canonical (bot waits on backend healthcheck);
       document the new two-process requirement in SETUP.md
+
+> **`services/internal_api.py` stays permanently** — it is the bot's live-Discord RPC surface
+> for the web dashboard (guild/member/role/channel enumeration, scheduled events, voice
+> occupancy, bot-owner lookup, recheck/resend/deploy actions). These require the gateway
+> connection and cannot be served by the stateless FastAPI backend process. The original
+> "retire internal_api + invert dashboard" line item has been removed after auditing that
+> ~80% of dashboard calls are gateway-bound, not DB-backed.
 
 ### Stage 3 — Long-term scalability (independent of cutover)
 The repository seam makes these single-layer swaps:
