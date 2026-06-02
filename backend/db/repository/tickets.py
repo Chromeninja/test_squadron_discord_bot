@@ -891,3 +891,76 @@ class TicketRepository:
             )
             row = await cursor.fetchone()
             return int(row[0]) if row and row[0] is not None else 0
+
+    async def get_thread_health(
+        self, guild_id: int, thread_limit: int = 1000
+    ) -> dict[str, object | None]:
+        """Return thread usage data for a guild (active/archived/deleted counts + usage status)."""
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS active,
+                    SUM(CASE WHEN status = 'closed' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS archived,
+                    SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted
+                FROM tickets
+                WHERE guild_id = ?
+                """,
+                (guild_id,),
+            )
+            row = await cursor.fetchone()
+        d = dict(row) if row else {}
+        active = int(d.get("active") or 0)
+        archived = int(d.get("archived") or 0)
+        deleted = int(d.get("deleted") or 0)
+        total_threads = active + archived
+        usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0.0
+        if usage_pct >= 95:
+            status = "critical"
+        elif usage_pct >= 90:
+            status = "warning"
+        elif usage_pct >= 80:
+            status = "notice"
+        else:
+            status = "healthy"
+        return {
+            "active": active, "archived": archived, "deleted": deleted,
+            "total_threads": total_threads, "limit": thread_limit,
+            "usage_pct": usage_pct, "status": status,
+        }
+
+    async def get_oldest_closed_tickets(
+        self, guild_id: int, limit: int = 5
+    ) -> list[dict[str, object | None]]:
+        """Return the oldest closed tickets that still have threads (deleted_at IS NULL)."""
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT * FROM tickets
+                WHERE guild_id = ? AND status = 'closed' AND deleted_at IS NULL
+                ORDER BY closed_at ASC LIMIT ?
+                """,
+                (guild_id, limit),
+            )
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_cleanup_candidates(
+        self, guild_id: int, older_than_days: int, limit: int | None = None
+    ) -> list[dict[str, object | None]]:
+        """Return closed tickets older than older_than_days (min 30-day safety buffer)."""
+        safe_days = max(older_than_days, 30)
+        cutoff = int(time.time()) - (safe_days * 86400)
+        sql = (
+            "SELECT * FROM tickets WHERE guild_id = ? AND status = 'closed' "
+            "AND deleted_at IS NULL AND closed_at IS NOT NULL AND closed_at < ? "
+            "ORDER BY closed_at ASC"
+        )
+        params: list[object] = [guild_id, cutoff]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        async with Database.get_connection() as db:
+            cursor = await db.execute(sql, tuple(params))
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]

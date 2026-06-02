@@ -181,3 +181,28 @@ class TicketsConnector:
             f"/internal/guilds/{guild_id}/ticket-categories/by-channel/{channel_id}"
         )
         return result.get("categories", []) if isinstance(result, dict) else []
+
+    # ------------------------------------------------------------------
+    # Thread Health & Cleanup
+    # ------------------------------------------------------------------
+
+    async def get_thread_health(self, guild_id: int) -> dict:
+        resp = await self._c.get(f"/internal/guilds/{guild_id}/tickets/thread-health")
+        return (resp or {}).get("health", {})
+
+    async def get_oldest_closed_tickets(self, guild_id: int, limit: int = 5) -> list[dict]:
+        resp = await self._c.get(
+            f"/internal/guilds/{guild_id}/tickets/oldest-closed", params={"limit": limit}
+        )
+        return (resp or {}).get("tickets", [])
+
+    async def get_cleanup_candidates(
+        self, guild_id: int, older_than_days: int, limit: int | None = None
+    ) -> list[dict]:
+        params: dict = {"older_than_days": older_than_days}
+        if limit is not None:
+            params["limit"] = limit
+        resp = await self._c.get(
+            f"/internal/guilds/{guild_id}/tickets/cleanup-candidates", params=params
+        )
+        return (resp or {}).get("tickets", [])

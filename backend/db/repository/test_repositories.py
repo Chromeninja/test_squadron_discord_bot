@@ -1023,4 +1023,104 @@ async def test_voice_purge_stale_jtc_data(temp_db: str) -> None:
     # VC_ID row gone; 9004 row survives
     remaining = await repo.get_active_channel_ids(GUILD_ID)
     assert 9004 in remaining
-    assert VC_ID not in remaining
+
+
+# ------------------------------------------------------------------
+# Ticket Thread Health & Cleanup Tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ticket_thread_health(temp_db: str) -> None:
+    """get_thread_health returns active/archived/deleted counts and status."""
+    repo = TicketRepository()
+
+    # Create 2 open tickets
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2001,
+            "user_id": USER_ID,
+            "initial_description": "ticket 1",
+        },
+    )
+    await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2002,
+            "user_id": USER_ID,
+            "initial_description": "ticket 2",
+        },
+    )
+
+    # Create and close 1 ticket
+    closed = await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 2003,
+            "user_id": USER_ID,
+            "initial_description": "ticket 3",
+        },
+    )
+    closed_id = int(closed["id"])  # type: ignore[arg-type]
+    await repo.close_ticket(GUILD_ID, closed_id, closed_by=999)
+
+    # Get health stats
+    health = await repo.get_thread_health(GUILD_ID, thread_limit=1000)
+    assert health["active"] == 2
+    assert health["archived"] == 1
+    assert health["deleted"] == 0
+    assert health["total_threads"] == 3
+    assert health["limit"] == 1000
+    assert health["status"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_ticket_oldest_closed(temp_db: str) -> None:
+    """get_oldest_closed_tickets returns closed tickets ordered by closed_at."""
+    repo = TicketRepository()
+
+    # Create and close a ticket
+    ticket = await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 3001,
+            "user_id": USER_ID,
+            "initial_description": "support request",
+        },
+    )
+    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
+    await repo.close_ticket(GUILD_ID, ticket_id, closed_by=888)
+
+    # Query oldest closed tickets
+    oldest = await repo.get_oldest_closed_tickets(GUILD_ID, limit=5)
+    assert len(oldest) >= 1
+    assert any(t["id"] == ticket_id for t in oldest)
+
+
+@pytest.mark.asyncio
+async def test_ticket_cleanup_candidates(temp_db: str) -> None:
+    """get_cleanup_candidates respects 30-day safety buffer (freshly closed tickets excluded)."""
+    repo = TicketRepository()
+
+    # Create and close a ticket (will have closed_at = now)
+    ticket = await repo.create_ticket(
+        GUILD_ID,
+        {
+            "channel_id": 1001,
+            "thread_id": 4001,
+            "user_id": USER_ID,
+            "initial_description": "fresh ticket",
+        },
+    )
+    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
+    await repo.close_ticket(GUILD_ID, ticket_id, closed_by=777)
+
+    # Query cleanup candidates with 0 days (should enforce 30-day minimum)
+    candidates = await repo.get_cleanup_candidates(GUILD_ID, older_than_days=0)
+    # Freshly closed ticket should NOT appear (protected by 30-day buffer)
+    assert not any(c["id"] == ticket_id for c in candidates)

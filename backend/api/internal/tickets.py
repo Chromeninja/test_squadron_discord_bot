@@ -468,3 +468,40 @@ async def list_categories_for_channel(
     """Return ticket categories assigned to a specific channel."""
     categories = await repo.get_categories_for_channel(guild_id, channel_id)
     return {"categories": categories}
+
+
+@router.get("/guilds/{guild_id}/tickets/thread-health")
+async def get_thread_health(
+    guild_id: int,
+    thread_limit: int = 1000,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Return thread usage data for a guild (active/archived/deleted counts + usage status)."""
+    health = await repo.get_thread_health(guild_id, thread_limit)
+    return {"health": health}
+
+
+@router.get("/guilds/{guild_id}/tickets/oldest-closed")
+async def get_oldest_closed(
+    guild_id: int,
+    limit: int = 5,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Return the oldest closed tickets that still have threads."""
+    tickets = await repo.get_oldest_closed_tickets(guild_id, limit)
+    return {"tickets": tickets}
+
+
+@router.get("/guilds/{guild_id}/tickets/cleanup-candidates")
+async def get_cleanup_candidates(
+    guild_id: int,
+    older_than_days: int,
+    limit: int | None = None,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Return closed tickets older than older_than_days (min 30-day safety buffer)."""
+    tickets = await repo.get_cleanup_candidates(guild_id, older_than_days, limit)
+    return {"tickets": tickets}
