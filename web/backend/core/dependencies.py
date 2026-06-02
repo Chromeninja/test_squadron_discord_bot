@@ -166,6 +166,7 @@ async def initialize_services() -> None:
     if not Path(db_path).is_absolute():
         db_path = str(_PROJECT_ROOT / db_path)
 
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     await Database.initialize(db_path)
 
     _config_service = ConfigService(config_loader=_config_loader)

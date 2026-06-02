@@ -199,9 +199,15 @@ class MyBot(commands.Bot):
             self.owner_id = None
 
         # Initialize the database
+        from pathlib import Path
+
         from services.db.database import Database
 
-        await Database.initialize()
+        _db_cfg_path = (self.config or {}).get("database", {}).get("path", "TESTDatabase.db")
+        if not Path(_db_cfg_path).is_absolute():
+            _db_cfg_path = str(Path(__file__).resolve().parent / _db_cfg_path)
+        Path(_db_cfg_path).parent.mkdir(parents=True, exist_ok=True)
+        await Database.initialize(_db_cfg_path)
 
         # Initialize services container
         from services.service_container import ServiceContainer
