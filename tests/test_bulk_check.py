@@ -49,16 +49,16 @@ async def test_parse_members_text() -> None:
     member2 = Mock()
     member2.id = 987654321098765432
 
-    guild.get_member.side_effect = lambda user_id: {
+    guild.get_member.side_effect = {
         123456789012345678: member1,
         987654321098765432: member2,
         111222333444555666: None,  # Not found in cache
-    }.get(user_id)
+    }.get
 
     guild.fetch_member = AsyncMock(
-        side_effect=lambda user_id: {
+        side_effect={
             111222333444555666: Mock(id=111222333444555666)
-        }.get(user_id)
+        }.get
     )
 
     text = "<@123456789012345678> <@!987654321098765432> 111222333444555666"
@@ -83,10 +83,10 @@ async def test_parse_members_text_deduplicates_while_preserving_order() -> None:
     member2 = Mock()
     member2.id = 987654321098765432
 
-    guild.get_member.side_effect = lambda user_id: {
+    guild.get_member.side_effect = {
         123456789012345678: member1,
         987654321098765432: member2,
-    }.get(user_id)
+    }.get
     guild.fetch_member = AsyncMock()
 
     text = "<@987654321098765432> <@123456789012345678> <@!987654321098765432>"

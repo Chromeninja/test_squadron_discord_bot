@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from helpers.views import VerificationView
 from helpers import views_verification
+from helpers.views import VerificationView
 from tests.test_helpers import FakeInteraction, FakeUser
 
 

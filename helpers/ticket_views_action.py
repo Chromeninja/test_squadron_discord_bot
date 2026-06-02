@@ -16,10 +16,11 @@ AI Notes:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import discord
 from discord.ui import Button, View
 
-from helpers.bot_protocol import BotProtocol
 from helpers.embeds import EmbedColors, create_embed
 from helpers.ticket_views_helpers import (
     _get_staff_and_check,
@@ -27,6 +28,9 @@ from helpers.ticket_views_helpers import (
     _log_ticket_event,
 )
 from utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from helpers.bot_protocol import BotProtocol
 
 logger = get_logger(__name__)
 

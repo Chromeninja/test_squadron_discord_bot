@@ -694,7 +694,7 @@ async def test_delete_guild_scheduled_event_success() -> None:
     server._check_auth = lambda request: True
 
     invalidated_guilds: list[int] = []
-    server._invalidate_events_cache = lambda guild_id: invalidated_guilds.append(guild_id)
+    server._invalidate_events_cache = invalidated_guilds.append
 
     event_any = cast("Any", SimpleNamespace(delete=AsyncMock()))
     guild = cast(

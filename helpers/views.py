@@ -17,8 +17,7 @@ from helpers.views_feature import (
     FeatureToggleView,
     FeatureUserSelectView,
 )
-from helpers.views_verification import check_rate_limit, log_attempt
-from helpers.views_verification import VerificationView
+from helpers.views_verification import VerificationView, check_rate_limit, log_attempt
 from helpers.views_voice import (
     ChannelSettingsView,
     FilteredRoleSelect,
@@ -34,11 +33,11 @@ __all__ = [
     "FeatureUserSelectView",
     "FilteredRoleSelect",
     "KickUserSelectView",
-    "log_attempt",
-    "check_rate_limit",
     "SelectRoleView",
     "SelectUserView",
     "TargetTypeSelectView",
     "VerificationView",
     "_get_guild_and_jtc_for_user_channel",
+    "check_rate_limit",
+    "log_attempt",
 ]

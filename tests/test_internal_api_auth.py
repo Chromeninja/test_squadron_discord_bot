@@ -34,7 +34,8 @@ class TestInternalAPIAuthentication:
         monkeypatch.delenv("ENV", raising=False)
 
         # Should raise RuntimeError in production without API key
-        exc_info = pytest.raises(RuntimeError, InternalAPIServer, mock_services)
+        with pytest.raises(RuntimeError) as exc_info:
+            InternalAPIServer(mock_services)
 
         assert "INTERNAL_API_KEY must be set in production" in str(exc_info.value)
 
@@ -206,14 +207,16 @@ class TestParseUserIds:
         from aiohttp.web import HTTPBadRequest
 
         req = self._make_request("user_ids=abc,def")
-        pytest.raises(HTTPBadRequest, InternalAPIServer._parse_user_ids, req)
+        with pytest.raises(HTTPBadRequest):
+            InternalAPIServer._parse_user_ids(req)
 
     def test_mixed_valid_invalid_raises_400(self) -> None:
         """Even one non-numeric value in user_ids raises HTTP 400."""
         from aiohttp.web import HTTPBadRequest
 
         req = self._make_request("user_ids=1,bad,3")
-        pytest.raises(HTTPBadRequest, InternalAPIServer._parse_user_ids, req)
+        with pytest.raises(HTTPBadRequest):
+            InternalAPIServer._parse_user_ids(req)
 
     def test_empty_string_returns_none(self) -> None:
         """Empty user_ids param → None."""

@@ -36,11 +36,11 @@ class TestVoiceServiceInitialization:
         voice_channel2 = MagicMock(spec=discord.VoiceChannel)
         voice_channel2.id = 222
 
-        guild.get_channel.side_effect = lambda channel_id: {
+        guild.get_channel.side_effect = {
             111: voice_channel1,
             222: voice_channel2,
             999: None,  # Missing channel
-        }.get(channel_id)
+        }.get
 
         return bot
 

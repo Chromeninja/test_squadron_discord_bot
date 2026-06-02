@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-import discord
-
 if TYPE_CHECKING:
+    import discord
+
     from services.service_container import ServiceContainer
 
 
@@ -25,10 +25,10 @@ class BotProtocol(Protocol):
     declaration.
     """
 
-    services: "ServiceContainer"
+    services: ServiceContainer
 
     def get_channel(
-        self, id: int, /
+        self, id: int, /  # noqa: A002
     ) -> (
         discord.abc.GuildChannel
         | discord.Thread

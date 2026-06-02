@@ -26,11 +26,11 @@ from discord.ui import (  # type: ignore[import-not-found]
     View,
 )
 
-from helpers.bot_protocol import BotProtocol
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
+    from helpers.bot_protocol import BotProtocol
     from services.ticket_form_service import RouteExecutionContext
 
 logger = get_logger(__name__)

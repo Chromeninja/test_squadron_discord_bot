@@ -5,14 +5,6 @@ import contextlib
 import logging
 import time
 
-from ._metrics_helpers import (
-    build_message_leaderboard_entries,
-    build_voice_leaderboard_entries,
-    normalize_leaderboard_entries,
-    normalize_timeseries_data,
-    resolve_guild_id,
-    resolve_activity_filter,
-)
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
@@ -37,6 +29,15 @@ from core.schemas import (
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from helpers.audit import log_admin_action
+
+from ._metrics_helpers import (
+    build_message_leaderboard_entries,
+    build_voice_leaderboard_entries,
+    normalize_leaderboard_entries,
+    normalize_timeseries_data,
+    resolve_activity_filter,
+    resolve_guild_id,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

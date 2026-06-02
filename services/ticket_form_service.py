@@ -58,7 +58,7 @@ class RouteExecutionContext:
     session_id: int | None = None
     interaction_token: str | None = None
     is_public: bool = False
-    created_at: float = field(default_factory=lambda: time.time())
+    created_at: float = field(default_factory=time.time)
     expires_at: float = field(
         default_factory=lambda: time.time() + ROUTE_SESSION_TTL_SECONDS
     )

@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -18,7 +19,6 @@ from core.dependencies import (
 from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
 from core.guild_settings import get_organization_settings
 from core.pagination import is_all_guilds_mode
-from core.schemas import UserProfile
 from core.user_enrichment import (
     _VERIFICATION_COLUMNS,
     ExportUsersRequest,
@@ -31,6 +31,9 @@ from core.user_enrichment import (
 )
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+
+if TYPE_CHECKING:
+    from core.schemas import UserProfile
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 logger = logging.getLogger(__name__)

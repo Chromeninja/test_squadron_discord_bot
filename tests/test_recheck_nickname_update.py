@@ -82,7 +82,7 @@ async def test_apply_roles_updates_nickname_with_moniker(monkeypatch, temp_db) -
     async def immediate(task_fn) -> None:
         await task_fn()
 
-    monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.role_helper.enqueue_task", immediate)
 
     # Initial assignment with moniker - nickname should be handle, not moniker
     await apply_roles_for_status(
@@ -137,7 +137,7 @@ async def test_apply_roles_fallback_to_handle(monkeypatch, temp_db) -> None:
     async def immediate(task_fn) -> None:
         await task_fn()
 
-    monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.role_helper.enqueue_task", immediate)
 
     await apply_roles_for_status(
         member,  # type: ignore[arg-type]
@@ -183,7 +183,7 @@ async def test_apply_roles_nickname_always_handle_even_if_moniker_present(
     async def immediate(task_fn) -> None:
         await task_fn()
 
-    monkeypatch.setattr("helpers.role_helper.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.role_helper.enqueue_task", immediate)
 
     await apply_roles_for_status(
         member,  # type: ignore[arg-type]

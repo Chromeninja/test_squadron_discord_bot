@@ -3,7 +3,7 @@ import re
 import string
 from typing import TypedDict
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from helpers.circuit_breaker import get_rsi_circuit_breaker
 from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError

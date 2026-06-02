@@ -5,10 +5,11 @@ import logging
 import time
 from collections import OrderedDict
 
+from pydantic import BaseModel
+
 from core.dependencies import InternalAPIClient
 from core.env_config import MEMBER_CACHE_MAX_ENTRIES, MEMBER_CACHE_TTL_SECONDS
 from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 

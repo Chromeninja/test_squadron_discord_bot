@@ -599,12 +599,13 @@ class TestCreateTicketThread:
         guild = SimpleNamespace(
             id=123,
             name="TestGuild",
-            get_role=lambda rid: {777: role_category, 888: role_global}.get(rid),
+            get_role={777: role_category, 888: role_global}.get,
         )
         from typing import cast
+
         from tests.factories.discord_factories import FakeGuild
 
-        interaction.guild = cast(FakeGuild, guild)
+        interaction.guild = cast("FakeGuild", guild)
 
         text_channel = MagicMock(spec=discord.TextChannel)
         text_channel.id = 777

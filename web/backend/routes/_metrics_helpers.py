@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from typing import TYPE_CHECKING
 
-from core.dependencies import InternalAPIClient
-from core.schemas import MessageLeaderboardEntry, VoiceLeaderboardEntry
 from core.pagination import is_all_guilds_mode
-from core.schemas import UserProfile
+from core.schemas import MessageLeaderboardEntry, UserProfile, VoiceLeaderboardEntry
 from fastapi import HTTPException
+
+if TYPE_CHECKING:
+    from core.dependencies import InternalAPIClient
 
 logger = logging.getLogger(__name__)
 

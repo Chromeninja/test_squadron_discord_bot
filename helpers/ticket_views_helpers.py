@@ -14,7 +14,7 @@ AI Notes:
 from __future__ import annotations
 
 import io
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 
@@ -22,7 +22,8 @@ from helpers.embeds import create_embed
 from services.ticket_service import TicketService
 from utils.logging import get_logger
 
-from helpers.bot_protocol import BotProtocol
+if TYPE_CHECKING:
+    from helpers.bot_protocol import BotProtocol
 
 logger = get_logger(__name__)
 

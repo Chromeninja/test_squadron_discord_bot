@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -16,9 +15,9 @@ from core.event_service import EventService
 from core.schemas import (
     EventSyncRequest,
     EventSyncResponse,
-    ScheduledEventRecurrenceRule,
     ScheduledEventCreateRequest,
     ScheduledEventDeleteResponse,
+    ScheduledEventRecurrenceRule,
     ScheduledEventResponse,
     ScheduledEventsResponse,
     ScheduledEventSummary,
@@ -28,13 +27,10 @@ from core.schemas import (
 from core.validation import (
     ensure_guild_match,
     parse_snowflake_id_optional,
-    safe_int,
 )
 from fastapi import APIRouter, Depends, HTTPException
-from helpers.discord_image_data import validate_discord_event_image_data
 
-if TYPE_CHECKING:
-    pass
+from helpers.discord_image_data import validate_discord_event_image_data
 
 router = APIRouter(prefix="/api/guilds", tags=["guild-events"])
 logger = logging.getLogger(__name__)
