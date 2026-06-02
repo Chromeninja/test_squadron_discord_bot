@@ -505,3 +505,26 @@ async def get_cleanup_candidates(
     """Return closed tickets older than older_than_days (min 30-day safety buffer)."""
     tickets = await repo.get_cleanup_candidates(guild_id, older_than_days, limit)
     return {"tickets": tickets}
+
+
+@router.post("/guilds/{guild_id}/tickets/cooldowns/reset-all")
+async def reset_all_ticket_cooldowns(
+    guild_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Reset ticket creation cooldowns for all users in a guild."""
+    success = await repo.reset_all_ticket_cooldowns(guild_id)
+    return {"success": success}
+
+
+@router.post("/guilds/{guild_id}/tickets/cooldowns/reset-user/{user_id}")
+async def reset_user_ticket_cooldown(
+    guild_id: int,
+    user_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Reset ticket creation cooldown for a specific user in a guild."""
+    success = await repo.reset_user_ticket_cooldown(guild_id, user_id)
+    return {"success": success}

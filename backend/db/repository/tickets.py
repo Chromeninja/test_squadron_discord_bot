@@ -964,3 +964,39 @@ class TicketRepository:
             cursor = await db.execute(sql, tuple(params))
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+    async def reset_user_ticket_cooldown(
+        self, guild_id: int, user_id: int
+    ) -> bool:
+        """Reset ticket creation cooldown for a specific user (writes a reset marker)."""
+        import time as _time
+        now = int(_time.time())
+        async with Database.get_connection() as db:
+            try:
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS ticket_cooldown_resets (
+                        guild_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        reset_at INTEGER NOT NULL,
+                        PRIMARY KEY (guild_id, user_id)
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    INSERT INTO ticket_cooldown_resets (guild_id, user_id, reset_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, user_id)
+                    DO UPDATE SET reset_at = excluded.reset_at
+                    """,
+                    (guild_id, user_id, now),
+                )
+                await db.commit()
+                return True
+            except Exception:
+                return False
+
+    async def reset_all_ticket_cooldowns(self, guild_id: int) -> bool:
+        """Reset ticket cooldown for all users in a guild via sentinel row (user_id=0)."""
+        return await self.reset_user_ticket_cooldown(guild_id, 0)

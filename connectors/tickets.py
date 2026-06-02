@@ -206,3 +206,17 @@ class TicketsConnector:
             f"/internal/guilds/{guild_id}/tickets/cleanup-candidates", params=params
         )
         return (resp or {}).get("tickets", [])
+
+    async def reset_all_ticket_cooldowns(self, guild_id: int) -> bool:
+        resp = await self._c.post(
+            f"/internal/guilds/{guild_id}/tickets/cooldowns/reset-all"
+        )
+        return bool((resp or {}).get("success", False))
+
+    async def reset_user_ticket_cooldown(
+        self, guild_id: int, user_id: int
+    ) -> bool:
+        resp = await self._c.post(
+            f"/internal/guilds/{guild_id}/tickets/cooldowns/reset-user/{user_id}"
+        )
+        return bool((resp or {}).get("success", False))
