@@ -21,11 +21,14 @@ voice:
   startup_cleanup_mode: "delayed"  # How to handle empty channels on startup: "delayed" or "immediate"
 
 database:
-  path: "TESTDatabase.db"
+  # Relative paths resolve against the project root. The "data/" prefix keeps
+  # the SQLite files inside the Docker volume mounted at /app/data so data
+  # persists across container rebuilds (see documents/SETUP.md).
+  path: "data/TESTDatabase.db"
 
 metrics:
   enabled: true
-  database_path: metrics.db       # Separate DB file for metrics data
+  database_path: data/metrics.db  # Separate DB file (inside the data/ volume dir)
   retention_days: 90              # Auto-purge metrics older than this
   rollup_interval_minutes: 60     # Hourly aggregation interval
   buffer_flush_seconds: 30        # Message buffer flush interval

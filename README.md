@@ -71,8 +71,8 @@ The bot accesses the backend through typed HTTP connectors. All connector instan
 
 - **`config/config.yaml`** — Runtime settings (channel IDs, rate limits, org metadata).
 - **`.env`** — Secrets and deployment settings (see `.env.example`).
-- **`SETUP.md`** — Production deployment guide.
-- **`VS_CODE_SETUP.md`** — Local development setup guide.
+- **`documents/SETUP.md`** — Deployment guide (Docker Compose + manual systemd/nginx).
+- **`documents/VS_CODE_SETUP.md`** — Local development & Docker testing setup guide.
 
 ## 🛠️ Getting Started
 
@@ -301,7 +301,7 @@ Both the Discord bot and web dashboard use a **hierarchical role-based permissio
 - **Audit Trail**: All admin actions are logged with user information
 - **No Overreach**: Bot cannot perform server-wide admin actions
 
-For detailed setup instructions, refer to `SETUP.md` (production deployment) or `VS_CODE_SETUP.md` (local development) in the repository.
+For detailed setup instructions, refer to `documents/SETUP.md` (deployment) or `documents/VS_CODE_SETUP.md` (local development) in the repository.
 
 ## 📄 Documentation
 
@@ -313,9 +313,12 @@ Comprehensive documentation is available and includes:
 - **Troubleshooting**: Solutions to common issues.
 - **Repository File Map**: See `documents/file-map.md` for a folder/file overview at a glance.
 
-Developer documentation source is included in the `docs/` directory (markdown files). The generated Sphinx HTML (`docs/build/html/...`) is not committed to this repository.
+All repository documentation lives in the [`documents/`](documents/) folder:
 
-If you prefer to view HTML docs locally, build them from the Sphinx sources on your machine (see "Building docs locally" below) — otherwise read the markdown files in `docs/`.
+- [`documents/SETUP.md`](documents/SETUP.md) — Deployment guide (Docker Compose recommended; manual systemd/nginx alternative).
+- [`documents/VS_CODE_SETUP.md`](documents/VS_CODE_SETUP.md) — Local development & Docker full-stack testing.
+- [`documents/backend-first-migration.md`](documents/backend-first-migration.md) — Backend-first architecture migration roadmap and status.
+- [`documents/file-map.md`](documents/file-map.md) — Directory-by-directory repository map.
 
 ## Developer Scripts
 
@@ -341,7 +344,7 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
 
 ### Quick Start
 
-1. **Set up Discord OAuth2** credentials in `.env` (see `SETUP.md` for environment variable details)
+1. **Set up Discord OAuth2** credentials in `.env` (see `documents/SETUP.md` for environment variable details)
 2. **Start the backend**:
    ```bash
    cd web/backend
@@ -356,12 +359,15 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
    ```
 4. **Open your browser** to `http://localhost:5173` and login with Discord
 
-For detailed setup instructions, architecture details, and troubleshooting, see `SETUP.md`.
+For detailed setup instructions, architecture details, and troubleshooting, see `documents/SETUP.md`.
 
 ### VS Code Debugging
 
-Pre-configured launch configurations are available:
-- **🌐 Web Admin Only**: Runs backend + frontend together
-- **🚀 Full Stack**: Runs bot + backend + frontend together
+Pre-configured launch configurations are available (Run and Debug panel, Ctrl+Shift+D):
+- **🚀 Full Stack (Bot + Web Admin)**: Runs bot + backend + frontend together (native debugpy/Vite)
+- **Backend-first (Bot + Backend API)**: Runs the bot against the standalone backend API (port 8000)
+- Individual configs for bot, backend, frontend, and pytest are also available.
 
-Access via Run and Debug panel (Ctrl+Shift+D) in VS Code.
+To run the full stack through **Docker** (mirrors production), use the Docker tasks
+(Command Palette → "Tasks: Run Task" → `docker: compose up (build)`). See
+[`documents/VS_CODE_SETUP.md`](documents/VS_CODE_SETUP.md) for details.

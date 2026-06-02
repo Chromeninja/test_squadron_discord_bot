@@ -23,7 +23,146 @@ Without the presence intent, metrics pages will load but game/activity data will
 
 > **Privacy/minimization note:** The PRESENCE INTENT is a privileged intent and is currently enabled globally for the bot process. If metrics collection is disabled in `config/config.yaml` (`metrics.enabled: false`), presence events are still received but are not processed or stored. A future improvement could conditionally request this intent based on the metrics enabled flag. The MESSAGE CONTENT privileged intent is **not** requested — only message counts are tracked.
 
-## 1. System Prep (root or sudo)
+## Docker Compose Deployment (Recommended)
+
+Docker Compose is the **recommended canonical deployment method** for the backend-first architecture. It provides a clean, reproducible, and isolated environment with minimal system dependencies.
+
+### Prerequisites
+
+- **Docker Engine** (v20.10+)
+- **docker-compose** plugin (included with modern Docker Desktop, or install separately on Linux)
+
+Verify installation:
+```bash
+docker --version
+docker compose version
+```
+
+### Quick Start
+
+1. **Clone the repository:**
+
+```bash
+git clone https://github.com/Chromeninja/test_squadron_discord_bot.git
+cd test_squadron_discord_bot
+```
+
+2. **Copy and populate the environment file:**
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Fill in these required variables:
+
+```
+DISCORD_TOKEN=your_bot_token
+DISCORD_CLIENT_ID=your_client_id
+DISCORD_CLIENT_SECRET=your_client_secret
+SESSION_SECRET=generate-with-openssl-rand-hex-32-or-python-secrets
+BOT_API_KEY=generate-with-python-secrets-token-hex-32
+DISCORD_REDIRECT_URI=http://localhost:8000/auth/callback
+```
+
+To generate secure secrets:
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+3. **Copy and customize the config file:**
+
+```bash
+cp config/config-example.yaml config/config.yaml
+# Edit as needed for your guild/server setup
+nano config/config.yaml
+```
+
+4. **Start the services:**
+
+```bash
+docker compose up -d --build
+```
+
+This builds and starts two containers:
+- **backend**: FastAPI server on port 8000, with health check at `GET /api/v1/health`
+- **bot**: Discord bot process (no exposed ports)
+
+Both services share a named volume `sqlite-data` for persistent SQLite databases. The databases are created at:
+- `/app/data/TESTDatabase.db` (main database)
+- `/app/data/metrics.db` (metrics database)
+
+These paths persist across container restarts and rebuilds.
+
+5. **Verify the deployment:**
+
+```bash
+# Check service health
+curl http://localhost:8000/api/v1/health
+
+# View logs
+docker compose logs -f
+
+# View backend logs only
+docker compose logs -f backend
+
+# View bot logs only
+docker compose logs -f bot
+```
+
+### Data Persistence
+
+Database files are stored in the `sqlite-data` named Docker volume. This volume:
+- **Persists** across `docker compose up/down` cycles
+- **Is NOT deleted** by `docker compose down` (safe operation)
+- **Is ONLY deleted** by explicitly running `docker compose down -v`
+
+To backup your databases before major changes:
+```bash
+docker run --rm -v sqlite-data:/data -v $(pwd):/backup \
+  busybox cp -r /data /backup/sqlite-data-backup
+```
+
+### Stopping and Restarting
+
+```bash
+# Stop all services (data persists)
+docker compose down
+
+# Restart services
+docker compose up -d
+
+# Stop and REMOVE all data (use with caution)
+docker compose down -v
+```
+
+### Resource Usage
+
+The containers are lightweight:
+- **backend**: ~80–120 MB RAM
+- **bot**: ~100–150 MB RAM
+- **Total**: comfortably fits on a 2 GB RAM server
+
+### Troubleshooting
+
+If services fail to start, check logs:
+```bash
+docker compose logs backend
+docker compose logs bot
+```
+
+Common issues:
+- **Port 8000 already in use**: Change the port in `docker-compose.yml` (`ports: ["9000:8000"]`)
+- **DISCORD_TOKEN not set**: Ensure all required env vars are in `.env`
+- **Bot hangs on startup**: Check backend health at `curl http://localhost:8000/api/v1/health`; the bot waits for the backend to be healthy
+
+---
+
+## Alternative: Manual (systemd + nginx) Deployment
+
+For bare-metal servers without Docker, you can deploy using systemd services and nginx. This approach requires manual dependency management and is more involved than Docker Compose, but provides full control over the runtime environment.
+
+### 1. System Prep (root or sudo)
 
 ```bash
 sudo apt update
@@ -39,14 +178,14 @@ node --version
 git --version
 ```
 
-## 2. Clone Repository
+### 2. Clone Repository
 
 ```bash
 git clone https://github.com/Chromeninja/test_squadron_discord_bot.git
 cd test_squadron_discord_bot
 ```
 
-## 3. Python Environment
+### 3. Python Environment
 
 ```bash
 python3 -m venv .venv
@@ -56,7 +195,7 @@ pip install -r requirements.txt
 pip install -r web/backend/requirements.txt
 ```
 
-## 4. Frontend Build
+### 4. Frontend Build
 
 ```bash
 cd web/frontend
@@ -69,7 +208,7 @@ sudo chmod 755 /home/chrome
 sudo chmod -R 755 /home/chrome/test_squadron_discord_bot/web/frontend/dist
 ```
 
-## 5. Environment File
+### 5. Environment File
 
 Find your public IP (if you do not have a domain yet):
 
@@ -107,7 +246,7 @@ ENV=production
 # INTERNAL_API_PORT=8082
 ```
 
-## 6. Configuration
+### 6. Configuration
 
 - Primary config: config/config.yaml
 - Reference template: config/config-example.yaml
@@ -126,7 +265,7 @@ cp config/config-example.yaml config/config.yaml
 - `COOKIE_SECURE` auto-detects from `PUBLIC_URL` scheme (`https` => true). Override only if necessary via `.env`.
 - Metrics config lives under `metrics:` in `config/config.yaml` (see `config/config-example.yaml`).
 
-## 7. systemd Services
+### 7. systemd Services
 
 Replace `/home/chrome` and `chrome` below with your actual deploy user and path.
 
@@ -178,7 +317,7 @@ sudo systemctl enable --now test_squadron_backend test_squadron_bot
 sudo systemctl status test_squadron_backend test_squadron_bot
 ```
 
-## 8. nginx
+### 8. nginx
 
 Create nginx site config (replace `YOUR_PUBLIC_IP_OR_DOMAIN` with your public IP or domain, and add your LAN IP if you want local testing):
 
@@ -234,14 +373,14 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 9. HTTPS (recommended)
+### 9. HTTPS (recommended)
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
-## 10. Firewall
+### 10. Firewall
 
 ```bash
 sudo ufw allow OpenSSH
@@ -251,7 +390,7 @@ sudo ufw enable
 
 Do not expose port 8081 publicly.
 
-## 11. Verification
+### 11. Verification
 
 Check that services are running and ports are accessible:
 
@@ -272,7 +411,7 @@ sudo ufw status
 - Metrics: join and leave any voice channel, then confirm dashboard metrics update within ~1 minute
 - Logs: `journalctl -u test_squadron_backend -f` and `journalctl -u test_squadron_bot -f`
 
-## 12. Updating
+### 12. Updating
 
 ```bash
 sudo systemctl stop test_squadron_backend test_squadron_bot
@@ -284,7 +423,7 @@ cd web/frontend && npm install && npm run build && cd ../..
 sudo systemctl start test_squadron_backend test_squadron_bot
 ```
 
-## 13. Troubleshooting
+### 13. Troubleshooting
 
 ### nginx 500 Internal Server Error
 

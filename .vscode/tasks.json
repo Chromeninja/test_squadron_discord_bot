@@ -72,16 +72,69 @@
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": ["-m", "pytest", "web/backend/tests/", "-q"],
-      "group": { 
-        "kind": "test", 
-        "isDefault": false 
+      "group": {
+        "kind": "test",
+        "isDefault": false
       },
-      "presentation": { 
-        "reveal": "always", 
-        "panel": "shared" 
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
       },
       "problemMatcher": [],
       "detail": "Run backend tests in quiet mode (faster output)"
+    },
+    {
+      "label": "docker: compose up (build)",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "up", "--build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": [],
+      "detail": "Build and run the full stack (backend + bot) in the foreground with live logs"
+    },
+    {
+      "label": "docker: compose up (detached)",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "up", "-d", "--build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": [],
+      "detail": "Build and run the full stack in the background (detached)"
+    },
+    {
+      "label": "docker: compose build",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": [],
+      "detail": "Build the backend and bot images without starting containers"
+    },
+    {
+      "label": "docker: compose logs",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "logs", "-f"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": [],
+      "detail": "Follow logs from all running compose services"
+    },
+    {
+      "label": "docker: compose down",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "down"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": [],
+      "detail": "Stop and remove containers (the sqlite-data volume is preserved)"
     }
   ]
 }

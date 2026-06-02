@@ -1,6 +1,6 @@
 # Backend-First Migration Roadmap
 
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 
 This document tracks the in-progress migration of TEST Squadron from an in-process
 service architecture to a **backend-first** design where a single FastAPI backend
@@ -81,8 +81,10 @@ One pass, behind a release boundary:
 - [x] **Delete migrated direct-DB service code** — `TicketService`/`TicketFormService` are no
       longer instantiated. Service files remain on disk (not yet deleted) to preserve test
       coverage; file deletion is deferred to Stage 3 clean-up pass.
-- [ ] Deployment: `docker compose up` becomes canonical (bot waits on backend healthcheck);
-      document the new two-process requirement in SETUP.md
+- [x] Deployment: `docker compose up` is now the canonical method (bot waits on backend
+      healthcheck via `depends_on: service_healthy`). The two-process requirement and the
+      SQLite-in-volume persistence model are documented in `documents/SETUP.md`. The backend
+      image now builds and serves the frontend SPA so full-stack testing works in Docker.
 
 > **`services/internal_api.py` stays permanently** — it is the bot's live-Discord RPC surface
 > for the web dashboard (guild/member/role/channel enumeration, scheduled events, voice
@@ -101,6 +103,12 @@ The repository seam makes these single-layer swaps:
 
 ## Deployment impact
 
-Until Stage 2 lands, deployment is unchanged (the bot runs standalone). **After Stage 2,
-the bot requires the backend process to be reachable** — `docker compose up` (backend +
-bot, shared DB volume, bot gated on backend healthcheck) becomes the supported method.
+Stage 2 has landed: **the bot now requires the backend process to be reachable**.
+`docker compose up --build` (backend + bot, shared `sqlite-data` volume mounted at
+`/app/data`, bot gated on the backend healthcheck) is the supported method. The SQLite
+databases live inside the named volume (`config/config.yaml` → `database.path:
+"data/TESTDatabase.db"`, `metrics.database_path: "data/metrics.db"`), so data persists
+across container rebuilds. See `documents/SETUP.md` for the full deployment guide and
+`documents/VS_CODE_SETUP.md` for running the stack from VS Code.
+
+Last updated: 2026-06-02.

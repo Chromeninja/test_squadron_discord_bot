@@ -24,8 +24,6 @@ This map provides a quick view of how the repository is organized, with each maj
 - `PRIVACY.md` — Data handling/privacy policy.
 - `README.md` — Primary project overview and usage.
 - `SECURITY.md` — Security policy and reporting guidance.
-- `SETUP.md` — Deployment and setup instructions.
-- `VS_CODE_SETUP.md` — VS Code local development setup.
 - `bot.py` — Main Discord bot runtime entrypoint.
 - `bot.pyi` — Type stub for bot attributes/contracts.
 - `bot_tasks.py` — Bot task orchestration helpers.
@@ -149,8 +147,11 @@ Configuration loading and examples.
 ### `documents/`
 Centralized repository documentation.
 
-- `README.md`
-- `file-map.md`
+- `README.md` — Documentation index and maintenance checklist.
+- `SETUP.md` — Deployment guide (Docker Compose + manual systemd/nginx).
+- `VS_CODE_SETUP.md` — VS Code local development and Docker testing setup.
+- `backend-first-migration.md` — Backend-first architecture migration roadmap.
+- `file-map.md` — This repository map.
 
 ### `helpers/`
 Reusable utility modules used across bot domains.
@@ -405,8 +406,11 @@ test_squadron_discord_bot/
 │   ├── config-example.yaml — YAML configuration for tooling or workflows.
 │   └── config_loader.py — Python module implementing config loader logic.
 ├── documents/ — Repository documentation hub.
-│   ├── file-map.md — Markdown documentation for this area.
-│   └── README.md — Primary project overview and navigation.
+│   ├── README.md — Documentation index and maintenance checklist.
+│   ├── SETUP.md — Deployment guide (Docker Compose + manual systemd/nginx).
+│   ├── VS_CODE_SETUP.md — VS Code local development and Docker testing setup.
+│   ├── backend-first-migration.md — Backend-first migration roadmap.
+│   └── file-map.md — This repository map.
 ├── helpers/ — Shared helper utilities used across features.
 │   ├── __init__.py — Python package initializer.
 │   ├── announcement.py — Python module implementing announcement logic.
@@ -854,7 +858,5 @@ test_squadron_discord_bot/
 ├── requirements-dev.txt — Development dependency locklist.
 ├── requirements.txt — Runtime dependency list.
 ├── SECURITY.md — Security policy and disclosure process.
-├── SETUP.md — Deployment and setup instructions.
-├── start_bot.py — Startup wrapper for launching the bot.
-└── VS_CODE_SETUP.md — VS Code setup and debugging guide.
+└── start_bot.py — Startup wrapper for launching the bot.
 ```

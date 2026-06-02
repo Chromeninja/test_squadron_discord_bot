@@ -6,7 +6,7 @@ Thank you for contributing! This guide ensures consistent code quality whether y
 
 1. Read the [project copilot instructions](.github/copilot-instructions.md) for coding conventions
 2. Read [`prompts/system/development_guide.md`](prompts/system/development_guide.md) for architecture patterns
-3. Set up your environment per [VS_CODE_SETUP.md](VS_CODE_SETUP.md)
+3. Set up your environment per [documents/VS_CODE_SETUP.md](documents/VS_CODE_SETUP.md)
 
 ## Development Workflow
 
