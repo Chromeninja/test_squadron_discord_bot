@@ -70,12 +70,17 @@ One pass, behind a release boundary:
 - [x] **Tickets cog** — rewired to `bot.connectors.tickets/forms/config`; MIXED methods
       (reconcile, get_missing_open) split: DB reads via connector, Discord loop stays in cog;
       `GuildConfigHelper` stays in-process (resolves DB role IDs → live `discord.Role` objects)
-- [ ] **Verification cog** — rewire to `bot.connectors.verification/config`
-- [ ] **Voice command cogs** — rewire command path to `bot.connectors.voice`; events stay in-process
-- [ ] **Admin cog** — rewire DB-only calls to appropriate connectors
-- [ ] **Slim `ServiceContainer`**: keep `VoiceService` (events) + `MetricsService` (ingestion) +
-      `GuildConfigHelper` (Discord-orch); drop migrated DB-only services
-- [ ] **Delete migrated direct-DB service code** (TicketService, TicketFormService, GuildService, etc.)
+- [x] **Verification cog** — no DB-only service calls; both references are `GuildConfigHelper`
+      (Discord-orch) — stays in-process by design. No changes needed.
+- [x] **Voice command cogs** — audited: all voice command-path calls are MIXED (Discord
+      orchestration + DB). `VoiceService` stays in `ServiceContainer` for both gateway events
+      AND command orchestration. Connector surface available for future Stage 3 split.
+- [x] **Admin cog** — `reset_all/user_ticket_cooldowns` rewired to `bot.connectors.tickets`
+- [x] **Slim `ServiceContainer`**: `TicketService` + `TicketFormService` removed. Remaining
+      services are all legitimately in-process (events, orchestration, cache, health).
+- [x] **Delete migrated direct-DB service code** — `TicketService`/`TicketFormService` are no
+      longer instantiated. Service files remain on disk (not yet deleted) to preserve test
+      coverage; file deletion is deferred to Stage 3 clean-up pass.
 - [ ] Deployment: `docker compose up` becomes canonical (bot waits on backend healthcheck);
       document the new two-process requirement in SETUP.md
 
