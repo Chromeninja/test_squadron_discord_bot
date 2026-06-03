@@ -471,9 +471,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     )
             else:
                 # Deploy to all channels that have channel configs
-                ticket_svc = self.services.ticket
-                configs = await ticket_svc.get_channel_configs(guild_id)
-                channel_ids = [int(c["channel_id"]) for c in configs]
+                if self.bot and self.bot.connectors:
+                    configs = await self.bot.connectors.tickets.list_channel_configs(guild_id)
+                    channel_ids = [int(c["channel_id"]) for c in configs]
+                else:
+                    channel_ids = []
 
                 # Fall back to legacy single-channel setting
                 if not channel_ids:

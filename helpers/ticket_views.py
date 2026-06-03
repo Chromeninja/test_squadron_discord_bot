@@ -237,9 +237,9 @@ async def _delete_ticket(
         return
 
     guild_id = interaction.guild.id
-    ticket_service = bot.services.ticket
+    ticket_connector = bot.connectors.tickets
 
-    ticket = await ticket_service.get_ticket_by_thread(thread.id)
+    ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
     if ticket is None:
         await interaction.followup.send(
             "Could not find a ticket record for this thread.", ephemeral=True
@@ -285,7 +285,7 @@ async def _delete_ticket(
         )
         return
 
-    await ticket_service.mark_thread_deleted(thread.id)
+    await ticket_connector.mark_thread_deleted(guild_id, thread.id)
 
     await _post_deleted_ticket_transcript(
         bot,
@@ -437,13 +437,13 @@ class TicketPanelView(View):
             return
 
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        ticket_connector = self.bot.connectors.tickets
         config_service = self.bot.services.config
 
         # --- Rate-limit check ---
-        allowed = await ticket_service.check_rate_limit(guild_id, interaction.user.id)
+        allowed = await ticket_connector.check_rate_limit(guild_id, interaction.user.id)
         if not allowed:
-            remaining = await ticket_service.get_cooldown_remaining(
+            remaining = await ticket_connector.get_cooldown_remaining(
                 guild_id, interaction.user.id
             )
             await interaction.response.send_message(
@@ -463,7 +463,7 @@ class TicketPanelView(View):
         except (ValueError, TypeError):
             max_open = DEFAULT_MAX_OPEN_PER_USER
 
-        can_open = await ticket_service.check_max_open_tickets(
+        can_open = await ticket_connector.check_max_open_tickets(
             guild_id, interaction.user.id, max_open
         )
         if not can_open:
@@ -476,13 +476,13 @@ class TicketPanelView(View):
 
         # --- Fetch categories for this channel ---
         panel_channel_id = interaction.channel_id or 0
-        categories = await ticket_service.get_categories_for_channel(
+        categories = await ticket_connector.list_categories_for_channel(
             guild_id, panel_channel_id
         )
 
         if not categories:
             # Fall back to all guild categories (legacy / unassigned)
-            categories = await ticket_service.get_categories(guild_id)
+            categories = await ticket_connector.list_categories(guild_id)
 
         if not categories:
             # No categories at all — go straight to description modal
@@ -593,12 +593,13 @@ class TicketCategorySelect(Select):
                 return
 
         # Check for dynamic form configuration
-        ticket_form_service = None
+        form_connector = None
+        guild_id_ctx = interaction.guild.id if interaction.guild else 0
         try:
-            ticket_form_service = self.bot.services.ticket_form
-            has_form = await ticket_form_service.has_form(category["id"])
+            form_connector = self.bot.connectors.forms
+            has_form = await form_connector.has_form(guild_id_ctx, category["id"])
         except (RuntimeError, AttributeError):
-            # Service not available — fall back to legacy
+            # Connector not available — fall back to legacy
             has_form = False
 
         if not has_form:
@@ -615,6 +616,6 @@ class TicketCategorySelect(Select):
             self.bot,
             interaction,
             category,
-            ticket_form_service,
+            form_connector,
             is_public=self._is_public,
         )

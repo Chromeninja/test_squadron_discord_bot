@@ -375,3 +375,70 @@ async def cleanup_expired_sessions(
     """Delete all expired route sessions (global cleanup); returns count deleted."""
     deleted = await repo.cleanup_expired_sessions()
     return {"deleted": deleted}
+
+
+# ------------------------------------------------------------------
+# Form Step Queries
+# ------------------------------------------------------------------
+
+
+@router.get("/guilds/{guild_id}/ticket-forms/steps/{category_id}/{step_number}")
+async def get_step_by_number(
+    _guild_id: int,
+    category_id: int,
+    step_number: int,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketFormRepository = Depends(get_ticket_form_repository),
+) -> dict[str, Any]:
+    """Return a form step by category and step number.
+
+    Returns:
+        {"step": dict} or 404 if not found.
+    """
+    step = await repo.get_step(category_id, step_number)
+    if step is None:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return {"step": step}
+
+
+@router.get("/guilds/{guild_id}/ticket-forms/{category_id}/has-form")
+async def check_has_form(
+    guild_id: int,
+    category_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketFormRepository = Depends(get_ticket_form_repository),
+) -> dict[str, Any]:
+    """Check if a category has a form configured.
+
+    Returns:
+        {"has_form": bool}
+    """
+    has_form = await repo.has_form(category_id)
+    return {"has_form": has_form}
+
+
+@router.post("/guilds/{guild_id}/ticket-forms/{category_id}/resolve-next-step")
+async def resolve_next_step(
+    guild_id: int,
+    category_id: int,
+    payload: dict[str, Any],
+    _: str = Depends(require_bot_api_key),
+    repo: TicketFormRepository = Depends(get_ticket_form_repository),
+) -> dict[str, Any]:
+    """Resolve the next form step based on current answers.
+
+    Expects payload with:
+        current_step_number: int
+        answers: dict (can be empty)
+
+    Returns:
+        {"next_step_number": int | null}
+    """
+    current_step_number = payload.get("current_step_number")
+    answers = payload.get("answers", {})
+    if current_step_number is None:
+        raise HTTPException(status_code=422, detail="Missing current_step_number")
+    next_step = await repo.resolve_next_step(
+        category_id, current_step_number, answers
+    )
+    return {"next_step_number": next_step}

@@ -101,9 +101,9 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        ticket_connector = self.bot.connectors.tickets
 
-        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:
             await interaction.response.send_message(
                 "Could not find a ticket record for this thread.", ephemeral=True
@@ -117,7 +117,7 @@ class TicketActionView(View):
             )
             return
 
-        category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+        category_role_ids = await _get_ticket_category_role_ids(ticket_connector, ticket)
         is_staff = await _get_staff_and_check(
             self.bot,
             guild_id,
@@ -132,7 +132,7 @@ class TicketActionView(View):
 
         # Toggle claim: if already claimed by this user, unclaim
         if ticket.get("claimed_by") == interaction.user.id:
-            await ticket_service.unclaim_ticket(thread.id)
+            await ticket_connector.unclaim_ticket(guild_id, thread.id)
             await interaction.response.send_message(
                 "✅ You have released your claim on this ticket.", ephemeral=True
             )
@@ -154,7 +154,7 @@ class TicketActionView(View):
             return
 
         # Claim it
-        claimed = await ticket_service.claim_ticket(thread.id, interaction.user.id)
+        claimed = await ticket_connector.claim_ticket(guild_id, thread.id, interaction.user.id)
         if not claimed:
             await interaction.response.send_message(
                 "Failed to claim this ticket.", ephemeral=True
@@ -193,10 +193,10 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        ticket_connector = self.bot.connectors.tickets
 
         # Look up the ticket
-        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:
             await interaction.response.send_message(
                 "Could not find a ticket record for this thread.", ephemeral=True
@@ -210,7 +210,7 @@ class TicketActionView(View):
 
         if isinstance(interaction.user, discord.Member):
             category_role_ids = await _get_ticket_category_role_ids(
-                ticket_service, ticket
+                ticket_connector, ticket
             )
             is_staff = await _get_staff_and_check(
                 self.bot,
@@ -245,10 +245,10 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        ticket_connector = self.bot.connectors.tickets
         config_service = self.bot.services.config
 
-        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:
             await interaction.response.send_message(
                 "Could not find a ticket record for this thread.", ephemeral=True
@@ -261,7 +261,7 @@ class TicketActionView(View):
         is_staff = False
         if isinstance(interaction.user, discord.Member):
             category_role_ids = await _get_ticket_category_role_ids(
-                ticket_service, ticket
+                ticket_connector, ticket
             )
             is_staff = await _get_staff_and_check(
                 self.bot,
@@ -291,7 +291,7 @@ class TicketActionView(View):
         except (ValueError, TypeError):
             reopen_window = DEFAULT_REOPEN_WINDOW_HOURS
 
-        can_reopen = await ticket_service.can_reopen(thread.id, reopen_window)
+        can_reopen = await ticket_connector.can_reopen(guild_id, thread.id, reopen_window_hours=reopen_window)
         if not can_reopen:
             await interaction.response.send_message(
                 f"⏳ The reopen window ({reopen_window}h) has passed. "
@@ -302,7 +302,7 @@ class TicketActionView(View):
 
         await interaction.response.defer(ephemeral=True)
 
-        reopened = await ticket_service.reopen_ticket(thread.id, user_id)
+        reopened = await ticket_connector.reopen_ticket(guild_id, thread.id, user_id)
         if not reopened:
             await interaction.followup.send(
                 "This ticket is not closed or could not be reopened.", ephemeral=True
@@ -355,9 +355,9 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        ticket_connector = self.bot.connectors.tickets
 
-        ticket = await ticket_service.get_ticket_by_thread(thread.id)
+        ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:
             await interaction.response.send_message(
                 "Could not find a ticket record for this thread.", ephemeral=True
@@ -370,7 +370,7 @@ class TicketActionView(View):
         is_staff = False
         if isinstance(interaction.user, discord.Member):
             category_role_ids = await _get_ticket_category_role_ids(
-                ticket_service, ticket
+                ticket_connector, ticket
             )
             is_staff = await _get_staff_and_check(
                 self.bot,

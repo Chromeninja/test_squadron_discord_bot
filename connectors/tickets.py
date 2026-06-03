@@ -235,3 +235,49 @@ class TicketsConnector:
             f"/internal/guilds/{guild_id}/tickets/cooldowns/reset-user/{user_id}"
         )
         return bool((resp or {}).get("success", False))
+
+    async def check_rate_limit(self, guild_id: int, user_id: int) -> bool:
+        """Returns True if user is allowed to create a ticket (not rate limited)."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/tickets/rate-limit/{user_id}"
+            )
+            return bool(result.get("allowed", True)) if result else True
+        except Exception:
+            return True
+
+    async def get_cooldown_remaining(self, guild_id: int, user_id: int) -> int:
+        """Returns seconds remaining on the rate limit, or 0 if not limited."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/tickets/cooldown-remaining/{user_id}"
+            )
+            return int(result.get("seconds", 0)) if result else 0
+        except Exception:
+            return 0
+
+    async def check_max_open_tickets(
+        self, guild_id: int, user_id: int, max_open: int = 5
+    ) -> bool:
+        """Returns True if user can open another ticket (below limit)."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/tickets/can-open/{user_id}",
+                params={"max_open": max_open},
+            )
+            return bool(result.get("allowed", True)) if result else True
+        except Exception:
+            return True
+
+    async def can_reopen(
+        self, guild_id: int, thread_id: int, reopen_window_hours: int = 48
+    ) -> bool:
+        """Returns True if ticket can be reopened, False otherwise."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/tickets/can-reopen/{thread_id}",
+                params={"reopen_window_hours": reopen_window_hours},
+            )
+            return bool(result.get("allowed", False)) if result else False
+        except Exception:
+            return False

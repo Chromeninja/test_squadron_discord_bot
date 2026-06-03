@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     import discord
 
+    from connectors.registry import ConnectorRegistry
     from services.service_container import ServiceContainer
 
 
@@ -26,6 +27,7 @@ class BotProtocol(Protocol):
     """
 
     services: ServiceContainer
+    connectors: ConnectorRegistry
 
     def get_channel(
         self,

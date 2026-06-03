@@ -260,3 +260,42 @@ class FormsConnector:
             return result.get("responses", []) if result else []
         except Exception:
             return []
+
+    async def get_step_by_number(
+        self, guild_id: int, category_id: int, step_number: int
+    ) -> dict | None:
+        """Get a form step by category and step number."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/ticket-forms/steps/{category_id}/{step_number}"
+            )
+            return result or None
+        except Exception:
+            return None
+
+    async def has_form(self, guild_id: int, category_id: int) -> bool:
+        """Check if a category has a form configured."""
+        try:
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/ticket-forms/{category_id}/has-form"
+            )
+            return bool(result.get("has_form", False)) if result else False
+        except Exception:
+            return False
+
+    async def resolve_next_step(
+        self,
+        guild_id: int,
+        category_id: int,
+        current_step_number: int,
+        answers: dict | None = None,
+    ) -> int | None:
+        """Resolve the next form step based on current answers."""
+        try:
+            result = await self._c.post(
+                f"/internal/guilds/{guild_id}/ticket-forms/{category_id}/resolve-next-step",
+                json={"current_step_number": current_step_number, "answers": answers or {}},
+            )
+            return result.get("next_step_number") if result else None
+        except Exception:
+            return None

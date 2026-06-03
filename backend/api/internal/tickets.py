@@ -8,12 +8,14 @@ tested with mocked repositories.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.api_key import require_bot_api_key
 from backend.db.repository.tickets import TicketRepository
+from services.db.database import Database
 
 router = APIRouter(prefix="/internal", tags=["internal-tickets"])
 logger = logging.getLogger(__name__)
@@ -528,3 +530,139 @@ async def reset_user_ticket_cooldown(
     """Reset ticket creation cooldown for a specific user in a guild."""
     success = await repo.reset_user_ticket_cooldown(guild_id, user_id)
     return {"success": success}
+
+
+# ------------------------------------------------------------------
+# Rate Limiting & Constraints
+# ------------------------------------------------------------------
+
+RATE_LIMIT_SECONDS = 300
+GLOBAL_COOLDOWN_RESET_USER_ID = 0
+
+
+async def _get_cooldown_floor(
+    guild_id: int,
+    user_id: int,
+    cutoff: int,
+) -> int:
+    """Return effective cutoff considering manual cooldown resets."""
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT MAX(reset_at) FROM ticket_cooldown_resets
+                WHERE guild_id = ? AND user_id IN (?, ?)
+                """,
+                (guild_id, GLOBAL_COOLDOWN_RESET_USER_ID, user_id),
+            )
+            row = await cursor.fetchone()
+        reset_at = row[0] if row else None
+    except Exception:
+        return cutoff
+
+    if reset_at is None:
+        return cutoff
+    return max(cutoff, int(reset_at))
+
+
+@router.get("/guilds/{guild_id}/tickets/rate-limit/{user_id}")
+async def check_rate_limit(
+    guild_id: int,
+    user_id: int,
+    _: str = Depends(require_bot_api_key),
+) -> dict[str, Any]:
+    """Check whether the user can create a new ticket (rate limit check).
+
+    Returns:
+        {"allowed": bool} — True if user is not rate-limited.
+    """
+    cutoff = int(time.time()) - RATE_LIMIT_SECONDS
+    floor = await _get_cooldown_floor(guild_id, user_id, cutoff)
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT 1 FROM tickets
+                WHERE guild_id = ? AND user_id = ? AND created_at > ?
+                """,
+                (guild_id, user_id, floor),
+            )
+            row = await cursor.fetchone()
+        allowed = row is None
+    except Exception:
+        allowed = True
+    return {"allowed": allowed}
+
+
+@router.get("/guilds/{guild_id}/tickets/cooldown-remaining/{user_id}")
+async def get_cooldown_remaining(
+    guild_id: int,
+    user_id: int,
+    _: str = Depends(require_bot_api_key),
+) -> dict[str, Any]:
+    """Get seconds remaining on the rate limit, or 0 if not limited.
+
+    Returns:
+        {"seconds": int} — seconds remaining on cooldown.
+    """
+    cutoff = int(time.time()) - RATE_LIMIT_SECONDS
+    floor = await _get_cooldown_floor(guild_id, user_id, cutoff)
+    try:
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT MAX(created_at) FROM tickets
+                WHERE guild_id = ? AND user_id = ? AND created_at > ?
+                """,
+                (guild_id, user_id, floor),
+            )
+            row = await cursor.fetchone()
+        last_created = row[0] if row else None
+    except Exception:
+        return {"seconds": 0}
+
+    if last_created is None:
+        return {"seconds": 0}
+    remaining = RATE_LIMIT_SECONDS - (int(time.time()) - int(last_created))
+    return {"seconds": max(remaining, 0)}
+
+
+@router.get("/guilds/{guild_id}/tickets/can-open/{user_id}")
+async def can_open_ticket(
+    guild_id: int,
+    user_id: int,
+    max_open: int = 5,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Check if user can open another ticket (below limit).
+
+    Query params:
+        max_open: int = 5 — maximum allowed open tickets.
+
+    Returns:
+        {"allowed": bool} — True if user can open a ticket.
+    """
+    count = await repo.get_open_ticket_count(guild_id, user_id)
+    allowed = count < max_open
+    return {"allowed": allowed}
+
+
+@router.get("/guilds/{guild_id}/tickets/can-reopen/{thread_id}")
+async def check_can_reopen(
+    guild_id: int,
+    thread_id: int,
+    reopen_window_hours: int = 48,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Check if a closed ticket is still within the reopen window.
+
+    Query params:
+        reopen_window_hours: int = 48 — window in hours.
+
+    Returns:
+        {"allowed": bool} — True if ticket can be reopened.
+    """
+    allowed = await repo.can_reopen(thread_id, reopen_window_hours)
+    return {"allowed": allowed}
