@@ -29,7 +29,7 @@ class BotProtocol(Protocol):
 
     def get_channel(
         self,
-        id: int,
+        id: int,  # noqa: A002
         /,
     ) -> (
         discord.abc.GuildChannel | discord.Thread | discord.abc.PrivateChannel | None

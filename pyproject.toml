@@ -190,6 +190,9 @@ skips = ["B608", "B311", "B105", "B603", "B404"]
 
 [tool.mypy]
 python_version = "3.11"
+# bot.pyi is a stub file that clashes with bot.py as a duplicate module name.
+# Mypy can't type-check both simultaneously; the stub exists for IDE hints only.
+exclude = ["bot\\.pyi"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
