@@ -29,7 +29,6 @@ from helpers.ticket_views_helpers import (
     _generate_transcript,
     _log_ticket_event,
 )
-from services.ticket_service import TicketService
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -201,7 +200,7 @@ async def _create_ticket_thread(
 
     # Record in DB
     category_id = category["id"] if category else None
-    ticket_id = await ticket_connector.create_ticket(
+    ticket_data = await ticket_connector.create_ticket(
         guild_id,
         {
             "channel_id": channel.id,
@@ -211,6 +210,7 @@ async def _create_ticket_thread(
             "initial_description": initial_description,
         },
     )
+    ticket_id: int | None = int(ticket_data["id"]) if ticket_data and "id" in ticket_data else None
 
     # Rename thread using standard ticket naming format
     if ticket_id is not None:

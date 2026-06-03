@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.api_key import require_bot_api_key
 from backend.db.repository.ticket_forms import TicketFormRepository
+from backend.db.repository.tickets import TicketRepository
 
 router = APIRouter(prefix="/internal", tags=["internal-ticket-forms"])
 logger = logging.getLogger(__name__)
@@ -24,6 +25,22 @@ def get_ticket_form_repository() -> TicketFormRepository:
     The repository is stateless, so a fresh instance per request is cheap.
     """
     return TicketFormRepository()
+
+
+def get_ticket_repository() -> TicketRepository:
+    """Provide a TicketRepository for guild ownership checks."""
+    return TicketRepository()
+
+
+async def _assert_category_in_guild(
+    guild_id: int,
+    category_id: int,
+    ticket_repo: TicketRepository,
+) -> None:
+    """Raise 404 if category_id does not belong to guild_id."""
+    category = await ticket_repo.get_category(category_id)
+    if category is None or category.get("guild_id") != guild_id:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ------------------------------------------------------------------
@@ -384,17 +401,19 @@ async def cleanup_expired_sessions(
 
 @router.get("/guilds/{guild_id}/ticket-forms/steps/{category_id}/{step_number}")
 async def get_step_by_number(
-    _guild_id: int,
+    guild_id: int,
     category_id: int,
     step_number: int,
     _: str = Depends(require_bot_api_key),
     repo: TicketFormRepository = Depends(get_ticket_form_repository),
+    ticket_repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict[str, Any]:
     """Return a form step by category and step number.
 
     Returns:
         {"step": dict} or 404 if not found.
     """
+    await _assert_category_in_guild(guild_id, category_id, ticket_repo)
     step = await repo.get_step(category_id, step_number)
     if step is None:
         raise HTTPException(status_code=404, detail="Step not found")
@@ -407,12 +426,14 @@ async def check_has_form(
     category_id: int,
     _: str = Depends(require_bot_api_key),
     repo: TicketFormRepository = Depends(get_ticket_form_repository),
+    ticket_repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict[str, Any]:
     """Check if a category has a form configured.
 
     Returns:
         {"has_form": bool}
     """
+    await _assert_category_in_guild(guild_id, category_id, ticket_repo)
     has_form = await repo.has_form(category_id)
     return {"has_form": has_form}
 
@@ -424,6 +445,7 @@ async def resolve_next_step(
     payload: dict[str, Any],
     _: str = Depends(require_bot_api_key),
     repo: TicketFormRepository = Depends(get_ticket_form_repository),
+    ticket_repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict[str, Any]:
     """Resolve the next form step based on current answers.
 
@@ -434,6 +456,7 @@ async def resolve_next_step(
     Returns:
         {"next_step_number": int | null}
     """
+    await _assert_category_in_guild(guild_id, category_id, ticket_repo)
     current_step_number = payload.get("current_step_number")
     answers = payload.get("answers", {})
     if current_step_number is None:

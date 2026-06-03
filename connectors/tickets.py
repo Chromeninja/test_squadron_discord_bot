@@ -237,37 +237,36 @@ class TicketsConnector:
         return bool((resp or {}).get("success", False))
 
     async def check_rate_limit(self, guild_id: int, user_id: int) -> bool:
-        """Returns True if user is allowed to create a ticket (not rate limited)."""
-        try:
-            result = await self._c.get(
-                f"/internal/guilds/{guild_id}/tickets/rate-limit/{user_id}"
-            )
-            return bool(result.get("allowed", True)) if result else True
-        except Exception:
-            return True
+        """Returns True if user is allowed to create a ticket (not rate limited).
+
+        Raises on error rather than failing open — callers must handle
+        connector errors explicitly and deny the action when uncertain.
+        """
+        result = await self._c.get(
+            f"/internal/guilds/{guild_id}/tickets/rate-limit/{user_id}"
+        )
+        return bool(result.get("allowed", False)) if result else False
 
     async def get_cooldown_remaining(self, guild_id: int, user_id: int) -> int:
         """Returns seconds remaining on the rate limit, or 0 if not limited."""
-        try:
-            result = await self._c.get(
-                f"/internal/guilds/{guild_id}/tickets/cooldown-remaining/{user_id}"
-            )
-            return int(result.get("seconds", 0)) if result else 0
-        except Exception:
-            return 0
+        result = await self._c.get(
+            f"/internal/guilds/{guild_id}/tickets/cooldown-remaining/{user_id}"
+        )
+        return int(result.get("seconds", 0)) if result else 0
 
     async def check_max_open_tickets(
         self, guild_id: int, user_id: int, max_open: int = 5
     ) -> bool:
-        """Returns True if user can open another ticket (below limit)."""
-        try:
-            result = await self._c.get(
-                f"/internal/guilds/{guild_id}/tickets/can-open/{user_id}",
-                params={"max_open": max_open},
-            )
-            return bool(result.get("allowed", True)) if result else True
-        except Exception:
-            return True
+        """Returns True if user can open another ticket (below limit).
+
+        Raises on error rather than failing open — callers must handle
+        connector errors explicitly and deny the action when uncertain.
+        """
+        result = await self._c.get(
+            f"/internal/guilds/{guild_id}/tickets/can-open/{user_id}",
+            params={"max_open": max_open},
+        )
+        return bool(result.get("allowed", False)) if result else False
 
     async def can_reopen(
         self, guild_id: int, thread_id: int, reopen_window_hours: int = 48

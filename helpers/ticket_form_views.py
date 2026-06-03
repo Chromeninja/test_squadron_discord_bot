@@ -27,11 +27,11 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
+from services.ticket_form_service import RouteExecutionContext
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from helpers.bot_protocol import BotProtocol
-    from services.ticket_form_service import RouteExecutionContext
 
 logger = get_logger(__name__)
 
@@ -303,19 +303,30 @@ class TicketContinueView(View):
         guild_id = interaction.guild.id
         user_id = interaction.user.id
 
-        ctx = await form_connector.get_session(guild_id, user_id)
-        if ctx is None:
+        ctx_data = await form_connector.get_session(guild_id, user_id)
+        if ctx_data is None:
             await interaction.response.send_message(
                 "⏳ Your session has expired. Please start a new ticket.",
                 ephemeral=True,
             )
             return
 
+        ctx = RouteExecutionContext(
+            guild_id=int(ctx_data["guild_id"]),
+            user_id=int(ctx_data["user_id"]),
+            category_id=int(ctx_data["category_id"]),
+            current_step=int(ctx_data.get("current_step", 1)),
+            collected_answers=ctx_data.get("collected_answers") or {},
+            session_id=ctx_data.get("session_id"),
+            interaction_token=ctx_data.get("interaction_token"),
+            is_public=bool(ctx_data.get("is_public", False)),
+        )
+
         # Load the current step
         step_config = await form_connector.get_step_by_number(
             guild_id,
             ctx.category_id,
-            ctx.current_step
+            ctx.current_step,
         )
         if step_config is None:
             await interaction.response.send_message(

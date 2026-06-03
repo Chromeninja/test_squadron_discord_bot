@@ -578,19 +578,16 @@ async def check_rate_limit(
     """
     cutoff = int(time.time()) - RATE_LIMIT_SECONDS
     floor = await _get_cooldown_floor(guild_id, user_id, cutoff)
-    try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT 1 FROM tickets
-                WHERE guild_id = ? AND user_id = ? AND created_at > ?
-                """,
-                (guild_id, user_id, floor),
-            )
-            row = await cursor.fetchone()
-        allowed = row is None
-    except Exception:
-        allowed = True
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM tickets
+            WHERE guild_id = ? AND user_id = ? AND created_at > ?
+            """,
+            (guild_id, user_id, floor),
+        )
+        row = await cursor.fetchone()
+    allowed = row is None
     return {"allowed": allowed}
 
 
@@ -607,19 +604,16 @@ async def get_cooldown_remaining(
     """
     cutoff = int(time.time()) - RATE_LIMIT_SECONDS
     floor = await _get_cooldown_floor(guild_id, user_id, cutoff)
-    try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT MAX(created_at) FROM tickets
-                WHERE guild_id = ? AND user_id = ? AND created_at > ?
-                """,
-                (guild_id, user_id, floor),
-            )
-            row = await cursor.fetchone()
-        last_created = row[0] if row else None
-    except Exception:
-        return {"seconds": 0}
+    async with Database.get_connection() as db:
+        cursor = await db.execute(
+            """
+            SELECT MAX(created_at) FROM tickets
+            WHERE guild_id = ? AND user_id = ? AND created_at > ?
+            """,
+            (guild_id, user_id, floor),
+        )
+        row = await cursor.fetchone()
+    last_created = row[0] if row else None
 
     if last_created is None:
         return {"seconds": 0}
