@@ -134,12 +134,10 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
             welcome_message=c.get("welcome_message", ""),
             role_ids=[str(r) for r in c.get("role_ids", [])],
             prerequisite_role_ids_all=[
-                str(role_id)
-                for role_id in c.get("prerequisite_role_ids_all", [])
+                str(role_id) for role_id in c.get("prerequisite_role_ids_all", [])
             ],
             prerequisite_role_ids_any=[
-                str(role_id)
-                for role_id in c.get("prerequisite_role_ids_any", [])
+                str(role_id) for role_id in c.get("prerequisite_role_ids_any", [])
             ],
             emoji=c.get("emoji"),
             sort_order=c.get("sort_order", 0),
@@ -285,9 +283,7 @@ def _build_channel_config_list(
             button_text=c.get("button_text", "Create Ticket"),
             button_emoji=c.get("button_emoji", "🎫"),
             enable_public_button=bool(c.get("enable_public_button", 0)),
-            public_button_text=c.get(
-                "public_button_text", "Create Public Ticket"
-            ),
+            public_button_text=c.get("public_button_text", "Create Public Ticket"),
             public_button_emoji=c.get("public_button_emoji", "🌐"),
             private_button_color=c.get("private_button_color"),
             public_button_color=c.get("public_button_color"),
@@ -341,9 +337,7 @@ async def create_channel_config(
     # Check if config already exists
     existing = await svc.get_channel_config(guild_id, int(body.channel_id))
     if existing is not None:
-        raise HTTPException(
-            status_code=409, detail="Channel config already exists"
-        )
+        raise HTTPException(status_code=409, detail="Channel config already exists")
 
     config_id = await svc.create_channel_config(
         guild_id=guild_id,
@@ -361,9 +355,7 @@ async def create_channel_config(
         button_order=body.button_order,
     )
     if config_id is None:
-        raise HTTPException(
-            status_code=500, detail="Failed to create channel config"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create channel config")
 
     # Return updated list
     configs = await svc.get_channel_configs(guild_id)
@@ -406,9 +398,7 @@ async def update_channel_config(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     try:
-        updated = await svc.update_channel_config(
-            guild_id, channel_id_int, **kwargs
-        )
+        updated = await svc.update_channel_config(guild_id, channel_id_int, **kwargs)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -466,7 +456,9 @@ async def list_tickets(
             return None
 
     offset = (page - 1) * page_size
-    tickets = await svc.get_tickets(guild_id, status=status, limit=page_size, offset=offset)
+    tickets = await svc.get_tickets(
+        guild_id, status=status, limit=page_size, offset=offset
+    )
     total = await svc.get_ticket_count(guild_id, status=status)
 
     creator_user_ids: set[int] = {
@@ -484,9 +476,7 @@ async def list_tickets(
     for t in tickets:
         creator_user_id = _parse_ticket_user_id(t.get("user_id"))
         creator_data = (
-            creator_map.get(creator_user_id, {})
-            if creator_user_id is not None
-            else {}
+            creator_map.get(creator_user_id, {}) if creator_user_id is not None else {}
         )
 
         items.append(
@@ -513,9 +503,7 @@ async def list_tickets(
                 reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
             )
         )
-    return TicketListResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )
+    return TicketListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/stats", response_model=TicketStatsResponse)
@@ -548,8 +536,10 @@ async def get_settings(
 
     # Fetch all settings in one batch
     _keys = [
-        "tickets.channel_id", "tickets.panel_message_id",
-        "tickets.log_channel_id", "tickets.close_message",
+        "tickets.channel_id",
+        "tickets.panel_message_id",
+        "tickets.log_channel_id",
+        "tickets.close_message",
         "tickets.default_welcome_message",
     ]
     raw: dict[str, str | None] = {}
@@ -605,7 +595,9 @@ async def update_settings(
     # Transformed settings
     if body.staff_roles is not None:
         await config.set_guild_setting(
-            guild_id, "tickets.staff_roles", json.dumps([int(r) for r in body.staff_roles])
+            guild_id,
+            "tickets.staff_roles",
+            json.dumps([int(r) for r in body.staff_roles]),
         )
     if body.max_open_per_user is not None:
         await config.set_guild_setting(
@@ -638,9 +630,7 @@ async def deploy_panel(
     guild_id = ensure_active_guild(current_user)
 
     try:
-        result = await internal_api.deploy_ticket_panel(
-            guild_id, channel_id=channel_id
-        )
+        result = await internal_api.deploy_ticket_panel(guild_id, channel_id=channel_id)
         return {
             "success": True,
             "message_id": result.get("message_id"),

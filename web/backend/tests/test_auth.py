@@ -2,7 +2,9 @@
 Tests for authentication endpoints.
 """
 
-from urllib.parse import parse_qs, urlparse
+from typing import Any
+from unittest.mock import MagicMock
+from urllib.parse import ParseResult, parse_qs, urlparse
 
 import httpx
 import pytest
@@ -13,13 +15,13 @@ from core.security import (
 )
 from httpx import AsyncClient
 
-pytestmark = pytest.mark.contract
+pytestmark: pytest.MarkDecorator = pytest.mark.contract
 
 
 @pytest.mark.asyncio
-async def test_auth_me_no_session(client: AsyncClient):
+async def test_auth_me_no_session(client: AsyncClient) -> None:
     """Test /api/auth/me without session returns null user."""
-    response = await client.get("/api/auth/me")
+    response: httpx.Response = await client.get("/api/auth/me")
 
     # Should succeed but user should be None
     assert response.status_code == 200
@@ -29,9 +31,11 @@ async def test_auth_me_no_session(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_auth_me_with_admin_session(client: AsyncClient, mock_admin_session: str):
+async def test_auth_me_with_admin_session(
+    client: AsyncClient, mock_admin_session: str
+) -> None:
     """Test /api/auth/me with valid admin session."""
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/me",
         cookies={"session": mock_admin_session},
     )
@@ -52,14 +56,14 @@ async def test_assume_role_downgrades_bot_owner_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Bot owners should be able to assume lower roles for dashboard testing."""
-    audit_calls: list[dict] = []
+    audit_calls: list[dict[str, Any]] = []
 
-    async def fake_log_admin_action(**kwargs) -> None:
+    async def fake_log_admin_action(**kwargs: Any) -> None:
         audit_calls.append(kwargs)
 
     monkeypatch.setattr("routes.auth.log_admin_action", fake_log_admin_action)
 
-    owner_session = await create_session_token_async(
+    owner_session: str = await create_session_token_async(
         {
             "user_id": "246604397155581954",
             "username": "TestOwner",
@@ -77,7 +81,7 @@ async def test_assume_role_downgrades_bot_owner_session(
         }
     )
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/assume-role",
         json={"role_level": "staff"},
         cookies={"session": owner_session},
@@ -90,7 +94,7 @@ async def test_assume_role_downgrades_bot_owner_session(
     assert permission["assumed_role_level"] == "staff"
     assert permission["role_level"] == "staff"
 
-    new_session = response.cookies.get("session")
+    new_session: str | None = response.cookies.get("session")
     assert new_session
     decoded = await decode_session_token(new_session)
     assert decoded is not None
@@ -112,14 +116,14 @@ async def test_clear_assumed_role_restores_bot_owner_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Clearing an assumed role should restore the base effective role."""
-    audit_calls: list[dict] = []
+    audit_calls: list[dict[str, Any]] = []
 
-    async def fake_log_admin_action(**kwargs) -> None:
+    async def fake_log_admin_action(**kwargs: Any) -> None:
         audit_calls.append(kwargs)
 
     monkeypatch.setattr("routes.auth.log_admin_action", fake_log_admin_action)
 
-    owner_session = await create_session_token_async(
+    owner_session: str = await create_session_token_async(
         {
             "user_id": "246604397155581954",
             "username": "TestOwner",
@@ -139,7 +143,7 @@ async def test_clear_assumed_role_restores_bot_owner_session(
         }
     )
 
-    response = await client.delete(
+    response: httpx.Response = await client.delete(
         "/api/auth/assume-role",
         cookies={"session": owner_session},
     )
@@ -166,7 +170,7 @@ async def test_assume_role_rejects_non_bot_owner(
     mock_admin_session: str,
 ) -> None:
     """Only bot owners can assume dashboard roles."""
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/assume-role",
         json={"role_level": "staff"},
         cookies={"session": mock_admin_session},
@@ -178,7 +182,7 @@ async def test_assume_role_rejects_non_bot_owner(
 @pytest.mark.asyncio
 async def test_assume_role_rejects_bot_owner_target(client: AsyncClient) -> None:
     """Role switching should not allow assuming bot_owner as a target."""
-    owner_session = await create_session_token_async(
+    owner_session: str = await create_session_token_async(
         {
             "user_id": "246604397155581954",
             "username": "TestOwner",
@@ -196,7 +200,7 @@ async def test_assume_role_rejects_bot_owner_target(client: AsyncClient) -> None
         }
     )
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/assume-role",
         json={"role_level": "bot_owner"},
         cookies={"session": owner_session},
@@ -208,9 +212,9 @@ async def test_assume_role_rejects_bot_owner_target(client: AsyncClient) -> None
 @pytest.mark.asyncio
 async def test_auth_me_with_moderator_session(
     client: AsyncClient, mock_moderator_session: str
-):
+) -> None:
     """Test /api/auth/me with valid moderator session."""
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/me",
         cookies={"session": mock_moderator_session},
     )
@@ -226,28 +230,28 @@ async def test_auth_me_with_moderator_session(
 
 
 @pytest.mark.asyncio
-async def test_login_redirect(client: AsyncClient):
+async def test_login_redirect(client: AsyncClient) -> None:
     """Test /auth/login redirects to Discord."""
-    response = await client.get("/auth/login", follow_redirects=False)
+    response: httpx.Response = await client.get("/auth/login", follow_redirects=False)
 
     assert response.status_code == 307  # Redirect
-    redirect_url = response.headers["location"]
-    parsed = urlparse(redirect_url)
+    redirect_url: str = response.headers["location"]
+    parsed: ParseResult = urlparse(redirect_url)
 
     assert parsed.scheme == "https"
     assert parsed.hostname == "discord.com"
     assert parsed.path == "/api/oauth2/authorize"
 
-    query_params = parse_qs(parsed.query)
+    query_params: dict[str, list[str]] = parse_qs(parsed.query)
     # Verify state parameter is included for CSRF protection
     assert query_params.get("state")
 
 
 @pytest.mark.asyncio
-async def test_callback_rejects_invalid_state(client: AsyncClient):
+async def test_callback_rejects_invalid_state(client: AsyncClient) -> None:
     """Test that callback rejects requests with invalid or missing state token."""
     # Test with missing state
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/auth/callback",
         params={"code": "test_code"},
         follow_redirects=False,
@@ -256,22 +260,22 @@ async def test_callback_rejects_invalid_state(client: AsyncClient):
     assert "state" in response.text.lower()
 
     # Test with invalid state
-    response = await client.get(
+    response_invalid: httpx.Response = await client.get(
         "/auth/callback",
         params={"code": "test_code", "state": "invalid_state_token"},
         follow_redirects=False,
     )
-    assert response.status_code == 400
-    assert "state" in response.text.lower()
+    assert response_invalid.status_code == 400
+    assert "state" in response_invalid.text.lower()
 
 
 @pytest.mark.asyncio
-async def test_oauth_state_is_one_time_use(client: AsyncClient):
+async def test_oauth_state_is_one_time_use(client: AsyncClient) -> None:
     """Test that OAuth state tokens can only be used once (prevents replay attacks)."""
     from core.security import generate_oauth_state, validate_oauth_state
 
     # Generate a state
-    state = generate_oauth_state()
+    state: str = generate_oauth_state()
 
     # First validation should succeed
     assert validate_oauth_state(state) is True
@@ -281,14 +285,16 @@ async def test_oauth_state_is_one_time_use(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_oauth_state_expires_after_5_minutes(client: AsyncClient, monkeypatch):
+async def test_oauth_state_expires_after_5_minutes(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test that OAuth state tokens expire after 5 minutes."""
     from datetime import UTC, datetime
 
     from core.security import _oauth_states, generate_oauth_state, validate_oauth_state
 
     # Generate a state
-    state = generate_oauth_state()
+    state: str = generate_oauth_state()
 
     # Manually backdate the state timestamp to simulate expiration
     # State was created "6 minutes ago" (360 seconds)
@@ -299,7 +305,7 @@ async def test_oauth_state_expires_after_5_minutes(client: AsyncClient, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_cleanup_expired_states():
+async def test_cleanup_expired_states() -> None:
     """Test that expired OAuth states are properly cleaned up."""
     from datetime import UTC, datetime
 
@@ -310,8 +316,8 @@ async def test_cleanup_expired_states():
     )
 
     # Generate some states
-    fresh_state = generate_oauth_state()
-    old_state = generate_oauth_state()
+    fresh_state: str = generate_oauth_state()
+    old_state: str = generate_oauth_state()
 
     # Backdate one state to make it expired
     _oauth_states[old_state] = datetime.now(UTC).timestamp() - 400  # >5 minutes
@@ -331,15 +337,15 @@ async def test_cleanup_expired_states():
 async def test_get_guilds_returns_active_list(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
-):
+    fake_internal_api: Any,
+) -> None:
     """Ensure /api/auth/guilds proxies through the internal API client."""
     fake_internal_api.guilds = [
         {"guild_id": 1, "guild_name": "Alpha", "icon_url": "https://example.com/a.png"},
         {"guild_id": 2, "guild_name": "Bravo", "icon_url": None},
     ]
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/guilds",
         cookies={"session": mock_admin_session},
     )
@@ -355,21 +361,21 @@ async def test_get_guilds_returns_active_list(
 async def test_select_guild_sets_session_cookie(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
-):
+    fake_internal_api: Any,
+) -> None:
     """Selecting a guild should update the session cookie with the guild ID."""
     fake_internal_api.guilds = [
         {"guild_id": 123, "guild_name": "Alpha", "icon_url": None},
     ]
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/select-guild",
         json={"guild_id": "123"},
         cookies={"session": mock_admin_session},
     )
 
     assert response.status_code == 200
-    new_session = response.cookies.get("session")
+    new_session: str | None = response.cookies.get("session")
     assert new_session
 
     decoded = await decode_session_token(new_session)
@@ -381,13 +387,13 @@ async def test_select_guild_sets_session_cookie(
 async def test_select_guild_rejects_unknown_guild(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
-):
+    fake_internal_api: Any,
+) -> None:
     fake_internal_api.guilds = [
         {"guild_id": 999, "guild_name": "Known", "icon_url": None},
     ]
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/select-guild",
         json={"guild_id": "1000"},
         cookies={"session": mock_admin_session},
@@ -401,11 +407,11 @@ async def test_select_guild_rejects_unknown_guild(
 async def test_select_guild_allows_when_internal_api_empty(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
-):
+    fake_internal_api: Any,
+) -> None:
     fake_internal_api.guilds = []
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/select-guild",
         json={"guild_id": "321"},
         cookies={"session": mock_admin_session},
@@ -418,18 +424,18 @@ async def test_select_guild_allows_when_internal_api_empty(
 async def test_get_guilds_falls_back_to_session_when_internal_api_unavailable(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
+    fake_internal_api: Any,
 ) -> None:
     """Guild list should remain available from the session during internal API outages."""
 
-    async def raise_request_error(*args, **kwargs) -> list[dict]:
+    async def raise_request_error(*args: Any, **kwargs: Any) -> list[dict]:
         request = httpx.Request("GET", "http://test/internal")
         raise httpx.RequestError("internal api unavailable", request=request)
 
     fake_internal_api.get_guilds = raise_request_error
     fake_internal_api.get_guild_member = raise_request_error
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/guilds?force_refresh=1",
         cookies={"session": mock_admin_session},
     )
@@ -441,28 +447,74 @@ async def test_get_guilds_falls_back_to_session_when_internal_api_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_get_guilds_fallback_excludes_non_installed_session_guilds(
+    client: AsyncClient,
+    fake_internal_api: Any,
+) -> None:
+    """Fallback mode should never return guilds missing from guild_settings."""
+
+    custom_session: str = await create_session_token_async(
+        {
+            "user_id": "246604397155581954",
+            "username": "TestAdmin",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": "123",
+            "authorized_guilds": {
+                "123": {
+                    "guild_id": "123",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
+                "555": {
+                    "guild_id": "555",
+                    "role_level": "bot_admin",
+                    "source": "bot_admin_role",
+                },
+            },
+        }
+    )
+
+    async def raise_request_error(*args: Any, **kwargs: Any) -> list[dict]:
+        request = httpx.Request("GET", "http://test/internal")
+        raise httpx.RequestError("internal api unavailable", request=request)
+
+    fake_internal_api.get_guilds = raise_request_error
+
+    response: httpx.Response = await client.get(
+        "/api/auth/guilds?force_refresh=1",
+        cookies={"session": custom_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert [guild["guild_id"] for guild in data["guilds"]] == ["123"]
+
+
+@pytest.mark.asyncio
 async def test_select_guild_uses_session_guilds_when_internal_api_unavailable(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
+    fake_internal_api: Any,
 ) -> None:
     """Guild selection should continue to work for already-authorized guilds."""
 
-    async def raise_request_error(*args, **kwargs) -> list[dict]:
+    async def raise_request_error(*args: Any, **kwargs: Any) -> list[dict]:
         request = httpx.Request("GET", "http://test/internal")
         raise httpx.RequestError("internal api unavailable", request=request)
 
     fake_internal_api.get_guilds = raise_request_error
     fake_internal_api.get_guild_member = raise_request_error
 
-    response = await client.post(
+    response: httpx.Response = await client.post(
         "/api/auth/select-guild",
         json={"guild_id": "123"},
         cookies={"session": mock_admin_session},
     )
 
     assert response.status_code == 200
-    new_session = response.cookies.get("session")
+    new_session: str | None = response.cookies.get("session")
     assert new_session
 
     decoded = await decode_session_token(new_session)
@@ -474,7 +526,7 @@ async def test_select_guild_uses_session_guilds_when_internal_api_unavailable(
 async def test_get_guilds_revokes_access_on_role_mismatch(
     client: AsyncClient,
     mock_admin_session: str,
-    fake_internal_api,
+    fake_internal_api: Any,
 ) -> None:
     """Live role mismatches should still revoke stale session access."""
 
@@ -487,7 +539,7 @@ async def test_get_guilds_revokes_access_on_role_mismatch(
 
     fake_internal_api.get_guild_member = mismatched_member
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/guilds?force_refresh=1",
         cookies={"session": mock_admin_session},
     )
@@ -497,94 +549,14 @@ async def test_get_guilds_revokes_access_on_role_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_callback_grants_access_to_guild_owner(client: AsyncClient, monkeypatch):
-    """Test that guild owners are granted admin access even without configured roles."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    # Mock OAuth token exchange
-    async def mock_post(*args, **kwargs):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json = lambda: {
-            "access_token": "mock_token",
-            "token_type": "Bearer",
-        }
-        return mock_response
-
-    # Mock Discord API calls
-    async def mock_get(url, *args, **kwargs):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-
-        if "/users/@me/guilds" in url and "/member" not in url:
-            # Return guilds where user is owner
-            mock_response.json = lambda: [
-                {
-                    "id": "246486575137947648",
-                    "name": "Test Guild",
-                    "owner": True,  # User is guild owner
-                    "permissions": "2147483647",  # All permissions
-                }
-            ]
-        elif "/users/@me" in url:
-            # Return user info
-            mock_response.json = lambda: {
-                "id": "123456789",
-                "username": "TestOwner",
-                "discriminator": "0001",
-                "avatar": None,
-            }
-
-        return mock_response
-
-    # Mock httpx client
-    mock_client = MagicMock()
-    mock_client.post = AsyncMock(side_effect=mock_post)
-    mock_client.get = AsyncMock(side_effect=mock_get)
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-
-    monkeypatch.setattr(
-        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
-    )
-
-    # Generate valid OAuth state for CSRF validation
-    valid_state = generate_oauth_state()
-
-    response = await client.get(
-        "/auth/callback",
-        params={"code": "test_code", "state": valid_state},
-        follow_redirects=False,
-    )
-
-    # Should redirect successfully
-    assert response.status_code == 307
-
-    # Check session cookie
-    session_cookie = response.cookies.get("session")
-    assert session_cookie is not None
-
-    from core.security import decode_session_token
-
-    session_data = await decode_session_token(session_cookie)
-    assert session_data is not None
-    # Check authorized_guilds structure
-    assert "246486575137947648" in session_data["authorized_guilds"]
-    guild_permission = session_data["authorized_guilds"]["246486575137947648"]
-    assert (
-        guild_permission["role_level"] == "bot_admin"
-    )  # Guild owners get bot_admin level
-    assert guild_permission["source"] == "discord_owner"
-
-
-@pytest.mark.asyncio
-async def test_callback_redirects_to_preserved_next_path(
-    client: AsyncClient, monkeypatch
+async def test_callback_grants_access_to_guild_owner(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OAuth callback should redirect to the state-preserved frontend path."""
-    from unittest.mock import AsyncMock, MagicMock
+    """Test that guild owners are granted admin access even without configured roles."""
+    from unittest.mock import AsyncMock
 
-    async def mock_post(*args, **kwargs):
+    async def mock_post(*args: Any, **kwargs: Any) -> Any:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json = lambda: {
@@ -593,14 +565,14 @@ async def test_callback_redirects_to_preserved_next_path(
         }
         return mock_response
 
-    async def mock_get(url, *args, **kwargs):
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> Any:
         mock_response = MagicMock()
         mock_response.status_code = 200
 
         if "/users/@me/guilds" in url and "/member" not in url:
             mock_response.json = lambda: [
                 {
-                    "id": "246486575137947648",
+                    "id": "123",
                     "name": "Test Guild",
                     "owner": True,
                     "permissions": "2147483647",
@@ -626,31 +598,37 @@ async def test_callback_redirects_to_preserved_next_path(
         "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
     )
 
-    valid_state = generate_oauth_state(
-        next_path="/dashboard/246486575137947648/metrics"
-    )
+    valid_state: str = generate_oauth_state()
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/auth/callback",
         params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
     )
 
     assert response.status_code == 307
-    assert response.headers["location"].endswith(
-        "/dashboard/246486575137947648/metrics"
-    )
+
+    session_cookie: str | None = response.cookies.get("session")
+    assert session_cookie is not None
+
+    from core.security import decode_session_token
+
+    session_data = await decode_session_token(session_cookie)
+    assert session_data is not None
+    assert "123" in session_data["authorized_guilds"]
+    guild_permission = session_data["authorized_guilds"]["123"]
+    assert guild_permission["role_level"] == "bot_admin"
+    assert guild_permission["source"] == "discord_owner"
 
 
 @pytest.mark.asyncio
-async def test_callback_grants_access_to_administrator(
-    client: AsyncClient, monkeypatch
-):
-    """Test that users with Discord administrator permission are granted admin access."""
-    from unittest.mock import AsyncMock, MagicMock
+async def test_callback_redirects_to_preserved_next_path(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OAuth callback should redirect to the state-preserved frontend path."""
+    from unittest.mock import AsyncMock
 
-    # Mock OAuth token exchange
-    async def mock_post(*args, **kwargs):
+    async def mock_post(*args: Any, **kwargs: Any) -> Any:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json = lambda: {
@@ -659,33 +637,29 @@ async def test_callback_grants_access_to_administrator(
         }
         return mock_response
 
-    # Mock Discord API calls
-    async def mock_get(url, *args, **kwargs):
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> Any:
         mock_response = MagicMock()
         mock_response.status_code = 200
 
         if "/users/@me/guilds" in url and "/member" not in url:
-            # Return guilds where user has administrator permission
             mock_response.json = lambda: [
                 {
-                    "id": "246486575137947648",
+                    "id": "123",
                     "name": "Test Guild",
-                    "owner": False,
-                    "permissions": "8",  # Administrator permission (0x8)
+                    "owner": True,
+                    "permissions": "2147483647",
                 }
             ]
         elif "/users/@me" in url:
-            # Return user info
             mock_response.json = lambda: {
-                "id": "987654321",
-                "username": "TestAdmin",
-                "discriminator": "0002",
+                "id": "123456789",
+                "username": "TestOwner",
+                "discriminator": "0001",
                 "avatar": None,
             }
 
         return mock_response
 
-    # Mock httpx client
     mock_client = MagicMock()
     mock_client.post = AsyncMock(side_effect=mock_post)
     mock_client.get = AsyncMock(side_effect=mock_get)
@@ -696,42 +670,100 @@ async def test_callback_grants_access_to_administrator(
         "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
     )
 
-    # Generate valid OAuth state for CSRF validation
-    valid_state = generate_oauth_state()
+    valid_state: str = generate_oauth_state(next_path="/dashboard/123/metrics")
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/auth/callback",
         params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
     )
 
-    # Should redirect successfully
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/dashboard/123/metrics")
+
+
+@pytest.mark.asyncio
+async def test_callback_grants_access_to_administrator(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that users with Discord administrator permission are granted admin access."""
+    from unittest.mock import AsyncMock
+
+    async def mock_post(*args: Any, **kwargs: Any) -> Any:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> Any:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            mock_response.json = lambda: [
+                {
+                    "id": "123",
+                    "name": "Test Guild",
+                    "owner": False,
+                    "permissions": "8",
+                }
+            ]
+        elif "/users/@me" in url:
+            mock_response.json = lambda: {
+                "id": "987654321",
+                "username": "TestAdmin",
+                "discriminator": "0002",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
+
+    valid_state: str = generate_oauth_state()
+
+    response: httpx.Response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code", "state": valid_state},
+        follow_redirects=False,
+    )
+
     assert response.status_code == 307
 
-    # Check session cookie
-    session_cookie = response.cookies.get("session")
+    session_cookie: str | None = response.cookies.get("session")
     assert session_cookie is not None
 
     from core.security import decode_session_token
 
     session_data = await decode_session_token(session_cookie)
     assert session_data is not None
-    # Check authorized_guilds structure
-    assert "246486575137947648" in session_data["authorized_guilds"]
-    guild_permission = session_data["authorized_guilds"]["246486575137947648"]
+    assert "123" in session_data["authorized_guilds"]
+    guild_permission = session_data["authorized_guilds"]["123"]
     assert guild_permission["role_level"] == "bot_admin"
     assert guild_permission["source"] == "discord_administrator"
 
 
 @pytest.mark.asyncio
 async def test_callback_denies_access_without_permissions(
-    client: AsyncClient, monkeypatch
-):
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test that users without owner/admin/configured roles are denied access."""
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
 
     # Mock OAuth token exchange
-    async def mock_post(*args, **kwargs):
+    async def mock_post(*args: Any, **kwargs: Any) -> MagicMock:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json = lambda: {
@@ -741,7 +773,7 @@ async def test_callback_denies_access_without_permissions(
         return mock_response
 
     # Mock Discord API calls
-    async def mock_get(url, *args, **kwargs):
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
         mock_response = MagicMock()
         mock_response.status_code = 200
 
@@ -783,9 +815,9 @@ async def test_callback_denies_access_without_permissions(
     )
 
     # Generate valid OAuth state for CSRF validation
-    valid_state = generate_oauth_state()
+    valid_state: str = generate_oauth_state()
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/auth/callback",
         params={"code": "test_code", "state": valid_state},
         follow_redirects=False,
@@ -796,17 +828,216 @@ async def test_callback_denies_access_without_permissions(
     assert "Access Denied" in response.text
 
 
+@pytest.mark.asyncio
+async def test_callback_bot_owner_excludes_non_installed_guilds(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bot-owner sessions should include only guilds where the bot is configured."""
+    from unittest.mock import AsyncMock
+
+    async def mock_post(*args: Any, **kwargs: Any) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            mock_response.json = lambda: [
+                {
+                    "id": "123",
+                    "name": "Installed Guild",
+                    "owner": False,
+                    "permissions": "0",
+                },
+                {
+                    "id": "555",
+                    "name": "Not Installed Guild",
+                    "owner": False,
+                    "permissions": "0",
+                },
+            ]
+        elif "/users/@me" in url:
+            mock_response.json = lambda: {
+                "id": "123456789",
+                "username": "TestOwner",
+                "discriminator": "0001",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    class MockInternalAPIClient:
+        async def get_bot_owner_ids(self) -> list[int]:
+            return [123456789]
+
+        async def close(self) -> None:
+            return None
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
+    monkeypatch.setattr("routes.auth.InternalAPIClient", MockInternalAPIClient)
+
+    valid_state: str = generate_oauth_state()
+    response: httpx.Response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code", "state": valid_state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+
+    session_cookie: str | None = response.cookies.get("session")
+    assert session_cookie is not None
+
+    session_data = await decode_session_token(session_cookie)
+    assert session_data is not None
+    assert set(session_data["authorized_guilds"]) == {"123"}
+    assert session_data["authorized_guilds"]["123"]["role_level"] == "bot_owner"
+
+
+@pytest.mark.asyncio
+async def test_callback_allows_bot_owner_with_no_installed_guilds(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bot owners should be able to complete OAuth when no guild is installed yet."""
+    from unittest.mock import AsyncMock
+
+    async def mock_post(*args: Any, **kwargs: Any) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: {
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+        }
+        return mock_response
+
+    async def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        if "/users/@me/guilds" in url and "/member" not in url:
+            mock_response.json = lambda: [
+                {
+                    "id": "555",
+                    "name": "New Guild",
+                    "owner": True,
+                    "permissions": "2147483647",
+                }
+            ]
+        elif "/users/@me" in url:
+            mock_response.json = lambda: {
+                "id": "123456789",
+                "username": "BootstrapOwner",
+                "discriminator": "0001",
+                "avatar": None,
+            }
+
+        return mock_response
+
+    class MockInternalAPIClient:
+        async def get_bot_owner_ids(self) -> list[int]:
+            return [123456789]
+
+        async def get_guilds(self) -> list[dict]:
+            return []
+
+        async def close(self) -> None:
+            return None
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=mock_post)
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    async def fetch_all_empty(*args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(
+        "routes.auth.httpx.AsyncClient", lambda *args, **kwargs: mock_client
+    )
+    monkeypatch.setattr("routes.auth.InternalAPIClient", MockInternalAPIClient)
+    monkeypatch.setattr(
+        "services.db.repository.BaseRepository.fetch_all",
+        fetch_all_empty,
+    )
+
+    valid_state: str = generate_oauth_state()
+    response: httpx.Response = await client.get(
+        "/auth/callback",
+        params={"code": "test_code", "state": valid_state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+
+    session_cookie: str | None = response.cookies.get("session")
+    assert session_cookie is not None
+
+    session_data = await decode_session_token(session_cookie)
+    assert session_data is not None
+    assert session_data["is_bot_owner"] is True
+    assert session_data["authorized_guilds"] == {}
+
+
+@pytest.mark.asyncio
+async def test_get_guilds_allows_bot_owner_with_no_authorized_guilds(
+    client: AsyncClient,
+    fake_internal_api: Any,
+) -> None:
+    """Bot owners should be able to load empty guild list before any install."""
+    empty_owner_session: str = await create_session_token_async(
+        {
+            "user_id": "246604397155581954",
+            "username": "Owner",
+            "discriminator": "0001",
+            "avatar": None,
+            "active_guild_id": None,
+            "is_bot_owner": True,
+            "authorized_guilds": {},
+        }
+    )
+
+    fake_internal_api.guilds = []
+
+    response: httpx.Response = await client.get(
+        "/api/auth/guilds",
+        cookies={"session": empty_owner_session},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["guilds"] == []
+
+
 # ---------------------------------------------------------------------------
 # Session Expiration Tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_session_token_contains_expiration():
+async def test_session_token_contains_expiration() -> None:
     """Session tokens should store issued/expiry metadata in server payload."""
 
-    user_data = {"user_id": "123", "username": "test"}
-    token = await create_session_token_async(user_data)
+    user_data: dict[str, str] = {"user_id": "123", "username": "test"}
+    token: str = await create_session_token_async(user_data)
 
     decoded = await decode_session_token(token)
     assert decoded is not None
@@ -816,10 +1047,10 @@ async def test_session_token_contains_expiration():
 
 
 @pytest.mark.asyncio
-async def test_expired_session_token_rejected():
+async def test_expired_session_token_rejected() -> None:
     """Expired server-side session should not resolve."""
 
-    expired_token = await create_session_token_async(
+    expired_token: str = await create_session_token_async(
         {"user_id": "123", "username": "test"}, expires_in_seconds=0
     )
 
@@ -828,14 +1059,14 @@ async def test_expired_session_token_rejected():
 
 
 @pytest.mark.asyncio
-async def test_expired_session_returns_null_user(client: AsyncClient):
+async def test_expired_session_returns_null_user(client: AsyncClient) -> None:
     """API should gracefully return null user for expired session cookie."""
 
-    expired_token = await create_session_token_async(
+    expired_token: str = await create_session_token_async(
         {"user_id": "123", "username": "test"}, expires_in_seconds=0
     )
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/me",
         cookies={"session": expired_token},
     )
@@ -847,20 +1078,20 @@ async def test_expired_session_returns_null_user(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_tampered_session_token_rejected():
+async def test_tampered_session_token_rejected() -> None:
     """Tampered signed tokens should fail signature validation."""
 
-    valid_token = await create_session_token_async(
+    valid_token: str = await create_session_token_async(
         {"user_id": "123", "username": "test"}
     )
-    tampered_token = valid_token + "broken"
+    tampered_token: str = valid_token + "broken"
 
     result = await decode_session_token(tampered_token)
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_session_max_age_is_7_days():
+async def test_session_max_age_is_7_days() -> None:
     """Test that session configuration uses 7-day expiration."""
     from core.security import JWT_EXPIRATION_HOURS, SESSION_MAX_AGE
 
@@ -872,10 +1103,12 @@ async def test_session_max_age_is_7_days():
 
 
 @pytest.mark.asyncio
-async def test_bot_invite_url_uses_least_privilege_permissions(client: AsyncClient):
+async def test_bot_invite_url_uses_least_privilege_permissions(
+    client: AsyncClient,
+) -> None:
     """Bot invite URL should not request Administrator permissions by default."""
 
-    owner_session = await create_session_token_async(
+    owner_session: str = await create_session_token_async(
         {
             "user_id": "1",
             "username": "BotOwner",
@@ -886,7 +1119,7 @@ async def test_bot_invite_url_uses_least_privilege_permissions(client: AsyncClie
         }
     )
 
-    response = await client.get(
+    response: httpx.Response = await client.get(
         "/api/auth/bot-invite-url",
         cookies={"session": owner_session},
     )

@@ -215,7 +215,7 @@ const SelectServer = ({ onSelected, user }: SelectServerProps) => {
                 </p>
               </Card>
             )}
-            
+
             {guilds.map((guild) => (
               <Card
                 key={guild.guild_id}

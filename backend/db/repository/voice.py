@@ -277,7 +277,10 @@ class VoiceRepository:
                 (guild_id,),
             )
             rows = await cursor.fetchall()
-        return [{"owner_id": r[0], "voice_channel_id": r[1], "created_at": r[2]} for r in rows]
+        return [
+            {"owner_id": r[0], "voice_channel_id": r[1], "created_at": r[2]}
+            for r in rows
+        ]
 
     async def get_active_channel_ids(self, guild_id: int) -> list[int]:
         """Return a flat list of active voice_channel_id values for a guild."""

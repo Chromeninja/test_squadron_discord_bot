@@ -13,7 +13,9 @@ class TicketsConnector:
 
     async def get_ticket(self, guild_id: int, ticket_id: int) -> dict | None:
         try:
-            result = await self._c.get(f"/internal/guilds/{guild_id}/tickets/{ticket_id}")
+            result = await self._c.get(
+                f"/internal/guilds/{guild_id}/tickets/{ticket_id}"
+            )
             return result.get("ticket") if isinstance(result, dict) else result
         except Exception:
             return None
@@ -60,7 +62,9 @@ class TicketsConnector:
         )
         return result.get("category", result) if isinstance(result, dict) else result
 
-    async def update_category(self, guild_id: int, category_id: int, data: dict) -> dict:
+    async def update_category(
+        self, guild_id: int, category_id: int, data: dict
+    ) -> dict:
         result = await self._c.patch(
             f"/internal/guilds/{guild_id}/ticket-categories/{category_id}",
             json=data,
@@ -68,7 +72,9 @@ class TicketsConnector:
         return result.get("category", result) if isinstance(result, dict) else result
 
     async def delete_category(self, guild_id: int, category_id: int) -> None:
-        await self._c.delete(f"/internal/guilds/{guild_id}/ticket-categories/{category_id}")
+        await self._c.delete(
+            f"/internal/guilds/{guild_id}/ticket-categories/{category_id}"
+        )
 
     # ------------------------------------------------------------------
     # Channel Configs
@@ -103,7 +109,9 @@ class TicketsConnector:
         return result.get("config", result) if isinstance(result, dict) else result
 
     async def delete_channel_config(self, guild_id: int, channel_id: int) -> None:
-        await self._c.delete(f"/internal/guilds/{guild_id}/ticket-channels/{channel_id}")
+        await self._c.delete(
+            f"/internal/guilds/{guild_id}/ticket-channels/{channel_id}"
+        )
 
     # ------------------------------------------------------------------
     # Ticket Queries & Actions
@@ -122,7 +130,9 @@ class TicketsConnector:
         except Exception:
             return None
 
-    async def claim_ticket(self, guild_id: int, thread_id: int, claimed_by: int) -> bool:
+    async def claim_ticket(
+        self, guild_id: int, thread_id: int, claimed_by: int
+    ) -> bool:
         result = await self._c.post(
             f"/internal/guilds/{guild_id}/tickets/by-thread/{thread_id}/claim",
             json={"claimed_by": claimed_by},
@@ -145,7 +155,11 @@ class TicketsConnector:
         return result.get("reopened", False) if isinstance(result, dict) else False
 
     async def close_ticket_by_thread(
-        self, guild_id: int, thread_id: int, closed_by: int, close_reason: str | None = None
+        self,
+        guild_id: int,
+        thread_id: int,
+        closed_by: int,
+        close_reason: str | None = None,
     ) -> bool:
         result = await self._c.post(
             f"/internal/guilds/{guild_id}/tickets/by-thread/{thread_id}/close",
@@ -190,9 +204,12 @@ class TicketsConnector:
         resp = await self._c.get(f"/internal/guilds/{guild_id}/tickets/thread-health")
         return (resp or {}).get("health", {})
 
-    async def get_oldest_closed_tickets(self, guild_id: int, limit: int = 5) -> list[dict]:
+    async def get_oldest_closed_tickets(
+        self, guild_id: int, limit: int = 5
+    ) -> list[dict]:
         resp = await self._c.get(
-            f"/internal/guilds/{guild_id}/tickets/oldest-closed", params={"limit": limit}
+            f"/internal/guilds/{guild_id}/tickets/oldest-closed",
+            params={"limit": limit},
         )
         return (resp or {}).get("tickets", [])
 
@@ -213,9 +230,7 @@ class TicketsConnector:
         )
         return bool((resp or {}).get("success", False))
 
-    async def reset_user_ticket_cooldown(
-        self, guild_id: int, user_id: int
-    ) -> bool:
+    async def reset_user_ticket_cooldown(self, guild_id: int, user_id: int) -> bool:
         resp = await self._c.post(
             f"/internal/guilds/{guild_id}/tickets/cooldowns/reset-user/{user_id}"
         )

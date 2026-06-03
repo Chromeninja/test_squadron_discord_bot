@@ -71,9 +71,7 @@ class VoiceConnector:
         )
         return (resp or {}).get("voice_channel_id")
 
-    async def get_user_channel_info(
-        self, guild_id: int, user_id: int
-    ) -> dict | None:
+    async def get_user_channel_info(self, guild_id: int, user_id: int) -> dict | None:
         try:
             resp = await self._c.get(
                 f"/internal/guilds/{guild_id}/voice/channels/user/{user_id}/info"
@@ -92,9 +90,7 @@ class VoiceConnector:
         return (resp or {}).get("jtc_channel_id")
 
     async def get_all_active_channels(self, guild_id: int) -> list[dict]:
-        resp = await self._c.get(
-            f"/internal/guilds/{guild_id}/voice/channels/active"
-        )
+        resp = await self._c.get(f"/internal/guilds/{guild_id}/voice/channels/active")
         return (resp or {}).get("channels", [])
 
     async def get_active_channel_ids(self, guild_id: int) -> list[int]:
@@ -105,16 +101,12 @@ class VoiceConnector:
 
     # ── Cleanup / purge ──────────────────────────────────────────────────────
 
-    async def cleanup_channel_records(
-        self, guild_id: int, channel_id: int
-    ) -> None:
+    async def cleanup_channel_records(self, guild_id: int, channel_id: int) -> None:
         await self._c.delete(
             f"/internal/guilds/{guild_id}/voice/channels/{channel_id}/records"
         )
 
-    async def purge_voice_data(
-        self, guild_id: int, user_id: int | None = None
-    ) -> dict:
+    async def purge_voice_data(self, guild_id: int, user_id: int | None = None) -> dict:
         payload: dict = {}
         if user_id is not None:
             payload["user_id"] = user_id

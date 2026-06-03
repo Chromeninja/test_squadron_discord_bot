@@ -3,7 +3,7 @@
   "$id": "discord_events.json",
   "title": "Discord Events Schema",
   "description": "Schema definitions for Discord events and entities used by the bot",
-  
+
   "definitions": {
     "member": {
       "type": "object",
@@ -34,7 +34,7 @@
       },
       "required": ["id", "display_name"]
     },
-    
+
     "role": {
       "type": "object",
       "description": "Discord role object",
@@ -54,7 +54,7 @@
       },
       "required": ["id", "name"]
     },
-    
+
     "guild": {
       "type": "object",
       "description": "Discord guild (server) object",
@@ -70,7 +70,7 @@
       },
       "required": ["id", "name"]
     },
-    
+
     "channel": {
       "type": "object",
       "description": "Discord channel object",
@@ -95,7 +95,7 @@
       },
       "required": ["id", "name", "type"]
     },
-    
+
     "voice_state": {
       "type": "object",
       "description": "Discord voice state object",

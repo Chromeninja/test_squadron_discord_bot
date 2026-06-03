@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.logo_validator import LogoValidationError, validate_logo_url  # noqa: F401
 from services.db.repository import BaseRepository
 
 if TYPE_CHECKING:

@@ -149,8 +149,7 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
 
     if "recurrence_rule" not in existing_columns:
         await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN recurrence_rule TEXT DEFAULT NULL"
+            "ALTER TABLE managed_events ADD COLUMN recurrence_rule TEXT DEFAULT NULL"
         )
         logger.info(
             "Added missing column to table",
@@ -172,8 +171,7 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
 
     if "channel_name" not in existing_columns:
         await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN channel_name TEXT DEFAULT NULL"
+            "ALTER TABLE managed_events ADD COLUMN channel_name TEXT DEFAULT NULL"
         )
         logger.info(
             "Added missing column to table",
@@ -182,8 +180,7 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
 
     if "image_url" not in existing_columns:
         await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN image_url TEXT DEFAULT NULL"
+            "ALTER TABLE managed_events ADD COLUMN image_url TEXT DEFAULT NULL"
         )
         logger.info(
             "Added missing column to table",

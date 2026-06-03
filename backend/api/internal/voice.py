@@ -114,7 +114,9 @@ async def check_cooldown(
     repo: VoiceRepository = Depends(get_voice_repository),
 ) -> dict[str, Any]:
     """Return whether the user is on cooldown for channel creation."""
-    on_cooldown = await repo.check_cooldown(guild_id, jtc_channel_id, user_id, cooldown_seconds)
+    on_cooldown = await repo.check_cooldown(
+        guild_id, jtc_channel_id, user_id, cooldown_seconds
+    )
     return {"on_cooldown": on_cooldown}
 
 

@@ -56,9 +56,7 @@ async def test_parse_members_text() -> None:
     }.get
 
     guild.fetch_member = AsyncMock(
-        side_effect={
-            111222333444555666: Mock(id=111222333444555666)
-        }.get
+        side_effect={111222333444555666: Mock(id=111222333444555666)}.get
     )
 
     text = "<@123456789012345678> <@!987654321098765432> 111222333444555666"

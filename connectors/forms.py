@@ -66,7 +66,11 @@ class FormsConnector:
         try:
             result = await self._c.post(
                 f"/internal/guilds/{guild_id}/ticket-forms/steps",
-                json={"category_id": category_id, "step_number": step_number, "title": title},
+                json={
+                    "category_id": category_id,
+                    "step_number": step_number,
+                    "title": title,
+                },
             )
             return result or None
         except Exception:
@@ -81,9 +85,7 @@ class FormsConnector:
         except Exception:
             return []
 
-    async def update_step(
-        self, guild_id: int, step_id: int, **kwargs: Any
-    ) -> bool:
+    async def update_step(self, guild_id: int, step_id: int, **kwargs: Any) -> bool:
         try:
             await self._c.patch(
                 f"/internal/guilds/{guild_id}/ticket-forms/steps/{step_id}",

@@ -29,7 +29,9 @@ async def test_privacy_command_sends_embed_ephemeral(mock_bot) -> None:
 
 
 @pytest.mark.asyncio
-async def test_privacy_command_uses_followup_if_response_done(monkeypatch, mock_bot) -> None:
+async def test_privacy_command_uses_followup_if_response_done(
+    monkeypatch, mock_bot
+) -> None:
     """Fallback uses followup when initial response has already completed."""
     cog = PrivacyCog(mock_bot)
     interaction = FakeInteraction(FakeUser(1, "Member"))
@@ -58,7 +60,9 @@ async def test_privacy_command_uses_response_if_not_done(monkeypatch, mock_bot) 
     cog = PrivacyCog(mock_bot)
     interaction = FakeInteraction(FakeUser(1, "Member"))
 
-    interaction.response.send_message = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    interaction.response.send_message = AsyncMock(
+        side_effect=[RuntimeError("boom"), None]
+    )
     interaction.response.is_done = MagicMock(return_value=False)
     interaction.followup.send = AsyncMock()
 

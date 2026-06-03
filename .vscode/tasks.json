@@ -24,13 +24,13 @@
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": ["-m", "pytest", "web/backend/tests/", "-v"],
-      "group": { 
-        "kind": "test", 
-        "isDefault": false 
+      "group": {
+        "kind": "test",
+        "isDefault": false
       },
-      "presentation": { 
-        "reveal": "always", 
-        "panel": "shared" 
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
       },
       "problemMatcher": [],
       "detail": "Run all backend API tests using workspace virtual environment"
@@ -40,13 +40,13 @@
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": ["-m", "pytest", "tests/", "web/backend/tests/", "-v"],
-      "group": { 
-        "kind": "test", 
-        "isDefault": false 
+      "group": {
+        "kind": "test",
+        "isDefault": false
       },
-      "presentation": { 
-        "reveal": "always", 
-        "panel": "shared" 
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
       },
       "problemMatcher": [],
       "detail": "Run ALL tests (bot + backend) using workspace virtual environment"
@@ -56,13 +56,13 @@
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": ["-m", "pytest", "tests/", "-q"],
-      "group": { 
-        "kind": "test", 
-        "isDefault": false 
+      "group": {
+        "kind": "test",
+        "isDefault": false
       },
-      "presentation": { 
-        "reveal": "always", 
-        "panel": "shared" 
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
       },
       "problemMatcher": [],
       "detail": "Run bot tests in quiet mode (faster output)"

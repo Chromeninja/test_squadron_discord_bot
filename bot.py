@@ -203,7 +203,9 @@ class MyBot(commands.Bot):
 
         from services.db.database import Database
 
-        _db_cfg_path = (self.config or {}).get("database", {}).get("path", "TESTDatabase.db")
+        _db_cfg_path = (
+            (self.config or {}).get("database", {}).get("path", "TESTDatabase.db")
+        )
         if not Path(_db_cfg_path).is_absolute():
             _db_cfg_path = str(Path(__file__).resolve().parent / _db_cfg_path)
         Path(_db_cfg_path).parent.mkdir(parents=True, exist_ok=True)
@@ -243,7 +245,9 @@ class MyBot(commands.Bot):
                     config=ConfigConnector(self.api),
                     metrics=MetricsConnector(self.api),
                 )
-                logger.info("Bot API connector initialized", extra={"backend_url": backend_url})
+                logger.info(
+                    "Bot API connector initialized", extra={"backend_url": backend_url}
+                )
             except Exception as e:
                 logger.exception("Failed to initialize bot API connector", exc_info=e)
                 self.api = None
@@ -251,7 +255,9 @@ class MyBot(commands.Bot):
         else:
             self.api = None
             self.connectors = None
-            logger.info("BACKEND_URL/BOT_API_KEY not set — running without API connector")
+            logger.info(
+                "BACKEND_URL/BOT_API_KEY not set — running without API connector"
+            )
 
         # Start internal API server for web dashboard
         try:
@@ -679,7 +685,9 @@ class MyBot(commands.Bot):
         for task in list(self._background_tasks):
             task.cancel()
         if self._background_tasks:
-            results = await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            results = await asyncio.gather(
+                *self._background_tasks, return_exceptions=True
+            )
             for result in results:
                 if isinstance(result, Exception):
                     logger.warning(

@@ -430,9 +430,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
         channel: discord.TextChannel,
     ) -> discord.Message | None:
         """Create and send the ticket panel embed + view to a channel."""
-        channel_config = await self.tickets_api.get_channel_config(
-            guild.id, channel.id
-        )
+        channel_config = await self.tickets_api.get_channel_config(guild.id, channel.id)
         title = (channel_config or {}).get("panel_title") or "🎫 Support Tickets"
         description = (channel_config or {}).get("panel_description") or (
             "Need help? Click the button below to open a support ticket.\n\n"
@@ -631,9 +629,7 @@ class TicketCommands(commands.GroupCog, name="tickets"):
             )
             return
 
-        candidates = await self.tickets_api.get_cleanup_candidates(
-            guild.id, older_than
-        )
+        candidates = await self.tickets_api.get_cleanup_candidates(guild.id, older_than)
         missing_open: list[dict[str, Any]] = []
 
         if include_open:

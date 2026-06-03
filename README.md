@@ -82,7 +82,7 @@ The bot requires specific Discord permissions to function properly. **Do not gra
 
 #### Required Permissions:
 - **View Channels** - Read messages and see channels
-- **Send Messages** - Send responses and notifications  
+- **Send Messages** - Send responses and notifications
 - **Embed Links** - Send rich embed messages
 - **Read Message History** - Access previous messages for context
 - **Use Slash Commands** - Register and respond to slash commands

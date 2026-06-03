@@ -318,9 +318,7 @@ class TestTicketCommandsCleanup:
 
         embed = interaction.followup.send.call_args.kwargs["embed"]
         assert "Complete" in embed.title
-        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(
-            123, 51001
-        )
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(123, 51001)
 
     @pytest.mark.asyncio
     async def test_cleanup_include_open_reconciles_missing_threads(self) -> None:
@@ -359,9 +357,7 @@ class TestTicketCommandsCleanup:
         assert "Complete" in embed.title
         assert "Repaired" in embed.description
         bot.connectors.tickets.close_ticket_by_thread.assert_awaited_once()
-        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(
-            123, 52001
-        )
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(123, 52001)
 
 
 class TestThreadHealthCheckTask:

@@ -88,8 +88,12 @@ def should_skip(path: Path) -> bool:
 def main() -> int:
     args = parse_args()
 
-    candidates = [Path(file_name) for file_name in args.files if file_name.endswith(".py")]
-    candidates = [path for path in candidates if path.exists() and not should_skip(path)]
+    candidates = [
+        Path(file_name) for file_name in args.files if file_name.endswith(".py")
+    ]
+    candidates = [
+        path for path in candidates if path.exists() and not should_skip(path)
+    ]
 
     if not candidates:
         print("[modularity] No eligible Python files to check.")

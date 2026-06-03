@@ -33,7 +33,9 @@ from .config_service import ConfigService
 
 
 # Function alias for test patching - avoids circular import
-async def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_id: int) -> None:
+async def update_last_used_jtc_channel(
+    guild_id: int, user_id: int, jtc_channel_id: int
+) -> None:
     """Alias for test patching to avoid circular imports."""
     from helpers.voice_settings import update_last_used_jtc_channel as real_func
 
@@ -79,9 +81,7 @@ class VoiceService(
         "connect": True,
         "move_members": True,
     }
-    OWNER_CREATION_OVERWRITE_PERMISSIONS: ClassVar[dict[str, bool]] = {
-        "connect": True
-    }
+    OWNER_CREATION_OVERWRITE_PERMISSIONS: ClassVar[dict[str, bool]] = {"connect": True}
 
     def __init__(
         self,
@@ -621,4 +621,3 @@ class VoiceService(
             )
 
         return None
-

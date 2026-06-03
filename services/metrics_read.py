@@ -212,7 +212,12 @@ class MetricsReadMixin:
             last_chat: dict[int, int] = {}
             async with MetricsDatabase.get_connection() as db:
                 cursor = await db.execute(sql_msg, [*params_prefix, cutoff_ts])
-                for uid, day_bucket, day_message_count, max_ts in await cursor.fetchall():
+                for (
+                    uid,
+                    day_bucket,
+                    day_message_count,
+                    max_ts,
+                ) in await cursor.fetchall():
                     if day_message_count < min_msg_windows:
                         continue
                     chat_days.setdefault(uid, set()).add(day_bucket)
@@ -243,7 +248,9 @@ class MetricsReadMixin:
                     for d in range(clamped_start // 86400, clamped_end // 86400 + 1):
                         day_start = max(clamped_start, d * 86400)
                         day_end = min(clamped_end, (d + 1) * 86400)
-                        voice_day_secs[(uid, d)] = voice_day_secs.get((uid, d), 0) + max(
+                        voice_day_secs[(uid, d)] = voice_day_secs.get(
+                            (uid, d), 0
+                        ) + max(
                             0,
                             day_end - day_start,
                         )
@@ -424,7 +431,8 @@ class MetricsReadMixin:
             return
 
         keys_to_delete = [
-            key for key in self._activity_group_counts_cache  # type: ignore[attr-defined]
+            key
+            for key in self._activity_group_counts_cache  # type: ignore[attr-defined]
             if key[0] == guild_id
         ]
         for key in keys_to_delete:
@@ -589,7 +597,9 @@ class MetricsReadMixin:
     ) -> dict[str, Any]:
         """Get detailed metrics for a specific game in a guild."""
         self._ensure_initialized()  # type: ignore[attr-defined]
-        return await _queries.get_game_metrics(guild_id, game_name, days, limit, user_ids)
+        return await _queries.get_game_metrics(
+            guild_id, game_name, days, limit, user_ids
+        )
 
     async def get_user_metrics(
         self, guild_id: int, user_id: int, days: int = 7

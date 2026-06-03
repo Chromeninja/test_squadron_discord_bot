@@ -454,4 +454,3 @@ class VoiceJtcMixin(VoiceServiceBase):
         except Exception as e:
             self.logger.exception("Error getting all voice channels", exc_info=e)
             return []
-

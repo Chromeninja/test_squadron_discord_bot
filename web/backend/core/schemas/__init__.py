@@ -123,7 +123,7 @@ from .voice import (
     VoiceUserSettingsSearchResponse,
 )
 
-__all__ = [  # noqa: RUF022 - grouped by schema module for readability
+__all__ = [  # - grouped by schema module for readability
     # auth
     "AssumeRoleRequest",
     "AuthMeResponse",

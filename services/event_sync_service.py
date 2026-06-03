@@ -103,9 +103,7 @@ class EventSyncService(BaseService):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.logger.exception(
-                    "Event sync pass failed", exc_info=exc
-                )
+                self.logger.exception("Event sync pass failed", exc_info=exc)
 
             try:
                 await asyncio.wait_for(

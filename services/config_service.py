@@ -52,9 +52,7 @@ CONFIG_JTC_CHANNELS = "voice.jtc_channels"
 # Event module settings
 CONFIG_EVENTS_ENABLED = "events.enabled"
 CONFIG_EVENTS_DEFAULT_NATIVE_SYNC = "events.default_native_sync"
-CONFIG_EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL = (
-    "events.default_announcement_channel_id"
-)
+CONFIG_EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL = "events.default_announcement_channel_id"
 CONFIG_EVENTS_DEFAULT_VOICE_CHANNEL = "events.default_voice_channel_id"
 
 

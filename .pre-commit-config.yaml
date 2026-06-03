@@ -26,7 +26,7 @@ repos:
         types: [python]
         exclude: ^(tests/|web/backend/tests/|web/frontend/)
 
-  - repo: https://github.com/pre-commit/mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.8.0
     hooks:
       - id: mypy

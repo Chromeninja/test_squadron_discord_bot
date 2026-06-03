@@ -434,7 +434,9 @@ class Database:
             await db.commit()
 
     @classmethod
-    async def list_managed_events_by_guild(cls, guild_id: int) -> list[dict[str, object | None]]:
+    async def list_managed_events_by_guild(
+        cls, guild_id: int
+    ) -> list[dict[str, object | None]]:
         """List non-deleted managed events for a guild ordered by start time."""
         async with cls.get_connection() as db:
             cursor = await db.execute(

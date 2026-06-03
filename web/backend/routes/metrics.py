@@ -201,7 +201,9 @@ async def get_voice_leaderboard(
         return LeaderboardResponse(entries=normalized_entries)
     except Exception as exc:
         logger.exception("metrics.voice_leaderboard unavailable", exc_info=exc)
-        raise HTTPException(status_code=502, detail="Voice leaderboard unavailable") from exc
+        raise HTTPException(
+            status_code=502, detail="Voice leaderboard unavailable"
+        ) from exc
 
 
 @router.get("/messages/leaderboard", response_model=LeaderboardResponse)
@@ -239,7 +241,9 @@ async def get_message_leaderboard(
         return LeaderboardResponse(entries=normalized_entries)
     except Exception as exc:
         logger.exception("metrics.message_leaderboard unavailable", exc_info=exc)
-        raise HTTPException(status_code=502, detail="Message leaderboard unavailable") from exc
+        raise HTTPException(
+            status_code=502, detail="Message leaderboard unavailable"
+        ) from exc
 
 
 @router.get("/games/top", response_model=TopGamesResponse)
@@ -419,7 +423,9 @@ async def get_activity_groups(
         return ActivityGroupCountsResponse(data=ActivityGroupCounts(**result))
     except Exception as exc:
         logger.exception("metrics.activity_groups unavailable", exc_info=exc)
-        raise HTTPException(status_code=502, detail="Activity groups unavailable") from exc
+        raise HTTPException(
+            status_code=502, detail="Activity groups unavailable"
+        ) from exc
     finally:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info("metrics.activity_groups completed elapsed_ms=%s", elapsed_ms)

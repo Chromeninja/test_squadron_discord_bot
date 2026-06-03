@@ -28,10 +28,9 @@ class BotProtocol(Protocol):
     services: ServiceContainer
 
     def get_channel(
-        self, id: int, /  # noqa: A002
+        self,
+        id: int,
+        /,
     ) -> (
-        discord.abc.GuildChannel
-        | discord.Thread
-        | discord.abc.PrivateChannel
-        | None
+        discord.abc.GuildChannel | discord.Thread | discord.abc.PrivateChannel | None
     ): ...

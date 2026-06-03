@@ -42,29 +42,64 @@ _SYSTEM_RECONCILE_USER_ID = 0
 
 # Column names for ticket SELECT queries — keep in sync with _row_to_ticket()
 _TICKET_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "thread_id", "user_id",
-    "category_id", "status", "closed_by", "created_at", "closed_at",
-    "claimed_by", "claimed_at", "close_reason", "initial_description",
-    "reopened_at", "reopened_by", "deleted_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "thread_id",
+    "user_id",
+    "category_id",
+    "status",
+    "closed_by",
+    "created_at",
+    "closed_at",
+    "claimed_by",
+    "claimed_at",
+    "close_reason",
+    "initial_description",
+    "reopened_at",
+    "reopened_by",
+    "deleted_at",
 ]
 _TICKET_COLUMNS = ", ".join(_TICKET_COLUMN_NAMES)
 
 # Column names for category SELECT queries — keep in sync with _row_to_category()
 _CATEGORY_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "name", "description", "welcome_message",
-    "role_ids", "prerequisite_role_ids_all", "prerequisite_role_ids_any",
-    "emoji", "sort_order", "created_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "name",
+    "description",
+    "welcome_message",
+    "role_ids",
+    "prerequisite_role_ids_all",
+    "prerequisite_role_ids_any",
+    "emoji",
+    "sort_order",
+    "created_at",
 ]
 _CATEGORY_COLUMNS = ", ".join(_CATEGORY_COLUMN_NAMES)
 
 # Column names for channel config SELECT queries — keep in sync with _row_to_channel_config()
 _CHANNEL_CONFIG_COLUMN_NAMES = [
-    "id", "guild_id", "channel_id", "panel_title", "panel_description",
-    "panel_color", "button_text", "button_emoji", "enable_public_button",
-    "public_button_text", "public_button_emoji", "private_button_color",
-    "public_button_color", "button_order", "sort_order", "created_at",
+    "id",
+    "guild_id",
+    "channel_id",
+    "panel_title",
+    "panel_description",
+    "panel_color",
+    "button_text",
+    "button_emoji",
+    "enable_public_button",
+    "public_button_text",
+    "public_button_emoji",
+    "private_button_color",
+    "public_button_color",
+    "button_order",
+    "sort_order",
+    "created_at",
 ]
 _CHANNEL_CONFIG_COLUMNS = ", ".join(_CHANNEL_CONFIG_COLUMN_NAMES)
+
 
 class TicketService(BaseService):
     """Service for managing the thread-based ticketing system.
@@ -768,7 +803,14 @@ class TicketService(BaseService):
                     (guild_id, channel_id, thread_id, user_id, category_id, initial_description)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (guild_id, channel_id, thread_id, user_id, category_id, initial_description),
+                (
+                    guild_id,
+                    channel_id,
+                    thread_id,
+                    user_id,
+                    category_id,
+                    initial_description,
+                ),
             )
             self.logger.info(
                 "Created ticket %s (thread=%s) for user %s in guild %s",
@@ -815,14 +857,10 @@ class TicketService(BaseService):
                 (closed_by, now, close_reason, ticket_id),
             )
             if rows > 0:
-                self.logger.info(
-                    "Closed ticket %s by user %s", ticket_id, closed_by
-                )
+                self.logger.info("Closed ticket %s by user %s", ticket_id, closed_by)
             return rows > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to close ticket %s", ticket_id, exc_info=e
-            )
+            self.logger.exception("Failed to close ticket %s", ticket_id, exc_info=e)
             return False
 
     async def close_ticket_by_thread(
@@ -1145,11 +1183,23 @@ class TicketService(BaseService):
             (guild_id,),
         )
         row = rows[0] if rows else None
-        active = int((row["active"] if isinstance(row, dict) else row[0]) or 0) if row else 0
-        archived = int((row["archived"] if isinstance(row, dict) else row[1]) or 0) if row else 0
-        deleted = int((row["deleted"] if isinstance(row, dict) else row[2]) or 0) if row else 0
+        active = (
+            int((row["active"] if isinstance(row, dict) else row[0]) or 0) if row else 0
+        )
+        archived = (
+            int((row["archived"] if isinstance(row, dict) else row[1]) or 0)
+            if row
+            else 0
+        )
+        deleted = (
+            int((row["deleted"] if isinstance(row, dict) else row[2]) or 0)
+            if row
+            else 0
+        )
         total_threads = active + archived
-        usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
+        usage_pct = (
+            round((total_threads / thread_limit) * 100, 1) if thread_limit else 0
+        )
 
         if usage_pct >= 95:
             status = "critical"
@@ -1283,7 +1333,9 @@ class TicketService(BaseService):
     async def _ensure_cooldown_reset_table(self) -> None:
         await self._rate_limiter._ensure_cooldown_reset_table()
 
-    async def _get_cooldown_floor(self, guild_id: int, user_id: int, cutoff: int) -> int:
+    async def _get_cooldown_floor(
+        self, guild_id: int, user_id: int, cutoff: int
+    ) -> int:
         return await self._rate_limiter._get_cooldown_floor(guild_id, user_id, cutoff)
 
     # ------------------------------------------------------------------
@@ -1397,8 +1449,7 @@ class TicketService(BaseService):
             if "deleted_at" not in column_names:
                 try:
                     await BaseRepository.execute(
-                        "ALTER TABLE tickets "
-                        "ADD COLUMN deleted_at INTEGER DEFAULT NULL"
+                        "ALTER TABLE tickets ADD COLUMN deleted_at INTEGER DEFAULT NULL"
                     )
                     self.logger.info("Added missing deleted_at column to tickets")
                 except sqlite3.OperationalError as e:

@@ -474,5 +474,6 @@ async def enqueue_verification_event(
         # Bulk Announcer v2 (queue-driven)
         # ----------------------------
 
+
 # Re-export BulkAnnouncer for backward compatibility
 from helpers.announcement_bulk_cog import BulkAnnouncer  # noqa: F401

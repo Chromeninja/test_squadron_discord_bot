@@ -209,7 +209,9 @@ class TicketActionView(View):
         is_staff = False
 
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,
@@ -258,7 +260,9 @@ class TicketActionView(View):
         is_creator = user_id == ticket["user_id"]
         is_staff = False
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,
@@ -278,7 +282,9 @@ class TicketActionView(View):
         )
 
         reopen_window_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.reopen_window_hours", default=str(DEFAULT_REOPEN_WINDOW_HOURS)
+            guild_id,
+            "tickets.reopen_window_hours",
+            default=str(DEFAULT_REOPEN_WINDOW_HOURS),
         )
         try:
             reopen_window = int(reopen_window_raw)
@@ -363,7 +369,9 @@ class TicketActionView(View):
         is_creator = user_id == ticket["user_id"]
         is_staff = False
         if isinstance(interaction.user, discord.Member):
-            category_role_ids = await _get_ticket_category_role_ids(ticket_service, ticket)
+            category_role_ids = await _get_ticket_category_role_ids(
+                ticket_service, ticket
+            )
             is_staff = await _get_staff_and_check(
                 self.bot,
                 guild_id,

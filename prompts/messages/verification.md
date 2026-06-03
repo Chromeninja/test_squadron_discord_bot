@@ -35,7 +35,7 @@ ai_hints:
 
 **Variables**:
 - `member_mention`: Discord mention string (e.g., `<@123456789>`)
-- `status`: Either "main" or "affiliate" 
+- `status`: Either "main" or "affiliate"
 
 **Example Output**:
 ```

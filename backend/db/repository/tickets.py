@@ -210,12 +210,8 @@ class TicketRepository:
         """
         try:
             role_json = json.dumps(role_ids or [])
-            prerequisite_role_ids_all_json = json.dumps(
-                prerequisite_role_ids_all or []
-            )
-            prerequisite_role_ids_any_json = json.dumps(
-                prerequisite_role_ids_any or []
-            )
+            prerequisite_role_ids_all_json = json.dumps(prerequisite_role_ids_all or [])
+            prerequisite_role_ids_any_json = json.dumps(prerequisite_role_ids_any or [])
 
             # Determine next sort_order
             async with Database.get_connection() as db:
@@ -293,7 +289,10 @@ class TicketRepository:
         for key, value in kwargs.items():
             if key not in allowed:
                 continue
-            if key == "role_ids" or key in {"prerequisite_role_ids_all", "prerequisite_role_ids_any"}:
+            if key == "role_ids" or key in {
+                "prerequisite_role_ids_all",
+                "prerequisite_role_ids_any",
+            }:
                 updates[key] = json.dumps(value if value is not None else [])
             else:
                 updates[key] = value
@@ -914,7 +913,9 @@ class TicketRepository:
         archived = int(d.get("archived") or 0)
         deleted = int(d.get("deleted") or 0)
         total_threads = active + archived
-        usage_pct = round((total_threads / thread_limit) * 100, 1) if thread_limit else 0.0
+        usage_pct = (
+            round((total_threads / thread_limit) * 100, 1) if thread_limit else 0.0
+        )
         if usage_pct >= 95:
             status = "critical"
         elif usage_pct >= 90:
@@ -924,9 +925,13 @@ class TicketRepository:
         else:
             status = "healthy"
         return {
-            "active": active, "archived": archived, "deleted": deleted,
-            "total_threads": total_threads, "limit": thread_limit,
-            "usage_pct": usage_pct, "status": status,
+            "active": active,
+            "archived": archived,
+            "deleted": deleted,
+            "total_threads": total_threads,
+            "limit": thread_limit,
+            "usage_pct": usage_pct,
+            "status": status,
         }
 
     async def get_oldest_closed_tickets(
@@ -965,11 +970,10 @@ class TicketRepository:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def reset_user_ticket_cooldown(
-        self, guild_id: int, user_id: int
-    ) -> bool:
+    async def reset_user_ticket_cooldown(self, guild_id: int, user_id: int) -> bool:
         """Reset ticket creation cooldown for a specific user (writes a reset marker)."""
         import time as _time
+
         now = int(_time.time())
         async with Database.get_connection() as db:
             try:

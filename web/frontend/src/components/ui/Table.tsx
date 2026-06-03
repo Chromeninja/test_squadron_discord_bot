@@ -13,7 +13,7 @@ export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> 
 
 /**
  * Table component with consistent styling.
- * 
+ *
  * @example
  * <Table withWrapper>
  *   <TableHead>
@@ -114,7 +114,7 @@ export interface TableEmptyProps {
 
 /**
  * Empty state row for tables with no data.
- * 
+ *
  * @example
  * <TableBody>
  *   {items.length === 0 ? (
@@ -167,15 +167,15 @@ export interface DataTableProps<T> {
 
 /**
  * Higher-level data table with column definitions.
- * 
+ *
  * @example
  * const columns = [
  *   { header: 'Name', accessor: 'name' },
  *   { header: 'Status', accessor: (row) => <Badge>{row.status}</Badge> },
  * ];
- * 
- * <DataTable 
- *   columns={columns} 
+ *
+ * <DataTable
+ *   columns={columns}
  *   data={users}
  *   keyExtractor={(row) => row.id}
  * />

@@ -63,7 +63,9 @@ async def _start_dynamic_form(
 
     # Create fresh session
     ctx = await ticket_form_service.create_session(
-        guild_id, user_id, category["id"],
+        guild_id,
+        user_id,
+        category["id"],
         interaction_token=interaction.token,
         is_public=is_public,
     )
@@ -188,9 +190,7 @@ async def _create_ticket_thread(
     try:
         await thread.add_user(user)
     except discord.Forbidden:
-        logger.debug(
-            "No permission to add user %s to thread %s", user.id, thread.id
-        )
+        logger.debug("No permission to add user %s to thread %s", user.id, thread.id)
     except discord.HTTPException as exc:
         logger.warning(
             "Could not add user %s to thread %s: %s",

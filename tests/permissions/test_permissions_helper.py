@@ -103,7 +103,9 @@ async def test_permission_level_uses_db_roles_only():
 
 
 @pytest.mark.asyncio
-async def test_permission_level_resolves_event_coordinator_between_staff_and_moderator() -> None:
+async def test_permission_level_resolves_event_coordinator_between_staff_and_moderator() -> (
+    None
+):
     """Event coordinators should rank above staff and below moderators."""
     role_map = {
         "roles.bot_admins": [],

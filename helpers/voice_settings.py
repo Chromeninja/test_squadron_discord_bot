@@ -308,7 +308,9 @@ async def fetch_channel_settings(
             last_used_jtc = await _get_last_used_jtc_channel(guild_id, user.id)
 
             if last_used_jtc:
-                settings = await _get_all_user_settings(guild_id, last_used_jtc, user.id)
+                settings = await _get_all_user_settings(
+                    guild_id, last_used_jtc, user.id
+                )
                 if settings and interaction.guild and isinstance(user, discord.Member):
                     result["settings"] = settings
                     result["jtc_channel_id"] = last_used_jtc
@@ -323,7 +325,9 @@ async def fetch_channel_settings(
                     )
                     result["embeds"].append(embed)
                 else:
-                    available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
+                    available_jtcs = await _get_available_jtc_channels(
+                        guild_id, user.id
+                    )
             else:
                 available_jtcs = await _get_available_jtc_channels(guild_id, user.id)
 
@@ -451,7 +455,9 @@ async def _fetch_user_settings_map(
             feature_rows = await feature_cursor.fetchall()
 
             for row in feature_rows:
-                current_jtc_channel_id, setting_group, target_id, target_type, value = row
+                current_jtc_channel_id, setting_group, target_id, target_type, value = (
+                    row
+                )
                 if current_jtc_channel_id not in settings_map:
                     if jtc_channel_id is None:
                         continue

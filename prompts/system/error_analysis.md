@@ -32,7 +32,7 @@ Analyze this Discord API error:
 
 **Error Type**: {error_type}
 **Context**: {context}
-**Stack Trace**: 
+**Stack Trace**:
 ```
 {stack_trace}
 ```

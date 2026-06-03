@@ -117,9 +117,7 @@ async def test_get_form_config_not_found(
 
 
 @pytest.mark.asyncio
-async def test_create_step(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_create_step(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_repo.create_step.return_value = 1
 
     async with async_client as client:
@@ -163,9 +161,7 @@ async def test_get_session_not_found(
 
 
 @pytest.mark.asyncio
-async def test_create_session(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_create_session(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_session: dict[str, Any] = {
         "id": 1,
         "guild_id": 123,
@@ -197,9 +193,7 @@ async def test_create_session(
 
 
 @pytest.mark.asyncio
-async def test_validate_form(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_validate_form(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_repo.validate_form.return_value = []
 
     async with async_client as client:
@@ -219,9 +213,7 @@ async def test_validate_form(
 
 
 @pytest.mark.asyncio
-async def test_delete_step(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_delete_step(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_repo.delete_step.return_value = True
 
     async with async_client as client:
@@ -239,9 +231,7 @@ async def test_delete_step(
 
 
 @pytest.mark.asyncio
-async def test_create_question(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_create_question(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_repo.create_question.return_value = 2
 
     async with async_client as client:
@@ -266,9 +256,7 @@ async def test_create_question(
 
 
 @pytest.mark.asyncio
-async def test_save_responses(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_save_responses(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_repo.save_responses.return_value = True
 
     async with async_client as client:
@@ -291,9 +279,7 @@ async def test_save_responses(
 
 
 @pytest.mark.asyncio
-async def test_get_responses(
-    async_client: AsyncClient, mock_repo: AsyncMock
-) -> None:
+async def test_get_responses(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
     mock_responses: list[dict[str, Any]] = [
         {
             "id": 1,

@@ -24,7 +24,9 @@ from services.voice_channel_helpers import (
 
 
 # Module-level alias for test patching (mirrors voice_service.py pattern)
-async def update_last_used_jtc_channel(guild_id: int, user_id: int, jtc_channel_id: int) -> None:
+async def update_last_used_jtc_channel(
+    guild_id: int, user_id: int, jtc_channel_id: int
+) -> None:
     """Alias for test patching — deferred import avoids circular dependency."""
     from helpers.voice_settings import update_last_used_jtc_channel as real_func
 
@@ -130,7 +132,8 @@ class VoiceCreateMixin(VoiceServiceBase):
             bot_category_perms = category.permissions_for(bot_member)
             bot_role_ids = {r.id for r in bot_member.roles if not r.is_default()}
             jtc_overwrites: dict[
-                discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
+                discord.Role | discord.Member | discord.Object,
+                discord.PermissionOverwrite,
             ] = {}
             for target, overwrite in jtc_channel.overwrites.items():
                 # Skip the bot's own roles (excluding @everyone) to prevent
@@ -152,9 +155,7 @@ class VoiceCreateMixin(VoiceServiceBase):
             bot_creation_overwrite = jtc_overwrites.get(
                 bot_member, discord.PermissionOverwrite()
             )
-            bot_creation_overwrite.update(
-                **self.BOT_CREATION_OVERWRITE_PERMISSIONS
-            )
+            bot_creation_overwrite.update(**self.BOT_CREATION_OVERWRITE_PERMISSIONS)
             jtc_overwrites[bot_member] = self._sanitize_overwrite(
                 bot_creation_overwrite, bot_category_perms
             )
@@ -163,9 +164,7 @@ class VoiceCreateMixin(VoiceServiceBase):
             owner_creation_overwrite = jtc_overwrites.get(
                 member, discord.PermissionOverwrite()
             )
-            owner_creation_overwrite.update(
-                **self.OWNER_CREATION_OVERWRITE_PERMISSIONS
-            )
+            owner_creation_overwrite.update(**self.OWNER_CREATION_OVERWRITE_PERMISSIONS)
             jtc_overwrites[member] = self._sanitize_overwrite(
                 owner_creation_overwrite, bot_category_perms
             )
@@ -198,7 +197,8 @@ class VoiceCreateMixin(VoiceServiceBase):
                     member.display_name,
                 )
                 essential_overwrites: dict[
-                    discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
+                    discord.Role | discord.Member | discord.Object,
+                    discord.PermissionOverwrite,
                 ] = {
                     bot_member: jtc_overwrites[bot_member],
                     member: jtc_overwrites[member],
@@ -332,7 +332,9 @@ class VoiceCreateMixin(VoiceServiceBase):
             # Update last used JTC channel for deterministic settings behavior
             import services.voice_service as _svc2
 
-            await _svc2.update_last_used_jtc_channel(guild.id, member.id, jtc_channel.id)
+            await _svc2.update_last_used_jtc_channel(
+                guild.id, member.id, jtc_channel.id
+            )
 
             # Add to managed channels set
             self.managed_voice_channels.add(channel.id)
@@ -630,4 +632,3 @@ class VoiceCreateMixin(VoiceServiceBase):
             cleanup_after_delay(),
             name=f"voice.cleanup_after_delay.{channel_id}",
         )
-

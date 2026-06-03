@@ -301,8 +301,7 @@ async def _delete_ticket(
         guild_id,
         title="🗑️ Ticket Deleted",
         description=(
-            f"**Thread:** `{thread.id}`\n"
-            f"**Deleted by:** {interaction.user.mention}"
+            f"**Thread:** `{thread.id}`\n**Deleted by:** {interaction.user.mention}"
         ),
         color=EmbedColors.WARNING,
     )
@@ -338,8 +337,12 @@ class TicketPanelView(View):
         self.bot = bot
 
         # Convert color hex codes to Discord button styles
-        private_style = self._color_to_button_style(private_button_color, discord.ButtonStyle.primary)
-        public_style = self._color_to_button_style(public_button_color, discord.ButtonStyle.secondary)
+        private_style = self._color_to_button_style(
+            private_button_color, discord.ButtonStyle.primary
+        )
+        public_style = self._color_to_button_style(
+            public_button_color, discord.ButtonStyle.secondary
+        )
 
         create_btn: Button = Button(
             label=private_button_text,
@@ -369,7 +372,9 @@ class TicketPanelView(View):
                 self.add_item(public_btn)
 
     @staticmethod
-    def _color_to_button_style(color: str | None, default: discord.ButtonStyle) -> discord.ButtonStyle:
+    def _color_to_button_style(
+        color: str | None, default: discord.ButtonStyle
+    ) -> discord.ButtonStyle:
         """Convert a hex color code to a Discord button style.
 
         Supports common color mappings:
@@ -387,7 +392,13 @@ class TicketPanelView(View):
         normalized = color.strip().upper().lstrip("#")
 
         # Map common colors to button styles
-        if normalized in ("5865F2", "5865F3", "5865F4", "0099FF", "3B88F3"):  # Blue/Blurple
+        if normalized in (
+            "5865F2",
+            "5865F3",
+            "5865F4",
+            "0099FF",
+            "3B88F3",
+        ):  # Blue/Blurple
             return discord.ButtonStyle.primary
         elif normalized in ("4E5058", "4F545C", "6C757D", "2C2F33"):  # Gray
             return discord.ButtonStyle.secondary
@@ -443,7 +454,9 @@ class TicketPanelView(View):
 
         # --- Max open tickets check ---
         max_open_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.max_open_per_user", default=str(DEFAULT_MAX_OPEN_PER_USER)
+            guild_id,
+            "tickets.max_open_per_user",
+            default=str(DEFAULT_MAX_OPEN_PER_USER),
         )
         try:
             max_open = int(max_open_raw)
@@ -605,5 +618,3 @@ class TicketCategorySelect(Select):
             ticket_form_service,
             is_public=self._is_public,
         )
-
-

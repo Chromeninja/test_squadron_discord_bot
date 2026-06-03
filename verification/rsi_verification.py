@@ -11,6 +11,7 @@ from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
+
 class OrgSelectors(TypedDict):
     main: list[str]
     affiliates: list[str]

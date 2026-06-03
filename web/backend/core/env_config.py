@@ -79,9 +79,7 @@ DISCORD_BOT_REDIRECT_URI = f"{PUBLIC_URL}/auth/bot-callback"
 # Discord API endpoints (constants - never change)
 DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
 _oauth_token_segment = "".join(("tok", "en"))
-DISCORD_TOKEN_URL = (
-    f"{DISCORD_OAUTH_URL.rsplit('/', 1)[0]}/{_oauth_token_segment}"
-)
+DISCORD_TOKEN_URL = f"{DISCORD_OAUTH_URL.rsplit('/', 1)[0]}/{_oauth_token_segment}"
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
 # ---------------------------------------------------------------------------
@@ -119,9 +117,7 @@ BOT_OWNER_IDS |= _parse_owner_ids(_legacy_owner_id)
 # ---------------------------------------------------------------------------
 # Session & Cookie Configuration
 # ---------------------------------------------------------------------------
-DEFAULT_SESSION_SECRET = "_".join(
-    ("dev", "only", "change", "me", "in", "production")
-)
+DEFAULT_SESSION_SECRET = "_".join(("dev", "only", "change", "me", "in", "production"))
 SESSION_SECRET = os.getenv("SESSION_SECRET", DEFAULT_SESSION_SECRET)
 SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE = 86400 * 7  # 7 days

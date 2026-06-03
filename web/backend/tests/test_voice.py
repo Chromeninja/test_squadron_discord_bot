@@ -689,7 +689,12 @@ async def test_active_channels_mixed_managed_and_unmanaged(
             "category": "JTC",
             "position": 1,
             "members": [
-                {"user_id": 123456789, "username": "Alice", "display_name": "Alice", "bot": False},
+                {
+                    "user_id": 123456789,
+                    "username": "Alice",
+                    "display_name": "Alice",
+                    "bot": False,
+                },
             ],
         },
         {
@@ -699,7 +704,12 @@ async def test_active_channels_mixed_managed_and_unmanaged(
             "category": "General",
             "position": 2,
             "members": [
-                {"user_id": 987654321, "username": "Bob", "display_name": "Bob", "bot": False},
+                {
+                    "user_id": 987654321,
+                    "username": "Bob",
+                    "display_name": "Bob",
+                    "bot": False,
+                },
             ],
         },
     ]
@@ -737,7 +747,12 @@ async def test_active_channels_stage_channel(
             "category": "Events",
             "position": 0,
             "members": [
-                {"user_id": 123456789, "username": "Alice", "display_name": "Alice", "bot": False},
+                {
+                    "user_id": 123456789,
+                    "username": "Alice",
+                    "display_name": "Alice",
+                    "bot": False,
+                },
             ],
         },
     ]

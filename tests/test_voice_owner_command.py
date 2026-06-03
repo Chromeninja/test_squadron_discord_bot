@@ -396,9 +396,7 @@ class TestVoiceOwnerCommand:
                     mock_members[owner_id] = member
 
                 # Configure guild mocks
-                mock_guild.get_channel.side_effect = (
-                    mock_channels.get
-                )
+                mock_guild.get_channel.side_effect = mock_channels.get
                 mock_guild.get_member.side_effect = mock_members.get
 
                 # Call the command

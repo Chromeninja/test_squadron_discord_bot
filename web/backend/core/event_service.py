@@ -144,7 +144,9 @@ class EventService:
         return True
 
     @staticmethod
-    def _to_projection_payload(event: dict[str, object | None]) -> dict[str, object | None]:
+    def _to_projection_payload(
+        event: dict[str, object | None],
+    ) -> dict[str, object | None]:
         """Convert DB event fields to internal API payload format."""
         return {
             "name": event.get("name"),
@@ -188,7 +190,9 @@ class EventService:
                 operation = "create"
 
             projected_id_raw = projected_event.get("id")
-            projected_id = str(projected_id_raw) if projected_id_raw is not None else None
+            projected_id = (
+                str(projected_id_raw) if projected_id_raw is not None else None
+            )
             await Database.mark_managed_event_synced(
                 guild_id=guild_id,
                 event_id=local_event_id,
@@ -239,10 +243,14 @@ class EventService:
         result = SyncResult()
 
         if direction in {"pull", "reconcile"}:
-            discord_events = await projection_client.get_guild_scheduled_events(guild_id)
+            discord_events = await projection_client.get_guild_scheduled_events(
+                guild_id
+            )
             for discord_event in discord_events:
                 result.processed += 1
-                await Database.upsert_managed_event_from_discord(guild_id, discord_event)
+                await Database.upsert_managed_event_from_discord(
+                    guild_id, discord_event
+                )
                 result.updated += 1
 
         if direction in {"push", "reconcile"}:

@@ -69,16 +69,18 @@ def _make_step(
 def _make_questions(count: int = 2) -> list[dict]:
     questions = []
     for i in range(count):
-        questions.append({
-            "question_id": f"q{i + 1}",
-            "label": f"Question {i + 1}",
-            "placeholder": f"Enter Q{i + 1}",
-            "style": "short" if i % 2 == 0 else "paragraph",
-            "required": True,
-            "min_length": 0,
-            "max_length": 4000,
-            "sort_order": i,
-        })
+        questions.append(
+            {
+                "question_id": f"q{i + 1}",
+                "label": f"Question {i + 1}",
+                "placeholder": f"Enter Q{i + 1}",
+                "style": "short" if i % 2 == 0 else "paragraph",
+                "required": True,
+                "min_length": 0,
+                "max_length": 4000,
+                "sort_order": i,
+            }
+        )
     return questions
 
 
@@ -143,7 +145,11 @@ class TestModalBuilder:
         bot = _mock_bot_with_form_services()
         ctx = _make_context()
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title="Info"), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title="Info"),
+            _make_questions(1),
+            ctx,
             total_steps=3,
         )
         assert "1/3" in modal.title
@@ -153,7 +159,11 @@ class TestModalBuilder:
         bot = _mock_bot_with_form_services()
         ctx = _make_context()
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title="Details"), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title="Details"),
+            _make_questions(1),
+            ctx,
             total_steps=1,
         )
         assert "/" not in modal.title
@@ -164,7 +174,11 @@ class TestModalBuilder:
         ctx = _make_context()
         long_title = "A" * 100
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title=long_title), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title=long_title),
+            _make_questions(1),
+            ctx,
         )
         assert len(modal.title) <= 45
 
@@ -174,7 +188,11 @@ class TestModalBuilder:
         ctx = _make_context()
         questions = _make_questions(3)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         assert len(modal._inputs) == 3
 
@@ -185,7 +203,11 @@ class TestModalBuilder:
         ctx = _make_context()
         questions = _make_questions(7)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         assert len(modal._inputs) == 5
 
@@ -209,7 +231,11 @@ class TestModalBuilder:
             },
         ]
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         _, _, text_input = modal._inputs[0]
         assert text_input.style == discord.TextStyle.paragraph
@@ -234,7 +260,11 @@ class TestDynamicTicketModal:
         )
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         # Simulate user typed values
@@ -267,7 +297,11 @@ class TestDynamicTicketModal:
         )
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         for _, _, text_input in modal._inputs:
@@ -293,7 +327,11 @@ class TestDynamicTicketModal:
         bot = _mock_bot_with_form_services(session=ctx, next_step=None)
         questions = _make_questions(2)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         modal._inputs[0][2]._value = "Answer 1"
@@ -317,7 +355,11 @@ class TestDynamicTicketModal:
         bot = _mock_bot_with_form_services(session=ctx)
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         interaction = FakeInteraction()
@@ -363,7 +405,8 @@ class TestTicketContinueView:
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
         bot.services.ticket_form.delete_session.assert_called_once_with(
-            interaction.guild.id, interaction.user.id  # type: ignore[union-attr]
+            interaction.guild.id,
+            interaction.user.id,  # type: ignore[union-attr]
         )
         assert interaction.response._is_done
 
@@ -422,7 +465,9 @@ class TestTicketContinueView:
         step = _make_step()
         step["questions"] = None
         bot = _mock_bot_with_form_services(
-            session=ctx, step_config=step, questions=[],
+            session=ctx,
+            step_config=step,
+            questions=[],
         )
         view = TicketContinueView(bot)
 
@@ -601,7 +646,12 @@ class TestCreateTicketFromRoute:
         ctx = _make_context()
         ctx.collected_answers = {
             "q1": {"answer": "Bug", "label": "Type", "step": 1, "sort_order": 0},
-            "q2": {"answer": "It crashes", "label": "Details", "step": 1, "sort_order": 1},
+            "q2": {
+                "answer": "It crashes",
+                "label": "Details",
+                "step": 1,
+                "sort_order": 1,
+            },
         }
         category = _make_category()
         bot = _mock_bot_with_form_services(category=category)

@@ -21,19 +21,19 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 /**
  * Text input component with consistent styling.
- * 
+ *
  * @example
  * // Basic input
  * <Input placeholder="Search..." value={query} onChange={handleChange} />
- * 
+ *
  * // With label and error
- * <Input 
- *   label="Email" 
- *   errorMessage="Invalid email format" 
+ * <Input
+ *   label="Email"
+ *   errorMessage="Invalid email format"
  *   value={email}
  *   onChange={handleChange}
  * />
- * 
+ *
  * // With addons
  * <Input leftAddon={<SearchIcon />} placeholder="Search users..." />
  */
@@ -86,7 +86,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {label}
           </label>
         )}
-        
+
         {(leftAddon || rightAddon) ? (
           <div className="relative">
             {leftAddon && (
@@ -108,7 +108,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {errorMessage}
           </p>
         )}
-        
+
         {helperText && !errorMessage && (
           <p id={`${inputId}-helper`} className="text-sm text-gray-500">
             {helperText}

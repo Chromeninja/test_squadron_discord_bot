@@ -120,7 +120,9 @@ class TestStepCRUD:
         assert step["title"] == "New"
 
     @pytest.mark.asyncio
-    async def test_update_step_with_unknown_field_is_ignored(self, form_svc, category_id) -> None:
+    async def test_update_step_with_unknown_field_is_ignored(
+        self, form_svc, category_id
+    ) -> None:
         sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
         updated = await form_svc.update_step(sid, unknown_field="value")
@@ -151,9 +153,7 @@ class TestStepCRUD:
             assert sid is not None
 
         # One over the limit
-        extra = await form_svc.create_step(
-            category_id, step_number=MAX_FORM_STEPS + 1
-        )
+        extra = await form_svc.create_step(category_id, step_number=MAX_FORM_STEPS + 1)
         assert extra is None
 
     @pytest.mark.asyncio
@@ -176,8 +176,11 @@ class TestQuestionCRUD:
     @pytest.mark.asyncio
     async def test_create_question(self, form_svc, step_id) -> None:
         qid = await form_svc.create_question(
-            step_id, "issue_type", "Type of Issue",
-            style="short", required=True,
+            step_id,
+            "issue_type",
+            "Type of Issue",
+            style="short",
+            required=True,
         )
         assert qid is not None
         assert qid > 0
@@ -189,12 +192,8 @@ class TestQuestionCRUD:
 
     @pytest.mark.asyncio
     async def test_get_questions_ordered(self, form_svc, step_id) -> None:
-        await form_svc.create_question(
-            step_id, "q2", "Second", sort_order=2
-        )
-        await form_svc.create_question(
-            step_id, "q1", "First", sort_order=1
-        )
+        await form_svc.create_question(step_id, "q2", "Second", sort_order=2)
+        await form_svc.create_question(step_id, "q1", "First", sort_order=1)
         questions = await form_svc.get_questions(step_id)
         assert len(questions) == 2
         assert questions[0]["question_id"] == "q1"
@@ -203,7 +202,9 @@ class TestQuestionCRUD:
     @pytest.mark.asyncio
     async def test_question_fields(self, form_svc, step_id) -> None:
         await form_svc.create_question(
-            step_id, "desc", "Description",
+            step_id,
+            "desc",
+            "Description",
             placeholder="Enter here",
             style="paragraph",
             required=False,
@@ -243,9 +244,7 @@ class TestQuestionCRUD:
     async def test_max_questions_enforced(self, form_svc, step_id) -> None:
         """Cannot create more than MAX_QUESTIONS_PER_STEP questions."""
         for i in range(MAX_QUESTIONS_PER_STEP):
-            qid = await form_svc.create_question(
-                step_id, f"q{i}", f"Question {i}"
-            )
+            qid = await form_svc.create_question(step_id, f"q{i}", f"Question {i}")
             assert qid is not None
 
         extra = await form_svc.create_question(step_id, "extra", "Extra")
@@ -288,9 +287,7 @@ class TestFormConfig:
         assert await form_svc.has_form(category_id) is True
 
     @pytest.mark.asyncio
-    async def test_get_form_config_none_when_empty(
-        self, form_svc, category_id
-    ) -> None:
+    async def test_get_form_config_none_when_empty(self, form_svc, category_id) -> None:
         config = await form_svc.get_form_config(category_id)
         assert config is None
 
@@ -357,16 +354,30 @@ class TestFormConfig:
         self, form_svc, category_id
     ) -> None:
         """Replacing config deletes old steps and creates new ones."""
-        await form_svc.replace_form_config(category_id, [
-            {"step_number": 1, "title": "Old", "questions": [
-                {"question_id": "old_q", "label": "Old Q"},
-            ]},
-        ])
-        await form_svc.replace_form_config(category_id, [
-            {"step_number": 1, "title": "New", "questions": [
-                {"question_id": "new_q", "label": "New Q"},
-            ]},
-        ])
+        await form_svc.replace_form_config(
+            category_id,
+            [
+                {
+                    "step_number": 1,
+                    "title": "Old",
+                    "questions": [
+                        {"question_id": "old_q", "label": "Old Q"},
+                    ],
+                },
+            ],
+        )
+        await form_svc.replace_form_config(
+            category_id,
+            [
+                {
+                    "step_number": 1,
+                    "title": "New",
+                    "questions": [
+                        {"question_id": "new_q", "label": "New Q"},
+                    ],
+                },
+            ],
+        )
         config = await form_svc.get_form_config(category_id)
         assert config is not None
         assert config["steps"][0]["title"] == "New"
@@ -410,16 +421,14 @@ class TestFormConfig:
                 "step_number": 1,
                 "title": "Step 1",
                 "questions": [
-                    {"question_id": f"a{i}", "label": f"A{i}"}
-                    for i in range(1, 6)
+                    {"question_id": f"a{i}", "label": f"A{i}"} for i in range(1, 6)
                 ],
             },
             {
                 "step_number": 2,
                 "title": "Step 2",
                 "questions": [
-                    {"question_id": f"b{i}", "label": f"B{i}"}
-                    for i in range(1, 6)
+                    {"question_id": f"b{i}", "label": f"B{i}"} for i in range(1, 6)
                 ],
             },
         ]
@@ -466,7 +475,9 @@ class TestFormConfig:
         assert any("no questions" in e for e in errors)
 
     @pytest.mark.asyncio
-    async def test_validate_form_ignores_extra_unknown_fields(self, form_svc, category_id) -> None:
+    async def test_validate_form_ignores_extra_unknown_fields(
+        self, form_svc, category_id
+    ) -> None:
         sid = await form_svc.create_step(category_id, step_number=1)
         assert sid is not None
         await form_svc.create_question(sid, "q1", "Q1")
@@ -486,18 +497,21 @@ class TestFormConfig:
     @pytest.mark.asyncio
     async def test_validate_form_valid(self, form_svc, category_id) -> None:
         """A properly configured form should have zero errors."""
-        await form_svc.replace_form_config(category_id, [
-            {
-                "step_number": 1,
-                "title": "Info",
-                "questions": [{"question_id": "q1", "label": "Name"}],
-            },
-            {
-                "step_number": 2,
-                "title": "Bug Details",
-                "questions": [{"question_id": "q2", "label": "Details"}],
-            },
-        ])
+        await form_svc.replace_form_config(
+            category_id,
+            [
+                {
+                    "step_number": 1,
+                    "title": "Info",
+                    "questions": [{"question_id": "q1", "label": "Name"}],
+                },
+                {
+                    "step_number": 2,
+                    "title": "Bug Details",
+                    "questions": [{"question_id": "q2", "label": "Details"}],
+                },
+            ],
+        )
         errors = await form_svc.validate_form(category_id)
         assert errors == []
 
@@ -523,7 +537,9 @@ class TestFormConfig:
         assert any("invalid input_type" in error for error in errors)
 
     @pytest.mark.asyncio
-    async def test_validate_payload_rejects_mixed_select_and_text(self, form_svc) -> None:
+    async def test_validate_payload_rejects_mixed_select_and_text(
+        self, form_svc
+    ) -> None:
         """Any step containing select question type is invalid."""
         errors = form_svc.validate_form_payload(
             [
@@ -570,26 +586,28 @@ class TestBranchResolution:
         assert next_step is None
 
     @pytest.mark.asyncio
-    async def test_resolve_returns_next_step_when_present(self, form_svc, category_id) -> None:
+    async def test_resolve_returns_next_step_when_present(
+        self, form_svc, category_id
+    ) -> None:
         """Any non-final step resolves to the next sequential step."""
         await form_svc.create_step(category_id, step_number=1)
         await form_svc.create_step(category_id, step_number=2, title="Bug Details")
 
         next_step = await form_svc.resolve_next_step(
-            category_id, 1,
-            {"issue": {"answer": "This is a Bug report"}}
+            category_id, 1, {"issue": {"answer": "This is a Bug report"}}
         )
         assert next_step == 2
 
     @pytest.mark.asyncio
-    async def test_resolve_skips_to_none_when_next_missing(self, form_svc, category_id) -> None:
+    async def test_resolve_skips_to_none_when_next_missing(
+        self, form_svc, category_id
+    ) -> None:
         """If next sequential step is missing, flow terminates."""
         await form_svc.create_step(category_id, step_number=1)
         await form_svc.create_step(category_id, step_number=3, title="Skipped")
 
         next_step = await form_svc.resolve_next_step(
-            category_id, 1,
-            {"issue": {"answer": "question about something"}}
+            category_id, 1, {"issue": {"answer": "question about something"}}
         )
         assert next_step is None
 
@@ -658,17 +676,19 @@ class TestSessionManagement:
         assert "q1" in ctx.collected_answers
 
     @pytest.mark.asyncio
-    async def test_update_session_merges_answers(
-        self, form_svc, category_id
-    ) -> None:
+    async def test_update_session_merges_answers(self, form_svc, category_id) -> None:
         """Updating preserves previously collected answers."""
         await form_svc.create_session(GUILD_ID, USER_ID, category_id)
         await form_svc.update_session(
-            GUILD_ID, USER_ID, step=2,
+            GUILD_ID,
+            USER_ID,
+            step=2,
             answers={"q1": {"answer": "a1", "label": "Q1"}},
         )
         await form_svc.update_session(
-            GUILD_ID, USER_ID, step=3,
+            GUILD_ID,
+            USER_ID,
+            step=3,
             answers={"q2": {"answer": "a2", "label": "Q2"}},
         )
         ctx = await form_svc.get_session(GUILD_ID, USER_ID)
@@ -690,9 +710,7 @@ class TestSessionManagement:
         assert deleted is False
 
     @pytest.mark.asyncio
-    async def test_expired_session_returns_none(
-        self, form_svc, category_id
-    ) -> None:
+    async def test_expired_session_returns_none(self, form_svc, category_id) -> None:
         """Expired sessions are automatically deleted on get."""
         ctx = await form_svc.create_session(GUILD_ID, USER_ID, category_id)
         # Force expiry
@@ -718,12 +736,12 @@ class TestSessionManagement:
         assert ctx.category_id == cat2
 
     @pytest.mark.asyncio
-    async def test_session_with_interaction_token(
-        self, form_svc, category_id
-    ) -> None:
+    async def test_session_with_interaction_token(self, form_svc, category_id) -> None:
         interaction_token = str(uuid4())
         ctx = await form_svc.create_session(
-            GUILD_ID, USER_ID, category_id,
+            GUILD_ID,
+            USER_ID,
+            category_id,
             interaction_token=interaction_token,
         )
         assert ctx.interaction_token == interaction_token
@@ -794,7 +812,12 @@ class TestFormResponses:
 
         answers = {
             "q1": {"answer": "Bug report", "label": "Type", "step": 1, "sort_order": 0},
-            "q2": {"answer": "It crashes", "label": "Description", "step": 1, "sort_order": 1},
+            "q2": {
+                "answer": "It crashes",
+                "label": "Description",
+                "step": 1,
+                "sort_order": 1,
+            },
         }
         result = await form_svc.save_responses(ticket_id, answers)
         assert result is True
@@ -859,7 +882,9 @@ class TestSchemaCompatibility:
     ) -> None:
         """Missing columns are added for legacy ticket_form_questions tables."""
 
-        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        async def fake_fetch_all(
+            query: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]:
             if query.startswith("PRAGMA table_info(ticket_form_questions)"):
                 return [
                     {"name": "id"},
@@ -890,7 +915,9 @@ class TestSchemaCompatibility:
         """Schema compatibility check is idempotent after first successful run."""
         fetch_calls = 0
 
-        async def fake_fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        async def fake_fetch_all(
+            query: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]:
             nonlocal fetch_calls
             if query.startswith("PRAGMA table_info(ticket_form_questions)"):
                 fetch_calls += 1
@@ -925,25 +952,30 @@ class TestRouteExecutionContext:
     """Tests for the RouteExecutionContext dataclass."""
 
     def test_add_answers(self) -> None:
-        ctx = RouteExecutionContext(
-            guild_id=1, user_id=2, category_id=3
+        ctx = RouteExecutionContext(guild_id=1, user_id=2, category_id=3)
+        ctx.add_answers(
+            1,
+            {
+                "q1": {"answer": "test", "label": "Q1", "sort_order": 0},
+            },
         )
-        ctx.add_answers(1, {
-            "q1": {"answer": "test", "label": "Q1", "sort_order": 0},
-        })
         assert "q1" in ctx.collected_answers
         assert ctx.collected_answers["q1"]["step"] == 1
 
     def test_is_expired(self) -> None:
         ctx = RouteExecutionContext(
-            guild_id=1, user_id=2, category_id=3,
+            guild_id=1,
+            user_id=2,
+            category_id=3,
             expires_at=time.time() - 1,
         )
         assert ctx.is_expired() is True
 
     def test_is_not_expired(self) -> None:
         ctx = RouteExecutionContext(
-            guild_id=1, user_id=2, category_id=3,
+            guild_id=1,
+            user_id=2,
+            category_id=3,
             expires_at=time.time() + 9999,
         )
         assert ctx.is_expired() is False
@@ -951,7 +983,9 @@ class TestRouteExecutionContext:
     def test_to_db_dict(self) -> None:
         interaction_token = str(uuid4())
         ctx = RouteExecutionContext(
-            guild_id=1, user_id=2, category_id=3,
+            guild_id=1,
+            user_id=2,
+            category_id=3,
             interaction_token=interaction_token,
         )
         d = ctx.to_db_dict()
@@ -982,9 +1016,7 @@ class TestRouteExecutionContext:
 
     def test_add_answers_merges(self) -> None:
         """add_answers merges from multiple steps."""
-        ctx = RouteExecutionContext(
-            guild_id=1, user_id=2, category_id=3
-        )
+        ctx = RouteExecutionContext(guild_id=1, user_id=2, category_id=3)
         ctx.add_answers(1, {"q1": {"answer": "a1", "label": "Q1"}})
         ctx.add_answers(2, {"q2": {"answer": "a2", "label": "Q2"}})
         assert len(ctx.collected_answers) == 2
@@ -1008,8 +1040,7 @@ class TestValidateStepsRules:
     def test_too_many_steps(self) -> None:
         """Exceeding MAX_FORM_STEPS produces an error."""
         steps = [
-            {"step_number": i, "questions": []}
-            for i in range(1, MAX_FORM_STEPS + 2)
+            {"step_number": i, "questions": []} for i in range(1, MAX_FORM_STEPS + 2)
         ]
         errors = TicketFormService._validate_steps_rules(steps)
         assert any("steps" in e.lower() for e in errors)

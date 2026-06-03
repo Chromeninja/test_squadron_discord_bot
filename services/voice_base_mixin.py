@@ -106,10 +106,7 @@ class VoiceServiceBase:
 
         def _get_member_count(
             self,
-            channel_or_id: discord.VoiceChannel
-            | discord.StageChannel
-            | int
-            | None,
+            channel_or_id: discord.VoiceChannel | discord.StageChannel | int | None,
         ) -> int: ...
 
         def _classify_old_channel(self, member_count: int) -> str: ...

@@ -164,6 +164,7 @@ class TestTicketPanelView:
             public_button_color="ED4245",  # Red -> Danger
         )
         import discord
+
         private_btn = view.children[0]  # type: ignore[attr-defined]
         public_btn = view.children[1]  # type: ignore[attr-defined]
         assert private_btn.style == discord.ButtonStyle.success  # type: ignore[attr-defined]
@@ -225,9 +226,7 @@ class TestTicketPanelView:
             {"id": 10, "name": "Chan-A Only", "description": "", "emoji": None},
             {"id": 20, "name": "Chan-B Only", "description": "", "emoji": None},
         ]
-        bot = _mock_bot_with_services(
-            categories=all_cats, channel_categories=chan_cats
-        )
+        bot = _mock_bot_with_services(categories=all_cats, channel_categories=chan_cats)
         view = TicketPanelView(bot)
         interaction = FakeInteraction()
         interaction.channel_id = 8001  # panel channel
@@ -236,15 +235,14 @@ class TestTicketPanelView:
         assert interaction.response._is_done
         # Should have called get_categories_for_channel with the panel channel
         bot.services.ticket.get_categories_for_channel.assert_called_once_with(
-            interaction.guild.id, 8001  # type: ignore[union-attr]
+            interaction.guild.id,
+            8001,  # type: ignore[union-attr]
         )
 
     @pytest.mark.asyncio
     async def test_create_ticket_falls_back_to_all_categories(self) -> None:
         """When channel has no categories, falls back to all guild categories."""
-        all_cats = [
-            {"id": 1, "name": "General", "description": "", "emoji": None}
-        ]
+        all_cats = [{"id": 1, "name": "General", "description": "", "emoji": None}]
         # channel_categories is empty → triggers fallback
         bot = _mock_bot_with_services(categories=all_cats, channel_categories=[])
         view = TicketPanelView(bot)
@@ -269,7 +267,12 @@ class TestTicketCategorySelect:
         """Select options match the provided categories."""
         cats = [
             {"id": 1, "name": "General", "description": "General help", "emoji": "📩"},
-            {"id": 2, "name": "Billing", "description": "Payment issues", "emoji": None},
+            {
+                "id": 2,
+                "name": "Billing",
+                "description": "Payment issues",
+                "emoji": None,
+            },
         ]
         bot = _mock_bot_with_services()
         select = TicketCategorySelect(bot, cats)
@@ -1191,8 +1194,13 @@ class TestCloseTicketFlow:
         thread.edit = AsyncMock()
         thread.delete = AsyncMock()
 
-        with patch("helpers.ticket_views_thread._generate_transcript", new=AsyncMock(return_value=None)):
-            with patch("helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()):
+        with patch(
+            "helpers.ticket_views_thread._generate_transcript",
+            new=AsyncMock(return_value=None),
+        ):
+            with patch(
+                "helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()
+            ):
                 await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
         thread.edit.assert_awaited_once()
@@ -1216,14 +1224,23 @@ class TestCloseTicketFlow:
         thread.send = AsyncMock()
         thread.edit = AsyncMock(
             side_effect=discord.HTTPException(
-                response=cast("Any", SimpleNamespace(status=500, reason="Server Error")),
+                response=cast(
+                    "Any", SimpleNamespace(status=500, reason="Server Error")
+                ),
                 message="archive failed",
             )
         )
 
-        with patch("helpers.ticket_views_thread._generate_transcript", new=AsyncMock(return_value=None)):
-            with patch("helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()):
-                with patch("helpers.ticket_views_thread.logger.exception") as log_exception:
+        with patch(
+            "helpers.ticket_views_thread._generate_transcript",
+            new=AsyncMock(return_value=None),
+        ):
+            with patch(
+                "helpers.ticket_views_thread._log_ticket_event", new=AsyncMock()
+            ):
+                with patch(
+                    "helpers.ticket_views_thread.logger.exception"
+                ) as log_exception:
                     await _close_ticket(bot, interaction, thread, close_reason="Done")  # type: ignore[arg-type]
 
         log_exception.assert_called()

@@ -199,20 +199,14 @@ class InternalAPIClient:
         payload = response.json()
         return payload.get("events", [])
 
-    async def get_guild_scheduled_event(
-        self, guild_id: int, event_id: int
-    ) -> dict:
+    async def get_guild_scheduled_event(self, guild_id: int, event_id: int) -> dict:
         """Fetch a single scheduled event by ID from the internal API."""
         client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/events/scheduled/{event_id}"
-        )
+        response = await client.get(f"/guilds/{guild_id}/events/scheduled/{event_id}")
         response.raise_for_status()
         return response.json().get("event", {})
 
-    async def create_guild_scheduled_event(
-        self, guild_id: int, payload: dict
-    ) -> dict:
+    async def create_guild_scheduled_event(self, guild_id: int, payload: dict) -> dict:
         """Create a scheduled event for a guild through the internal API."""
         client = await self._get_client()
         response = await client.post(

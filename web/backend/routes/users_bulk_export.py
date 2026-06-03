@@ -105,7 +105,9 @@ async def resolve_filtered_ids(
     id_list = list(guild_member_ids)
     placeholders = ",".join("?" * len(id_list))
     member_filter = f"user_id IN ({placeholders})"
-    combined_where = f"{member_filter} AND {where_clause}" if where_clause else member_filter
+    combined_where = (
+        f"{member_filter} AND {where_clause}" if where_clause else member_filter
+    )
     query = (
         f"SELECT {_VERIFICATION_COLUMNS} FROM verification "
         f"WHERE {combined_where} ORDER BY last_updated DESC"
@@ -275,7 +277,9 @@ async def export_users(
             continue
 
         main_orgs_str = ";".join(main_orgs_list) if main_orgs_list else ""
-        affiliate_orgs_str = ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        affiliate_orgs_str = (
+            ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        )
 
         writer.writerow(
             [

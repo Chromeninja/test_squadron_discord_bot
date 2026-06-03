@@ -488,7 +488,10 @@ class FakeInternalAPIClient:
     async def create_guild_scheduled_event(self, guild_id: int, payload: dict) -> dict:
         """Create and store a mock scheduled event for a guild."""
         event = {
-            "id": str(900000000000000000 + len(self.scheduled_events_by_guild.get(guild_id, []))),
+            "id": str(
+                900000000000000000
+                + len(self.scheduled_events_by_guild.get(guild_id, []))
+            ),
             "name": payload.get("name"),
             "description": payload.get("description"),
             "scheduled_start_time": payload.get("scheduled_start_time"),
@@ -527,7 +530,9 @@ class FakeInternalAPIClient:
                 "scheduled_end_time": payload.get("scheduled_end_time"),
                 "entity_type": payload.get("entity_type"),
                 "channel_id": payload.get("channel_id"),
-                "channel_name": "Mock Event Channel" if payload.get("channel_id") else None,
+                "channel_name": "Mock Event Channel"
+                if payload.get("channel_id")
+                else None,
                 "location": payload.get("location"),
                 "recurrence_rule": payload.get("recurrence_rule"),
                 "recurrence_rule_payload": payload.get("recurrence_rule"),
@@ -595,7 +600,10 @@ class FakeInternalAPIClient:
         }
 
     async def deploy_ticket_panel(
-        self, guild_id: int, *, channel_id: str | None = None,
+        self,
+        guild_id: int,
+        *,
+        channel_id: str | None = None,
     ) -> dict:
         """Mock ticket panel deployment."""
         return {"success": True, "message_id": "000000000"}

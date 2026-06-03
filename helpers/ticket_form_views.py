@@ -181,9 +181,7 @@ class DynamicTicketModal(Modal):
                 self._context.guild_id, self._context.user_id
             )
 
-            await create_ticket_from_route(
-                self.bot, interaction, self._context
-            )
+            await create_ticket_from_route(self.bot, interaction, self._context)
         else:
             # More steps — update session and show continue view
             await ticket_form_service.update_session(
@@ -426,6 +424,4 @@ async def create_ticket_from_route(
 
     # Save form responses using the returned ticket_id directly
     if ticket_id is not None:
-        await ticket_form_service.save_responses(
-            ticket_id, context.collected_answers
-        )
+        await ticket_form_service.save_responses(ticket_id, context.collected_answers)

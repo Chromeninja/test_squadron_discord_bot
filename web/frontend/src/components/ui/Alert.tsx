@@ -19,20 +19,20 @@ export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /**
  * Alert component for displaying feedback messages.
- * 
+ *
  * @example
  * // Error alert
  * <Alert variant="error">Failed to load data</Alert>
- * 
+ *
  * // Success with title and action
- * <Alert 
- *   variant="success" 
+ * <Alert
+ *   variant="success"
  *   title="Settings saved"
  *   action={<button>Undo</button>}
  * >
  *   Your changes have been applied.
  * </Alert>
- * 
+ *
  * // Dismissible warning
  * <Alert variant="warning" dismissible onDismiss={() => setShow(false)}>
  *   This action cannot be undone.
@@ -62,7 +62,7 @@ export function Alert({
     >
       <div className="flex items-start gap-3">
         {icon && <div className="flex-shrink-0 mt-0.5">{icon}</div>}
-        
+
         <div className="flex-1 min-w-0">
           {title && <p className="font-semibold mb-1">{title}</p>}
           <div className="text-sm">{children}</div>
@@ -99,7 +99,7 @@ export interface BannerProps extends Omit<AlertProps, 'dismissible'> {
 
 /**
  * Banner component for page-level notifications.
- * 
+ *
  * @example
  * <Banner variant="warning" maxWidth="4xl" centered>
  *   <strong>5 corrupted entries detected.</strong>{' '}

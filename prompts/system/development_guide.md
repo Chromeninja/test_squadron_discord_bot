@@ -72,8 +72,8 @@ import json
 from services.db.database import Database
 
 async def update_verification_status(
-    user_id: int, 
-    rsi_handle: str, 
+    user_id: int,
+    rsi_handle: str,
     payload: dict
 ) -> bool:
     """Update verification payload with proper error handling (status derived from org lists)."""
@@ -104,11 +104,11 @@ def get_role_id(role_name: str) -> int | None:
     """Get role ID with type safety."""
     roles = Config.get('roles', {})
     role_id = roles.get(role_name)
-    
+
     if role_id is None:
         logger.warning(f"Role '{role_name}' not configured")
         return None
-    
+
     return int(role_id)
 ```
 
@@ -129,14 +129,14 @@ async def test_verification_success(temp_db, monkeypatch) -> None:
     bot = MagicMock()
     member = MagicMock()
     member.id = 12345
-    
+
     # Mock external dependencies
-    monkeypatch.setattr("verification.rsi_verification.is_valid_rsi_handle", 
+    monkeypatch.setattr("verification.rsi_verification.is_valid_rsi_handle",
                        AsyncMock(return_value=(1, "TestHandle", "TestMoniker")))
-    
+
     # Act
     result = await verify_member(bot, member, "TestHandle")
-    
+
     # Assert
     assert result is True
     # Verify database state
@@ -161,7 +161,7 @@ class FakeMember:
         self.roles = roles or []
         self.nick = nick
         self.mention = f"<@{user_id}>"
-    
+
     async def edit(self, **kwargs) -> None:
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -180,26 +180,26 @@ def process_verification_result(
 ) -> dict[str, Any]:
     """
     Process RSI verification result and determine member status.
-    
+
     Args:
         member: Discord member object
         verification_data: Tuple of (status_code, cased_handle, moniker)
                           where status_code: 0=invalid, 1=main, 2=affiliate
-    
+
     Returns:
         Dict containing:
         - success: bool
         - status: str ("main" | "affiliate" | "invalid")
         - roles_to_add: list[str]
         - roles_to_remove: list[str]
-    
+
     AI Notes:
         - Status codes map to membership levels
         - Main members get full access, affiliates get limited access
         - Invalid results should not change existing roles
     """
     status_code, cased_handle, moniker = verification_data
-    
+
     # Implementation here...
 ```
 
@@ -214,7 +214,7 @@ class VerificationContext:
     rsi_handle: str
     initiator: str  # "user" | "admin" | "system"
     timestamp: datetime
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for AI analysis."""
         return {
@@ -243,7 +243,7 @@ async def batch_verify_members(members: list[discord.Member]) -> list[bool]:
     """Verify multiple members concurrently."""
     tasks = [verify_single_member(member) for member in members]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Handle any exceptions
     success_results = []
     for result in results:
@@ -252,7 +252,7 @@ async def batch_verify_members(members: list[discord.Member]) -> list[bool]:
             success_results.append(False)
         else:
             success_results.append(result)
-    
+
     return success_results
 
 # Bad: Sequential operations
@@ -287,13 +287,13 @@ async def complete_verification(user_id: int, data: VerificationData) -> None:
             "UPDATE verification SET membership_status = ?, rsi_handle = ?, last_updated = ?",
             (data.status, data.handle, int(time.time()))
         )
-        
+
         # Add log entry
         await db.execute(
             "INSERT INTO verification_log (user_id, action, timestamp) VALUES (?, ?, ?)",
             (user_id, 'verified', int(time.time()))
         )
-        
+
         await db.commit()
 ```
 
@@ -316,14 +316,14 @@ async def verify_member_with_logging(member: discord.Member, handle: str) -> boo
         guild_id=member.guild.id,
         rsi_handle=handle
     )
-    
+
     log.info("Starting verification")
-    
+
     try:
         result = await perform_verification(handle)
         log.info("Verification completed", result=result)
         return True
-        
+
     except Exception as e:
         log.error("Verification failed", error=str(e), error_type=type(e).__name__)
         return False

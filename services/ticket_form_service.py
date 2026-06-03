@@ -313,9 +313,7 @@ class TicketFormService(BaseService):
                     self._invalidate_form_cache(int(row["category_id"]))
             return affected > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to update form step %s", step_id, exc_info=e
-            )
+            self.logger.exception("Failed to update form step %s", step_id, exc_info=e)
             return False
 
     async def delete_step(self, step_id: int) -> bool:
@@ -334,9 +332,7 @@ class TicketFormService(BaseService):
                 self._invalidate_form_cache(int(row["category_id"]))
             return affected > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to delete form step %s", step_id, exc_info=e
-            )
+            self.logger.exception("Failed to delete form step %s", step_id, exc_info=e)
             return False
 
     async def get_steps(self, category_id: int) -> list[dict[str, Any]]:
@@ -468,8 +464,14 @@ class TicketFormService(BaseService):
         self._ensure_initialized()
         await self._ensure_question_schema_compatibility()
         allowed = {
-            "label", "placeholder", "style", "required",
-            "min_length", "max_length", "sort_order", "question_id",
+            "label",
+            "placeholder",
+            "style",
+            "required",
+            "min_length",
+            "max_length",
+            "sort_order",
+            "question_id",
         }
         updates: dict[str, Any] = {}
         for key, value in kwargs.items():
@@ -499,9 +501,7 @@ class TicketFormService(BaseService):
                     self._invalidate_form_cache(int(row["category_id"]))
             return affected > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to update question %s", pk, exc_info=e
-            )
+            self.logger.exception("Failed to update question %s", pk, exc_info=e)
             return False
 
     async def delete_question(self, pk: int) -> bool:
@@ -520,9 +520,7 @@ class TicketFormService(BaseService):
                 self._invalidate_form_cache(int(row["category_id"]))
             return affected > 0
         except Exception as e:
-            self.logger.exception(
-                "Failed to delete question %s", pk, exc_info=e
-            )
+            self.logger.exception("Failed to delete question %s", pk, exc_info=e)
             return False
 
     async def get_questions(self, step_id: int) -> list[dict[str, Any]]:
@@ -727,9 +725,7 @@ class TicketFormService(BaseService):
                     )
                     continue
                 if qid in question_ids:
-                    errors.append(
-                        f"Step {sn} has duplicate question_id '{qid}'."
-                    )
+                    errors.append(f"Step {sn} has duplicate question_id '{qid}'.")
                 question_ids.add(qid)
 
         return errors
@@ -744,9 +740,7 @@ class TicketFormService(BaseService):
         errors: list[str] = []
 
         if len(steps) > MAX_FORM_STEPS:
-            errors.append(
-                f"Form has {len(steps)} steps (max {MAX_FORM_STEPS})."
-            )
+            errors.append(f"Form has {len(steps)} steps (max {MAX_FORM_STEPS}).")
 
         # Single pass: collect step_numbers and validate each step
         step_numbers: set[int] = set()
@@ -871,9 +865,15 @@ class TicketFormService(BaseService):
                 "is_public=excluded.is_public, "
                 "created_at=excluded.created_at, expires_at=excluded.expires_at",
                 (
-                    guild_id, user_id, category_id, 1,
-                    json.dumps({}), interaction_token, 1 if is_public else 0,
-                    int(now), int(expires),
+                    guild_id,
+                    user_id,
+                    category_id,
+                    1,
+                    json.dumps({}),
+                    interaction_token,
+                    1 if is_public else 0,
+                    int(now),
+                    int(expires),
                 ),
             )
             ctx.session_id = session_id
@@ -1001,8 +1001,7 @@ class TicketFormService(BaseService):
         """Delete a session row from the DB only."""
         try:
             affected = await BaseRepository.execute(
-                "DELETE FROM ticket_route_sessions "
-                "WHERE guild_id = ? AND user_id = ?",
+                "DELETE FROM ticket_route_sessions WHERE guild_id = ? AND user_id = ?",
                 (guild_id, user_id),
             )
             return affected > 0
@@ -1068,14 +1067,16 @@ class TicketFormService(BaseService):
 
         rows = []
         for qid, data in collected_answers.items():
-            rows.append((
-                ticket_id,
-                qid,
-                data.get("label", qid),
-                data.get("answer", ""),
-                data.get("step", 1),
-                data.get("sort_order", 0),
-            ))
+            rows.append(
+                (
+                    ticket_id,
+                    qid,
+                    data.get("label", qid),
+                    data.get("answer", ""),
+                    data.get("step", 1),
+                    data.get("sort_order", 0),
+                )
+            )
 
         try:
             await BaseRepository.execute_many(

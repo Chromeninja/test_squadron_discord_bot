@@ -414,9 +414,7 @@ async def list_active_voice_channels(
 
     # Org SID for membership status derivation
     org_settings = await get_organization_settings(db, guild_id)
-    organization_sid = (
-        org_settings.get("organization_sid") if org_settings else None
-    )
+    organization_sid = org_settings.get("organization_sid") if org_settings else None
 
     # ── 3. Collect all member IDs across channels for batch verification lookup ──
     all_member_ids: set[int] = set()

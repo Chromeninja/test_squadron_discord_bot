@@ -1,4 +1,5 @@
 """User enrichment helpers: member cache, query builders, and list fetchers."""
+
 import asyncio
 import json
 import logging
@@ -394,6 +395,7 @@ async def _list_users_single_guild(
 
     # Get org settings for status derivation
     from core.guild_settings import get_organization_settings
+
     org_settings = await get_organization_settings(db, guild_id)
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 

@@ -41,7 +41,9 @@ async def get_form_config(
     """Return the full form configuration tree for a category."""
     config = await repo.get_form_config(category_id)
     if config is None:
-        raise HTTPException(status_code=404, detail="No form configured for this category")
+        raise HTTPException(
+            status_code=404, detail="No form configured for this category"
+        )
     return {"config": config}
 
 
@@ -61,9 +63,7 @@ async def replace_form_config(
     steps_data = payload.get("steps", [])
     success = await repo.replace_form_config(category_id, steps_data)
     if not success:
-        raise HTTPException(
-            status_code=422, detail="Failed to replace form config"
-        )
+        raise HTTPException(status_code=422, detail="Failed to replace form config")
     return {"success": True}
 
 
@@ -120,9 +120,7 @@ async def create_step(
     title = payload.get("title", "")
     step_id = await repo.create_step(category_id, step_number, title)
     if step_id is None:
-        raise HTTPException(
-            status_code=422, detail="Failed to create step"
-        )
+        raise HTTPException(status_code=422, detail="Failed to create step")
     return {"step_id": step_id}
 
 
@@ -231,9 +229,7 @@ async def update_question(
     """Update fields on a form question."""
     success = await repo.update_question(question_id, **payload)
     if not success:
-        raise HTTPException(
-            status_code=404, detail="Question not found or no updates"
-        )
+        raise HTTPException(status_code=404, detail="Question not found or no updates")
     return {"success": success}
 
 
@@ -270,9 +266,7 @@ async def create_session(
     user_id = payload.get("user_id")
     category_id = payload.get("category_id")
     if user_id is None or category_id is None:
-        raise HTTPException(
-            status_code=422, detail="Missing user_id or category_id"
-        )
+        raise HTTPException(status_code=422, detail="Missing user_id or category_id")
     session = await repo.create_session(
         guild_id,
         user_id,

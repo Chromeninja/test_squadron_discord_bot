@@ -13,14 +13,14 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /**
  * Card container component for grouping related content.
- * 
+ *
  * @example
  * // Default card with padding
  * <Card padding="md">
  *   <h3>Title</h3>
  *   <p>Content</p>
  * </Card>
- * 
+ *
  * // Dark variant without padding (for custom layouts)
  * <Card variant="dark" padding="none">
  *   <CardHeader>...</CardHeader>
@@ -141,7 +141,7 @@ export interface CollapsibleCardProps extends Omit<CardProps, 'padding'> {
 
 /**
  * Collapsible card with expandable content.
- * 
+ *
  * @example
  * <CollapsibleCard
  *   expanded={isExpanded}
