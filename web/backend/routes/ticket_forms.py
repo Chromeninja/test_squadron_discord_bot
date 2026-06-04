@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from core.dependencies import (
-    get_ticket_form_service,
-    get_ticket_service,
+    get_ticket_form_repository,
+    get_ticket_repository,
     require_discord_manager,
     require_staff,
 )
@@ -33,8 +33,8 @@ from utils.logging import get_logger
 from web.backend.routes._ticket_helpers import require_guild_category
 
 if TYPE_CHECKING:
-    from services.ticket_form_service import TicketFormService
-    from services.ticket_service import TicketService
+    from backend.db.repository.ticket_forms import TicketFormRepository
+    from backend.db.repository.tickets import TicketRepository
 
 logger = get_logger(__name__)
 
@@ -98,13 +98,13 @@ def _build_form_response(
 async def get_form_config(
     category_id: int,
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
-    form_svc: TicketFormService = Depends(get_ticket_form_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
+    form_repo: TicketFormRepository = Depends(get_ticket_form_repository),
 ) -> TicketFormConfigResponse:
     """Get the full form configuration for a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
-    config = await form_svc.get_form_config(category_id)
+    await require_guild_category(repo, category_id, guild_id)
+    config = await form_repo.get_form_config(category_id)
     return _build_form_response(category_id, config)
 
 
@@ -116,12 +116,12 @@ async def replace_form_config(
     category_id: int,
     body: TicketFormConfigUpdate,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
-    form_svc: TicketFormService = Depends(get_ticket_form_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
+    form_repo: TicketFormRepository = Depends(get_ticket_form_repository),
 ) -> TicketFormConfigResponse:
     """Replace the entire form config for a category (atomic)."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(repo, category_id, guild_id)
 
     # Convert to plain dicts for the service
     steps_data = [
@@ -133,19 +133,19 @@ async def replace_form_config(
         for s in body.steps
     ]
 
-    payload_errors = form_svc.validate_form_payload(steps_data)
+    payload_errors = form_repo.validate_form_payload(steps_data)
     if payload_errors:
         raise HTTPException(
             status_code=400,
             detail={"message": "Invalid form config", "errors": payload_errors},
         )
 
-    success = await form_svc.replace_form_config(category_id, steps_data)
+    success = await form_repo.replace_form_config(category_id, steps_data)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save form config")
 
     # Return the updated config
-    return await get_form_config(category_id, current_user, svc, form_svc)
+    return await get_form_config(category_id, current_user, repo, form_repo)
 
 
 @router.delete(
@@ -155,14 +155,14 @@ async def replace_form_config(
 async def delete_form_config(
     category_id: int,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
-    form_svc: TicketFormService = Depends(get_ticket_form_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
+    form_repo: TicketFormRepository = Depends(get_ticket_form_repository),
 ) -> TicketFormConfigResponse:
     """Delete all form config for a category (reverts to legacy modal)."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(repo, category_id, guild_id)
 
-    await form_svc.delete_form_config(category_id)
+    await form_repo.delete_form_config(category_id)
 
     return _build_form_response(category_id, None)
 
@@ -179,14 +179,14 @@ async def delete_form_config(
 async def validate_form_config(
     category_id: int,
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
-    form_svc: TicketFormService = Depends(get_ticket_form_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
+    form_repo: TicketFormRepository = Depends(get_ticket_form_repository),
 ) -> TicketFormValidation:
     """Validate the form configuration for a category."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(repo, category_id, guild_id)
 
-    errors = await form_svc.validate_form(category_id)
+    errors = await form_repo.validate_form(category_id)
 
     return TicketFormValidation(valid=len(errors) == 0, errors=errors)
 
@@ -203,18 +203,18 @@ async def validate_form_config(
 async def get_ticket_responses(
     ticket_id: int,
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
-    form_svc: TicketFormService = Depends(get_ticket_form_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
+    form_repo: TicketFormRepository = Depends(get_ticket_form_repository),
 ) -> TicketFormResponseList:
     """Get form responses for a specific ticket."""
     guild_id = ensure_active_guild(current_user)
 
     # Verify the ticket belongs to this guild via single-row lookup
-    ticket = await svc.get_ticket_by_id(ticket_id, guild_id)
+    ticket = await repo.get_ticket(guild_id, ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    responses = await form_svc.get_responses(ticket_id)
+    responses = await form_repo.get_responses(ticket_id)
 
     return TicketFormResponseList(
         responses=[

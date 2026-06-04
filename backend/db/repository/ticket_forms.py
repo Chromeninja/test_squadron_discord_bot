@@ -10,6 +10,7 @@ import json
 import time
 from typing import Any
 
+from helpers.constants import MAX_TOTAL_FORM_QUESTIONS
 from services.db.database import Database
 
 
@@ -350,7 +351,6 @@ class TicketFormRepository:
         errors = TicketFormRepository._validate_steps_rules(steps_data)
 
         # Payload-specific: check total question cap
-        MAX_TOTAL_FORM_QUESTIONS = 25
         total_questions = sum(len(s.get("questions", [])) for s in steps_data)
         if total_questions > MAX_TOTAL_FORM_QUESTIONS:
             errors.append(

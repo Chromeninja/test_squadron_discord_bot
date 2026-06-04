@@ -19,7 +19,7 @@ Schema (services/db/schema.py):
 
 from __future__ import annotations
 
-import json
+import json as _json
 import time
 
 from services.db.database import Database
@@ -32,30 +32,37 @@ class TicketRepository:
     """
 
     async def get_tickets(
-        self, guild_id: int, status: str | None = None
+        self,
+        guild_id: int,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[dict[str, object | None]]:
         """Return non-deleted tickets for a guild, optionally filtered by status."""
         async with Database.get_connection() as db:
             if status is not None:
-                cursor = await db.execute(
-                    """
+                sql = """
                     SELECT *
                     FROM tickets
                     WHERE guild_id = ? AND status = ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
-                    """,
-                    (guild_id, status),
-                )
-            else:
-                cursor = await db.execute(
                     """
+                params: list[object] = [guild_id, status]
+            else:
+                sql = """
                     SELECT *
                     FROM tickets
                     WHERE guild_id = ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
-                    """,
-                    (guild_id,),
-                )
+                    """
+                params = [guild_id]
+            if limit is not None:
+                sql += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+            else:
+                sql += " LIMIT -1 OFFSET ?"
+                params.append(offset)
+            cursor = await db.execute(sql, tuple(params))
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
@@ -187,6 +194,22 @@ class TicketRepository:
             await db.commit()
         return cursor.rowcount > 0
 
+    def _parse_category_row(self, row) -> dict[str, object | None]:
+        """Parse a category row, deserializing JSON role ID fields.
+
+        Returns a dict with role_ids, prerequisite_role_ids_all, and
+        prerequisite_role_ids_any as lists (or empty lists on decode error).
+        """
+        d = dict(row)
+        for field in ("role_ids", "prerequisite_role_ids_all", "prerequisite_role_ids_any"):
+            raw = d.get(field)
+            if isinstance(raw, str):
+                try:
+                    d[field] = _json.loads(raw)
+                except (_json.JSONDecodeError, ValueError):
+                    d[field] = []
+        return d
+
     # ------------------------------------------------------------------
     # Categories
     # ------------------------------------------------------------------
@@ -209,9 +232,9 @@ class TicketRepository:
             The new category row ID, or None on failure.
         """
         try:
-            role_json = json.dumps(role_ids or [])
-            prerequisite_role_ids_all_json = json.dumps(prerequisite_role_ids_all or [])
-            prerequisite_role_ids_any_json = json.dumps(prerequisite_role_ids_any or [])
+            role_json = _json.dumps(role_ids or [])
+            prerequisite_role_ids_all_json = _json.dumps(prerequisite_role_ids_all or [])
+            prerequisite_role_ids_any_json = _json.dumps(prerequisite_role_ids_any or [])
 
             # Determine next sort_order
             async with Database.get_connection() as db:
@@ -293,7 +316,7 @@ class TicketRepository:
                 "prerequisite_role_ids_all",
                 "prerequisite_role_ids_any",
             }:
-                updates[key] = json.dumps(value if value is not None else [])
+                updates[key] = _json.dumps(value if value is not None else [])
             else:
                 updates[key] = value
 
@@ -343,7 +366,7 @@ class TicketRepository:
                 (guild_id,),
             )
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [self._parse_category_row(row) for row in rows]
 
     async def get_category(self, category_id: int) -> dict[str, object | None] | None:
         """Return a single category by ID, or None."""
@@ -355,7 +378,7 @@ class TicketRepository:
             row = await cursor.fetchone()
             if row is None:
                 return None
-            return dict(row)
+            return self._parse_category_row(row)
 
     async def get_categories_for_channel(
         self,
@@ -374,7 +397,7 @@ class TicketRepository:
                 (guild_id, channel_id),
             )
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [self._parse_category_row(row) for row in rows]
 
     async def get_ticket_channel_ids(self, guild_id: int) -> list[int]:
         """Return distinct channel IDs that have ticket categories assigned."""

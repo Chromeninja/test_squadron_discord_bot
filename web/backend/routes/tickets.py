@@ -15,7 +15,7 @@ from core.dependencies import (
     InternalAPIClient,
     get_config_service,
     get_internal_api_client,
-    get_ticket_service,
+    get_ticket_repository,
     require_discord_manager,
     require_staff,
     translate_internal_api_error,
@@ -46,8 +46,8 @@ from web.backend.routes._ticket_helpers import require_guild_category
 from web.backend.routes.users import _get_member_with_cache
 
 if TYPE_CHECKING:
+    from backend.db.repository.tickets import TicketRepository
     from services.config_service import ConfigService
-    from services.ticket_service import TicketService
 
 logger = get_logger(__name__)
 
@@ -157,11 +157,11 @@ def _build_category_list(cats: list[dict]) -> TicketCategoryListResponse:
 @router.get("/categories", response_model=TicketCategoryListResponse)
 async def list_categories(
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> TicketCategoryListResponse:
     """List all ticket categories for the active guild."""
     guild_id = ensure_active_guild(current_user)
-    cats = await svc.get_categories(guild_id)
+    cats = await repo.get_categories(guild_id)
     return _build_category_list(cats)
 
 
@@ -169,14 +169,14 @@ async def list_categories(
 async def create_category(
     body: TicketCategoryCreate,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> TicketCategoryListResponse:
     """Create a new ticket category."""
     guild_id = ensure_active_guild(current_user)
     # Ensure the body guild_id matches the active guild
     if str(guild_id) != body.guild_id:
         raise HTTPException(status_code=403, detail="Guild mismatch")
-    cat_id = await svc.create_category(
+    cat_id = await repo.create_category(
         guild_id=guild_id,
         name=body.name,
         description=body.description,
@@ -197,7 +197,7 @@ async def create_category(
         raise HTTPException(status_code=500, detail="Failed to create category")
 
     # Return updated list
-    cats = await svc.get_categories(guild_id)
+    cats = await repo.get_categories(guild_id)
     return _build_category_list(cats)
 
 
@@ -206,11 +206,11 @@ async def update_category(
     category_id: int,
     body: TicketCategoryUpdate,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict:
     """Update a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(repo, category_id, guild_id)
 
     # Build kwargs from non-None fields
     kwargs: dict[str, object] = {}
@@ -240,7 +240,7 @@ async def update_category(
     if not kwargs:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    updated = await svc.update_category(category_id, **kwargs)
+    updated = await repo.update_category(category_id, **kwargs)
     if not updated:
         raise HTTPException(status_code=404, detail="Category not found")
 
@@ -251,13 +251,13 @@ async def update_category(
 async def delete_category(
     category_id: int,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict:
     """Delete a ticket category."""
     guild_id = ensure_active_guild(current_user)
-    await require_guild_category(svc, category_id, guild_id)
+    await require_guild_category(repo, category_id, guild_id)
 
-    deleted = await svc.delete_category(category_id)
+    deleted = await repo.delete_category(category_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"success": True}
@@ -297,13 +297,13 @@ def _build_channel_config_list(
 
 
 async def _require_guild_channel_config(
-    svc: TicketService, guild_id: int, channel_id: int
+    repo: TicketRepository, guild_id: int, channel_id: int
 ) -> dict:
     """Verify a channel config exists and belongs to the given guild.
 
     Raises ``HTTPException(404)`` on mismatch.
     """
-    cfg = await svc.get_channel_config(guild_id, channel_id)
+    cfg = await repo.get_channel_config(guild_id, channel_id)
     if cfg is None or cfg["guild_id"] != guild_id:
         raise HTTPException(status_code=404, detail="Channel config not found")
     return cfg
@@ -312,11 +312,11 @@ async def _require_guild_channel_config(
 @router.get("/channels", response_model=TicketChannelConfigListResponse)
 async def list_channel_configs(
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> TicketChannelConfigListResponse:
     """List all ticket channel configs for the active guild."""
     guild_id = ensure_active_guild(current_user)
-    configs = await svc.get_channel_configs(guild_id)
+    configs = await repo.get_channel_configs(guild_id)
     return _build_channel_config_list(configs)
 
 
@@ -326,7 +326,7 @@ async def list_channel_configs(
 async def create_channel_config(
     body: TicketChannelConfigCreate,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> TicketChannelConfigListResponse:
     """Create a new ticket channel config."""
     guild_id = ensure_active_guild(current_user)
@@ -335,11 +335,11 @@ async def create_channel_config(
         raise HTTPException(status_code=403, detail="Guild mismatch")
 
     # Check if config already exists
-    existing = await svc.get_channel_config(guild_id, int(body.channel_id))
+    existing = await repo.get_channel_config(guild_id, int(body.channel_id))
     if existing is not None:
         raise HTTPException(status_code=409, detail="Channel config already exists")
 
-    config_id = await svc.create_channel_config(
+    config_id = await repo.create_channel_config(
         guild_id=guild_id,
         channel_id=int(body.channel_id),
         panel_title=body.panel_title,
@@ -358,7 +358,7 @@ async def create_channel_config(
         raise HTTPException(status_code=500, detail="Failed to create channel config")
 
     # Return updated list
-    configs = await svc.get_channel_configs(guild_id)
+    configs = await repo.get_channel_configs(guild_id)
     return _build_channel_config_list(configs)
 
 
@@ -367,12 +367,12 @@ async def update_channel_config(
     channel_id: str,
     body: TicketChannelConfigUpdate,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict:
     """Update a ticket channel config."""
     guild_id = ensure_active_guild(current_user)
     channel_id_int = int(channel_id)
-    await _require_guild_channel_config(svc, guild_id, channel_id_int)
+    await _require_guild_channel_config(repo, guild_id, channel_id_int)
 
     # Build kwargs from non-None fields
     kwargs: dict = {
@@ -398,7 +398,7 @@ async def update_channel_config(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     try:
-        updated = await svc.update_channel_config(guild_id, channel_id_int, **kwargs)
+        updated = await repo.update_channel_config(guild_id, channel_id_int, **kwargs)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -412,7 +412,7 @@ async def update_channel_config(
 async def delete_channel_config(
     channel_id: str,
     current_user: UserProfile = Depends(require_discord_manager()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> dict:
     """Delete a ticket channel config.
 
@@ -422,9 +422,9 @@ async def delete_channel_config(
     """
     guild_id = ensure_active_guild(current_user)
     channel_id_int = int(channel_id)
-    await _require_guild_channel_config(svc, guild_id, channel_id_int)
+    await _require_guild_channel_config(repo, guild_id, channel_id_int)
 
-    deleted = await svc.delete_channel_config(guild_id, channel_id_int)
+    deleted = await repo.delete_channel_config(guild_id, channel_id_int)
     if not deleted:
         raise HTTPException(status_code=404, detail="Channel config not found")
     return {"success": True}
@@ -441,7 +441,7 @@ async def list_tickets(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
     internal_api: InternalAPIClient = Depends(get_internal_api_client),
 ) -> TicketListResponse:
     """List tickets for the active guild with optional status filter."""
@@ -456,10 +456,10 @@ async def list_tickets(
             return None
 
     offset = (page - 1) * page_size
-    tickets = await svc.get_tickets(
+    tickets = await repo.get_tickets(
         guild_id, status=status, limit=page_size, offset=offset
     )
-    total = await svc.get_ticket_count(guild_id, status=status)
+    total = await repo.get_ticket_count(guild_id, status=status)
 
     creator_user_ids: set[int] = {
         parsed_user_id
@@ -479,9 +479,10 @@ async def list_tickets(
             creator_map.get(creator_user_id, {}) if creator_user_id is not None else {}
         )
 
+        raw_cat_id = t.get("category_id")
         items.append(
             TicketInfo(
-                id=t["id"],
+                id=int(t["id"]),  # type: ignore[arg-type]
                 guild_id=str(t["guild_id"]),
                 channel_id=str(t["channel_id"]),
                 thread_id=str(t["thread_id"]),
@@ -490,16 +491,16 @@ async def list_tickets(
                 creator_global_name=creator_data.get("creator_global_name"),
                 creator_discriminator=creator_data.get("creator_discriminator"),
                 creator_avatar_url=creator_data.get("creator_avatar_url"),
-                category_id=t.get("category_id"),
-                status=t["status"],
+                category_id=int(raw_cat_id) if raw_cat_id is not None else None,  # type: ignore[arg-type]
+                status=str(t["status"]),
                 closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
-                created_at=t.get("created_at", 0),
-                closed_at=t.get("closed_at"),
+                created_at=int(t.get("created_at") or 0),  # type: ignore[arg-type]
+                closed_at=int(t["closed_at"]) if t.get("closed_at") is not None else None,  # type: ignore[arg-type]
                 claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
-                claimed_at=t.get("claimed_at"),
-                close_reason=t.get("close_reason"),
-                initial_description=t.get("initial_description"),
-                reopened_at=t.get("reopened_at"),
+                claimed_at=int(t["claimed_at"]) if t.get("claimed_at") is not None else None,  # type: ignore[arg-type]
+                close_reason=str(t["close_reason"]) if t.get("close_reason") is not None else None,
+                initial_description=str(t["initial_description"]) if t.get("initial_description") is not None else None,
+                reopened_at=int(t["reopened_at"]) if t.get("reopened_at") is not None else None,  # type: ignore[arg-type]
                 reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
             )
         )
@@ -509,11 +510,11 @@ async def list_tickets(
 @router.get("/stats", response_model=TicketStatsResponse)
 async def ticket_stats(
     current_user: UserProfile = Depends(require_staff()),
-    svc: TicketService = Depends(get_ticket_service),
+    repo: TicketRepository = Depends(get_ticket_repository),
 ) -> TicketStatsResponse:
     """Get ticket statistics for the active guild."""
     guild_id = ensure_active_guild(current_user)
-    data = await svc.get_ticket_stats(guild_id)
+    data = await repo.get_ticket_stats(guild_id)
     return TicketStatsResponse(
         open=data["open"],
         closed=data["closed"],
@@ -552,8 +553,17 @@ async def get_settings(
         guild_id, "tickets.reopen_window_hours", default="48"
     )
 
-    svc = await get_ticket_service()
-    staff_roles = await svc.get_staff_role_ids(config, guild_id)
+    raw_roles = await config.get_guild_setting(guild_id, "tickets.staff_roles", default="[]")
+    try:
+        parsed = raw_roles
+        for _ in range(2):
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+                continue
+            break
+        staff_roles: list[int] = [int(r) for r in (parsed or [])]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        staff_roles = []
 
     def _str_or_none(key: str) -> str | None:
         v = raw[key]
