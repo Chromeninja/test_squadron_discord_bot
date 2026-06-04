@@ -8,6 +8,8 @@ that unit tests with mocked connections cannot detect.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from backend.db.repository.config import ConfigRepository
@@ -33,7 +35,8 @@ async def test_ticket_create_get_update_close(temp_db: str) -> None:
             "initial_description": "help please",
         },
     )
-    ticket_id = int(created["id"])  # type: ignore[arg-type]
+    assert created is not None and created["id"] is not None
+    ticket_id = int(cast("dict[str, Any]", created)["id"])
     assert created["status"] == "open"
     assert created["thread_id"] == 2002
     assert created["channel_id"] == 1001
@@ -393,7 +396,8 @@ async def test_ticket_stats(temp_db: str) -> None:
     )
 
     # Close one ticket
-    ticket_id_1 = int(t1["id"])  # type: ignore[arg-type]
+    assert t1 is not None and t1["id"] is not None
+    ticket_id_1 = int(cast("dict[str, Any]", t1)["id"])
     await repo.close_ticket(GUILD_ID, ticket_id_1, closed_by=999)
 
     # Get stats
@@ -755,7 +759,7 @@ async def test_form_save_get_responses(temp_db: str) -> None:
         },
     )
     assert ticket is not None and ticket["id"] is not None
-    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
+    ticket_id = int(ticket["id"])  # type: ignore[call-overload]
 
     # Save responses
     collected = {
@@ -1070,7 +1074,8 @@ async def test_ticket_thread_health(temp_db: str) -> None:
             "initial_description": "ticket 3",
         },
     )
-    closed_id = int(closed["id"])  # type: ignore[arg-type]
+    assert closed is not None and closed["id"] is not None
+    closed_id = int(closed["id"])  # type: ignore[call-overload]
     await repo.close_ticket(GUILD_ID, closed_id, closed_by=999)
 
     # Get health stats
@@ -1098,7 +1103,8 @@ async def test_ticket_oldest_closed(temp_db: str) -> None:
             "initial_description": "support request",
         },
     )
-    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
+    assert ticket is not None and ticket["id"] is not None
+    ticket_id = int(ticket["id"])  # type: ignore[call-overload]
     await repo.close_ticket(GUILD_ID, ticket_id, closed_by=888)
 
     # Query oldest closed tickets
@@ -1122,7 +1128,8 @@ async def test_ticket_cleanup_candidates(temp_db: str) -> None:
             "initial_description": "fresh ticket",
         },
     )
-    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
+    assert ticket is not None and ticket["id"] is not None
+    ticket_id = int(ticket["id"])  # type: ignore[call-overload]
     await repo.close_ticket(GUILD_ID, ticket_id, closed_by=777)
 
     # Query cleanup candidates with 0 days (should enforce 30-day minimum)

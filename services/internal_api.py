@@ -472,7 +472,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             else:
                 # Deploy to all channels that have channel configs
                 if self.bot and self.bot.connectors:
-                    configs = await self.bot.connectors.tickets.list_channel_configs(guild_id)
+                    configs = await self.bot.connectors.tickets.list_channel_configs(
+                        guild_id
+                    )
                     channel_ids = [int(c["channel_id"]) for c in configs]
                 else:
                     channel_ids = []
@@ -973,8 +975,10 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             scheduled_events = await guild.fetch_scheduled_events()
             for event in sorted(
                 scheduled_events,
-                key=lambda item: getattr(item, "start_time", None)
-                or datetime.min.replace(tzinfo=UTC),
+                key=lambda item: (
+                    getattr(item, "start_time", None)
+                    or datetime.min.replace(tzinfo=UTC)
+                ),
             ):
                 events_payload.append(self._serialize_scheduled_event(event, guild))
 

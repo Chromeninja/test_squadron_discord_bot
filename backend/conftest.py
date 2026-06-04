@@ -17,17 +17,22 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from typing import TYPE_CHECKING
+
 from services.db.database import Database
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 @pytest_asyncio.fixture()
-async def temp_db(tmp_path):
+async def temp_db(tmp_path: Path) -> AsyncGenerator[str, None]:
     """Initialise Database to a temporary file for isolation across tests."""
     orig_path = Database._db_path
     orig_initialized = Database._initialized
 
     Database._initialized = False
-    Database._db_path = None  # type: ignore[assignment]
+    Database._db_path = None
     db_file = tmp_path / "test.db"
     await Database.initialize(str(db_file))
 

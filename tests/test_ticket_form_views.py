@@ -118,6 +118,42 @@ def _mock_bot_with_form_services(
     ts.get_open_tickets = AsyncMock(return_value=[])
     bot.services.ticket = ts
 
+    # Form connector (bot.connectors.forms) - all methods must be AsyncMock
+    forms_connector = MagicMock()
+    forms_connector.resolve_next_step = AsyncMock(return_value=next_step)
+    forms_connector.get_step_by_number = AsyncMock(return_value=step_config)
+    forms_connector.delete_session = AsyncMock(return_value=True)
+    forms_connector.update_session = AsyncMock(return_value=True)
+    # get_session/create_session return dict (not RouteExecutionContext)
+    session_dict = None
+    if session:
+        session_dict = {
+            "guild_id": str(session.guild_id),
+            "user_id": str(session.user_id),
+            "category_id": str(session.category_id),
+            "current_step": session.current_step,
+            "collected_answers": session.collected_answers,
+            "session_id": getattr(session, "session_id", None),
+            "interaction_token": getattr(session, "interaction_token", None),
+            "is_public": getattr(session, "is_public", False),
+        }
+    forms_connector.get_session = AsyncMock(return_value=session_dict)
+    forms_connector.create_session = AsyncMock(return_value=session_dict)
+    forms_connector.get_form_config = AsyncMock(return_value=form_config)
+    forms_connector.get_questions = AsyncMock(return_value=questions or [])
+    forms_connector.save_responses = AsyncMock(return_value=True)
+    forms_connector.has_form = AsyncMock(return_value=has_form)
+    bot.connectors.forms = forms_connector
+
+    # Ticket connector (bot.connectors.tickets) - all methods must be AsyncMock
+    tickets_connector = MagicMock()
+    tickets_connector.get_category = AsyncMock(
+        return_value=category or _make_category()
+    )
+    tickets_connector.create_ticket = AsyncMock(return_value=1)
+    tickets_connector.get_open_tickets = AsyncMock(return_value=[])
+    bot.connectors.tickets = tickets_connector
+
     bot.get_channel = MagicMock(return_value=None)
 
     return bot
@@ -280,7 +316,7 @@ class TestDynamicTicketModal:
             await modal.on_submit(interaction)  # type: ignore[arg-type]
 
             # Session should be deleted
-            bot.services.ticket_form.delete_session.assert_called_once_with(
+            bot.connectors.forms.delete_session.assert_called_once_with(
                 ctx.guild_id, ctx.user_id
             )
             # Ticket creation invoked
@@ -316,7 +352,7 @@ class TestDynamicTicketModal:
             await modal.on_submit(interaction)  # type: ignore[arg-type]
 
         # Session should be updated
-        bot.services.ticket_form.update_session.assert_called_once()
+        bot.connectors.forms.update_session.assert_called_once()
         # Response sent
         assert interaction.response._is_done
 
@@ -404,7 +440,7 @@ class TestTicketContinueView:
         interaction = FakeInteraction()
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
-        bot.services.ticket_form.delete_session.assert_called_once_with(
+        bot.connectors.forms.delete_session.assert_called_once_with(
             interaction.guild.id,
             interaction.user.id,  # type: ignore[union-attr]
         )
@@ -421,7 +457,7 @@ class TestTicketContinueView:
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_not_called()
+        bot.connectors.forms.delete_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_continue_no_session_sends_expired(self) -> None:
@@ -456,7 +492,7 @@ class TestTicketContinueView:
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_no_questions(self) -> None:
@@ -475,7 +511,7 @@ class TestTicketContinueView:
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_no_category(self) -> None:
@@ -485,13 +521,14 @@ class TestTicketContinueView:
         step["questions"] = _make_questions(1)
         bot = _mock_bot_with_form_services(session=ctx, step_config=step)
         bot.services.ticket.get_category = AsyncMock(return_value=None)
+        bot.connectors.tickets.get_category = AsyncMock(return_value=None)
         view = TicketContinueView(bot)
 
         interaction = FakeInteraction()
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_success_shows_modal(self) -> None:
@@ -621,6 +658,11 @@ class TestCategorySelectFormRouting:
         ts.check_max_open_tickets = AsyncMock(return_value=True)
         bot.services.ticket = ts
 
+        # Mock form_connector with all methods as AsyncMock
+        forms_connector = MagicMock()
+        forms_connector.has_form = AsyncMock(return_value=False)
+        bot.connectors.forms = forms_connector
+
         select = TicketCategorySelect(bot, categories)
         select._values = ["10"]
         type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
@@ -688,8 +730,8 @@ class TestCreateTicketFromRoute:
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 
-            bot.services.ticket_form.save_responses.assert_called_once_with(
-                42, ctx.collected_answers
+            bot.connectors.forms.save_responses.assert_called_once_with(
+                ctx.guild_id, 42, ctx.collected_answers
             )
 
     @pytest.mark.asyncio
@@ -710,4 +752,4 @@ class TestCreateTicketFromRoute:
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 
-            bot.services.ticket_form.save_responses.assert_not_called()
+            bot.connectors.forms.save_responses.assert_not_called()

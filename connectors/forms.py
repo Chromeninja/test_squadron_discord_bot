@@ -294,7 +294,10 @@ class FormsConnector:
         try:
             result = await self._c.post(
                 f"/internal/guilds/{guild_id}/ticket-forms/{category_id}/resolve-next-step",
-                json={"current_step_number": current_step_number, "answers": answers or {}},
+                json={
+                    "current_step_number": current_step_number,
+                    "answers": answers or {},
+                },
             )
             return result.get("next_step_number") if result else None
         except Exception:

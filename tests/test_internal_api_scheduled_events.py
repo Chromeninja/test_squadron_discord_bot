@@ -448,9 +448,9 @@ async def test_fetch_and_cache_events_preserves_raw_recurrence_metadata() -> Non
             id=123456789,
             _state=state,
             fetch_scheduled_events=AsyncMock(return_value=[event]),
-            get_channel=lambda channel_id: channel
-            if channel_id == channel.id
-            else None,
+            get_channel=lambda channel_id: (
+                channel if channel_id == channel.id else None
+            ),
         ),
     )
 
@@ -606,9 +606,9 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
         "Any",
         SimpleNamespace(
             id=123,
-            get_channel=lambda channel_id: announcement_channel
-            if channel_id == 555
-            else None,
+            get_channel=lambda channel_id: (
+                announcement_channel if channel_id == 555 else None
+            ),
             fetch_scheduled_events=AsyncMock(return_value=[]),
             create_scheduled_event=guild_any.create_scheduled_event,
         ),
@@ -689,9 +689,9 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
         "Any",
         SimpleNamespace(
             id=123,
-            get_channel=lambda channel_id: announcement_channel
-            if channel_id == 555
-            else None,
+            get_channel=lambda channel_id: (
+                announcement_channel if channel_id == 555 else None
+            ),
             get_role=lambda role_id: None,
             fetch_scheduled_events=AsyncMock(return_value=[]),
             create_scheduled_event=guild_any.create_scheduled_event,
@@ -732,7 +732,11 @@ async def test_delete_guild_scheduled_event_success() -> None:
     server._check_auth = lambda request: True
 
     invalidated_guilds: list[int] = []
-    server._invalidate_events_cache = lambda guild_id: invalidated_guilds.append(guild_id)
+
+    def mock_invalidate(guild_id: int) -> None:
+        invalidated_guilds.append(guild_id)
+
+    server._invalidate_events_cache = mock_invalidate
 
     event_any = cast("Any", SimpleNamespace(delete=AsyncMock()))
     guild = cast(

@@ -210,7 +210,9 @@ async def _create_ticket_thread(
             "initial_description": initial_description,
         },
     )
-    ticket_id: int | None = int(ticket_data["id"]) if ticket_data and "id" in ticket_data else None
+    ticket_id: int | None = (
+        int(ticket_data["id"]) if ticket_data and "id" in ticket_data else None
+    )
 
     # Rename thread using standard ticket naming format
     if ticket_id is not None:
@@ -278,6 +280,7 @@ async def _create_ticket_thread(
         role_ids: list[int] = category["role_ids"]
     else:
         from services.ticket_service import TicketService
+
         role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
 
     # Mention staff roles in the thread so they get notifications

@@ -90,6 +90,34 @@ def _mock_bot_with_services(
     cs.get_guild_setting = AsyncMock(side_effect=_guild_setting)
     bot.services.config = cs
 
+    # Ticket connector (bot.connectors.tickets) - all methods must be AsyncMock
+    tickets_connector = MagicMock()
+    tickets_connector.list_categories = AsyncMock(return_value=categories or [])
+    tickets_connector.list_categories_for_channel = AsyncMock(
+        return_value=channel_categories if channel_categories is not None else []
+    )
+    tickets_connector.check_rate_limit = AsyncMock(return_value=rate_allowed)
+    tickets_connector.get_cooldown_remaining = AsyncMock(return_value=cooldown)
+    # create_ticket returns a dict with "id" field (not just the int)
+    tickets_connector.create_ticket = AsyncMock(
+        return_value={"id": ticket_id} if ticket_id else None
+    )
+    tickets_connector.get_ticket_by_thread = AsyncMock(return_value=ticket)
+    tickets_connector.get_category = AsyncMock(return_value=None)
+    tickets_connector.close_ticket_by_thread = AsyncMock(return_value=True)
+    tickets_connector.check_max_open_tickets = AsyncMock(return_value=max_open_allowed)
+    tickets_connector.claim_ticket = AsyncMock(return_value=True)
+    tickets_connector.unclaim_ticket = AsyncMock(return_value=True)
+    tickets_connector.reopen_ticket = AsyncMock(return_value=True)
+    tickets_connector.can_reopen = AsyncMock(return_value=True)
+    tickets_connector.mark_thread_deleted = AsyncMock(return_value=True)
+    bot.connectors.tickets = tickets_connector
+
+    # Forms connector (bot.connectors.forms) - all methods must be AsyncMock
+    forms_connector = MagicMock()
+    forms_connector.has_form = AsyncMock(return_value=False)
+    bot.connectors.forms = forms_connector
+
     bot.get_channel = MagicMock(return_value=None)
 
     return bot
@@ -233,8 +261,8 @@ class TestTicketPanelView:
 
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
-        # Should have called get_categories_for_channel with the panel channel
-        bot.services.ticket.get_categories_for_channel.assert_called_once_with(
+        # Should have called list_categories_for_channel with the panel channel
+        bot.connectors.tickets.list_categories_for_channel.assert_called_once_with(
             interaction.guild.id,
             8001,  # type: ignore[union-attr]
         )
@@ -251,8 +279,8 @@ class TestTicketPanelView:
 
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
-        # Fallback: get_categories should be called after empty channel result
-        bot.services.ticket.get_categories.assert_called_once()
+        # Fallback: list_categories should be called after empty channel result
+        bot.connectors.tickets.list_categories.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +540,7 @@ class TestTicketActionView:
             "category_id": 5,
         }
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        bot.services.ticket.get_category = AsyncMock(
+        bot.connectors.tickets.get_category = AsyncMock(
             return_value={"id": 5, "role_ids": [777]}
         )
         view = TicketActionView(bot)
@@ -702,7 +730,7 @@ class TestTicketClaimButton:
 
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
-        bot.services.ticket.claim_ticket.assert_not_awaited()
+        bot.connectors.tickets.claim_ticket.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_claim_ticket_admin_allowed(self) -> None:
@@ -725,7 +753,7 @@ class TestTicketClaimButton:
         interaction.channel = thread
 
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
-        bot.services.ticket.claim_ticket.assert_awaited_once()
+        bot.connectors.tickets.claim_ticket.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_unclaim_ticket_toggle(self) -> None:
@@ -748,7 +776,7 @@ class TestTicketClaimButton:
         interaction.channel = thread
 
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
-        bot.services.ticket.unclaim_ticket.assert_awaited_once()
+        bot.connectors.tickets.unclaim_ticket.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_claim_ticket_category_role_allowed(self) -> None:
@@ -761,7 +789,7 @@ class TestTicketClaimButton:
             "category_id": 5,
         }
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[]")
-        bot.services.ticket.get_category = AsyncMock(
+        bot.connectors.tickets.get_category = AsyncMock(
             return_value={"id": 5, "role_ids": [777]}
         )
         view = TicketActionView(bot)
@@ -781,7 +809,7 @@ class TestTicketClaimButton:
         interaction.channel = thread
 
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
-        bot.services.ticket.claim_ticket.assert_awaited_once()
+        bot.connectors.tickets.claim_ticket.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_claim_ticket_global_staff_allowed_when_category_roles_set(
@@ -796,7 +824,7 @@ class TestTicketClaimButton:
             "category_id": 5,
         }
         bot = _mock_bot_with_services(ticket=ticket, staff_roles="[888]")
-        bot.services.ticket.get_category = AsyncMock(
+        bot.connectors.tickets.get_category = AsyncMock(
             return_value={"id": 5, "role_ids": [777]}
         )
         view = TicketActionView(bot)
@@ -816,7 +844,7 @@ class TestTicketClaimButton:
         interaction.channel = thread
 
         await view._on_claim_ticket(interaction)  # type: ignore[arg-type]
-        bot.services.ticket.claim_ticket.assert_awaited_once()
+        bot.connectors.tickets.claim_ticket.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -866,7 +894,7 @@ class TestTicketReopenButton:
 
         await view._on_reopen_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
-        bot.services.ticket.reopen_ticket.assert_not_awaited()
+        bot.connectors.tickets.reopen_ticket.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -947,7 +975,9 @@ class TestTicketDeleteButton:
                     )
 
         thread.delete.assert_awaited_once()
-        bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(
+            987654321, 55555
+        )
         followup_send.assert_awaited()
 
     @pytest.mark.asyncio
@@ -979,7 +1009,7 @@ class TestTicketDeleteButton:
         await modal.on_submit(cast("discord.Interaction", submit_interaction))
 
         thread.delete.assert_not_awaited()
-        bot.services.ticket.mark_thread_deleted.assert_not_awaited()
+        bot.connectors.tickets.mark_thread_deleted.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_ticket_posts_transcript_to_leadership(self) -> None:
@@ -1074,7 +1104,9 @@ class TestTicketDeleteButton:
                     )
 
         thread.delete.assert_awaited_once()
-        bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(55555)
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(
+            987654321, 55555
+        )
         leadership_post.assert_awaited_once()
         assert leadership_post.await_args is not None
         assert leadership_post.await_args.kwargs["transcript_file"] is None

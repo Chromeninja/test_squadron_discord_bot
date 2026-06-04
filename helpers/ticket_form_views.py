@@ -195,9 +195,7 @@ class DynamicTicketModal(Modal):
 
             # Load next step info for progress display
             next_step_config = await form_connector.get_step_by_number(
-                self._context.guild_id,
-                self._context.category_id,
-                next_step
+                self._context.guild_id, self._context.category_id, next_step
             )
             next_title = ""
             if next_step_config:
@@ -383,9 +381,7 @@ class TicketContinueView(View):
             return
 
         form_connector = self.bot.connectors.forms
-        await form_connector.delete_session(
-            interaction.guild.id, interaction.user.id
-        )
+        await form_connector.delete_session(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(
             "🗑️ Ticket creation cancelled.", ephemeral=True
         )
@@ -416,7 +412,9 @@ async def create_ticket_from_route(
     # Load category
     ticket_connector = bot.connectors.tickets
     form_connector = bot.connectors.forms
-    category = await ticket_connector.get_category(context.guild_id, context.category_id)
+    category = await ticket_connector.get_category(
+        context.guild_id, context.category_id
+    )
 
     # Build a combined description from all collected answers
     description_parts: list[str] = []
@@ -440,4 +438,6 @@ async def create_ticket_from_route(
 
     # Save form responses using the returned ticket_id directly
     if ticket_id is not None:
-        await form_connector.save_responses(context.guild_id, ticket_id, context.collected_answers)
+        await form_connector.save_responses(
+            context.guild_id, ticket_id, context.collected_answers
+        )

@@ -461,7 +461,5 @@ async def resolve_next_step(
     answers = payload.get("answers", {})
     if current_step_number is None:
         raise HTTPException(status_code=422, detail="Missing current_step_number")
-    next_step = await repo.resolve_next_step(
-        category_id, current_step_number, answers
-    )
+    next_step = await repo.resolve_next_step(category_id, current_step_number, answers)
     return {"next_step_number": next_step}

@@ -117,7 +117,9 @@ class TicketActionView(View):
             )
             return
 
-        category_role_ids = await _get_ticket_category_role_ids(ticket_connector, ticket)
+        category_role_ids = await _get_ticket_category_role_ids(
+            ticket_connector, ticket
+        )
         is_staff = await _get_staff_and_check(
             self.bot,
             guild_id,
@@ -154,7 +156,9 @@ class TicketActionView(View):
             return
 
         # Claim it
-        claimed = await ticket_connector.claim_ticket(guild_id, thread.id, interaction.user.id)
+        claimed = await ticket_connector.claim_ticket(
+            guild_id, thread.id, interaction.user.id
+        )
         if not claimed:
             await interaction.response.send_message(
                 "Failed to claim this ticket.", ephemeral=True
@@ -291,7 +295,9 @@ class TicketActionView(View):
         except (ValueError, TypeError):
             reopen_window = DEFAULT_REOPEN_WINDOW_HOURS
 
-        can_reopen = await ticket_connector.can_reopen(guild_id, thread.id, reopen_window_hours=reopen_window)
+        can_reopen = await ticket_connector.can_reopen(
+            guild_id, thread.id, reopen_window_hours=reopen_window
+        )
         if not can_reopen:
             await interaction.response.send_message(
                 f"⏳ The reopen window ({reopen_window}h) has passed. "

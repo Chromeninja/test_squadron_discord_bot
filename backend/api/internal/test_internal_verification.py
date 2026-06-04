@@ -6,7 +6,7 @@ idiomatic way to test routes without patching module internals.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,6 +14,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from backend.api.internal.verification import get_verification_repository, router
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 VALID_KEY = "test-secret-key"
 
@@ -32,7 +35,7 @@ def app() -> FastAPI:
 
 
 @pytest.fixture
-def mock_repo(app: FastAPI):
+def mock_repo(app: FastAPI) -> Generator[AsyncMock, None, None]:
     """Override the VerificationRepository dependency with an AsyncMock."""
     repo = AsyncMock()
     app.dependency_overrides[get_verification_repository] = lambda: repo
