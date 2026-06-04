@@ -583,6 +583,7 @@ async def test_form_step_create_get_update_delete(temp_db: str) -> None:
     updated = await repo.update_step(step_id, title="Updated Step 1")
     assert updated is True
     step = await repo.get_step(category_id, 1)
+    assert step is not None
     assert step["title"] == "Updated Step 1"
 
     # Delete step
@@ -691,6 +692,7 @@ async def test_form_session_create_get_update_delete(temp_db: str) -> None:
     )
     assert updated is True
     fetched = await repo.get_session(GUILD_ID, USER_ID)
+    assert fetched is not None
     assert fetched["current_step"] == 2
 
     # Delete session
@@ -719,10 +721,12 @@ async def test_form_get_form_config(temp_db: str) -> None:
 
     # Create steps and questions
     step1_id = await repo.create_step(category_id, 1, "Step 1")
+    assert step1_id is not None
     await repo.create_question(step1_id, "q1", "Name")
     await repo.create_question(step1_id, "q2", "Email", sort_order=1)
 
     step2_id = await repo.create_step(category_id, 2, "Step 2")
+    assert step2_id is not None
     await repo.create_question(step2_id, "q3", "Message")
 
     # Get full config
@@ -750,7 +754,8 @@ async def test_form_save_get_responses(temp_db: str) -> None:
             "user_id": USER_ID,
         },
     )
-    ticket_id = int(ticket["id"])
+    assert ticket is not None and ticket["id"] is not None
+    ticket_id = int(ticket["id"])  # type: ignore[arg-type]
 
     # Save responses
     collected = {

@@ -27,7 +27,7 @@ class BotProtocol(Protocol):
     """
 
     services: ServiceContainer
-    connectors: ConnectorRegistry
+    connectors: ConnectorRegistry | None
 
     def get_channel(
         self,
