@@ -39,6 +39,7 @@ from discord.ui import (
     View,
 )
 
+from helpers.constants import DEFAULT_MAX_OPEN_PER_USER
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
 from helpers.ticket_views_action import TicketActionView
@@ -57,9 +58,6 @@ from helpers.ticket_views_thread import (
     _close_ticket,
     _create_ticket_thread,
     _start_dynamic_form,
-)
-from services.ticket_service import (
-    DEFAULT_MAX_OPEN_PER_USER,
 )
 from utils.logging import get_logger
 

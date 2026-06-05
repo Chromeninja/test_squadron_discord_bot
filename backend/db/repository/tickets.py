@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json as _json
 import time
+from typing import Any
 
 from services.db.database import Database
 
@@ -194,7 +195,7 @@ class TicketRepository:
             await db.commit()
         return cursor.rowcount > 0
 
-    def _parse_category_row(self, row) -> dict[str, object | None]:
+    def _parse_category_row(self, row: Any) -> dict[str, object | None]:
         """Parse a category row, deserializing JSON role ID fields.
 
         Returns a dict with role_ids, prerequisite_role_ids_all, and

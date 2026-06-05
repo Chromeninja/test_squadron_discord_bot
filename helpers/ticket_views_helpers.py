@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import discord
 
 from helpers.embeds import create_embed
-from services.ticket_service import TicketService
+from helpers.ticket_staff import get_staff_role_ids
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ async def _get_staff_and_check(
     category role, or the ``administrator`` guild permission.
     """
     config_service = bot.services.config
-    staff_role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
+    staff_role_ids = await get_staff_role_ids(config_service, guild_id)
     if extra_role_ids:
         staff_role_ids = list(set(staff_role_ids) | set(extra_role_ids))
     member_role_ids = {r.id for r in member.roles}

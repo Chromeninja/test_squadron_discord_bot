@@ -17,16 +17,14 @@ LEGACY_FILE_CEILINGS: dict[str, int] = {
     "services/voice_service.py": 4169,
     "services/internal_api.py": 2961,  # grew with event-manager features; target decomposition
     "services/metrics_service.py": 2009,
-    "services/ticket_service.py": 1733,  # live web-backend dep; Phase 3 decomposition target
     "services/db/database.py": 1553,
-    "backend/db/repository/tickets.py": 1007,  # Stage 1 repository; split per sub-domain later
+    "backend/db/repository/tickets.py": 1031,  # Stage 1 repository; split per sub-domain later
     "web/backend/routes/guilds.py": 1227,
     "web/backend/core/dependencies.py": 1399,
     "helpers/ticket_views.py": 1391,
     "web/backend/core/guild_settings.py": 1023,
     "helpers/views.py": 1265,
     "web/backend/routes/voice.py": 1165,
-    "services/ticket_form_service.py": 1119,
     "services/db/schema.py": 1045,  # grew with event-manager schema additions
     "cogs/voice/commands.py": 890,
     "web/backend/routes/auth.py": 913,

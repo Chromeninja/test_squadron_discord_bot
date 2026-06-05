@@ -281,9 +281,7 @@ class TicketActionView(View):
             return
 
         # Check reopen window
-        from services.ticket_service import (
-            DEFAULT_REOPEN_WINDOW_HOURS,
-        )
+        from helpers.constants import DEFAULT_REOPEN_WINDOW_HOURS
 
         reopen_window_raw = await config_service.get_guild_setting(
             guild_id,

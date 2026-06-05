@@ -5,8 +5,9 @@ Discord UI components for the dynamic modal-driven ticket intake system:
 - ``DynamicTicketModal`` — modal built from form step questions.
 - ``TicketContinueView`` — "Continue" / "Cancel" buttons between steps.
 
-These components work together with ``TicketFormService`` to walk a user
-through a multi-step form flow before creating a ticket.
+These components work together with the ticket form connector
+(``bot.connectors.forms``) to walk a user through a multi-step form flow
+before creating a ticket.
 
 AI Notes:
     ``TicketContinueView`` is a *persistent* view (``timeout=None``,
@@ -27,7 +28,7 @@ from discord.ui import (  # type: ignore[import-not-found]
 )
 
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
-from services.ticket_form_service import RouteExecutionContext
+from helpers.ticket_route_context import RouteExecutionContext
 from utils.logging import get_logger
 
 if TYPE_CHECKING:

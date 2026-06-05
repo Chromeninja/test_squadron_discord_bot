@@ -279,9 +279,9 @@ async def _create_ticket_thread(
     if category and category.get("role_ids"):
         role_ids: list[int] = category["role_ids"]
     else:
-        from services.ticket_service import TicketService
+        from helpers.ticket_staff import get_staff_role_ids
 
-        role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
+        role_ids = await get_staff_role_ids(config_service, guild_id)
 
     # Mention staff roles in the thread so they get notifications
     if role_ids and interaction.guild:
