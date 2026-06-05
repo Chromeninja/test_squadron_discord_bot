@@ -440,9 +440,12 @@ class TestTicketContinueView:
         interaction = FakeInteraction()
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
+        assert interaction.guild is not None
+        assert interaction.user is not None
+
         bot.connectors.forms.delete_session.assert_called_once_with(
             interaction.guild.id,
-            interaction.user.id,  # type: ignore[union-attr]
+            interaction.user.id,
         )
         assert interaction.response._is_done
 

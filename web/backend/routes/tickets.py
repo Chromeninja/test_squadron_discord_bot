@@ -495,12 +495,22 @@ async def list_tickets(
                 status=str(t["status"]),
                 closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
                 created_at=int(t.get("created_at") or 0),  # type: ignore[arg-type]
-                closed_at=int(t["closed_at"]) if t.get("closed_at") is not None else None,  # type: ignore[arg-type]
+                closed_at=int(t["closed_at"])
+                if t.get("closed_at") is not None
+                else None,  # type: ignore[arg-type]
                 claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
-                claimed_at=int(t["claimed_at"]) if t.get("claimed_at") is not None else None,  # type: ignore[arg-type]
-                close_reason=str(t["close_reason"]) if t.get("close_reason") is not None else None,
-                initial_description=str(t["initial_description"]) if t.get("initial_description") is not None else None,
-                reopened_at=int(t["reopened_at"]) if t.get("reopened_at") is not None else None,  # type: ignore[arg-type]
+                claimed_at=int(t["claimed_at"])
+                if t.get("claimed_at") is not None
+                else None,  # type: ignore[arg-type]
+                close_reason=str(t["close_reason"])
+                if t.get("close_reason") is not None
+                else None,
+                initial_description=str(t["initial_description"])
+                if t.get("initial_description") is not None
+                else None,
+                reopened_at=int(t["reopened_at"])
+                if t.get("reopened_at") is not None
+                else None,  # type: ignore[arg-type]
                 reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
             )
         )
@@ -553,7 +563,9 @@ async def get_settings(
         guild_id, "tickets.reopen_window_hours", default="48"
     )
 
-    raw_roles = await config.get_guild_setting(guild_id, "tickets.staff_roles", default="[]")
+    raw_roles = await config.get_guild_setting(
+        guild_id, "tickets.staff_roles", default="[]"
+    )
     try:
         parsed = raw_roles
         for _ in range(2):

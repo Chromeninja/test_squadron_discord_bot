@@ -36,3 +36,11 @@ class BotProtocol(Protocol):
     ) -> (
         discord.abc.GuildChannel | discord.Thread | discord.abc.PrivateChannel | None
     ): ...
+
+
+def require_connectors(bot: BotProtocol) -> ConnectorRegistry:
+    """Return initialized connectors or raise a clear runtime error."""
+    connectors = bot.connectors
+    if connectors is None:
+        raise RuntimeError("Bot connectors are not initialized")
+    return connectors

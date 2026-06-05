@@ -32,9 +32,9 @@ async def temp_db(tmp_path: Path) -> AsyncGenerator[str, None]:
     orig_initialized = Database._initialized
 
     Database._initialized = False
-    Database._db_path = None
     db_file = tmp_path / "test.db"
-    await Database.initialize(str(db_file))
+    Database._db_path = str(db_file)
+    await Database.initialize()
 
     assert Database._initialized is True
     assert Database._db_path == str(db_file)

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
+from helpers.bot_protocol import require_connectors
 from helpers.embeds import EmbedColors, create_embed
 from helpers.ticket_views_helpers import (
     _format_ticket_thread_name,
@@ -140,7 +141,8 @@ async def _create_ticket_thread(
 
     guild_id = interaction.guild.id
     user = interaction.user
-    ticket_connector = bot.connectors.tickets
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
     config_service = bot.services.config
 
     # Determine the originating text channel
@@ -336,7 +338,8 @@ async def _close_ticket(
 
     guild_id = interaction.guild.id
     user_id = interaction.user.id
-    ticket_connector = bot.connectors.tickets
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
     config_service = bot.services.config
 
     # Close ticket in DB

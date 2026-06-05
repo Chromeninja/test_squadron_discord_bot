@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ui import Button, View
 
+from helpers.bot_protocol import require_connectors
 from helpers.embeds import EmbedColors, create_embed
 from helpers.ticket_views_helpers import (
     _get_staff_and_check,
@@ -101,7 +102,8 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_connector = self.bot.connectors.tickets
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
 
         ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:
@@ -197,7 +199,8 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_connector = self.bot.connectors.tickets
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
 
         # Look up the ticket
         ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
@@ -249,7 +252,8 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_connector = self.bot.connectors.tickets
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
         config_service = self.bot.services.config
 
         ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
@@ -359,7 +363,8 @@ class TicketActionView(View):
 
         thread = interaction.channel
         guild_id = interaction.guild.id
-        ticket_connector = self.bot.connectors.tickets
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
 
         ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
         if ticket is None:

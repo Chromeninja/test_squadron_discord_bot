@@ -202,7 +202,11 @@ class TicketRepository:
         prerequisite_role_ids_any as lists (or empty lists on decode error).
         """
         d = dict(row)
-        for field in ("role_ids", "prerequisite_role_ids_all", "prerequisite_role_ids_any"):
+        for field in (
+            "role_ids",
+            "prerequisite_role_ids_all",
+            "prerequisite_role_ids_any",
+        ):
             raw = d.get(field)
             if isinstance(raw, str):
                 try:
@@ -234,8 +238,12 @@ class TicketRepository:
         """
         try:
             role_json = _json.dumps(role_ids or [])
-            prerequisite_role_ids_all_json = _json.dumps(prerequisite_role_ids_all or [])
-            prerequisite_role_ids_any_json = _json.dumps(prerequisite_role_ids_any or [])
+            prerequisite_role_ids_all_json = _json.dumps(
+                prerequisite_role_ids_all or []
+            )
+            prerequisite_role_ids_any_json = _json.dumps(
+                prerequisite_role_ids_any or []
+            )
 
             # Determine next sort_order
             async with Database.get_connection() as db:

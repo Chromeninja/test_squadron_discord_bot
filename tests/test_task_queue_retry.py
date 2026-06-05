@@ -56,7 +56,8 @@ async def test_run_task_retries_on_429_with_retry_after(monkeypatch) -> None:
                 {"message": "Rate limited", "retry_after": 0.01},
             )
             exc.status = 429
-            exc.retry_after = 0.01
+            rate_limit_exc = cast("Any", exc)
+            rate_limit_exc.retry_after = 0.01
             raise exc
         return "done"
 

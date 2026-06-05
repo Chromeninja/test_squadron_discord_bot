@@ -39,6 +39,7 @@ from discord.ui import (
     View,
 )
 
+from helpers.bot_protocol import require_connectors
 from helpers.constants import DEFAULT_MAX_OPEN_PER_USER
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
@@ -235,7 +236,8 @@ async def _delete_ticket(
         return
 
     guild_id = interaction.guild.id
-    ticket_connector = bot.connectors.tickets
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
 
     ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
     if ticket is None:
@@ -435,7 +437,8 @@ class TicketPanelView(View):
             return
 
         guild_id = interaction.guild.id
-        ticket_connector = self.bot.connectors.tickets
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
         config_service = self.bot.services.config
 
         # --- Rate-limit check ---
@@ -594,7 +597,8 @@ class TicketCategorySelect(Select):
         form_connector = None
         guild_id_ctx = interaction.guild.id if interaction.guild else 0
         try:
-            form_connector = self.bot.connectors.forms
+            connectors = require_connectors(self.bot)
+            form_connector = connectors.forms
             has_form = await form_connector.has_form(guild_id_ctx, category["id"])
         except (RuntimeError, AttributeError):
             # Connector not available — fall back to legacy

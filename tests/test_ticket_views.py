@@ -262,6 +262,7 @@ class TestTicketPanelView:
         await view._on_create_ticket(interaction)  # type: ignore[arg-type]
         assert interaction.response._is_done
         # Should have called list_categories_for_channel with the panel channel
+        assert interaction.guild is not None
         bot.connectors.tickets.list_categories_for_channel.assert_called_once_with(
             interaction.guild.id,
             8001,  # type: ignore[union-attr]

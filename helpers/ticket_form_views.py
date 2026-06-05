@@ -27,6 +27,7 @@ from discord.ui import (  # type: ignore[import-not-found]
     View,
 )
 
+from helpers.bot_protocol import require_connectors
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
 from helpers.ticket_route_context import RouteExecutionContext
 from utils.logging import get_logger
@@ -148,7 +149,8 @@ class DynamicTicketModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Collect answers, persist, resolve next step."""
-        form_connector = self.bot.connectors.forms
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
         step_number = self._step_config.get("step_number", 1)
 
         # Collect answers from inputs
@@ -298,7 +300,8 @@ class TicketContinueView(View):
             )
             return
 
-        form_connector = self.bot.connectors.forms
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
         guild_id = interaction.guild.id
         user_id = interaction.user.id
 
@@ -349,7 +352,7 @@ class TicketContinueView(View):
             return
 
         # Load category for the modal builder
-        ticket_connector = self.bot.connectors.tickets
+        ticket_connector = connectors.tickets
         category = await ticket_connector.get_category(guild_id, ctx.category_id)
         if category is None:
             await interaction.response.send_message(
@@ -381,7 +384,8 @@ class TicketContinueView(View):
             )
             return
 
-        form_connector = self.bot.connectors.forms
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
         await form_connector.delete_session(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(
             "🗑️ Ticket creation cancelled.", ephemeral=True
@@ -411,8 +415,9 @@ async def create_ticket_from_route(
     from helpers.ticket_views import _create_ticket_thread
 
     # Load category
-    ticket_connector = bot.connectors.tickets
-    form_connector = bot.connectors.forms
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
+    form_connector = connectors.forms
     category = await ticket_connector.get_category(
         context.guild_id, context.category_id
     )
