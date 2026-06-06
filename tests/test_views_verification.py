@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from helpers import views_verification
 from helpers.views import VerificationView
 from tests.test_helpers import FakeInteraction, FakeUser
 
@@ -17,9 +16,9 @@ async def test_get_token_button_calls_rate_limit_and_sends_embed(
 
     # Patch rate limiter and attempt logging (avoid DB)
     monkeypatch.setattr(
-        views_verification, "check_rate_limit", AsyncMock(return_value=(False, 0))
+        "helpers.views.check_rate_limit", AsyncMock(return_value=(False, 0))
     )
-    monkeypatch.setattr(views_verification, "log_attempt", AsyncMock(return_value=None))
+    monkeypatch.setattr("helpers.views.log_attempt", AsyncMock(return_value=None))
 
     # Track interaction calls
     ix = FakeInteraction(FakeUser(7, "TestUser"))

@@ -342,6 +342,31 @@ async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_verification_columns(db: aiosqlite.Connection) -> None:
+    """Ensure verification compatibility columns exist on legacy databases."""
+    cursor = await db.execute("PRAGMA table_info(verification)")
+    rows = await cursor.fetchall()
+    existing_columns = {str(row[1]) for row in rows}
+
+    if "main_orgs" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE verification ADD COLUMN main_orgs TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "verification", "column": "main_orgs"},
+        )
+
+    if "affiliate_orgs" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE verification ADD COLUMN affiliate_orgs TEXT DEFAULT NULL"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "verification", "column": "affiliate_orgs"},
+        )
+
+
 async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     """Ensure ticket schema compatibility columns exist on legacy databases."""
     await _ensure_ticket_categories_columns(db)
@@ -392,6 +417,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    await _ensure_verification_columns(db)
 
     # Indexes for verification search performance
     await db.execute(

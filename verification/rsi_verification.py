@@ -3,14 +3,13 @@ import re
 import string
 from typing import TypedDict
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from helpers.circuit_breaker import get_rsi_circuit_breaker
 from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
-
 
 class OrgSelectors(TypedDict):
     main: list[str]
@@ -204,6 +203,27 @@ def extract_handle(html_content: str | BeautifulSoup) -> str | None:
     logger.debug("Extracting cased handle from profile HTML.")
     soup = _get_soup(html_content)
 
+    if (
+        handle_paragraph := soup.find(
+            "p",
+            class_="entry",
+            string=lambda text: isinstance(text, str) and "Handle name" in text,
+        )
+    ):
+        if not isinstance(handle_paragraph, Tag):
+            logger.warning("Handle paragraph was not a Tag instance.")
+            return None
+
+        handle_strong = handle_paragraph.find("strong", class_="value")
+        if not isinstance(handle_strong, Tag):
+            logger.warning("Handle strong tag was not found or invalid.")
+            return None
+
+        cased_handle = handle_strong.get_text(strip=True)
+        logger.debug(f"Extracted cased handle: {cased_handle}")
+        return cased_handle
+
+        # Alternative method if the above fails
     for p in soup.find_all("p", class_="entry"):
         label = p.find("span", class_="label")
         if (

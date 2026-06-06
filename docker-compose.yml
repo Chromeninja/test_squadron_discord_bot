@@ -4,9 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.backend
       network: host
-    dns:
-      - "1.1.1.1"
-      - "8.8.8.8"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     environment:
@@ -14,7 +13,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-in-production}
       - BOT_API_KEY=${BOT_API_KEY:-dev-bot-key}
       - ENV=${ENV:-development}
-      - INTERNAL_API_HOST=bot
+      - INTERNAL_API_HOST=host.docker.internal
       - INTERNAL_API_PORT=${INTERNAL_API_PORT:-8082}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-dev-internal-api-key}
       - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
@@ -38,9 +37,7 @@ services:
       context: .
       dockerfile: Dockerfile.bot
       network: host
-    dns:
-      - "1.1.1.1"
-      - "8.8.8.8"
+    network_mode: host
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - BOT_API_KEY=${BOT_API_KEY:-dev-bot-key}
@@ -48,7 +45,7 @@ services:
       - INTERNAL_API_HOST=${BOT_INTERNAL_API_HOST:-0.0.0.0}
       - INTERNAL_API_PORT=${INTERNAL_API_PORT:-8082}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-dev-internal-api-key}
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=${BACKEND_URL:-http://127.0.0.1:8000}
     volumes:
       - ./data:/app/data
     depends_on:
