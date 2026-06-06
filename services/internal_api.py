@@ -502,24 +502,38 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     {"error": "No ticket channels configured"}, status=400
                 )
 
-            results: list[dict[str, str]] = []
+            results: list[dict[str, str | None]] = []
             for chan_id in channel_ids:
                 channel = guild.get_channel(chan_id)
                 if not isinstance(channel, discord.TextChannel):
                     results.append({"channel_id": str(chan_id), "status": "not_found"})
                     continue
 
-                msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
-                if msg:
+                try:
+                    msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
+                    if msg:
+                        results.append(
+                            {
+                                "channel_id": str(chan_id),
+                                "status": "deployed",
+                                "message_id": str(msg.id),
+                            }
+                        )
+                    else:
+                        results.append({"channel_id": str(chan_id), "status": "failed"})
+                except Exception as e:
+                    logger.exception(
+                        "Panel deploy failed for channel %s: %s",
+                        chan_id,
+                        e,
+                    )
                     results.append(
                         {
                             "channel_id": str(chan_id),
-                            "status": "deployed",
-                            "message_id": str(msg.id),
+                            "status": "error",
+                            "error": str(e),
                         }
                     )
-                else:
-                    results.append({"channel_id": str(chan_id), "status": "failed"})
 
             deployed = [r for r in results if r["status"] == "deployed"]
             if deployed:

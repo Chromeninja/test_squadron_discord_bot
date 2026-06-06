@@ -284,6 +284,8 @@ class VerificationCog(commands.Cog):
 
     async def recheck_button(self, interaction: discord.Interaction) -> None:
         """Handle a user-initiated recheck via the verification view button."""
+        import asyncio
+
         await interaction.response.defer(ephemeral=True)
         member = interaction.user
 
@@ -306,17 +308,27 @@ class VerificationCog(commands.Cog):
             await followup_send_message(interaction, "", embed=embed, ephemeral=True)
             return
 
-        # Perform unified recheck
-        result = await perform_recheck(
-            member=member,
-            rsi_handle=rsi_handle,
-            bot=self.bot,
-            initiator_kind=InitiatorKind.USER,
-            initiator_source=InitiatorSource.BUTTON,
-            enforce_rate_limit=True,
-            log_leadership=True,
-            log_audit=False,  # User-initiated, no admin audit needed
-        )
+        # Perform unified recheck with 15-second timeout (RSI scraping can take >3s)
+        try:
+            result = await asyncio.wait_for(
+                perform_recheck(
+                    member=member,
+                    rsi_handle=rsi_handle,
+                    bot=self.bot,
+                    initiator_kind=InitiatorKind.USER,
+                    initiator_source=InitiatorSource.BUTTON,
+                    enforce_rate_limit=True,
+                    log_leadership=True,
+                    log_audit=False,  # User-initiated, no admin audit needed
+                ),
+                timeout=15.0
+            )
+        except TimeoutError:
+            embed = create_error_embed(
+                "Re-check timed out. RSI verification took too long. Please try again later."
+            )
+            await followup_send_message(interaction, "", embed=embed, ephemeral=True)
+            return
 
         # Handle rate limiting
         if result["rate_limited"]:

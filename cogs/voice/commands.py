@@ -43,9 +43,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     )
     async def list_permissions(self, interaction: discord.Interaction) -> None:
         """List all custom permissions and settings for user's voice channel."""
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             if not interaction.guild or not isinstance(
                 interaction.user, discord.Member
             ):
@@ -136,9 +135,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         from helpers.discord_reply import send_user_error, send_user_success
         from helpers.error_messages import format_user_error
 
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             # Delegate to voice service
             result = await self.voice_service.claim_voice_channel(
                 guild_id=interaction.guild_id,
@@ -180,9 +178,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
         from helpers.discord_reply import send_user_error, send_user_success
         from helpers.error_messages import format_user_error, format_user_success
 
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             # Delegate to voice service
             result = await self.voice_service.transfer_voice_channel_ownership(
                 guild_id=interaction.guild_id,
@@ -261,9 +258,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
     )
     async def list_owners(self, interaction: discord.Interaction) -> None:
         """List all voice channels and their owners."""
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             # Get all voice channels from service
             channels = await self.voice_service.get_all_voice_channels(
                 interaction.guild_id
@@ -366,9 +362,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             # Delegate to voice service
             result = await self.voice_service.setup_voice_system(
                 guild_id=interaction.guild_id,
@@ -417,9 +412,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-
             # Validate category
             if not isinstance(category, discord.CategoryChannel):
                 await send_user_error(
@@ -505,8 +499,8 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
             from helpers.voice_settings import fetch_channel_settings
 
             # Use unified fetch helper so behavior matches user-facing list command

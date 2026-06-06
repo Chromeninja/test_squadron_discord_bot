@@ -7,6 +7,7 @@ Provides the ``InternalAPIClient`` class, helper error translators, and the
 module-level singleton getter ``get_internal_api_client()``.
 """
 
+import asyncio
 import logging
 import os
 from typing import TypedDict
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 # Configurable timeout for internal API calls
 INTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("INTERNAL_API_TIMEOUT_SECONDS", "15"))
+
+# Retry configuration for connection errors (startup resilience)
+_INTERNAL_API_RETRY_ATTEMPTS = 3
+_INTERNAL_API_RETRY_DELAY_SECONDS = 1.0
 
 # ---------------------------------------------------------------------------
 # Singleton management
@@ -39,7 +44,7 @@ def get_internal_api_client() -> InternalAPIClient:
 # ---------------------------------------------------------------------------
 
 
-def _extract_internal_api_detail(response: httpx.Response) -> str | None:
+def _extract_internal_api_detail(response: httpx.Response | None) -> str | None:
     """Try to pull a useful error message out of an internal API response."""
     if response is None:
         return None
@@ -99,6 +104,7 @@ class InternalAPIClient:
     HTTP client for calling the bot's internal API.
 
     Handles authentication and provides typed methods for internal endpoints.
+    Includes retry logic for connection errors during startup.
     """
 
     def __init__(self) -> None:
@@ -130,6 +136,46 @@ class InternalAPIClient:
             )
         return self._client
 
+    async def _retry_request(self, request_func) -> httpx.Response:
+        """
+        Execute a request with retry logic for connection errors.
+
+        Retries up to _INTERNAL_API_RETRY_ATTEMPTS times with exponential backoff
+        for connection errors (e.g., during bot startup). This provides resilience
+        when the internal API is not yet ready.
+
+        Args:
+            request_func: Async callable that makes the HTTP request and returns Response
+
+        Returns:
+            httpx.Response object
+
+        Raises:
+            httpx.RequestError: If all retries fail
+        """
+        last_error: httpx.RequestError | None = None
+        for attempt in range(_INTERNAL_API_RETRY_ATTEMPTS):
+            try:
+                return await request_func()
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt < _INTERNAL_API_RETRY_ATTEMPTS - 1:
+                    logger.debug(
+                        "Internal API request failed (attempt %d/%d), retrying in %fs: %s",
+                        attempt + 1,
+                        _INTERNAL_API_RETRY_ATTEMPTS,
+                        _INTERNAL_API_RETRY_DELAY_SECONDS,
+                        exc,
+                    )
+                    await asyncio.sleep(_INTERNAL_API_RETRY_DELAY_SECONDS)
+                else:
+                    logger.warning(
+                        "Internal API request failed after %d attempts: %s",
+                        _INTERNAL_API_RETRY_ATTEMPTS,
+                        exc,
+                    )
+        raise last_error or httpx.RequestError("Internal API request failed after all retries")
+
     async def close(self) -> None:
         """Close HTTP client."""
         if self._client:
@@ -147,9 +193,10 @@ class InternalAPIClient:
 
         Raises:
             httpx.HTTPStatusError: If request fails
+            httpx.RequestError: If connection fails after retries
         """
         client = await self._get_client()
-        response = await client.get("/bot-owner-ids")
+        response = await self._retry_request(lambda: client.get("/bot-owner-ids"))
         response.raise_for_status()
         payload = response.json()
         return payload.get("owner_ids", [])
@@ -178,7 +225,7 @@ class InternalAPIClient:
     async def get_guilds(self) -> list[dict]:
         """Fetch guilds where the bot is currently installed."""
         client = await self._get_client()
-        response = await client.get("/guilds")
+        response = await self._retry_request(lambda: client.get("/guilds"))
         response.raise_for_status()
         payload = response.json()
         return payload.get("guilds", [])
@@ -270,8 +317,11 @@ class InternalAPIClient:
             dict with keys: members (list), page, page_size, total
         """
         client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/members", params={"page": page, "page_size": page_size}
+        response = await self._retry_request(
+            lambda: client.get(
+                f"/guilds/{guild_id}/members",
+                params={"page": page, "page_size": page_size},
+            )
         )
         response.raise_for_status()
         return response.json()
