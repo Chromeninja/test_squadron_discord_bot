@@ -211,47 +211,6 @@ class VoiceCommands(commands.GroupCog, name="voice"):
             with contextlib.suppress(Exception):
                 await send_user_error(interaction, format_user_error("UNKNOWN"))
 
-    @app_commands.command(name="help", description="Show help for voice commands")
-    async def voice_help(self, interaction: discord.Interaction) -> None:
-        """Show help information for voice commands."""
-        embed = discord.Embed(
-            title="🎙️ Voice Channel Commands",
-            description="Commands for managing your dynamic voice channels",
-            color=discord.Color.blue(),
-        )
-
-        embed.add_field(
-            name="/voice list",
-            value="List all custom permissions and settings in your voice channel",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="/voice claim",
-            value="Claim ownership of a voice channel if the current owner is absent",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="/voice transfer <user>",
-            value="Transfer ownership of your voice channel to another user",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="/voice owner",
-            value="List all voice channels and their owners",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="/voice setup",
-            value="Set up the voice channel system (Admin only)",
-            inline=False,
-        )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
     @app_commands.command(
         name="owner",
         description="List all voice channels managed by the bot and their owners",

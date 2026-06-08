@@ -60,12 +60,6 @@ ALL_COMMANDS = [
         category="Voice",
     ),
     BotCommand(
-        name="/voice help",
-        description="Show help for voice commands.",
-        permission_level=PermissionLevel.USER,
-        category="Voice",
-    ),
-    BotCommand(
         name="/voice owner",
         description="List all voice channels managed by the bot and their owners.",
         permission_level=PermissionLevel.USER,
