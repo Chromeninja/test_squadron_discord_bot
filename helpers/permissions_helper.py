@@ -14,6 +14,7 @@ Behavior and signatures preserved for existing call sites.
 """
 
 import logging
+import time
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -24,6 +25,9 @@ from helpers.discord_api import edit_channel
 from services.db.repository import BaseRepository
 
 logger = logging.getLogger(__name__)
+
+_ROLE_ID_CACHE: dict[tuple[int, str], tuple[float, set[int]]] = {}
+_ROLE_ID_CACHE_TTL = 60.0
 
 FEATURE_CONFIG = {
     "ptt": {
@@ -413,15 +417,23 @@ def _normalize_role_ids(
 
 
 async def _get_configured_role_ids(bot, guild_id: int, key: str) -> set[int]:
+    now = time.monotonic()
+    cache_key = (guild_id, key)
+    cached = _ROLE_ID_CACHE.get(cache_key)
+    if cached is not None and now - cached[0] < _ROLE_ID_CACHE_TTL:
+        return cached[1]
+
     config_service = getattr(getattr(bot, "services", None), "config", None)
     if not config_service:
         return set()
     try:
         roles = await config_service.get_guild_setting(guild_id, key, [])
-        return cast(
+        result = cast(
             "set[int]",
             _normalize_role_ids(roles or [], guild_id=guild_id, key=key),
         )
+        _ROLE_ID_CACHE[cache_key] = (now, result)
+        return result
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("Error fetching %s for guild %s: %s", key, guild_id, exc)
         return set()

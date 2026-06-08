@@ -374,6 +374,22 @@ async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     await _ensure_managed_event_columns(db)
 
 
+async def ensure_voice_schema_compatibility(db: aiosqlite.Connection) -> None:
+    """Ensure voice_channels table has all required columns for legacy databases."""
+    cursor = await db.execute("PRAGMA table_info(voice_channels)")
+    rows = await cursor.fetchall()
+    existing_columns = {row[1] for row in rows}
+
+    if "previous_owner_id" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE voice_channels ADD COLUMN previous_owner_id INTEGER"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "voice_channels", "column": "previous_owner_id"},
+        )
+
+
 async def init_schema(db: aiosqlite.Connection) -> None:
     """
     Initialize the database schema with all required tables.
@@ -1057,6 +1073,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"
     )
+
+    await ensure_voice_schema_compatibility(db)
 
     # Commit all schema changes
     await db.commit()
