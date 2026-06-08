@@ -27,7 +27,27 @@ from services.db.repository import BaseRepository
 logger = logging.getLogger(__name__)
 
 _ROLE_ID_CACHE: dict[tuple[int, str], tuple[float, set[int]]] = {}
-_ROLE_ID_CACHE_TTL = 60.0
+_ROLE_ID_CACHE_TTL = 5.0  # short TTL — revocations honored within one check cycle
+
+
+def invalidate_role_id_cache(guild_id: int, key: str | None = None) -> None:
+    """Evict cached role-ID entries for a guild.
+
+    Call this whenever a ``roles.*`` guild setting is written so that
+    permission checks pick up the change within the next TTL window rather
+    than after the full 60-second expiry.
+
+    Args:
+        guild_id: Guild whose entries to evict.
+        key: Specific setting key to evict (e.g. ``"roles.bot_admins"``).
+             Pass ``None`` to evict all ``roles.*`` entries for the guild.
+    """
+    if key is not None:
+        _ROLE_ID_CACHE.pop((guild_id, key), None)
+    else:
+        for cache_key in list(_ROLE_ID_CACHE):
+            if cache_key[0] == guild_id:
+                del _ROLE_ID_CACHE[cache_key]
 
 FEATURE_CONFIG = {
     "ptt": {

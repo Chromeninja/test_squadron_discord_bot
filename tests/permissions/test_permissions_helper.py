@@ -54,7 +54,9 @@ class DummyBot:
 def patch_discord_types(monkeypatch):
     monkeypatch.setattr(ph.discord, "Member", DummyMember)
     monkeypatch.setattr(ph.discord, "Guild", DummyGuild)
+    ph._ROLE_ID_CACHE.clear()
     yield
+    ph._ROLE_ID_CACHE.clear()
 
 
 @pytest.mark.asyncio

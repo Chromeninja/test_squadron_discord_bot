@@ -229,6 +229,10 @@ class ConfigService(BaseService):
             if key == SETTINGS_VERSION_KEY:
                 self._guild_versions[guild_id] = self._extract_version_value(value)
 
+        if key.startswith("roles."):
+            from helpers.permissions_helper import invalidate_role_id_cache
+            invalidate_role_id_cache(guild_id, key)
+
         self.logger.debug(f"Set guild {guild_id} setting {key} = {value}")
 
     async def get_global_setting(self, key: str, default: Any = None) -> Any:
