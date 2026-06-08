@@ -60,20 +60,6 @@ async def create_ticket(
     return {"ticket": created}
 
 
-@router.get("/guilds/{guild_id}/tickets/{ticket_id}")
-async def get_ticket(
-    guild_id: int,
-    ticket_id: int,
-    _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
-) -> dict[str, Any]:
-    """Return a single ticket by ID."""
-    ticket = await repo.get_ticket(guild_id, ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return {"ticket": ticket}
-
-
 @router.patch("/guilds/{guild_id}/tickets/{ticket_id}")
 async def update_ticket(
     guild_id: int,
@@ -507,6 +493,20 @@ async def get_cleanup_candidates(
     """Return closed tickets older than older_than_days (min 30-day safety buffer)."""
     tickets = await repo.get_cleanup_candidates(guild_id, older_than_days, limit)
     return {"tickets": tickets}
+
+
+@router.get("/guilds/{guild_id}/tickets/{ticket_id}")
+async def get_ticket(
+    guild_id: int,
+    ticket_id: int,
+    _: str = Depends(require_bot_api_key),
+    repo: TicketRepository = Depends(get_ticket_repository),
+) -> dict[str, Any]:
+    """Return a single ticket by ID."""
+    ticket = await repo.get_ticket(guild_id, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return {"ticket": ticket}
 
 
 @router.post("/guilds/{guild_id}/tickets/cooldowns/reset-all")

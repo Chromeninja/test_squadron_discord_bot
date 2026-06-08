@@ -31,6 +31,10 @@ class DashboardCog(commands.Cog):
     @require_permission_level(PermissionLevel.STAFF)
     async def dashboard(self, interaction: discord.Interaction) -> None:
         """Send the web dashboard link as an ephemeral response."""
+        # Acknowledge immediately — the permission decorator already consumed
+        # part of the 3s interaction window with a DB lookup, and ConfigLoader
+        # below does file I/O. Defer first to avoid 10062 "Unknown interaction".
+        await interaction.response.defer(ephemeral=True)
         try:
             # Prefer config override if present, otherwise fall back to PUBLIC_URL env (or dev default)
             config = ConfigLoader.load_config()
@@ -63,7 +67,7 @@ class DashboardCog(commands.Cog):
                 text="Staff+ access required • Permissions enforced by dashboard"
             )
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as exc:
             logger.exception("Failed to send /dashboard embed", exc_info=exc)
@@ -71,12 +75,8 @@ class DashboardCog(commands.Cog):
             message = (
                 "❌ Unable to retrieve dashboard link. Please contact an administrator."
             )
-            if interaction.response.is_done():
-                with contextlib.suppress(Exception):
-                    await interaction.followup.send(message, ephemeral=True)
-            else:
-                with contextlib.suppress(Exception):
-                    await interaction.response.send_message(message, ephemeral=True)
+            with contextlib.suppress(Exception):
+                await interaction.followup.send(message, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

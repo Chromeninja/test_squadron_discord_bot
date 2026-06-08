@@ -64,12 +64,23 @@ class BotAPIConnector:
                 return None
             except httpx.HTTPStatusError as e:
                 # Don't retry 4xx/5xx status errors — the request reached the backend.
-                log.exception(
-                    "Backend returned %s for %s %s",
-                    e.response.status_code,
-                    method,
-                    path,
-                )
+                # A 404 is an expected "not found / not configured" signal that
+                # callers (e.g. config get_setting) handle by returning None, so
+                # log it quietly without a traceback. Treat other statuses as
+                # genuine errors worth surfacing with a stack trace.
+                if e.response.status_code == 404:
+                    log.debug(
+                        "Backend returned 404 for %s %s (treated as not-found)",
+                        method,
+                        path,
+                    )
+                else:
+                    log.exception(
+                        "Backend returned %s for %s %s",
+                        e.response.status_code,
+                        method,
+                        path,
+                    )
                 raise
             except (httpx.ConnectError, httpx.TimeoutException):
                 if attempt == retries - 1:
