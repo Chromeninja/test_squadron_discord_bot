@@ -1,124 +1,144 @@
-# VS Code Setup for TEST Squadron Discord Bot
+# VS Code Setup — TEST Squadron Discord Bot
 
-A concise guide to get VS Code ready for developing and debugging the full stack (bot + backend + frontend).
+This guide gets VS Code ready for the full stack. **Docker Compose is the primary way to run the bot and backend.** The Python venv is only used for running tests and linters locally.
 
-## 1) Prereqs
+## 1. Prerequisites
+
 - VS Code (latest)
-- Python 3.12+ available on your system (repo uses `venv`)
-- Node.js 20+ (for frontend + unit tests)
-- Repo cloned locally
+- Docker Engine and `docker compose` plugin ([install guide](https://docs.docker.com/engine/install/))
+- Python 3.12+ (for running pytest and linting locally)
+- Node.js 20+ (for frontend tests and Vite dev server)
 
-## 2) Recommended extensions (auto-suggested by `.vscode/extensions.json`)
-- `ms-python.python`
-- `ms-python.vscode-pylance`
-- `ms-python.python-test-adapter`
-- `ms-azuretools.vscode-docker` (Docker)
- - `esbenp.prettier-vscode` (optional)
- - `dbaeumer.vscode-eslint` (optional)
+## 2. Running the Stack (Docker — primary workflow)
 
-## 3) Open the workspace
-- Open the folder `/home/chrome/test_squadron_discord_bot` in VS Code.
-- VS Code should pick up `.vscode/settings.json`, `.vscode/launch.json`, and `.vscode/tasks.json` automatically.
+Docker Compose is how you run the bot and backend during local development. It mirrors the production environment exactly.
 
-## 4) Select the interpreter
-- Command Palette: `Python: Select Interpreter` → choose `${workspaceFolder}/.venv/bin/python`.
-- This ensures the Testing view, debugger, and terminals use the project venv.
+### Setup
 
-## 5) Environment file
-- Create `.env` in the repo root (shared by bot and backend). See `SETUP.md` for example values.
+1. **Open the repo folder** in VS Code.
+2. **Create `.env`** from the example and fill in your Discord credentials and secrets:
+   ```bash
+   cp .env.example .env
+   # Required: DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, SESSION_SECRET, BOT_API_KEY
+   ```
+3. **Create `config/config.yaml`** from the example:
+   ```bash
+   cp config/config-example.yaml config/config.yaml
+   ```
 
-## 6) Install dependencies
+### Start via VS Code Tasks
+
+Command Palette (`Ctrl+Shift+P`) → **Tasks: Run Task**:
+
+| Task | Effect |
+|------|--------|
+| `docker: compose up (build)` | Build images and start bot + backend; logs stream to terminal |
+| `docker: compose up (detached)` | Same, runs in background |
+| `docker: compose build` | Rebuild images without starting |
+| `docker: compose logs` | Stream logs from running containers |
+| `docker: compose down` | Stop containers (data volume persists) |
+
+### Start via terminal
+
 ```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install -r web/backend/requirements.txt
-pip install -r requirements-dev.txt
-cd web/frontend && npm install && cd ../..
+docker compose up --build          # foreground — Ctrl+C to stop
+docker compose up -d --build       # detached
+docker compose logs -f             # stream all logs
+docker compose logs -f backend     # backend only
+docker compose logs -f bot         # bot only
+docker compose down                # stop (data persists)
+docker compose down -v             # stop + wipe data
 ```
 
-Frontend test environment:
-- Vitest is installed via `npm install`
-- DOM environment: `happy-dom` is configured in `vite.config.ts` (install with `npm install -D happy-dom` if prompted)
+### Verify
 
-## 7) Launch / Debug
-Use the built-in launch configs (Run and Debug panel):
-- **🚀 Full Stack (Bot + Web Admin)** — launches bot, backend (uvicorn), frontend (Vite) together
-- **Start Bot (start_bot.py)** — bot only
-- **Web Backend (FastAPI)** — backend only
-- **Web Frontend (Vite Dev Server)** — frontend only
+Once running, the backend health endpoint should respond:
+```bash
+curl http://localhost:8000/api/v1/health
+# Expected: {"status":"ok"} or similar
+```
 
-Breakpoints: set in Python or frontend code, then run the corresponding config.
+### Docker extension
 
-## 8) Running the Full Stack via Docker
-For **integration testing and full-stack validation** that mirrors production, use Docker Compose. Docker is ideal when you need the bot and backend in isolated containers with real networking — use native launch configs (above) when you need breakpoint debugging in individual processes.
+The **Docker** extension (`ms-azuretools.vscode-docker`) gives you a visual view of containers:
+- **Containers** tab: see `bot` and `backend` status, right-click → "View Logs" or "Attach Shell"
+- **Images** tab: inspect built images
 
-### Prerequisites
-- Ensure `.env` is populated in the repo root (see `SETUP.md` for required fields).
-- `config/config.yaml` must exist with correct channel/role IDs for your test server.
+### Data persistence
 
-### Available Docker tasks
-Command Palette → `Tasks: Run Task`, then select:
-- **`docker: compose up (build)`** — Builds and starts bot + backend + SQLite volume; logs to terminal. Hit Ctrl+C to stop.
-- **`docker: compose up (detached)`** — Same, but runs in background (headless). Use with Docker extension panel or `docker: compose logs` task to monitor.
-- **`docker: compose build`** — Rebuild images without starting containers.
-- **`docker: compose logs`** — Stream logs from running containers (follow mode).
-- **`docker: compose down`** — Stop and remove containers (volumes persist; see "Volume persistence" below).
+SQLite databases live in the `./data/` bind mount (`/app/data/` inside containers). They persist across `docker compose down` and rebuilds. To wipe all data: `docker compose down -v`.
 
-### Running the stack step-by-step
-1. Open Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
-2. Type `Tasks: Run Task` and press Enter.
-3. Select **`docker: compose up (build)`** to start the full stack with output in the terminal.
-   - The backend (FastAPI) starts on `http://localhost:8000`
-   - The bot waits for the backend to be healthy before connecting.
-4. Once you see log output, verify health: open a terminal and run:
-   ```bash
-   curl http://localhost:8000/api/v1/health
-   ```
-   Expected response: `{"status":"ok"}` (or similar).
+## 3. Python Interpreter (for tests and linting only)
 
-### Managing containers and logs
-The **Docker extension** (`ms-azuretools.vscode-docker`) provides a visual interface:
-- Open the Docker panel (whale icon in the Activity Bar).
-- **Containers** tab: see `bot` and `backend` containers, their status, and running processes.
-  - Right-click a container → "View Logs" to see its output.
-  - Right-click → "Attach Shell" to execute commands inside a container.
-- **Images** tab: inspect built images (`backend:latest`, `bot:latest`).
+The venv is **not** used to run the bot or backend — Docker handles that. Set it up to get test discovery, type checking, and linting in VS Code.
 
-Alternatively, use the **`docker: compose logs`** task to stream logs in the terminal.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
 
-### Volume persistence
-The `sqlite-data` volume persists the SQLite databases (`guild_data.db`, etc.) between container restarts. When you run `docker: compose down`, the volume is **not** deleted — data survives.
-- To wipe data, run `docker volume rm test_squadron_discord_bot_sqlite-data` (replace with your volume name).
-- To view stored data, attach a shell to the `backend` container and browse `/app/data/`.
+Command Palette → **Python: Select Interpreter** → choose `.venv/bin/python` (or `.venv\Scripts\python.exe` on Windows).
 
-### Tearing down
-Run the **`docker: compose down`** task to stop all containers and clean up networks. Volumes and images remain for faster restarts.
+## 4. Recommended Extensions
 
-## 9) Testing in VS Code
-- Open the Testing view (beaker icon). Tests are auto-discovered from `tests/` and `web/backend/tests/`.
-- Run/Debug all tests or individual tests from the tree.
-- CLI equivalent (backend/bot):
-	```bash
-	.venv/bin/python -m pytest tests/ web/backend/tests/ -v
-	```
-- Frontend tests (Vitest):
-	```bash
-	cd web/frontend
-	npm test -- --run
-	```
+Auto-suggested via `.vscode/extensions.json`:
 
-## 10) Tasks (optional shortcuts)
-Command Palette → `Tasks: Run Task`:
+- `ms-python.python` + `ms-python.vscode-pylance` — Python language support
+- `ms-python.python-test-adapter` — Test discovery in the Testing view
+- `ms-azuretools.vscode-docker` — Docker container management
+- `esbenp.prettier-vscode` — Frontend formatting (optional)
+- `dbaeumer.vscode-eslint` — Frontend linting (optional)
+
+## 5. Debugging Individual Processes
+
+If you need **breakpoint debugging** in a single process (not the full Docker stack), use the pre-configured launch configs (Run and Debug panel, `Ctrl+Shift+D`):
+
+| Config | What it runs |
+|--------|--------------|
+| 🚀 Full Stack (Bot + Web Admin) | Bot + backend + frontend natively (debugpy/Vite) |
+| Start Bot (start_bot.py) | Bot only |
+| Web Backend (FastAPI) | Backend only (uvicorn) |
+| Web Frontend (Vite Dev Server) | Frontend only |
+
+> Use Docker for integration testing and full-stack validation. Use native launch configs when you need Python breakpoints inside a specific process.
+
+## 6. Testing in VS Code
+
+Tests run against the local venv — they do **not** require Docker to be running.
+
+### Testing view
+
+Open the Testing view (beaker icon). Tests are auto-discovered from `tests/` and `web/backend/tests/`.
+
+### CLI
+
+```bash
+# From repo root (venv active)
+pytest tests/ web/backend/tests/ -v          # All tests
+pytest tests/ -v                             # Bot/cog/service tests
+pytest web/backend/tests/ -v                 # Web dashboard tests
+pytest --cov --cov-fail-under=50             # With coverage
+```
+
+### Frontend tests (Vitest)
+
+```bash
+cd web/frontend
+npm test -- --run
+```
+
+### VS Code tasks
+
+Command Palette → Tasks: Run Task:
 - `pytest: bot tests`
 - `pytest: backend tests`
 - `pytest: all tests`
-- Quick modes are also available.
 
-Optional frontend tasks (if added to `tasks.json`):
-- `vitest: unit tests`
-- `vite: dev server`
+## 7. Common Tips
 
-## 11) Common tips
-- If debugpy complains about missing modules, ensure `.venv` is active and deps are installed.
-- If Testing view shows discovery errors, reload the window (`Developer: Reload Window`) after installing deps.
-- Keep the `.env` file up to date; it is read by launch configs for bot/backend.
+- If debugpy complains about missing modules, ensure the venv is active and `pip install -r requirements.txt -r requirements-dev.txt` has been run.
+- If the Testing view shows discovery errors, reload the window (`Developer: Reload Window`) after installing deps.
+- Keep `.env` up to date — it is read by both Docker Compose and the native launch configs.
+- The Docker stack and the native launch configs share the same `.env` file — you do not need separate configs for each.

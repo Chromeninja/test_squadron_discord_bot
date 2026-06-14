@@ -17,8 +17,16 @@ git checkout main && git pull
 git checkout -b feat/your-feature
 ```
 
-### 2. Install Dependencies
+### 2. Set Up Your Environment
 
+**Run services with Docker** (primary):
+```bash
+cp .env.example .env   # fill in DISCORD_TOKEN, secrets
+cp config/config-example.yaml config/config.yaml
+docker compose up --build
+```
+
+**Tests and linting use a venv** (never used to run services):
 ```bash
 python -m venv .venv
 source .venv/bin/activate

@@ -5,6 +5,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Dev Environment Setup
 
 ```bash
+# 1. Copy and populate environment file
+cp .env.example .env
+# Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, SESSION_SECRET, BOT_API_KEY
+
+# 2. Copy and customize config
+cp config/config-example.yaml config/config.yaml
+
+# 3. Start services (Docker)
+docker compose up --build          # Build and start bot + backend (foreground)
+docker compose up -d --build       # Same, detached (background)
+docker compose logs -f             # Stream logs
+docker compose down                # Stop all services
+
+# 4. Tests & linting (venv — never used to run services)
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -14,14 +28,18 @@ pre-commit install
 ## Commands
 
 ```bash
-# Bot
+# Run (Docker Compose — primary)
+docker compose up --build          # Start bot + backend, stream logs
+docker compose up -d --build       # Start detached (background)
+docker compose logs -f             # Stream all logs
+docker compose logs -f backend     # Backend logs only
+docker compose logs -f bot         # Bot logs only
+docker compose down                # Stop all services
+docker compose down -v             # Stop and wipe data volumes
+
+# Bot (direct — only for debugging outside Docker)
 python3 bot.py                         # Run the Discord bot
 python3 start_bot.py                   # Run via startup wrapper
-
-# Web dashboard (from web/backend/)
-uvicorn app:app --reload               # Run FastAPI backend
-# Frontend (from web/frontend/)
-npm install && npm run dev             # Run Vite dev server
 
 # Tests (run from repo root)
 pytest tests/ -v                       # Bot/cog/service tests
@@ -42,10 +60,6 @@ mypy backend/ connectors/ --ignore-missing-imports --no-strict-optional \
 
 # Modularity check (run before committing)
 python3 tools/check_modularity.py $(git diff --name-only --diff-filter=AM HEAD -- '*.py')
-
-# Docker (local dev)
-docker compose up                      # Start bot + backend + sqlite volume
-docker compose up backend              # Backend only (no bot)
 
 # Pre-commit (runs all quality gates)
 pre-commit run --all-files

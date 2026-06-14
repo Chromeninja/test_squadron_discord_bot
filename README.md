@@ -344,20 +344,12 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
 
 ### Quick Start
 
-1. **Set up Discord OAuth2** credentials in `.env` (see `documents/SETUP.md` for environment variable details)
-2. **Start the backend**:
+1. **Set up credentials**: copy `.env.example` → `.env`, fill in Discord credentials and generate secrets (see `documents/SETUP.md`)
+2. **Start all services**:
    ```bash
-   cd web/backend
-   pip install -r requirements.txt
-   uvicorn app:app --reload --port 8081
+   docker compose up --build
    ```
-3. **Start the frontend** (in a new terminal):
-   ```bash
-   cd web/frontend
-   npm install
-   npm run dev
-   ```
-4. **Open your browser** to `http://localhost:5173` and login with Discord
+3. **Open your browser** to `http://localhost:8000` and log in with Discord
 
 For detailed setup instructions, architecture details, and troubleshooting, see `documents/SETUP.md`.
 

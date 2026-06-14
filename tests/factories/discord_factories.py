@@ -343,6 +343,7 @@ class FakeInteraction:
         self.followup = FakeFollowup()
         self.locale = "en-US"
         self.command = SimpleNamespace(name="test_command")
+        self.token = "fake_interaction_token"
 
         # Message for edit operations
         self.message = SimpleNamespace(edit=AsyncMock())
