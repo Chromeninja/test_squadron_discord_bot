@@ -11,6 +11,7 @@ from helpers.http_helper import ForbiddenError, HTTPClient, NotFoundError
 RSI_HANDLE_REGEX = re.compile(r"^[A-Za-z0-9\[\]][A-Za-z0-9_\-\s\[\]]{0,59}$")
 logger = logging.getLogger(__name__)
 
+
 class OrgSelectors(TypedDict):
     main: list[str]
     affiliates: list[str]
@@ -203,12 +204,10 @@ def extract_handle(html_content: str | BeautifulSoup) -> str | None:
     logger.debug("Extracting cased handle from profile HTML.")
     soup = _get_soup(html_content)
 
-    if (
-        handle_paragraph := soup.find(
-            "p",
-            class_="entry",
-            string=lambda text: isinstance(text, str) and "Handle name" in text,
-        )
+    if handle_paragraph := soup.find(
+        "p",
+        class_="entry",
+        string=lambda text: isinstance(text, str) and "Handle name" in text,
     ):
         if not isinstance(handle_paragraph, Tag):
             logger.warning("Handle paragraph was not a Tag instance.")

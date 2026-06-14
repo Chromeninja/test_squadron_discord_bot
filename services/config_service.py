@@ -231,6 +231,7 @@ class ConfigService(BaseService):
 
         if key.startswith("roles."):
             from helpers.permissions_helper import invalidate_role_id_cache
+
             invalidate_role_id_cache(guild_id, key)
 
         self.logger.debug(f"Set guild {guild_id} setting {key} = {value}")

@@ -174,7 +174,9 @@ class InternalAPIClient:
                         _INTERNAL_API_RETRY_ATTEMPTS,
                         exc,
                     )
-        raise last_error or httpx.RequestError("Internal API request failed after all retries")
+        raise last_error or httpx.RequestError(
+            "Internal API request failed after all retries"
+        )
 
     async def close(self) -> None:
         """Close HTTP client."""

@@ -49,6 +49,7 @@ def invalidate_role_id_cache(guild_id: int, key: str | None = None) -> None:
             if cache_key[0] == guild_id:
                 del _ROLE_ID_CACHE[cache_key]
 
+
 FEATURE_CONFIG = {
     "ptt": {
         "overwrite_property": "use_voice_activation",

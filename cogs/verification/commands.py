@@ -321,7 +321,7 @@ class VerificationCog(commands.Cog):
                     log_leadership=True,
                     log_audit=False,  # User-initiated, no admin audit needed
                 ),
-                timeout=15.0
+                timeout=15.0,
             )
         except TimeoutError:
             embed = create_error_embed(
