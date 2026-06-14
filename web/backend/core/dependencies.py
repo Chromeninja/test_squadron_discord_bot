@@ -23,6 +23,11 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.db.repository.ticket_forms import TicketFormRepository
+    from backend.db.repository.tickets import TicketRepository
 
 
 # ---------------------------------------------------------------------------
@@ -119,14 +124,14 @@ async def get_voice_service() -> VoiceService:
     return _voice_service
 
 
-def get_ticket_repository():  # type: ignore[return]
+def get_ticket_repository() -> TicketRepository:
     """Get a TicketRepository instance for the backend DB."""
     from backend.db.repository.tickets import TicketRepository
 
     return TicketRepository()
 
 
-def get_ticket_form_repository():  # type: ignore[return]
+def get_ticket_form_repository() -> TicketFormRepository:
     """Get a TicketFormRepository instance for the backend DB."""
     from backend.db.repository.ticket_forms import TicketFormRepository
 
@@ -160,6 +165,22 @@ async def initialize_services() -> None:
 
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     await Database.initialize(db_path)
+
+    # Initialize metrics database
+    from services.db.metrics_db import MetricsDatabase
+
+    metrics_cfg = config_dict.get("metrics", {})
+    metrics_db_path = metrics_cfg.get("database_path", "metrics.db")
+    if not Path(metrics_db_path).is_absolute():
+        metrics_db_path = str(_PROJECT_ROOT / metrics_db_path)
+
+    Path(metrics_db_path).parent.mkdir(parents=True, exist_ok=True)
+    await MetricsDatabase.initialize(metrics_db_path)
+
+    logger.info(
+        "MetricsDatabase initialized",
+        extra={"metrics_db_path": metrics_db_path},
+    )
 
     _config_service = ConfigService(config_loader=_config_loader)
     await _config_service.initialize()
