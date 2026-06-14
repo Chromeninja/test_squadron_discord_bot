@@ -60,7 +60,7 @@ def collect_stats(path: Path) -> FileStats:
 
     tree = ast.parse(source)
     functions = sum(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         for node in ast.walk(tree)
     )
     classes = sum(isinstance(node, ast.ClassDef) for node in ast.walk(tree))
