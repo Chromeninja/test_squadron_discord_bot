@@ -13,7 +13,11 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from backend.api.internal.tickets import get_ticket_repository, router
+from backend.api.internal.tickets import (
+    get_ticket_repository,
+    get_ticket_stats_repository,
+    router,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -39,6 +43,7 @@ def mock_repo(app: FastAPI) -> Generator[AsyncMock, None, None]:
     """Override the TicketRepository dependency with an AsyncMock."""
     repo = AsyncMock()
     app.dependency_overrides[get_ticket_repository] = lambda: repo
+    app.dependency_overrides[get_ticket_stats_repository] = lambda: repo
     yield repo
     app.dependency_overrides.clear()
 

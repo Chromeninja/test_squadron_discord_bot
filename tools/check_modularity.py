@@ -18,7 +18,6 @@ LEGACY_FILE_CEILINGS: dict[str, int] = {
     "services/internal_api.py": 2976,  # grew with event-manager features; target decomposition
     "services/metrics_service.py": 2009,
     "services/db/database.py": 1553,
-    "backend/db/repository/tickets.py": 1031,  # Stage 1 repository; split per sub-domain later
     "web/backend/routes/guilds.py": 1227,
     "web/backend/core/dependencies.py": 1399,
     "helpers/ticket_views.py": 1391,

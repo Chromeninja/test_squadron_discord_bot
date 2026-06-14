@@ -30,6 +30,15 @@ def get_ticket_repository() -> TicketRepository:
     return TicketRepository()
 
 
+def get_ticket_stats_repository() -> TicketRepository:
+    """Provide a TicketRepository. Override in tests via dependency_overrides.
+
+    The repository is stateless (it opens a connection per call via
+    Database.get_connection()), so a fresh instance per request is cheap.
+    """
+    return TicketRepository()
+
+
 @router.get("/guilds/{guild_id}/tickets")
 async def list_tickets(
     guild_id: int,
@@ -218,9 +227,10 @@ async def create_channel_config(
     payload: dict[str, Any],
     _: str = Depends(require_bot_api_key),
     repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Create a new channel config."""
-    config_id = await repo.create_channel_config(
+    config_id = await stats_repo.create_channel_config(
         guild_id=guild_id,
         channel_id=payload.get("channel_id", 0),
         panel_title=payload.get("panel_title"),
@@ -264,12 +274,13 @@ async def update_channel_config(
     payload: dict[str, Any],
     _: str = Depends(require_bot_api_key),
     repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Update a channel config."""
     config = await repo.get_channel_config(guild_id, channel_id)
     if config is None:
         raise HTTPException(status_code=404, detail="Channel config not found")
-    updated = await repo.update_channel_config(
+    updated = await stats_repo.update_channel_config(
         guild_id=guild_id,
         channel_id=channel_id,
         new_channel_id=payload.get("new_channel_id"),
@@ -319,10 +330,10 @@ async def delete_channel_config(
 async def get_ticket_stats(
     guild_id: int,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Return ticket statistics for a guild."""
-    stats = await repo.get_ticket_stats(guild_id)
+    stats = await stats_repo.get_ticket_stats(guild_id)
     return {"stats": stats}
 
 
@@ -420,12 +431,13 @@ async def mark_deleted(
     thread_id: int,
     _: str = Depends(require_bot_api_key),
     repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Mark a ticket thread as deleted."""
     ticket = await repo.get_ticket_by_thread(thread_id)
     if ticket is None or ticket.get("guild_id") != guild_id:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    marked = await repo.mark_thread_deleted(thread_id)
+    marked = await stats_repo.mark_thread_deleted(thread_id)
     return {"marked": marked}
 
 
@@ -439,10 +451,10 @@ async def list_open_tickets(
     guild_id: int,
     user_id: int | None = None,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Return open tickets for a guild, optionally filtered by user."""
-    tickets = await repo.get_open_tickets(guild_id, user_id)
+    tickets = await stats_repo.get_open_tickets(guild_id, user_id)
     return {"tickets": tickets}
 
 
@@ -463,10 +475,10 @@ async def get_thread_health(
     guild_id: int,
     thread_limit: int = 1000,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Return thread usage data for a guild (active/archived/deleted counts + usage status)."""
-    health = await repo.get_thread_health(guild_id, thread_limit)
+    health = await stats_repo.get_thread_health(guild_id, thread_limit)
     return {"health": health}
 
 
@@ -475,10 +487,10 @@ async def get_oldest_closed(
     guild_id: int,
     limit: int = 5,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Return the oldest closed tickets that still have threads."""
-    tickets = await repo.get_oldest_closed_tickets(guild_id, limit)
+    tickets = await stats_repo.get_oldest_closed_tickets(guild_id, limit)
     return {"tickets": tickets}
 
 
@@ -488,10 +500,10 @@ async def get_cleanup_candidates(
     older_than_days: int,
     limit: int | None = None,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Return closed tickets older than older_than_days (min 30-day safety buffer)."""
-    tickets = await repo.get_cleanup_candidates(guild_id, older_than_days, limit)
+    tickets = await stats_repo.get_cleanup_candidates(guild_id, older_than_days, limit)
     return {"tickets": tickets}
 
 
@@ -546,23 +558,12 @@ async def _get_cooldown_floor(
     cutoff: int,
 ) -> int:
     """Return effective cutoff considering manual cooldown resets."""
-    try:
-        async with Database.get_connection() as db:
-            cursor = await db.execute(
-                """
-                SELECT MAX(reset_at) FROM ticket_cooldown_resets
-                WHERE guild_id = ? AND user_id IN (?, ?)
-                """,
-                (guild_id, GLOBAL_COOLDOWN_RESET_USER_ID, user_id),
-            )
-            row = await cursor.fetchone()
-        reset_at = row[0] if row else None
-    except Exception:
-        return cutoff
-
+    reset_at = await TicketRepository().get_cooldown_reset(
+        guild_id, user_id, GLOBAL_COOLDOWN_RESET_USER_ID
+    )
     if reset_at is None:
         return cutoff
-    return max(cutoff, int(reset_at))
+    return max(cutoff, reset_at)
 
 
 @router.get("/guilds/{guild_id}/tickets/rate-limit/{user_id}")
@@ -627,7 +628,7 @@ async def can_open_ticket(
     user_id: int,
     max_open: int = 5,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Check if user can open another ticket (below limit).
 
@@ -637,7 +638,7 @@ async def can_open_ticket(
     Returns:
         {"allowed": bool} — True if user can open a ticket.
     """
-    count = await repo.get_open_ticket_count(guild_id, user_id)
+    count = await stats_repo.get_open_ticket_count(guild_id, user_id)
     allowed = count < max_open
     return {"allowed": allowed}
 
@@ -648,7 +649,7 @@ async def check_can_reopen(
     thread_id: int,
     reopen_window_hours: int = 48,
     _: str = Depends(require_bot_api_key),
-    repo: TicketRepository = Depends(get_ticket_repository),
+    stats_repo: TicketRepository = Depends(get_ticket_stats_repository),
 ) -> dict[str, Any]:
     """Check if a closed ticket is still within the reopen window.
 
@@ -658,5 +659,5 @@ async def check_can_reopen(
     Returns:
         {"allowed": bool} — True if ticket can be reopened.
     """
-    allowed = await repo.can_reopen(thread_id, reopen_window_hours)
+    allowed = await stats_repo.can_reopen(thread_id, reopen_window_hours)
     return {"allowed": allowed}
