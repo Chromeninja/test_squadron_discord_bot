@@ -241,7 +241,9 @@ class InternalAPIClient:
     async def get_guild_scheduled_events(self, guild_id: int) -> list[dict]:
         """Fetch scheduled events for a guild from the internal API."""
         client = await self._get_client()
-        response = await client.get(f"/guilds/{guild_id}/events/scheduled")
+        response = await self._retry_request(
+            lambda: client.get(f"/guilds/{guild_id}/events/scheduled", timeout=30.0)
+        )
         response.raise_for_status()
         payload = response.json()
         return payload.get("events", [])

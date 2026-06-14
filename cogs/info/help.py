@@ -301,7 +301,11 @@ class HelpCog(commands.Cog):
                 return
 
             # Defer before async operations
-            await interaction.response.defer(ephemeral=True)
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                # Interaction token expired (e.g., during Discord reconnect queuing)
+                return
 
             # Get user's permission level
             user_level = await get_permission_level(
