@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Dev Environment Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
+
 ## Commands
 
 ```bash
@@ -14,13 +23,14 @@ uvicorn app:app --reload               # Run FastAPI backend
 # Frontend (from web/frontend/)
 npm install && npm run dev             # Run Vite dev server
 
-# Tests
-pytest                                 # All tests
-pytest -m unit                         # Unit tests only
-pytest -m integration                  # Integration tests only
-pytest -m "not slow"                   # Skip slow tests
+# Tests (run from repo root)
+pytest tests/ -v                       # Bot/cog/service tests
+pytest web/backend/tests/ -v           # Web dashboard tests
+pytest backend/ -v                     # Repository integration tests (DB-backed)
 pytest tests/test_rsi_verification.py  # Single test file
-pytest --cov --cov-fail-under=50       # With coverage (50% minimum)
+pytest -m unit                         # Unit tests only
+pytest -m integration                  # Integration tests (skipped by default)
+pytest --cov --cov-fail-under=50       # With coverage (50% minimum; target 70%)
 
 # Linting / type checking
 ruff check .                           # Lint
@@ -29,7 +39,9 @@ mypy --strict bot.py cogs/ services/ helpers/ verification/ utils/  # Type check
 mypy backend/ connectors/ --ignore-missing-imports --no-strict-optional \
   --follow-imports=silent --disable-error-code=untyped-decorator \
   --disable-error-code=no-any-return   # Type check (new backend-first layer)
-bandit -r . --exclude tests/,web/frontend/  # Security scan
+
+# Modularity check (run before committing)
+python3 tools/check_modularity.py $(git diff --name-only --diff-filter=AM HEAD -- '*.py')
 
 # Docker (local dev)
 docker compose up                      # Start bot + backend + sqlite volume
@@ -46,10 +58,18 @@ pre-commit run --all-files
 The project runs as three separate processes that communicate:
 
 1. **Discord bot** (`bot.py`) — `MyBot` (discord.py subclass) handles all Discord events and slash commands
-2. **Internal API** (`services/internal_api.py`) — FastAPI server embedded in the bot process; bot services are exposed over HTTP to the web backend
-3. **Web dashboard** (`web/backend/app.py`) — Separate FastAPI server handling OAuth and the management UI; calls the internal API via `web/backend/core/internal_api_client.py`
+2. **Internal API** (`services/internal_api.py`) — FastAPI server embedded in the bot process on port 8082; bot services are exposed over HTTP to the web backend
+3. **Web dashboard** (`web/backend/app.py`) — Separate FastAPI server on port 8000 handling Discord OAuth2 and the management UI; calls the internal API via `web/backend/core/internal_api_client.py`
 
 The web frontend (`web/frontend/`) is a React + TypeScript SPA that calls the web backend.
+
+### Auth keys
+
+Two separate API keys protect the inter-process boundary:
+- `INTERNAL_API_KEY` — used by the web backend to call the bot's internal API (`services/internal_api.py`)
+- `BOT_API_KEY` — docker-compose alias for `INTERNAL_API_KEY`; used by the bot to call the new `backend/` FastAPI server
+
+In `ENV=development` or `dev`, `INTERNAL_API_KEY` is not required. In production it must be set.
 
 ### Backend-first layer (in progress)
 
@@ -74,6 +94,21 @@ A new `backend/` package is being built as the authoritative data layer. New cod
 6. Persistent Discord views registered (survives bot restarts)
 7. App commands synced to Discord
 
+`bot.pyi` is a stub file for IDE type hints only — do not edit it for logic changes.
+
+### Cog structure
+
+Each feature domain under `cogs/` follows a consistent pattern:
+
+```
+cogs/<domain>/
+├── __init__.py
+├── commands.py   # Slash command definitions
+└── events.py     # Discord event listeners
+```
+
+Some domains add extra files (e.g., `cogs/verification/` has `recheck.py`, `verify_bulk.py`, `check_user.py`; `cogs/voice/` has `service_bridge.py`). Commands call into `self.bot.service_container.<service>` — never instantiate services directly in cogs.
+
 ### Service layer (services/)
 
 All service singletons are registered in `services/service_container.py` and injected throughout — do not instantiate services directly in cogs. Access via `self.bot.service_container.<service>`.
@@ -81,6 +116,8 @@ All service singletons are registered in `services/service_container.py` and inj
 **VoiceService** uses mixin composition — the class at `services/voice_service.py` inherits from 7 mixin files (`voice_*_mixin.py`). This is intentional to stay under the 700-line file limit enforced by pre-commit.
 
 **Database pattern**: `services/db/database.py` manages a single `aiosqlite` connection. All table access goes through `services/db/repository.py` (`BaseRepository`). Schema is defined in `services/db/schema.py` and migrations are tracked in `schema_migrations`.
+
+**Task queue**: `helpers/task_queue.py` handles background work with retry logic. Workers are started in `setup_hook()`.
 
 ### RSI verification flow
 
@@ -95,15 +132,26 @@ All service singletons are registered in `services/service_container.py` and inj
 - `config/config.yaml` — runtime settings (channel IDs, role IDs, rate limits, org metadata)
 - `.env` / environment variables — secrets and deployment settings (see `.env.example`)
 - `config/config_loader.py` — validates and provides typed access via `ConfigLoader`
+- `PUBLIC_URL` is the single source of truth for all external URLs; OAuth redirect URIs are derived from it automatically.
 
 ### Modularity limit
 
-A pre-commit hook (`tools/check_modularity.py`) warns at 500 lines and **fails at 700 lines**. If adding significant logic to an existing file, split into a new helper/mixin before the hook blocks the commit.
+A pre-commit hook (`tools/check_modularity.py`) warns at 500 lines and **fails at 700 lines** for non-test Python files. Also warns at >15 functions or >4 classes. If adding significant logic to an existing file, split into a new helper/mixin before the hook blocks the commit. Legacy oversized files have recorded ceilings — they must not grow.
 
 ### Test setup
 
-Tests use factories in `tests/factories/` for bot, guild, and member mocks. `pytest-asyncio` with `asyncio_mode = strict` and function-scoped event loops. The `conftest.py` files provide shared fixtures. Sample HTML files for RSI parsing tests live alongside test files.
+Tests use factories in `tests/factories/` for bot, guild, and member mocks. `pytest-asyncio` with `asyncio_mode = strict` and function-scoped event loops. The `conftest.py` files provide shared fixtures. Use the `temp_db` fixture for database tests and `mock_bot` for bot instance tests. Sample HTML files for RSI parsing tests live alongside test files.
+
+Integration tests (`-m integration`) are excluded from the default `pytest` run — they require a running DB and are run explicitly.
 
 ### Web dashboard auth
 
-`web/backend/core/auth.py` handles Discord OAuth2. Sessions are persisted via `web/backend/core/session_store.py`. The web backend authenticates users and then delegates actual data fetches to the bot's internal API, which has its own key (`INTERNAL_API_KEY` env var).
+`web/backend/core/auth.py` handles Discord OAuth2. Sessions are persisted via `web/backend/core/session_store.py`. The web backend authenticates users and then delegates actual data fetches to the bot's internal API.
+
+## Coding conventions (enforced by pre-commit)
+
+- `datetime.now(timezone.utc)` — never `utcnow()` (Ruff DTZ003 is active)
+- No `print()` in production code — use `logging` (Ruff T20)
+- Type hints on all functions — `mypy --strict` must pass for legacy packages
+- Parameterized SQL with `?` placeholders — no f-string SQL
+- Imports sorted by Ruff I rules
