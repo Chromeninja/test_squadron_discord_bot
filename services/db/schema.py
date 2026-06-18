@@ -7,7 +7,9 @@ all table creation logic to ensure consistency and avoid duplication.
 
 import aiosqlite
 
-from services.db.migrations.managed_events_migration import _ensure_managed_event_columns
+from services.db.migrations.managed_events_migration import (
+    _ensure_managed_event_columns,
+)
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
