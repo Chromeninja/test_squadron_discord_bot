@@ -70,7 +70,9 @@ async def get_cross_guild_membership_status(user_id: int) -> str:
         cursor = await db.execute(tracked_orgs_query)
         tracked_sids_rows = await cursor.fetchall()
         tracked_sids = {
-            result_row[0].strip('"').upper() for result_row in tracked_sids_rows if result_row[0]
+            result_row[0].strip('"').upper()
+            for result_row in tracked_sids_rows
+            if result_row[0]
         }
 
         tracked_user_orgs = all_user_orgs.intersection(tracked_sids)

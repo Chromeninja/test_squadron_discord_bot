@@ -30,7 +30,7 @@ category: "user_facing"
 context: "verification_flow"
 variables:
   - name: "user_handle"
-    type: "string" 
+    type: "string"
     description: "RSI handle of the user"
   - name: "organization"
     type: "string"

@@ -52,9 +52,7 @@ CONFIG_JTC_CHANNELS = "voice.jtc_channels"
 # Event module settings
 CONFIG_EVENTS_ENABLED = "events.enabled"
 CONFIG_EVENTS_DEFAULT_NATIVE_SYNC = "events.default_native_sync"
-CONFIG_EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL = (
-    "events.default_announcement_channel_id"
-)
+CONFIG_EVENTS_DEFAULT_ANNOUNCEMENT_CHANNEL = "events.default_announcement_channel_id"
 CONFIG_EVENTS_DEFAULT_VOICE_CHANNEL = "events.default_voice_channel_id"
 
 
@@ -230,6 +228,11 @@ class ConfigService(BaseService):
             self._guild_cache[guild_id][key] = value
             if key == SETTINGS_VERSION_KEY:
                 self._guild_versions[guild_id] = self._extract_version_value(value)
+
+        if key.startswith("roles."):
+            from helpers.permissions_helper import invalidate_role_id_cache
+
+            invalidate_role_id_cache(guild_id, key)
 
         self.logger.debug(f"Set guild {guild_id} setting {key} = {value}")
 

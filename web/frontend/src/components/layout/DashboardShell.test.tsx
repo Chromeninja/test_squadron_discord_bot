@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-const { authApi, guildApi, useIsMobile } = vi.hoisted(() => ({
+const { authApi, guildApi, useIsDesktop, useIsMobile } = vi.hoisted(() => ({
   authApi: {
     logout: vi.fn(),
     clearActiveGuild: vi.fn(),
@@ -16,6 +16,7 @@ const { authApi, guildApi, useIsMobile } = vi.hoisted(() => ({
     getGuildConfig: vi.fn(),
     getGuildInfo: vi.fn(),
   },
+  useIsDesktop: vi.fn(),
   useIsMobile: vi.fn(),
 }));
 
@@ -26,6 +27,7 @@ vi.mock('../../api/endpoints', () => ({
 }));
 
 vi.mock('../../hooks/useMediaQuery', () => ({
+  useIsDesktop,
   useIsMobile,
 }));
 
@@ -70,6 +72,7 @@ function createBotOwnerUser() {
 describe('DashboardShell Events Navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useIsDesktop).mockReturnValue(true);
     vi.mocked(useIsMobile).mockReturnValue(false);
     vi.mocked(guildApi.getGuildConfig).mockResolvedValue({
       success: true,
@@ -310,5 +313,35 @@ describe('DashboardShell Events Navigation', () => {
       expect(authApi.assumeRole).toHaveBeenCalledWith('staff');
     });
     expect(onRefreshProfile).not.toHaveBeenCalled();
+  });
+
+  it('shows a navigation toggle on tablet widths', async () => {
+    vi.mocked(useIsDesktop).mockReturnValue(false);
+    vi.mocked(useIsMobile).mockReturnValue(false);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <DashboardShell
+                user={createUser()}
+                onUserChange={vi.fn()}
+                onRefreshProfile={vi.fn(async () => {})}
+              />
+            }
+          >
+            <Route index element={<div>Dashboard Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('button', { name: 'Open navigation' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+
+    expect(screen.getAllByRole('button', { name: 'Close navigation' }).length).toBeGreaterThan(0);
   });
 });

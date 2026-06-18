@@ -7,6 +7,15 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: check-json
+        # VS Code and TypeScript config files use JSONC (JSON-with-comments) which
+        # is valid for those tools but fails strict JSON parsing. Exclude them here.
+        exclude: >-
+          (?x)^(
+            \.vscode/.*\.json|
+            web/backend/\.vscode/.*\.json|
+            web/frontend/tsconfig\.json|
+            web/frontend/tsconfig\.node\.json
+          )$
       - id: check-toml
       - id: check-merge-conflict
       - id: debug-statements
@@ -24,15 +33,16 @@ repos:
       - id: bandit
         args: [-c, pyproject.toml]
         types: [python]
-        exclude: ^(tests/|web/backend/tests/|web/frontend/)
+        exclude: ^(tests/|web/backend/tests/|web/frontend/|backend/api/internal/test_)
 
-  - repo: https://github.com/pre-commit/mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.8.0
     hooks:
       - id: mypy
         additional_dependencies: [types-PyYAML, types-beautifulsoup4]
         args: [--config-file, pyproject.toml]
-        exclude: ^tests/
+        # Exclude tests and bot.pyi (stub file — duplicate module collision with bot.py)
+        exclude: ^(tests/|bot\.pyi$)
 
   - repo: local
     hooks:

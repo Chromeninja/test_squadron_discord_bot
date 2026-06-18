@@ -106,15 +106,13 @@ def test_validate_jtc_permissions_success() -> None:
     )
     guild_perms = discord.Permissions(move_members=True)
 
-    bot_member = cast(
-        "discord.Member", SimpleNamespace(guild_permissions=guild_perms)
-    )
+    bot_member = cast("discord.Member", SimpleNamespace(guild_permissions=guild_perms))
     guild = cast(
         "discord.Guild",
         SimpleNamespace(
-        id=100,
-        name="Test Guild",
-        get_member=lambda _member_id: bot_member,
+            id=100,
+            name="Test Guild",
+            get_member=lambda _member_id: bot_member,
         ),
     )
 
@@ -147,15 +145,13 @@ def test_validate_jtc_permissions_reports_missing_manage_channels() -> None:
     )
     guild_perms = discord.Permissions(move_members=True)
 
-    bot_member = cast(
-        "discord.Member", SimpleNamespace(guild_permissions=guild_perms)
-    )
+    bot_member = cast("discord.Member", SimpleNamespace(guild_permissions=guild_perms))
     guild = cast(
         "discord.Guild",
         SimpleNamespace(
-        id=101,
-        name="Test Guild",
-        get_member=lambda _member_id: bot_member,
+            id=101,
+            name="Test Guild",
+            get_member=lambda _member_id: bot_member,
         ),
     )
 

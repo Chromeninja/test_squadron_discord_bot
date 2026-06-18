@@ -426,4 +426,3 @@ class VoiceChannelMixin(VoiceServiceBase):
             "cooldown_records": cooldown_records,
             "creation_locks": len(self._creation_locks),
         }
-

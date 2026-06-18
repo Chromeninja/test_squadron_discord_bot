@@ -412,6 +412,7 @@ class ChannelSettingsView(View):
 
         if selected in ["permit", "reject"]:
             from helpers.views_admin import TargetTypeSelectView
+
             view = TargetTypeSelectView(self.bot, action=selected)
             await send_message(
                 interaction,
@@ -439,6 +440,7 @@ class ChannelSettingsView(View):
             )
         elif selected == "ptt":
             from helpers.views_feature import FeatureToggleView
+
             view = FeatureToggleView(self.bot, feature_name="ptt")
             await send_message(
                 interaction,
@@ -453,6 +455,7 @@ class ChannelSettingsView(View):
             )
         elif selected == "priority_speaker":
             from helpers.views_feature import FeatureToggleView
+
             view = FeatureToggleView(
                 self.bot, feature_name="priority_speaker", no_everyone=True
             )
@@ -464,6 +467,7 @@ class ChannelSettingsView(View):
             )
         elif selected == "soundboard":
             from helpers.views_feature import FeatureToggleView
+
             view = FeatureToggleView(self.bot, feature_name="soundboard")
             await send_message(
                 interaction, "Enable or disable Soundboard?", view=view, ephemeral=True

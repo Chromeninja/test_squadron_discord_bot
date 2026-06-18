@@ -64,7 +64,9 @@ class AdminCog(commands.Cog):
 
         await reset_all_attempts()
         clear_all_tokens()
-        await self.bot.services.ticket.reset_all_ticket_cooldowns(interaction.guild.id)
+        await self.bot.connectors.tickets.reset_all_ticket_cooldowns(
+            interaction.guild.id
+        )
 
         await interaction.followup.send(
             "✅ Reset verification timers and ticket cooldown timers for all members.",
@@ -110,7 +112,7 @@ class AdminCog(commands.Cog):
 
         await reset_attempts(member.id)
         clear_token(member.id)
-        await self.bot.services.ticket.reset_user_ticket_cooldown(
+        await self.bot.connectors.tickets.reset_user_ticket_cooldown(
             interaction.guild.id,
             member.id,
         )

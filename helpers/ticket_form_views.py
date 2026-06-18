@@ -5,8 +5,9 @@ Discord UI components for the dynamic modal-driven ticket intake system:
 - ``DynamicTicketModal`` — modal built from form step questions.
 - ``TicketContinueView`` — "Continue" / "Cancel" buttons between steps.
 
-These components work together with ``TicketFormService`` to walk a user
-through a multi-step form flow before creating a ticket.
+These components work together with the ticket form connector
+(``bot.connectors.forms``) to walk a user through a multi-step form flow
+before creating a ticket.
 
 AI Notes:
     ``TicketContinueView`` is a *persistent* view (``timeout=None``,
@@ -26,12 +27,13 @@ from discord.ui import (  # type: ignore[import-not-found]
     View,
 )
 
-from helpers.bot_protocol import BotProtocol
+from helpers.bot_protocol import require_connectors
 from helpers.constants import MAX_MODAL_TITLE_LENGTH
+from helpers.ticket_route_context import RouteExecutionContext
 from utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from services.ticket_form_service import RouteExecutionContext
+    from helpers.bot_protocol import BotProtocol
 
 logger = get_logger(__name__)
 
@@ -147,7 +149,8 @@ class DynamicTicketModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Collect answers, persist, resolve next step."""
-        ticket_form_service = self.bot.services.ticket_form
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
         step_number = self._step_config.get("step_number", 1)
 
         # Collect answers from inputs
@@ -166,7 +169,8 @@ class DynamicTicketModal(Modal):
         all_answers = self._context.collected_answers
 
         # Resolve next step
-        next_step = await ticket_form_service.resolve_next_step(
+        next_step = await form_connector.resolve_next_step(
+            self._context.guild_id,
             self._context.category_id,
             step_number,
             all_answers,
@@ -177,16 +181,14 @@ class DynamicTicketModal(Modal):
             await interaction.response.defer(ephemeral=True)
 
             # Delete the session first
-            await ticket_form_service.delete_session(
+            await form_connector.delete_session(
                 self._context.guild_id, self._context.user_id
             )
 
-            await create_ticket_from_route(
-                self.bot, interaction, self._context
-            )
+            await create_ticket_from_route(self.bot, interaction, self._context)
         else:
             # More steps — update session and show continue view
-            await ticket_form_service.update_session(
+            await form_connector.update_session(
                 self._context.guild_id,
                 self._context.user_id,
                 next_step,
@@ -195,8 +197,8 @@ class DynamicTicketModal(Modal):
             )
 
             # Load next step info for progress display
-            next_step_config = await ticket_form_service.get_step(
-                self._context.category_id, next_step
+            next_step_config = await form_connector.get_step_by_number(
+                self._context.guild_id, self._context.category_id, next_step
             )
             next_title = ""
             if next_step_config:
@@ -298,33 +300,47 @@ class TicketContinueView(View):
             )
             return
 
-        ticket_form_service = self.bot.services.ticket_form
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
         guild_id = interaction.guild.id
         user_id = interaction.user.id
 
-        ctx = await ticket_form_service.get_session(guild_id, user_id)
-        if ctx is None:
+        ctx_data = await form_connector.get_session(guild_id, user_id)
+        if ctx_data is None:
             await interaction.response.send_message(
                 "⏳ Your session has expired. Please start a new ticket.",
                 ephemeral=True,
             )
             return
 
+        ctx = RouteExecutionContext(
+            guild_id=int(ctx_data["guild_id"]),
+            user_id=int(ctx_data["user_id"]),
+            category_id=int(ctx_data["category_id"]),
+            current_step=int(ctx_data.get("current_step", 1)),
+            collected_answers=ctx_data.get("collected_answers") or {},
+            session_id=ctx_data.get("session_id"),
+            interaction_token=ctx_data.get("interaction_token"),
+            is_public=bool(ctx_data.get("is_public", False)),
+        )
+
         # Load the current step
-        step_config = await ticket_form_service.get_step(
-            ctx.category_id, ctx.current_step
+        step_config = await form_connector.get_step_by_number(
+            guild_id,
+            ctx.category_id,
+            ctx.current_step,
         )
         if step_config is None:
             await interaction.response.send_message(
                 "❌ Form configuration error — step not found. Please try again.",
                 ephemeral=True,
             )
-            await ticket_form_service.delete_session(guild_id, user_id)
+            await form_connector.delete_session(guild_id, user_id)
             return
 
         questions = step_config.get("questions")
         if questions is None:
-            questions = await ticket_form_service.get_questions(step_config["id"])
+            questions = await form_connector.get_questions(guild_id, step_config["id"])
 
         if not questions:
             await interaction.response.send_message(
@@ -332,22 +348,22 @@ class TicketContinueView(View):
                 "Please contact an administrator.",
                 ephemeral=True,
             )
-            await ticket_form_service.delete_session(guild_id, user_id)
+            await form_connector.delete_session(guild_id, user_id)
             return
 
         # Load category for the modal builder
-        ticket_service = self.bot.services.ticket
-        category = await ticket_service.get_category(ctx.category_id)
+        ticket_connector = connectors.tickets
+        category = await ticket_connector.get_category(guild_id, ctx.category_id)
         if category is None:
             await interaction.response.send_message(
                 "❌ The ticket category no longer exists. Please start over.",
                 ephemeral=True,
             )
-            await ticket_form_service.delete_session(guild_id, user_id)
+            await form_connector.delete_session(guild_id, user_id)
             return
 
         # Get total steps for progress indication
-        form_config = await ticket_form_service.get_form_config(ctx.category_id)
+        form_config = await form_connector.get_form_config(guild_id, ctx.category_id)
         total_steps = len(form_config["steps"]) if form_config else 1
 
         await present_step_ui(
@@ -368,10 +384,9 @@ class TicketContinueView(View):
             )
             return
 
-        ticket_form_service = self.bot.services.ticket_form
-        await ticket_form_service.delete_session(
-            interaction.guild.id, interaction.user.id
-        )
+        connectors = require_connectors(self.bot)
+        form_connector = connectors.forms
+        await form_connector.delete_session(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(
             "🗑️ Ticket creation cancelled.", ephemeral=True
         )
@@ -400,9 +415,12 @@ async def create_ticket_from_route(
     from helpers.ticket_views import _create_ticket_thread
 
     # Load category
-    ticket_service = bot.services.ticket
-    ticket_form_service = bot.services.ticket_form
-    category = await ticket_service.get_category(context.category_id)
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
+    form_connector = connectors.forms
+    category = await ticket_connector.get_category(
+        context.guild_id, context.category_id
+    )
 
     # Build a combined description from all collected answers
     description_parts: list[str] = []
@@ -426,6 +444,6 @@ async def create_ticket_from_route(
 
     # Save form responses using the returned ticket_id directly
     if ticket_id is not None:
-        await ticket_form_service.save_responses(
-            ticket_id, context.collected_answers
+        await form_connector.save_responses(
+            context.guild_id, ticket_id, context.collected_answers
         )

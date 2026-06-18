@@ -11,14 +11,14 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 /**
  * Badge component for status indicators, labels, and tags.
- * 
+ *
  * @example
  * // Success badge
  * <Badge variant="success">Active</Badge>
- * 
+ *
  * // Warning badge with outline style
  * <Badge variant="warning-outline">Pending</Badge>
- * 
+ *
  * // With icon
  * <Badge variant="info" icon={<InfoIcon />}>New</Badge>
  */
@@ -61,7 +61,7 @@ export interface StatusBadgeProps {
 
 /**
  * Binary status badge that toggles between success/neutral based on boolean.
- * 
+ *
  * @example
  * <StatusBadge status={isLocked} trueLabel="Locked" falseLabel="Unlocked" />
  */
@@ -82,7 +82,7 @@ export interface MembershipBadgeProps {
 
 /**
  * Membership status badge with predefined color mappings.
- * 
+ *
  * @example
  * <MembershipBadge status="main" />
  * <MembershipBadge status="affiliate" />

@@ -1,0 +1,21 @@
+FROM python:3.12-slim-bookworm AS builder
+WORKDIR /app
+COPY requirements.txt ./requirements-root.txt
+COPY web/backend/requirements.txt ./requirements-backend.txt
+RUN pip install --user --no-cache-dir -r requirements-root.txt \
+	&& pip install --user --no-cache-dir -r requirements-backend.txt
+
+FROM python:3.12-slim-bookworm
+WORKDIR /app
+# Run as a non-root user (security: avoid root inside the container)
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --create-home app
+COPY --from=builder /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH
+# Copy project (exclude frontend, tests, docs via .dockerignore)
+COPY --chown=app:app . .
+RUN mkdir -p /app/data && chown -R app:app /app
+ENV DISCORD_TOKEN=""
+ENV BACKEND_URL="http://backend:8000"
+ENV BOT_API_KEY=""
+USER app
+CMD ["python", "bot.py"]

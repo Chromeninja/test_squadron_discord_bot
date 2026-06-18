@@ -120,3 +120,29 @@ async def test_init_schema_backfills_legacy_managed_event_display_columns() -> N
         assert "channel_name" in columns
         assert "image_url" in columns
         assert "signup_role_ids" not in columns
+
+
+@pytest.mark.asyncio
+async def test_init_schema_backfills_legacy_verification_org_columns() -> None:
+    async with aiosqlite.connect(":memory:") as db:
+        await db.execute(
+            """
+            CREATE TABLE verification (
+                user_id INTEGER PRIMARY KEY,
+                rsi_handle TEXT NOT NULL UNIQUE,
+                last_updated INTEGER DEFAULT 0,
+                verification_payload TEXT,
+                needs_reverify INTEGER DEFAULT 0,
+                needs_reverify_at INTEGER DEFAULT 0,
+                community_moniker TEXT
+            )
+            """
+        )
+        await db.commit()
+
+        await init_schema(db)
+
+        cursor = await db.execute("PRAGMA table_info(verification)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        assert "main_orgs" in columns
+        assert "affiliate_orgs" in columns

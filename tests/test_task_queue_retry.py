@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-import aiohttp
 import discord
 import pytest
 
 from helpers.task_queue import run_task
+
+if TYPE_CHECKING:
+    import aiohttp
 
 
 def _fake_response(status: int) -> aiohttp.ClientResponse:
@@ -54,7 +56,8 @@ async def test_run_task_retries_on_429_with_retry_after(monkeypatch) -> None:
                 {"message": "Rate limited", "retry_after": 0.01},
             )
             exc.status = 429
-            setattr(exc, "retry_after", 0.01)
+            rate_limit_exc = cast("Any", exc)
+            rate_limit_exc.retry_after = 0.01
             raise exc
         return "done"
 

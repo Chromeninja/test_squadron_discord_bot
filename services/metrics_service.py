@@ -143,6 +143,7 @@ class MetricsService(MetricsReadMixin, MetricsFlushMixin, BaseService):
             project_root = Path(__file__).resolve().parent.parent
             self._db_path = str(project_root / self._db_path)
 
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         # Initialize the separate metrics database
         await MetricsDatabase.initialize(self._db_path)
 

@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-import discord
-
 if TYPE_CHECKING:
+    import discord
+
+    from connectors.registry import ConnectorRegistry
     from services.service_container import ServiceContainer
 
 
@@ -25,13 +26,21 @@ class BotProtocol(Protocol):
     declaration.
     """
 
-    services: "ServiceContainer"
+    services: ServiceContainer
+    connectors: ConnectorRegistry | None
 
     def get_channel(
-        self, id: int, /
+        self,
+        id: int,  # noqa: A002
+        /,
     ) -> (
-        discord.abc.GuildChannel
-        | discord.Thread
-        | discord.abc.PrivateChannel
-        | None
+        discord.abc.GuildChannel | discord.Thread | discord.abc.PrivateChannel | None
     ): ...
+
+
+def require_connectors(bot: BotProtocol) -> ConnectorRegistry:
+    """Return initialized connectors or raise a clear runtime error."""
+    connectors = bot.connectors
+    if connectors is None:
+        raise RuntimeError("Bot connectors are not initialized")
+    return connectors

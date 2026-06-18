@@ -19,20 +19,21 @@ AI Notes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 
+from helpers.bot_protocol import require_connectors
 from helpers.embeds import EmbedColors, create_embed
 from helpers.ticket_views_helpers import (
     _format_ticket_thread_name,
     _generate_transcript,
     _log_ticket_event,
 )
-from services.ticket_service import TicketService
 from utils.logging import get_logger
 
-from helpers.bot_protocol import BotProtocol
+if TYPE_CHECKING:
+    from helpers.bot_protocol import BotProtocol
 
 logger = get_logger(__name__)
 
@@ -41,7 +42,7 @@ async def _start_dynamic_form(
     bot: BotProtocol,
     interaction: discord.Interaction,
     category: dict[str, Any],
-    ticket_form_service: Any,
+    form_connector: Any,
     *,
     is_public: bool = False,
 ) -> None:
@@ -61,15 +62,17 @@ async def _start_dynamic_form(
     user_id = interaction.user.id
 
     # Create fresh session
-    ctx = await ticket_form_service.create_session(
-        guild_id, user_id, category["id"],
+    ctx = await form_connector.create_session(
+        guild_id,
+        user_id,
+        category["id"],
         interaction_token=interaction.token,
         is_public=is_public,
     )
     ctx.category = category
 
     # Load form config + first step
-    form_config = await ticket_form_service.get_form_config(category["id"])
+    form_config = await form_connector.get_form_config(guild_id, category["id"])
     if not form_config or not form_config.get("steps"):
         # Shouldn't happen (has_form was True), but handle gracefully
         modal = TicketDescriptionModal(bot, category=category, is_public=is_public)
@@ -138,7 +141,8 @@ async def _create_ticket_thread(
 
     guild_id = interaction.guild.id
     user = interaction.user
-    ticket_service = bot.services.ticket
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
     config_service = bot.services.config
 
     # Determine the originating text channel
@@ -187,9 +191,7 @@ async def _create_ticket_thread(
     try:
         await thread.add_user(user)
     except discord.Forbidden:
-        logger.debug(
-            "No permission to add user %s to thread %s", user.id, thread.id
-        )
+        logger.debug("No permission to add user %s to thread %s", user.id, thread.id)
     except discord.HTTPException as exc:
         logger.warning(
             "Could not add user %s to thread %s: %s",
@@ -200,13 +202,18 @@ async def _create_ticket_thread(
 
     # Record in DB
     category_id = category["id"] if category else None
-    ticket_id = await ticket_service.create_ticket(
-        guild_id=guild_id,
-        channel_id=channel.id,
-        thread_id=thread.id,
-        user_id=user.id,
-        category_id=category_id,
-        initial_description=initial_description,
+    ticket_data = await ticket_connector.create_ticket(
+        guild_id,
+        {
+            "channel_id": channel.id,
+            "thread_id": thread.id,
+            "user_id": user.id,
+            "category_id": category_id,
+            "initial_description": initial_description,
+        },
+    )
+    ticket_id: int | None = (
+        int(ticket_data["id"]) if ticket_data and "id" in ticket_data else None
     )
 
     # Rename thread using standard ticket naming format
@@ -274,7 +281,9 @@ async def _create_ticket_thread(
     if category and category.get("role_ids"):
         role_ids: list[int] = category["role_ids"]
     else:
-        role_ids = await TicketService.get_staff_role_ids(config_service, guild_id)
+        from helpers.ticket_staff import get_staff_role_ids
+
+        role_ids = await get_staff_role_ids(config_service, guild_id)
 
     # Mention staff roles in the thread so they get notifications
     if role_ids and interaction.guild:
@@ -329,12 +338,13 @@ async def _close_ticket(
 
     guild_id = interaction.guild.id
     user_id = interaction.user.id
-    ticket_service = bot.services.ticket
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
     config_service = bot.services.config
 
     # Close ticket in DB
-    closed = await ticket_service.close_ticket_by_thread(
-        thread.id, user_id, close_reason=close_reason
+    closed = await ticket_connector.close_ticket_by_thread(
+        guild_id, thread.id, user_id, close_reason=close_reason
     )
     if not closed:
         await interaction.followup.send(
@@ -397,7 +407,7 @@ async def _close_ticket(
         )
 
     # --- Log to log channel ---
-    ticket = await ticket_service.get_ticket_by_thread(thread.id)
+    ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
     creator_mention = f"<@{ticket['user_id']}>" if ticket else "unknown"
 
     log_desc = (

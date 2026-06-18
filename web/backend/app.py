@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING, cast
 from core.dependencies import project_root
 from core.security import clear_session_cookie
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 if TYPE_CHECKING:
@@ -161,6 +161,11 @@ app.add_middleware(
 # Add request ID middleware for correlation tracking
 app.add_middleware(RequestIDMiddleware)
 
+# Structured JSON access logging (correlation IDs, duration, status)
+from backend.middleware.logging import StructuredLoggingMiddleware
+
+app.add_middleware(StructuredLoggingMiddleware)
+
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(auth.api_router, prefix="/api/auth", tags=["auth"])
@@ -180,21 +185,75 @@ app.include_router(health.router)
 app.include_router(errors.router)
 app.include_router(logs.router)
 
+# Backend-first v1 endpoints (authoritative layer)
+from backend.api.internal import (
+    config_router as internal_config_router,
+)
+from backend.api.internal import (
+    events_router as internal_events_router,
+)
+from backend.api.internal import (
+    metrics_router as internal_metrics_router,
+)
+from backend.api.internal import (
+    ticket_forms_router as internal_ticket_forms_router,
+)
+from backend.api.internal import (
+    tickets_router as internal_tickets_router,
+)
+from backend.api.internal import (
+    verification_router as internal_verification_router,
+)
+from backend.api.internal import (
+    voice_router as internal_voice_router,
+)
+from backend.api.v1.health import router as backend_health_router
 
-# Serve built frontend assets in production
+app.include_router(backend_health_router)
+app.include_router(internal_events_router)
+app.include_router(internal_metrics_router)
+app.include_router(internal_config_router)
+app.include_router(internal_tickets_router)
+app.include_router(internal_ticket_forms_router)
+app.include_router(internal_verification_router)
+app.include_router(internal_voice_router)
+
+
+# Serve built frontend assets when available
 frontend_dist = _PROJECT_ROOT / "web" / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount(
-        "/",
-        StaticFiles(directory=str(frontend_dist), html=True),
-        name="static",
-    )
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(assets_dir), html=False),
+            name="assets",
+        )
 
+    @app.get("/", include_in_schema=False)
+    async def serve_root_spa() -> FileResponse:
+        """Serve SPA entrypoint at root when frontend build is present."""
+        return FileResponse(str(frontend_dist / "index.html"))
 
-@app.get("/")
-async def root():
-    """Health check endpoint."""
-    return {"status": "ok", "service": "test-squadron-admin-api"}
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        """Serve static files when present, else SPA index for client-side routes."""
+        # Keep API/auth/docs paths out of SPA fallback so real API 404s stay intact.
+        blocked_prefixes = ("api/", "auth/", "docs", "redoc", "openapi.json")
+        if full_path.startswith(blocked_prefixes):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        requested_path = frontend_dist / full_path
+        if requested_path.is_file():
+            return FileResponse(str(requested_path))
+
+        return FileResponse(str(frontend_dist / "index.html"))
+else:
+
+    @app.get("/")
+    async def health_root() -> dict[str, str]:
+        """Health check endpoint when frontend build artifacts are unavailable."""
+        return {"status": "ok", "service": "test-squadron-admin-api"}
 
 
 @app.exception_handler(401)

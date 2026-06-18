@@ -2,65 +2,74 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Start Bot (start_bot.py)",
-      "type": "debugpy",
+      "name": "Docker Compose (prod-like stack)",
+      "type": "node-terminal",
       "request": "launch",
-      "program": "${workspaceFolder}/start_bot.py",
-      "console": "integratedTerminal",
-      "envFile": "${workspaceFolder}/.env",
-      "cwd": "${workspaceFolder}",
-      "justMyCode": false
+      "command": "cd ${workspaceFolder} && docker compose logs -f",
+      "preLaunchTask": "docker: compose up (detached)",
+      "postDebugTask": "docker: compose down"
     },
     {
-      "name": "Web Backend (FastAPI)",
+      "name": "Docker Compose (follow logs)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "cd ${workspaceFolder} && docker compose logs -f"
+    },
+    {
+      "name": "pytest (backend integration tests)",
       "type": "debugpy",
       "request": "launch",
-      "module": "uvicorn",
+      "module": "pytest",
       "args": [
-        "app:app",
-        "--reload",
-        "--port",
-        "8081",
-        "--host",
-        "0.0.0.0"
+        "backend/",
+        "-v",
+        "--tb=short"
       ],
-      "cwd": "${workspaceFolder}/web/backend",
+      "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "envFile": "${workspaceFolder}/.env",
       "justMyCode": false
     },
     {
-      "name": "Web Frontend (Vite Dev Server)",
-      "type": "node",
+      "name": "pytest (all tests)",
+      "type": "debugpy",
       "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "5173"
+      "module": "pytest",
+      "args": [
+        "tests/",
+        "web/backend/tests/",
+        "backend/",
+        "-v",
+        "--tb=short"
       ],
-      "cwd": "${workspaceFolder}/web/frontend",
+      "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "skipFiles": ["<node_internals>/**"]
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
     }
   ],
   "compounds": [
     {
-      "name": "🚀 Full Stack (Bot + Web Admin)",
+      "name": "Prod-like stack (Docker)",
       "configurations": [
-        "Start Bot (start_bot.py)",
-        "Web Backend (FastAPI)",
-        "Web Frontend (Vite Dev Server)"
+        "Docker Compose (prod-like stack)"
       ],
       "presentation": {
         "hidden": false,
         "group": "Full Stack",
         "order": 1
+      },
+      "stopAll": true
+    },
+    {
+      "name": "Prod-like logs only",
+      "configurations": [
+        "Docker Compose (follow logs)"
+      ],
+      "presentation": {
+        "hidden": false,
+        "group": "Full Stack",
+        "order": 2
       },
       "stopAll": true
     }

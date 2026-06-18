@@ -2,6 +2,7 @@
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "ms-python.python-test-adapter"
+    "ms-python.python-test-adapter",
+    "ms-azuretools.vscode-docker"
   ]
 }

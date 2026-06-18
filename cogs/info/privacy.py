@@ -32,7 +32,9 @@ class PrivacyCog(commands.Cog):
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.exception("Failed to send /privacy embed", exc_info=exc)
 
-            message = "❌ Unable to show privacy info right now. Please try again later."
+            message = (
+                "❌ Unable to show privacy info right now. Please try again later."
+            )
             if interaction.response.is_done():
                 with contextlib.suppress(Exception):
                     await interaction.followup.send(message, ephemeral=True)

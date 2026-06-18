@@ -82,8 +82,8 @@ def mock_member(mock_guild):
     # Mock roles and top_role
     member_role = MagicMock(spec=discord.Role)
     member_role.position = 5  # Lower than bot's role
-    member_role.__gt__ = lambda self, other: self.position > getattr(
-        other, "position", 0
+    member_role.__gt__ = lambda self, other: (
+        self.position > getattr(other, "position", 0)
     )
     member.top_role = member_role
     member.roles = []

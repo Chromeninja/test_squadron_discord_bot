@@ -3,9 +3,7 @@ Test configuration and fixtures for backend tests.
 """
 
 import contextlib
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -29,17 +27,19 @@ from services.db.database import Database
 
 
 @pytest_asyncio.fixture
-async def temp_db():
+async def temp_db(tmp_path):
     """Create a temporary database for testing."""
-    # Create temp file
-    fd, db_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
+    db_path = tmp_path / "backend-test.db"
+
+    original_db_path = Database._db_path
+    original_initialized = Database._initialized
 
     # Reset database initialization state for clean test
     Database._initialized = False
+    Database._db_path = None  # type: ignore[assignment]
 
     # Initialize database - this calls init_schema which creates tables
-    await Database.initialize(db_path)
+    await Database.initialize(str(db_path))
 
     # Seed some test data
     async with Database.get_connection() as db:
@@ -105,11 +105,10 @@ async def temp_db():
 
         await db.commit()
 
-    yield db_path
+    yield str(db_path)
 
-    # Cleanup
-    with contextlib.suppress(Exception):
-        os.unlink(db_path)
+    Database._db_path = original_db_path
+    Database._initialized = original_initialized
 
 
 @pytest_asyncio.fixture
@@ -488,7 +487,10 @@ class FakeInternalAPIClient:
     async def create_guild_scheduled_event(self, guild_id: int, payload: dict) -> dict:
         """Create and store a mock scheduled event for a guild."""
         event = {
-            "id": str(900000000000000000 + len(self.scheduled_events_by_guild.get(guild_id, []))),
+            "id": str(
+                900000000000000000
+                + len(self.scheduled_events_by_guild.get(guild_id, []))
+            ),
             "name": payload.get("name"),
             "description": payload.get("description"),
             "scheduled_start_time": payload.get("scheduled_start_time"),
@@ -527,7 +529,9 @@ class FakeInternalAPIClient:
                 "scheduled_end_time": payload.get("scheduled_end_time"),
                 "entity_type": payload.get("entity_type"),
                 "channel_id": payload.get("channel_id"),
-                "channel_name": "Mock Event Channel" if payload.get("channel_id") else None,
+                "channel_name": "Mock Event Channel"
+                if payload.get("channel_id")
+                else None,
                 "location": payload.get("location"),
                 "recurrence_rule": payload.get("recurrence_rule"),
                 "recurrence_rule_payload": payload.get("recurrence_rule"),
@@ -595,7 +599,10 @@ class FakeInternalAPIClient:
         }
 
     async def deploy_ticket_panel(
-        self, guild_id: int, *, channel_id: str | None = None,
+        self,
+        guild_id: int,
+        *,
+        channel_id: str | None = None,
     ) -> dict:
         """Mock ticket panel deployment."""
         return {"success": True, "message_id": "000000000"}

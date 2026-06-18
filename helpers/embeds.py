@@ -5,7 +5,6 @@ Provides utility functions for creating and formatting Discord embeds with
 consistent styling and branding for the TEST Clanker Discord bot.
 """
 
-
 import discord  # type: ignore[import-not-found]
 
 from helpers.constants import DEFAULT_ORG_SID

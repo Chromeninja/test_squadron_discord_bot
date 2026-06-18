@@ -1,0 +1,147 @@
+"""Tests for internal events API routes.
+
+Uses FastAPI dependency_overrides to inject a mock EventRepository — the
+idiomatic way to test routes without patching module internals.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from backend.api.internal.events import get_event_repository, router
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+VALID_KEY = "test-secret-key"
+
+
+@pytest.fixture(autouse=True)
+def set_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_API_KEY", VALID_KEY)
+
+
+@pytest.fixture
+def app() -> FastAPI:
+    """Fresh app per test so dependency overrides don't leak across tests."""
+    application = FastAPI()
+    application.include_router(router)
+    return application
+
+
+@pytest.fixture
+def mock_repo(app: FastAPI) -> Generator[AsyncMock, None, None]:
+    """Override the EventRepository dependency with an AsyncMock."""
+    repo = AsyncMock()
+    app.dependency_overrides[get_event_repository] = lambda: repo
+    yield repo
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def async_client(app: FastAPI) -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+# ---------------------------------------------------------------------------
+# 1. No API key → 401
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_events_no_api_key(async_client: AsyncClient) -> None:
+    async with async_client as client:
+        response = await client.get("/internal/guilds/123/managed-events")
+    assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 2. Valid API key + mocked repo → 200
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_events_with_api_key(
+    async_client: AsyncClient, mock_repo: AsyncMock
+) -> None:
+    mock_events: list[dict[str, Any]] = [
+        {"id": 1, "guild_id": 123, "name": "Test Event", "status": "scheduled"}
+    ]
+    mock_repo.get_managed_events.return_value = mock_events
+
+    async with async_client as client:
+        response = await client.get(
+            "/internal/guilds/123/managed-events",
+            headers={"X-Bot-Api-Key": VALID_KEY},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert "events" in data
+    assert len(data["events"]) == 1
+    assert data["events"][0]["name"] == "Test Event"
+
+
+# ---------------------------------------------------------------------------
+# 3. GET single event not found → 404
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_event_not_found(
+    async_client: AsyncClient, mock_repo: AsyncMock
+) -> None:
+    mock_repo.get_managed_event.return_value = None
+
+    async with async_client as client:
+        response = await client.get(
+            "/internal/guilds/123/managed-events/999",
+            headers={"X-Bot-Api-Key": VALID_KEY},
+        )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Managed event not found"
+
+
+# ---------------------------------------------------------------------------
+# 4. GET single event found → 200
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_event_found(async_client: AsyncClient, mock_repo: AsyncMock) -> None:
+    mock_repo.get_managed_event.return_value = {
+        "id": 42,
+        "guild_id": 123,
+        "name": "My Event",
+    }
+
+    async with async_client as client:
+        response = await client.get(
+            "/internal/guilds/123/managed-events/42",
+            headers={"X-Bot-Api-Key": VALID_KEY},
+        )
+    assert response.status_code == 200
+    assert response.json()["event"]["id"] == 42
+
+
+# ---------------------------------------------------------------------------
+# 5. DELETE event not found → 404
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_event_not_found(
+    async_client: AsyncClient, mock_repo: AsyncMock
+) -> None:
+    mock_repo.delete.return_value = False
+
+    async with async_client as client:
+        response = await client.delete(
+            "/internal/guilds/123/managed-events/999",
+            headers={"X-Bot-Api-Key": VALID_KEY},
+        )
+    assert response.status_code == 404

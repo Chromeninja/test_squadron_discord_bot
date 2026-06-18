@@ -7,6 +7,7 @@ Provides the ``InternalAPIClient`` class, helper error translators, and the
 module-level singleton getter ``get_internal_api_client()``.
 """
 
+import asyncio
 import logging
 import os
 from typing import TypedDict
@@ -14,10 +15,16 @@ from typing import TypedDict
 import httpx
 from fastapi import HTTPException
 
+from .internal_api_metrics_mixin import MetricsMixin
+
 logger = logging.getLogger(__name__)
 
 # Configurable timeout for internal API calls
 INTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("INTERNAL_API_TIMEOUT_SECONDS", "15"))
+
+# Retry configuration for connection errors (startup resilience)
+_INTERNAL_API_RETRY_ATTEMPTS = 3
+_INTERNAL_API_RETRY_DELAY_SECONDS = 1.0
 
 # ---------------------------------------------------------------------------
 # Singleton management
@@ -39,7 +46,7 @@ def get_internal_api_client() -> InternalAPIClient:
 # ---------------------------------------------------------------------------
 
 
-def _extract_internal_api_detail(response: httpx.Response) -> str | None:
+def _extract_internal_api_detail(response: httpx.Response | None) -> str | None:
     """Try to pull a useful error message out of an internal API response."""
     if response is None:
         return None
@@ -94,11 +101,12 @@ class RecheckRequestBody(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 
-class InternalAPIClient:
+class InternalAPIClient(MetricsMixin):
     """
     HTTP client for calling the bot's internal API.
 
     Handles authentication and provides typed methods for internal endpoints.
+    Includes retry logic for connection errors during startup.
     """
 
     def __init__(self) -> None:
@@ -130,6 +138,48 @@ class InternalAPIClient:
             )
         return self._client
 
+    async def _retry_request(self, request_func) -> httpx.Response:
+        """
+        Execute a request with retry logic for connection errors.
+
+        Retries up to _INTERNAL_API_RETRY_ATTEMPTS times with exponential backoff
+        for connection errors (e.g., during bot startup). This provides resilience
+        when the internal API is not yet ready.
+
+        Args:
+            request_func: Async callable that makes the HTTP request and returns Response
+
+        Returns:
+            httpx.Response object
+
+        Raises:
+            httpx.RequestError: If all retries fail
+        """
+        last_error: httpx.RequestError | None = None
+        for attempt in range(_INTERNAL_API_RETRY_ATTEMPTS):
+            try:
+                return await request_func()
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt < _INTERNAL_API_RETRY_ATTEMPTS - 1:
+                    logger.debug(
+                        "Internal API request failed (attempt %d/%d), retrying in %fs: %s",
+                        attempt + 1,
+                        _INTERNAL_API_RETRY_ATTEMPTS,
+                        _INTERNAL_API_RETRY_DELAY_SECONDS,
+                        exc,
+                    )
+                    await asyncio.sleep(_INTERNAL_API_RETRY_DELAY_SECONDS)
+                else:
+                    logger.warning(
+                        "Internal API request failed after %d attempts: %s",
+                        _INTERNAL_API_RETRY_ATTEMPTS,
+                        exc,
+                    )
+        raise last_error or httpx.RequestError(
+            "Internal API request failed after all retries"
+        )
+
     async def close(self) -> None:
         """Close HTTP client."""
         if self._client:
@@ -147,9 +197,10 @@ class InternalAPIClient:
 
         Raises:
             httpx.HTTPStatusError: If request fails
+            httpx.RequestError: If connection fails after retries
         """
         client = await self._get_client()
-        response = await client.get("/bot-owner-ids")
+        response = await self._retry_request(lambda: client.get("/bot-owner-ids"))
         response.raise_for_status()
         payload = response.json()
         return payload.get("owner_ids", [])
@@ -178,7 +229,7 @@ class InternalAPIClient:
     async def get_guilds(self) -> list[dict]:
         """Fetch guilds where the bot is currently installed."""
         client = await self._get_client()
-        response = await client.get("/guilds")
+        response = await self._retry_request(lambda: client.get("/guilds"))
         response.raise_for_status()
         payload = response.json()
         return payload.get("guilds", [])
@@ -194,25 +245,21 @@ class InternalAPIClient:
     async def get_guild_scheduled_events(self, guild_id: int) -> list[dict]:
         """Fetch scheduled events for a guild from the internal API."""
         client = await self._get_client()
-        response = await client.get(f"/guilds/{guild_id}/events/scheduled")
+        response = await self._retry_request(
+            lambda: client.get(f"/guilds/{guild_id}/events/scheduled", timeout=30.0)
+        )
         response.raise_for_status()
         payload = response.json()
         return payload.get("events", [])
 
-    async def get_guild_scheduled_event(
-        self, guild_id: int, event_id: int
-    ) -> dict:
+    async def get_guild_scheduled_event(self, guild_id: int, event_id: int) -> dict:
         """Fetch a single scheduled event by ID from the internal API."""
         client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/events/scheduled/{event_id}"
-        )
+        response = await client.get(f"/guilds/{guild_id}/events/scheduled/{event_id}")
         response.raise_for_status()
         return response.json().get("event", {})
 
-    async def create_guild_scheduled_event(
-        self, guild_id: int, payload: dict
-    ) -> dict:
+    async def create_guild_scheduled_event(self, guild_id: int, payload: dict) -> dict:
         """Create a scheduled event for a guild through the internal API."""
         client = await self._get_client()
         response = await client.post(
@@ -276,8 +323,11 @@ class InternalAPIClient:
             dict with keys: members (list), page, page_size, total
         """
         client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/members", params={"page": page, "page_size": page_size}
+        response = await self._retry_request(
+            lambda: client.get(
+                f"/guilds/{guild_id}/members",
+                params={"page": page, "page_size": page_size},
+            )
         )
         response.raise_for_status()
         return response.json()
@@ -472,191 +522,5 @@ class InternalAPIClient:
         """
         client = await self._get_client()
         response = await client.post(f"/guilds/{guild_id}/leave")
-        response.raise_for_status()
-        return response.json()
-
-    # ------------------------------------------------------------------
-    # Metrics endpoints
-    # ------------------------------------------------------------------
-
-    async def get_metrics_overview(
-        self, guild_id: int, days: int = 7, user_ids: list[int] | None = None
-    ) -> dict:
-        """Get metrics overview (live snapshot + aggregated period data)."""
-        client = await self._get_client()
-        params: dict = {"days": days}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/overview", params=params
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_voice_leaderboard(
-        self,
-        guild_id: int,
-        days: int = 7,
-        limit: int = 10,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get top users by voice time."""
-        client = await self._get_client()
-        params: dict = {"days": days, "limit": limit}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/voice/leaderboard",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_message_leaderboard(
-        self,
-        guild_id: int,
-        days: int = 7,
-        limit: int = 10,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get top users by message count."""
-        client = await self._get_client()
-        params: dict = {"days": days, "limit": limit}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/messages/leaderboard",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_top_games(
-        self,
-        guild_id: int,
-        days: int = 7,
-        limit: int = 10,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get top games by total play time."""
-        client = await self._get_client()
-        params: dict = {"days": days, "limit": limit}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/games/top",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_game(
-        self,
-        guild_id: int,
-        game_name: str,
-        days: int = 7,
-        limit: int = 5,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get detailed metrics for a specific game."""
-        client = await self._get_client()
-        params: dict = {"game_name": game_name, "days": days, "limit": limit}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/games/detail",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_timeseries(
-        self,
-        guild_id: int,
-        metric: str = "messages",
-        days: int = 7,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get hourly time-series data for charts."""
-        client = await self._get_client()
-        params: dict = {"metric": metric, "days": days}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/timeseries",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_metrics_user(
-        self, guild_id: int, user_id: int, days: int = 7
-    ) -> dict:
-        """Get detailed metrics for a specific user."""
-        client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/user/{user_id}",
-            params={"days": days},
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def delete_metrics_user(self, guild_id: int, user_id: int) -> dict:
-        """Delete all metrics data for a specific user (data erasure)."""
-        client = await self._get_client()
-        response = await client.delete(f"/guilds/{guild_id}/metrics/user/{user_id}")
-        response.raise_for_status()
-        return response.json()
-
-    async def get_activity_groups(
-        self,
-        guild_id: int,
-        days: int = 7,
-        user_ids: list[int] | None = None,
-    ) -> dict:
-        """Get activity group tier counts per dimension."""
-        client = await self._get_client()
-        params: dict[str, int | str] = {"days": days}
-        if user_ids is not None:
-            params["user_ids"] = ",".join(str(uid) for uid in user_ids)
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/activity-groups",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_activity_group_members(
-        self, guild_id: int, dimension: str, tier: str
-    ) -> dict:
-        """Get user IDs for a specific dimension+tier activity group."""
-        client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/activity-group-members",
-            params={"dimension": dimension, "tier": tier},
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_activity_group_members_bulk(
-        self,
-        guild_id: int,
-        dimensions: list[str],
-        tiers: list[str],
-        days: int = 30,
-    ) -> dict[str, dict[str, list[int]]]:
-        """Get user IDs for multiple dimension+tier combos in one call.
-
-        Returns ``{dimension: {tier: [user_id, ...], ...}, ...}``.
-        """
-        client = await self._get_client()
-        response = await client.get(
-            f"/guilds/{guild_id}/metrics/activity-group-members-bulk",
-            params={
-                "dimensions": ",".join(dimensions),
-                "tiers": ",".join(tiers),
-                "days": str(days),
-            },
-        )
         response.raise_for_status()
         return response.json()

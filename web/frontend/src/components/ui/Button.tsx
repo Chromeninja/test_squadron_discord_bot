@@ -19,14 +19,14 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 /**
  * Primary button component with consistent styling.
- * 
+ *
  * @example
  * // Primary button (default)
  * <Button onClick={handleSubmit}>Submit</Button>
- * 
+ *
  * // Danger button with loading state
  * <Button variant="danger" loading={isDeleting}>Delete</Button>
- * 
+ *
  * // Small secondary button
  * <Button variant="secondary" size="sm">Cancel</Button>
  */

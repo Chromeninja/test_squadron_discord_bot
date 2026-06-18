@@ -29,3 +29,16 @@ MAX_QUESTION_LABEL_LENGTH = 45
 
 # Discord limits modal titles to 45 characters.
 MAX_MODAL_TITLE_LENGTH = 45
+
+# ---------------------------------------------------------------------------
+# Ticket Lifecycle Defaults
+# ---------------------------------------------------------------------------
+
+# Default maximum number of simultaneously-open tickets a single user may have.
+DEFAULT_MAX_OPEN_PER_USER = 5
+
+# Default window (hours) during which a closed ticket may be reopened.
+DEFAULT_REOPEN_WINDOW_HOURS = 48
+
+# Default maximum number of ticket threads scanned for health/cleanup operations.
+DEFAULT_THREAD_LIMIT = 1000

@@ -3,7 +3,7 @@
   "$id": "api_responses.json",
   "title": "External API Response Schema",
   "description": "Schema definitions for external API responses (RSI, etc.)",
-  
+
   "definitions": {
     "rsi_profile": {
       "type": "object",
@@ -35,7 +35,7 @@
       },
       "required": ["handle"]
     },
-    
+
     "rsi_organization": {
       "type": "object",
       "description": "RSI organization information",
@@ -55,7 +55,7 @@
       },
       "required": ["name", "sid"]
     },
-    
+
     "verification_result": {
       "type": "object",
       "description": "RSI verification result",
@@ -76,7 +76,7 @@
       },
       "required": ["is_valid"]
     },
-    
+
     "rate_limit_result": {
       "type": "object",
       "description": "Rate limiting check result",

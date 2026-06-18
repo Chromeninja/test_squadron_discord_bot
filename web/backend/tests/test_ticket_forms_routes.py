@@ -127,9 +127,7 @@ def _eleven_question_payload() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_get_form_empty(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_get_form_empty(client: AsyncClient, mock_admin_session: str) -> None:
     """Getting form config when none exists returns empty steps."""
     cat_id = await _create_category(client, mock_admin_session)
 
@@ -144,9 +142,7 @@ async def test_get_form_empty(
 
 
 @pytest.mark.asyncio
-async def test_get_form_not_found(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_get_form_not_found(client: AsyncClient, mock_admin_session: str) -> None:
     """Getting form for a non-existent category returns 404."""
     resp = await client.get(
         "/api/tickets/categories/99999/form",
@@ -192,7 +188,9 @@ async def test_put_form_replaces_existing(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Re-submitting replaces old config entirely."""
-    cat_id = await _create_category(client, mock_discord_manager_session, name="Replace")
+    cat_id = await _create_category(
+        client, mock_discord_manager_session, name="Replace"
+    )
 
     # First config
     await client.put(
@@ -350,9 +348,7 @@ async def test_delete_form_requires_discord_manager(
 
 
 @pytest.mark.asyncio
-async def test_validate_no_form(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_validate_no_form(client: AsyncClient, mock_admin_session: str) -> None:
     """Validation of a category with no form returns errors."""
     cat_id = await _create_category(client, mock_admin_session, name="NoForm")
 
@@ -371,9 +367,7 @@ async def test_validate_valid_form(
     client: AsyncClient, mock_discord_manager_session: str
 ) -> None:
     """Validation of a properly configured form returns valid=True."""
-    cat_id = await _create_category(
-        client, mock_discord_manager_session, name="Valid"
-    )
+    cat_id = await _create_category(client, mock_discord_manager_session, name="Valid")
 
     await client.put(
         f"/api/tickets/categories/{cat_id}/form",
@@ -392,9 +386,7 @@ async def test_validate_valid_form(
 
 
 @pytest.mark.asyncio
-async def test_validate_not_found(
-    client: AsyncClient, mock_admin_session: str
-) -> None:
+async def test_validate_not_found(client: AsyncClient, mock_admin_session: str) -> None:
     """Validating a non-existent category returns 404."""
     resp = await client.get(
         "/api/tickets/categories/99999/form/validate",

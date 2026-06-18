@@ -543,9 +543,7 @@ class TestVoiceServiceChannelCreation:
             return Mock()
 
         voice_service._send_settings_message_to_vc = AsyncMock()
-        voice_service._spawn_background_task = Mock(
-            side_effect=capture_background_task
-        )
+        voice_service._spawn_background_task = Mock(side_effect=capture_background_task)
 
         with patch("services.voice_service.enforce_permission_changes") as mock_enforce:
             mock_enforce.return_value = None
@@ -566,9 +564,7 @@ class TestVoiceServiceChannelCreation:
 
             # Verify the settings message is scheduled off the hot path
             voice_service._send_settings_message_to_vc.assert_called_once()
-            assert (
-                f"voice.settings_message.{created_channel.id}" in spawned_task_names
-            )
+            assert f"voice.settings_message.{created_channel.id}" in spawned_task_names
             created_channel.send.assert_not_called()
 
     @pytest.mark.asyncio

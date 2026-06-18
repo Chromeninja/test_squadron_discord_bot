@@ -1,4 +1,5 @@
 """SSRF-safe logo URL validation."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -119,7 +120,7 @@ def _is_private_ip(hostname: str) -> bool:
     return False
 
 
-async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912, PLR0915
+async def validate_logo_url(url: str | None) -> str | None:  # noqa: PLR0912,PLR0915
     """Validate a logo URL is reachable and returns an acceptable image.
 
     Args:

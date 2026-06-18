@@ -1,4 +1,5 @@
 """Periodic background tasks and alert helpers for MyBot."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,14 +28,11 @@ class BotTaskContext(Protocol):
     services: ServiceContainer
 
     @property
-    def guilds(self) -> Sequence[discord.Guild]:
-        ...
+    def guilds(self) -> Sequence[discord.Guild]: ...
 
-    async def wait_until_ready(self) -> None:
-        ...
+    async def wait_until_ready(self) -> None: ...
 
-    def is_closed(self) -> bool:
-        ...
+    def is_closed(self) -> bool: ...
 
 
 async def token_cleanup_task(bot: BotTaskContext) -> None:
@@ -67,7 +65,9 @@ async def log_cleanup_task(bot: BotTaskContext) -> None:
     while not bot.is_closed():
         try:
             now = datetime.now(UTC)
-            target_time = now.replace(hour=cleanup_hour_utc, minute=0, second=0, microsecond=0)
+            target_time = now.replace(
+                hour=cleanup_hour_utc, minute=0, second=0, microsecond=0
+            )
 
             if now >= target_time:
                 target_time += timedelta(days=1)

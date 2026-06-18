@@ -19,22 +19,27 @@ def test_serialize_scheduled_event_uses_discord_py_time_attributes() -> None:
     start_time = datetime(2026, 4, 22, 22, 30, tzinfo=UTC)
     end_time = datetime(2026, 4, 22, 23, 30, tzinfo=UTC)
     channel = SimpleNamespace(id=123456789, name="Ops Voice")
-    creator = SimpleNamespace(id=987654321, name="VerifyBot", display_name="TEST Verify Bot")
-    event = cast("Any", SimpleNamespace(
-        id=555666777,
-        name="Fleet Night",
-        description="Weekly op",
-        start_time=start_time,
-        end_time=end_time,
-        status=SimpleNamespace(name="scheduled"),
-        entity_type=SimpleNamespace(name="voice"),
-        channel=channel,
-        channel_id=channel.id,
-        location=None,
-        user_count=14,
-        creator=creator,
-        cover_image=None,
-    ))
+    creator = SimpleNamespace(
+        id=987654321, name="VerifyBot", display_name="TEST Verify Bot"
+    )
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=555666777,
+            name="Fleet Night",
+            description="Weekly op",
+            start_time=start_time,
+            end_time=end_time,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=channel,
+            channel_id=channel.id,
+            location=None,
+            user_count=14,
+            creator=creator,
+            cover_image=None,
+        ),
+    )
 
     payload = InternalAPIServer._serialize_scheduled_event(event)
 
@@ -197,7 +202,9 @@ async def test_update_scheduled_event_raw_payload_includes_image_data() -> None:
     image_data = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
     captured_payload: dict[str, object | None] = {}
 
-    async def request(route: object, json: dict[str, object | None]) -> dict[str, object]:
+    async def request(
+        route: object, json: dict[str, object | None]
+    ) -> dict[str, object]:
         del route
         captured_payload.update(json)
         return {"id": "999888777666555444", "image": "replacement-image-hash"}
@@ -246,21 +253,24 @@ def test_serialize_scheduled_event_uses_guild_channel_fallback() -> None:
             get_channel=lambda channel_id: channel if channel_id == channel.id else None
         ),
     )
-    event = cast("Any", SimpleNamespace(
-        id=888999000,
-        name="External Sync",
-        description=None,
-        start_time=start_time,
-        end_time=None,
-        status=SimpleNamespace(name="scheduled"),
-        entity_type=SimpleNamespace(name="voice"),
-        channel=None,
-        channel_id=channel.id,
-        location=None,
-        user_count=1,
-        creator=None,
-        cover_image=None,
-    ))
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=888999000,
+            name="External Sync",
+            description=None,
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=channel.id,
+            location=None,
+            user_count=1,
+            creator=None,
+            cover_image=None,
+        ),
+    )
 
     payload = InternalAPIServer._serialize_scheduled_event(event, guild)
 
@@ -297,27 +307,33 @@ def test_events_cache_empty_is_stale() -> None:
 async def test_fetch_and_cache_events_populates_cache() -> None:
     """_fetch_and_cache_events should populate the cache."""
     start_time = datetime(2026, 5, 1, 20, 0, tzinfo=UTC)
-    event = cast("Any", SimpleNamespace(
-        id=111222333,
-        name="Cached Event",
-        description=None,
-        start_time=start_time,
-        end_time=None,
-        status=SimpleNamespace(name="scheduled"),
-        entity_type=SimpleNamespace(name="voice"),
-        channel=None,
-        channel_id=None,
-        location=None,
-        user_count=0,
-        creator=None,
-        cover_image=None,
-    ))
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=111222333,
+            name="Cached Event",
+            description=None,
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=None,
+            location=None,
+            user_count=0,
+            creator=None,
+            cover_image=None,
+        ),
+    )
 
-    guild = cast("Any", SimpleNamespace(
-        id=999888777,
-        fetch_scheduled_events=AsyncMock(return_value=[event]),
-        get_channel=lambda _: None,
-    ))
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=999888777,
+            fetch_scheduled_events=AsyncMock(return_value=[event]),
+            get_channel=lambda _: None,
+        ),
+    )
 
     server = object.__new__(InternalAPIServer)
     server._events_cache = {}
@@ -335,27 +351,33 @@ async def test_fetch_and_cache_events_populates_cache() -> None:
 async def test_fetch_and_cache_events_uses_cache_on_second_call() -> None:
     """Second call within TTL should use cache, not fetch again."""
     start_time = datetime(2026, 5, 2, 20, 0, tzinfo=UTC)
-    event = cast("Any", SimpleNamespace(
-        id=444555666,
-        name="Cached Again",
-        description=None,
-        start_time=start_time,
-        end_time=None,
-        status=SimpleNamespace(name="scheduled"),
-        entity_type=SimpleNamespace(name="voice"),
-        channel=None,
-        channel_id=None,
-        location=None,
-        user_count=0,
-        creator=None,
-        cover_image=None,
-    ))
+    event = cast(
+        "Any",
+        SimpleNamespace(
+            id=444555666,
+            name="Cached Again",
+            description=None,
+            start_time=start_time,
+            end_time=None,
+            status=SimpleNamespace(name="scheduled"),
+            entity_type=SimpleNamespace(name="voice"),
+            channel=None,
+            channel_id=None,
+            location=None,
+            user_count=0,
+            creator=None,
+            cover_image=None,
+        ),
+    )
 
-    guild = cast("Any", SimpleNamespace(
-        id=111222333,
-        fetch_scheduled_events=AsyncMock(return_value=[event]),
-        get_channel=lambda _: None,
-    ))
+    guild = cast(
+        "Any",
+        SimpleNamespace(
+            id=111222333,
+            fetch_scheduled_events=AsyncMock(return_value=[event]),
+            get_channel=lambda _: None,
+        ),
+    )
 
     server = object.__new__(InternalAPIServer)
     server._events_cache = {}
@@ -426,7 +448,9 @@ async def test_fetch_and_cache_events_preserves_raw_recurrence_metadata() -> Non
             id=123456789,
             _state=state,
             fetch_scheduled_events=AsyncMock(return_value=[event]),
-            get_channel=lambda channel_id: channel if channel_id == channel.id else None,
+            get_channel=lambda channel_id: (
+                channel if channel_id == channel.id else None
+            ),
         ),
     )
 
@@ -547,7 +571,7 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
     def serialize_scheduled_event(
         event: Any,
         guild: Any = None,
-            raw_data: dict[str, object] | None = None,
+        raw_data: dict[str, object] | None = None,
     ) -> dict[str, str]:
         del event, guild, raw_data
         return {"id": "123", "name": "TEST 2"}
@@ -567,18 +591,24 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
             name="TEST 2",
             start_time=start_time,
             end_time=None,
-            creator=SimpleNamespace(display_name="EventCoordinator", name="Coordinator"),
+            creator=SimpleNamespace(
+                display_name="EventCoordinator", name="Coordinator"
+            ),
             channel=SimpleNamespace(name="Op Voice", mention="#op-voice"),
             url="https://discord.com/events/123/123",
         ),
     )
 
-    guild_any = cast("Any", SimpleNamespace(create_scheduled_event=AsyncMock(return_value=event)))
+    guild_any = cast(
+        "Any", SimpleNamespace(create_scheduled_event=AsyncMock(return_value=event))
+    )
     guild = cast(
         "Any",
         SimpleNamespace(
             id=123,
-            get_channel=lambda channel_id: announcement_channel if channel_id == 555 else None,
+            get_channel=lambda channel_id: (
+                announcement_channel if channel_id == 555 else None
+            ),
             fetch_scheduled_events=AsyncMock(return_value=[]),
             create_scheduled_event=guild_any.create_scheduled_event,
         ),
@@ -617,17 +647,21 @@ async def test_create_guild_scheduled_event_posts_announcement() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_guild_scheduled_event_uses_description_for_default_message() -> None:
+async def test_create_guild_scheduled_event_uses_description_for_default_message() -> (
+    None
+):
     """Create flow should default embed body to event description when needed."""
     server = object.__new__(InternalAPIServer)
     server.bot = cast("Any", object())
 
     cast("Any", server)._check_auth = lambda request: True
     cast("Any", server)._invalidate_events_cache = lambda guild_id: guild_id
-    cast("Any", server)._serialize_scheduled_event = lambda event, guild=None, raw_data=None: {
-        "id": "123",
-        "name": "TEST 2",
-    }
+    cast("Any", server)._serialize_scheduled_event = (
+        lambda event, guild=None, raw_data=None: {
+            "id": "123",
+            "name": "TEST 2",
+        }
+    )
 
     announcement_channel = cast("Any", AsyncMock(spec=discord.TextChannel))
     announcement_channel.send = AsyncMock()
@@ -640,7 +674,9 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
             name="TEST 2",
             start_time=start_time,
             end_time=None,
-            creator=SimpleNamespace(display_name="EventCoordinator", name="Coordinator"),
+            creator=SimpleNamespace(
+                display_name="EventCoordinator", name="Coordinator"
+            ),
             channel=SimpleNamespace(name="Op Voice", mention="#op-voice"),
             url="https://discord.com/events/123/123",
         ),
@@ -653,7 +689,9 @@ async def test_create_guild_scheduled_event_uses_description_for_default_message
         "Any",
         SimpleNamespace(
             id=123,
-            get_channel=lambda channel_id: announcement_channel if channel_id == 555 else None,
+            get_channel=lambda channel_id: (
+                announcement_channel if channel_id == 555 else None
+            ),
             get_role=lambda role_id: None,
             fetch_scheduled_events=AsyncMock(return_value=[]),
             create_scheduled_event=guild_any.create_scheduled_event,
@@ -694,7 +732,11 @@ async def test_delete_guild_scheduled_event_success() -> None:
     server._check_auth = lambda request: True
 
     invalidated_guilds: list[int] = []
-    server._invalidate_events_cache = lambda guild_id: invalidated_guilds.append(guild_id)
+
+    def mock_invalidate(guild_id: int) -> None:
+        invalidated_guilds.append(guild_id)
+
+    server._invalidate_events_cache = mock_invalidate
 
     event_any = cast("Any", SimpleNamespace(delete=AsyncMock()))
     guild = cast(
@@ -732,10 +774,14 @@ async def test_delete_guild_scheduled_event_not_found() -> None:
         "Any",
         SimpleNamespace(
             id=123,
-            fetch_scheduled_event=AsyncMock(side_effect=discord.NotFound(
-                response=cast("Any", SimpleNamespace(status=404, reason="Not Found")),
-                message="Not Found",
-            )),
+            fetch_scheduled_event=AsyncMock(
+                side_effect=discord.NotFound(
+                    response=cast(
+                        "Any", SimpleNamespace(status=404, reason="Not Found")
+                    ),
+                    message="Not Found",
+                )
+            ),
         ),
     )
     server.bot = cast("Any", SimpleNamespace(get_guild=lambda guild_id: guild))

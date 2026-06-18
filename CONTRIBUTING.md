@@ -6,7 +6,7 @@ Thank you for contributing! This guide ensures consistent code quality whether y
 
 1. Read the [project copilot instructions](.github/copilot-instructions.md) for coding conventions
 2. Read [`prompts/system/development_guide.md`](prompts/system/development_guide.md) for architecture patterns
-3. Set up your environment per [VS_CODE_SETUP.md](VS_CODE_SETUP.md)
+3. Set up your environment per [documents/VS_CODE_SETUP.md](documents/VS_CODE_SETUP.md)
 
 ## Development Workflow
 
@@ -17,8 +17,16 @@ git checkout main && git pull
 git checkout -b feat/your-feature
 ```
 
-### 2. Install Dependencies
+### 2. Set Up Your Environment
 
+**Run services with Docker** (primary):
+```bash
+cp .env.example .env   # fill in DISCORD_TOKEN, secrets
+cp config/config-example.yaml config/config.yaml
+docker compose up --build
+```
+
+**Tests and linting use a venv** (never used to run services):
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -76,6 +84,7 @@ async def test_your_feature(temp_db, monkeypatch) -> None:
 - Mock all external API calls (RSI, Discord)
 - Run bot tests: `pytest tests/ -v`
 - Run backend tests: `pytest web/backend/tests/ -v`
+- Run repository integration tests: `pytest backend/ -v`
 
 ### 5. Validate Before Committing
 
@@ -83,8 +92,11 @@ async def test_your_feature(temp_db, monkeypatch) -> None:
 # Pre-commit hooks run automatically, but you can also:
 pre-commit run --all-files   # Lint + format + type check
 python3 tools/check_modularity.py $(git diff --name-only --diff-filter=AM HEAD -- '*.py')
-pytest tests/ -v             # Run bot tests
-pytest web/backend/tests/ -v # Run backend tests
+pytest tests/ web/backend/tests/ backend/ -v  # All tests
+ruff check .                                  # Lint
+mypy backend/ connectors/ --ignore-missing-imports --no-strict-optional \
+  --follow-imports=silent --disable-error-code=untyped-decorator \
+  --disable-error-code=no-any-return           # Type check new packages
 ```
 
 ### 6. Submit a Pull Request
@@ -101,7 +113,8 @@ pytest web/backend/tests/ -v # Run backend tests
 - **mypy strict** for type checking (config in `pyproject.toml`)
 - **Docstrings** with `AI Notes:` section for non-obvious logic
 - **Logging** via `logging.getLogger(__name__)` — use `logger.exception()` for errors
-- **Database** via `async with Database.get_connection() as db:` — single-transaction commits
+- **Database (new code)** via `backend/db/repository/<domain>.py` — all DB access goes through guild-scoped repository classes
+- **Database (legacy)** via `async with Database.get_connection() as db:` — for existing `services/` code only
 - **Config** via `Config.get("key", default)` — never hardcode values from config.yaml
 
 ## AI Coding Assistant Guidelines

@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
 from services.voice_service import VoiceService
@@ -31,6 +32,14 @@ def mock_bot():
 
     ns.get_cog = get_cog
     return ns
+
+
+@pytest.fixture(autouse=True)
+def reset_config_loader_state():
+    """Ensure ConfigLoader singleton state does not leak across tests."""
+    ConfigLoader.reset()
+    yield
+    ConfigLoader.reset()
 
 
 @pytest_asyncio.fixture()

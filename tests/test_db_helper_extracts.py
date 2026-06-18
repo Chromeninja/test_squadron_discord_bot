@@ -66,7 +66,9 @@ def test_managed_event_row_to_dict_maps_expected_fields() -> None:
     assert mapped["id"] == "42"
     assert mapped["user_count"] == 7
     assert mapped["channel_name"] == "Event Coms"
-    assert mapped["image_url"] == "https://cdn.discordapp.com/guild-events/222/banner.png"
+    assert (
+        mapped["image_url"] == "https://cdn.discordapp.com/guild-events/222/banner.png"
+    )
     assert mapped["source_of_truth"] == "db"
 
 

@@ -1,6 +1,6 @@
 /**
  * Toast notification utilities for consistent error/success messaging.
- * 
+ *
  * Replaces console.error/alert with user-friendly toast notifications.
  */
 
@@ -45,7 +45,7 @@ export function showLoading(message: string): () => void {
   const toastId = toast.loading(message, {
     position: 'top-right',
   });
-  
+
   return () => toast.dismiss(toastId);
 }
 

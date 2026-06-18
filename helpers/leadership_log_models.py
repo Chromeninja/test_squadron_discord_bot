@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     VERIFICATION = "VERIFICATION"  # User initial verification ("User Verify")
     RECHECK = "RECHECK"  # User initiated re-check via button
     AUTO_CHECK = "AUTO_CHECK"  # Scheduled automatic re-check
@@ -21,13 +21,13 @@ class EventType(str, Enum):
     ADMIN_CHECK = "ADMIN_CHECK"  # @deprecated: use ADMIN_ACTION for new code
 
 
-class InitiatorKind(str, Enum):
+class InitiatorKind(StrEnum):
     USER = "User"
     ADMIN = "Admin"
     AUTO = "Auto"
 
 
-class InitiatorSource(str, Enum):
+class InitiatorSource(StrEnum):
     COMMAND = "command"
     WEB = "web"
     BULK = "bulk"

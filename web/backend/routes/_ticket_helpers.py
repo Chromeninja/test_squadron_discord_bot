@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 if TYPE_CHECKING:
-    from services.ticket_service import TicketService
+    from backend.db.repository.tickets import TicketRepository
 
 
 async def require_guild_category(
-    svc: TicketService, category_id: int, guild_id: int
+    repo: TicketRepository, category_id: int, guild_id: int
 ) -> dict:
     """Verify a category exists and belongs to the given guild.
 
@@ -24,9 +24,9 @@ async def require_guild_category(
             a different guild.
 
     Returns:
-        The category dict from ``TicketService.get_category()``.
+        The category dict from ``TicketRepository.get_category()``.
     """
-    cat = await svc.get_category(category_id)
+    cat = await repo.get_category(category_id)
     if cat is None or cat["guild_id"] != guild_id:
         raise HTTPException(status_code=404, detail="Category not found")
     return cat

@@ -310,4 +310,3 @@ async def get_user_details(
 
     enriched = _enriched_user_from_row(parsed, status, member_data=member_data)
     return UserDetailsResponse(data=enriched)
-

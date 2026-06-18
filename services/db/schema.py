@@ -7,6 +7,9 @@ all table creation logic to ensure consistency and avoid duplication.
 
 import aiosqlite
 
+from services.db.migrations.managed_events_migration import (
+    _ensure_managed_event_columns,
+)
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -141,208 +144,29 @@ async def _ensure_ticket_channel_config_columns(db: aiosqlite.Connection) -> Non
         )
 
 
-async def _ensure_managed_event_columns(db: aiosqlite.Connection) -> None:
-    """Ensure managed event compatibility columns exist on legacy databases."""
-    cursor = await db.execute("PRAGMA table_info(managed_events)")
+async def _ensure_verification_columns(db: aiosqlite.Connection) -> None:
+    """Ensure verification compatibility columns exist on legacy databases."""
+    cursor = await db.execute("PRAGMA table_info(verification)")
     rows = await cursor.fetchall()
     existing_columns = {str(row[1]) for row in rows}
 
-    if "recurrence_rule" not in existing_columns:
+    if "main_orgs" not in existing_columns:
         await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN recurrence_rule TEXT DEFAULT NULL"
+            "ALTER TABLE verification ADD COLUMN main_orgs TEXT DEFAULT NULL"
         )
         logger.info(
             "Added missing column to table",
-            extra={"table": "managed_events", "column": "recurrence_rule"},
+            extra={"table": "verification", "column": "main_orgs"},
         )
 
-    if "recurrence_rule_payload" not in existing_columns:
+    if "affiliate_orgs" not in existing_columns:
         await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN recurrence_rule_payload TEXT DEFAULT NULL"
+            "ALTER TABLE verification ADD COLUMN affiliate_orgs TEXT DEFAULT NULL"
         )
         logger.info(
             "Added missing column to table",
-            extra={
-                "table": "managed_events",
-                "column": "recurrence_rule_payload",
-            },
+            extra={"table": "verification", "column": "affiliate_orgs"},
         )
-
-    if "channel_name" not in existing_columns:
-        await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN channel_name TEXT DEFAULT NULL"
-        )
-        logger.info(
-            "Added missing column to table",
-            extra={"table": "managed_events", "column": "channel_name"},
-        )
-
-    if "image_url" not in existing_columns:
-        await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN image_url TEXT DEFAULT NULL"
-        )
-        logger.info(
-            "Added missing column to table",
-            extra={"table": "managed_events", "column": "image_url"},
-        )
-
-    if "user_count_current" not in existing_columns:
-        await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN user_count_current INTEGER NOT NULL DEFAULT 0"
-        )
-        logger.info(
-            "Added missing column to table",
-            extra={"table": "managed_events", "column": "user_count_current"},
-        )
-
-    if "user_count_last_synced_at" not in existing_columns:
-        await db.execute(
-            "ALTER TABLE managed_events "
-            "ADD COLUMN user_count_last_synced_at INTEGER DEFAULT NULL"
-        )
-        logger.info(
-            "Added missing column to table",
-            extra={"table": "managed_events", "column": "user_count_last_synced_at"},
-        )
-
-    if "signup_role_ids" in existing_columns:
-        await db.execute(
-            """
-            CREATE TABLE managed_events_v2 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id INTEGER NOT NULL,
-                discord_event_id TEXT DEFAULT NULL,
-                name TEXT NOT NULL,
-                description TEXT DEFAULT NULL,
-                announcement_message TEXT DEFAULT NULL,
-                scheduled_start_time TEXT NOT NULL,
-                scheduled_end_time TEXT DEFAULT NULL,
-                entity_type TEXT NOT NULL DEFAULT 'voice',
-                channel_id TEXT DEFAULT NULL,
-                channel_name TEXT DEFAULT NULL,
-                location TEXT DEFAULT NULL,
-                image_url TEXT DEFAULT NULL,
-                announcement_channel_id TEXT DEFAULT NULL,
-                announcement_message_id TEXT DEFAULT NULL,
-                signup_message_id TEXT DEFAULT NULL,
-                status TEXT NOT NULL DEFAULT 'scheduled',
-                revision INTEGER NOT NULL DEFAULT 1,
-                sync_status TEXT NOT NULL DEFAULT 'pending',
-                sync_error TEXT DEFAULT NULL,
-                user_count_current INTEGER NOT NULL DEFAULT 0,
-                user_count_last_synced_at INTEGER DEFAULT NULL,
-                last_synced_at INTEGER DEFAULT NULL,
-                last_projected_hash TEXT DEFAULT NULL,
-                source TEXT NOT NULL DEFAULT 'dashboard',
-                created_by_user_id TEXT DEFAULT NULL,
-                created_by_name TEXT DEFAULT NULL,
-                updated_by_user_id TEXT DEFAULT NULL,
-                updated_by_name TEXT DEFAULT NULL,
-                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-                deleted_at INTEGER DEFAULT NULL,
-                recurrence_rule TEXT DEFAULT NULL,
-                recurrence_rule_payload TEXT DEFAULT NULL
-            )
-            """
-        )
-        await db.execute(
-            """
-            INSERT INTO managed_events_v2 (
-                id,
-                guild_id,
-                discord_event_id,
-                name,
-                description,
-                announcement_message,
-                scheduled_start_time,
-                scheduled_end_time,
-                entity_type,
-                channel_id,
-                channel_name,
-                location,
-                image_url,
-                announcement_channel_id,
-                announcement_message_id,
-                signup_message_id,
-                status,
-                revision,
-                sync_status,
-                sync_error,
-                user_count_current,
-                user_count_last_synced_at,
-                last_synced_at,
-                last_projected_hash,
-                source,
-                created_by_user_id,
-                created_by_name,
-                updated_by_user_id,
-                updated_by_name,
-                created_at,
-                updated_at,
-                deleted_at,
-                recurrence_rule,
-                recurrence_rule_payload
-            )
-            SELECT
-                id,
-                guild_id,
-                discord_event_id,
-                name,
-                description,
-                announcement_message,
-                scheduled_start_time,
-                scheduled_end_time,
-                entity_type,
-                channel_id,
-                channel_name,
-                location,
-                image_url,
-                announcement_channel_id,
-                announcement_message_id,
-                signup_message_id,
-                status,
-                revision,
-                sync_status,
-                sync_error,
-                user_count_current,
-                user_count_last_synced_at,
-                last_synced_at,
-                last_projected_hash,
-                source,
-                created_by_user_id,
-                created_by_name,
-                updated_by_user_id,
-                updated_by_name,
-                created_at,
-                updated_at,
-                deleted_at,
-                recurrence_rule,
-                recurrence_rule_payload
-            FROM managed_events
-            """
-        )
-        await db.execute("DROP TABLE managed_events")
-        await db.execute("ALTER TABLE managed_events_v2 RENAME TO managed_events")
-        logger.info(
-            "Removed deprecated column from table",
-            extra={"table": "managed_events", "column": "signup_role_ids"},
-        )
-
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_managed_events_guild ON managed_events(guild_id, deleted_at)"
-    )
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_managed_events_sync ON managed_events(guild_id, sync_status, updated_at)"
-    )
-    await db.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_events_guild_discord ON managed_events(guild_id, discord_event_id)"
-    )
 
 
 async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
@@ -350,6 +174,22 @@ async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     await _ensure_ticket_categories_columns(db)
     await _ensure_ticket_channel_config_columns(db)
     await _ensure_managed_event_columns(db)
+
+
+async def ensure_voice_schema_compatibility(db: aiosqlite.Connection) -> None:
+    """Ensure voice_channels table has all required columns for legacy databases."""
+    cursor = await db.execute("PRAGMA table_info(voice_channels)")
+    rows = await cursor.fetchall()
+    existing_columns = {row[1] for row in rows}
+
+    if "previous_owner_id" not in existing_columns:
+        await db.execute(
+            "ALTER TABLE voice_channels ADD COLUMN previous_owner_id INTEGER"
+        )
+        logger.info(
+            "Added missing column to table",
+            extra={"table": "voice_channels", "column": "previous_owner_id"},
+        )
 
 
 async def init_schema(db: aiosqlite.Connection) -> None:
@@ -395,6 +235,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    await _ensure_verification_columns(db)
 
     # Indexes for verification search performance
     await db.execute(
@@ -1034,6 +875,8 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, strftime('%s','now'))"
     )
+
+    await ensure_voice_schema_compatibility(db)
 
     # Commit all schema changes
     await db.commit()

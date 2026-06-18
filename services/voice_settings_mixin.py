@@ -430,4 +430,3 @@ class VoiceSettingsMixin(VoiceServiceBase):
             List of user IDs currently in the channel
         """
         return list(self._voice_channel_members.get(channel_id, set()))
-

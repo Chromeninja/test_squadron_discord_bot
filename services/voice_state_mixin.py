@@ -527,4 +527,3 @@ class VoiceStateMixin(VoiceServiceBase):
 
         except Exception as e:
             self.logger.exception("Error handling join-to-create", exc_info=e)
-

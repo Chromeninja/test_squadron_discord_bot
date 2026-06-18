@@ -1,6 +1,6 @@
 # Repository File Map
 
-Last updated: 2026-05-20
+Last updated: 2026-06-01
 
 This map provides a quick view of how the repository is organized, with each major folder and its files/subfolders.
 
@@ -24,8 +24,6 @@ This map provides a quick view of how the repository is organized, with each maj
 - `PRIVACY.md` — Data handling/privacy policy.
 - `README.md` — Primary project overview and usage.
 - `SECURITY.md` — Security policy and reporting guidance.
-- `SETUP.md` — Deployment and setup instructions.
-- `VS_CODE_SETUP.md` — VS Code local development setup.
 - `bot.py` — Main Discord bot runtime entrypoint.
 - `bot.pyi` — Type stub for bot attributes/contracts.
 - `bot_tasks.py` — Bot task orchestration helpers.
@@ -37,6 +35,43 @@ This map provides a quick view of how the repository is organized, with each maj
 - `start_bot.py` — Startup wrapper for bot run flow.
 
 ## Top-level directories
+
+### `backend/`
+Authoritative data layer — the only place that reads/writes the database. New feature code goes here.
+
+- `__init__.py`
+- `conftest.py` — pytest fixtures for backend integration tests (provides `temp_db`)
+- `api/`
+  - `internal/`
+    - `events.py` — `/internal/guilds/{guild_id}/managed-events` (bot-only, API key auth)
+    - `metrics.py` — `/internal/guilds/{guild_id}/metrics` (bot-only, API key auth)
+  - `v1/`
+    - `health.py` — `GET /api/v1/health` and `GET /api/v1/metrics` (Prometheus)
+- `auth/`
+  - `api_key.py` — FastAPI `Depends` for `X-Bot-Api-Key` header validation (`BOT_API_KEY` env var)
+- `db/`
+  - `repository/`
+    - `events.py` — Guild-scoped managed-event query methods
+    - `tickets.py` — Guild-scoped ticket CRUD (create/get/update/close)
+    - `verification.py` — Guild-scoped verification upsert and fetch
+    - `voice.py` — Guild-scoped voice channel CRUD (soft-delete)
+    - `test_repositories.py` — Integration tests against real SQLite schema
+- `middleware/`
+  - `errors.py` — Global error handler → structured JSON 500 response
+  - `logging.py` — Structured JSON access log with UUID-validated X-Correlation-ID
+
+### `connectors/`
+HTTP client layer for bot → backend communication. Instances are available at `bot.connectors.<domain>`.
+
+- `__init__.py`
+- `api_client.py` — `BotAPIConnector`: httpx.AsyncClient, `X-Bot-Api-Key` auth, 3× retry with backoff
+- `config.py` — Guild config and per-key settings endpoints
+- `events.py` — Managed event endpoints
+- `metrics.py` — Metrics push endpoints
+- `registry.py` — `ConnectorRegistry` dataclass (typed handle for all domain connectors)
+- `tickets.py` — Ticket CRUD endpoints
+- `verification.py` — Verification upsert/fetch endpoints
+- `voice.py` — Voice channel CRUD endpoints
 
 ### `.github/`
 GitHub automation, CI, and coding instructions.
@@ -54,6 +89,7 @@ GitHub automation, CI, and coding instructions.
   - `security-scan/`
 - `workflows/`
   - `codeql.yml`
+  - `lint.yml` — ruff check/format + mypy on `backend/` and `connectors/`
   - `tests.yml`
 - `copilot-instructions.md`
 - `dependabot.yml`
@@ -111,8 +147,11 @@ Configuration loading and examples.
 ### `documents/`
 Centralized repository documentation.
 
-- `README.md`
-- `file-map.md`
+- `README.md` — Documentation index and maintenance checklist.
+- `SETUP.md` — Deployment guide (Docker Compose + manual systemd/nginx).
+- `VS_CODE_SETUP.md` — VS Code local development and Docker testing setup.
+- `backend-first-migration.md` — Backend-first architecture migration roadmap.
+- `file-map.md` — This repository map.
 
 ### `helpers/`
 Reusable utility modules used across bot domains.
@@ -367,8 +406,11 @@ test_squadron_discord_bot/
 │   ├── config-example.yaml — YAML configuration for tooling or workflows.
 │   └── config_loader.py — Python module implementing config loader logic.
 ├── documents/ — Repository documentation hub.
-│   ├── file-map.md — Markdown documentation for this area.
-│   └── README.md — Primary project overview and navigation.
+│   ├── README.md — Documentation index and maintenance checklist.
+│   ├── SETUP.md — Deployment guide (Docker Compose + manual systemd/nginx).
+│   ├── VS_CODE_SETUP.md — VS Code local development and Docker testing setup.
+│   ├── backend-first-migration.md — Backend-first migration roadmap.
+│   └── file-map.md — This repository map.
 ├── helpers/ — Shared helper utilities used across features.
 │   ├── __init__.py — Python package initializer.
 │   ├── announcement.py — Python module implementing announcement logic.
@@ -816,7 +858,5 @@ test_squadron_discord_bot/
 ├── requirements-dev.txt — Development dependency locklist.
 ├── requirements.txt — Runtime dependency list.
 ├── SECURITY.md — Security policy and disclosure process.
-├── SETUP.md — Deployment and setup instructions.
-├── start_bot.py — Startup wrapper for launching the bot.
-└── VS_CODE_SETUP.md — VS Code setup and debugging guide.
+└── start_bot.py — Startup wrapper for launching the bot.
 ```

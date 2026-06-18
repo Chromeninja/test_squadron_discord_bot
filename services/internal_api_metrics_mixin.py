@@ -112,7 +112,9 @@ class InternalAPIMetricsMixin:
                 if row:
                     entry["username"] = row[0] or row[1] or entry.get("username")
             except Exception:
-                logger.debug("DB fallback for leaderboard entry user_id=%s failed", raw_user_id)
+                logger.debug(
+                    "DB fallback for leaderboard entry user_id=%s failed", raw_user_id
+                )
 
     async def get_metrics_overview(self, request: web.Request) -> web.Response:
         """
@@ -336,7 +338,9 @@ class InternalAPIMetricsMixin:
 
         game_name = str(request.query.get("game_name", "")).strip()
         if not game_name:
-            return web.json_response({"error": "Missing game_name parameter"}, status=400)
+            return web.json_response(
+                {"error": "Missing game_name parameter"}, status=400
+            )
 
         try:
             days = int(request.query.get("days", "7"))

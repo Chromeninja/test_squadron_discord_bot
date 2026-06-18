@@ -335,11 +335,11 @@ def test_all_commands_have_metadata() -> None:
 
 
 def test_command_count_and_coverage() -> None:
-    """Verify all 26 commands are present."""
+    """Verify all 25 commands are present."""
     total = len(ALL_COMMANDS)
 
     # Assert: Should have all commands
-    assert total >= 26, f"Should have at least 26 commands, got {total}"
+    assert total >= 25, f"Should have at least 25 commands, got {total}"
 
     # Verify we have commands from each permission level
     user_cmds = [c for c in ALL_COMMANDS if c.permission_level == PermissionLevel.USER]

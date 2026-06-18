@@ -1,6 +1,6 @@
 """User verification and search schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class VerificationRecord(BaseModel):

@@ -10,7 +10,7 @@ import {
   type UserProfile,
 } from '../../api/endpoints';
 import { useClickOutside } from '../../hooks/useClickOutside';
-import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useIsDesktop } from '../../hooks/useMediaQuery';
 import { cn } from '../../utils/cn';
 import {
   getPermissionBaseRole,
@@ -140,7 +140,7 @@ function CheckIcon({ className = 'h-4 w-4' }: { className?: string }) {
 }
 
 export function DashboardShell({ user, onUserChange, onRefreshProfile }: DashboardShellProps) {
-  const isMobile = useIsMobile();
+  const isDesktop = useIsDesktop();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -262,10 +262,10 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
   }, [user.active_guild_id, user.authorized_guilds, user.is_bot_owner]);
 
   useEffect(() => {
-    if (!isMobile) {
+    if (isDesktop) {
       setSidebarOpen(false);
     }
-  }, [isMobile]);
+  }, [isDesktop]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -606,7 +606,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
             )}
           </div>
 
-          {isMobile && (
+          {!isDesktop && (
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
@@ -798,7 +798,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       <div className="flex min-h-screen">
         <div className="hidden w-64 shrink-0 lg:block">{sidebar}</div>
 
-        {isMobile && sidebarOpen && (
+        {!isDesktop && sidebarOpen && (
           <>
             <div
               className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm"
@@ -812,7 +812,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
         )}
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          {isMobile && (
+          {!isDesktop && (
             <header className="sticky top-0 z-30 border-b border-[#ffbb00]/15 bg-black/90 backdrop-blur-xl">
               <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
                 <button

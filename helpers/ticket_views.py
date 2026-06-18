@@ -28,7 +28,7 @@ AI Notes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 from discord.ui import (
@@ -39,6 +39,8 @@ from discord.ui import (
     View,
 )
 
+from helpers.bot_protocol import require_connectors
+from helpers.constants import DEFAULT_MAX_OPEN_PER_USER
 from helpers.embeds import EmbedColors, create_embed
 from helpers.leadership_log import resolve_leadership_channel
 from helpers.ticket_views_action import TicketActionView
@@ -58,12 +60,10 @@ from helpers.ticket_views_thread import (
     _create_ticket_thread,
     _start_dynamic_form,
 )
-from services.ticket_service import (
-    DEFAULT_MAX_OPEN_PER_USER,
-)
 from utils.logging import get_logger
 
-from helpers.bot_protocol import BotProtocol
+if TYPE_CHECKING:
+    from helpers.bot_protocol import BotProtocol
 
 logger = get_logger(__name__)
 
@@ -236,9 +236,10 @@ async def _delete_ticket(
         return
 
     guild_id = interaction.guild.id
-    ticket_service = bot.services.ticket
+    connectors = require_connectors(bot)
+    ticket_connector = connectors.tickets
 
-    ticket = await ticket_service.get_ticket_by_thread(thread.id)
+    ticket = await ticket_connector.get_ticket_by_thread(guild_id, thread.id)
     if ticket is None:
         await interaction.followup.send(
             "Could not find a ticket record for this thread.", ephemeral=True
@@ -284,7 +285,7 @@ async def _delete_ticket(
         )
         return
 
-    await ticket_service.mark_thread_deleted(thread.id)
+    await ticket_connector.mark_thread_deleted(guild_id, thread.id)
 
     await _post_deleted_ticket_transcript(
         bot,
@@ -300,8 +301,7 @@ async def _delete_ticket(
         guild_id,
         title="🗑️ Ticket Deleted",
         description=(
-            f"**Thread:** `{thread.id}`\n"
-            f"**Deleted by:** {interaction.user.mention}"
+            f"**Thread:** `{thread.id}`\n**Deleted by:** {interaction.user.mention}"
         ),
         color=EmbedColors.WARNING,
     )
@@ -337,8 +337,12 @@ class TicketPanelView(View):
         self.bot = bot
 
         # Convert color hex codes to Discord button styles
-        private_style = self._color_to_button_style(private_button_color, discord.ButtonStyle.primary)
-        public_style = self._color_to_button_style(public_button_color, discord.ButtonStyle.secondary)
+        private_style = self._color_to_button_style(
+            private_button_color, discord.ButtonStyle.primary
+        )
+        public_style = self._color_to_button_style(
+            public_button_color, discord.ButtonStyle.secondary
+        )
 
         create_btn: Button = Button(
             label=private_button_text,
@@ -368,7 +372,9 @@ class TicketPanelView(View):
                 self.add_item(public_btn)
 
     @staticmethod
-    def _color_to_button_style(color: str | None, default: discord.ButtonStyle) -> discord.ButtonStyle:
+    def _color_to_button_style(
+        color: str | None, default: discord.ButtonStyle
+    ) -> discord.ButtonStyle:
         """Convert a hex color code to a Discord button style.
 
         Supports common color mappings:
@@ -386,7 +392,13 @@ class TicketPanelView(View):
         normalized = color.strip().upper().lstrip("#")
 
         # Map common colors to button styles
-        if normalized in ("5865F2", "5865F3", "5865F4", "0099FF", "3B88F3"):  # Blue/Blurple
+        if normalized in (
+            "5865F2",
+            "5865F3",
+            "5865F4",
+            "0099FF",
+            "3B88F3",
+        ):  # Blue/Blurple
             return discord.ButtonStyle.primary
         elif normalized in ("4E5058", "4F545C", "6C757D", "2C2F33"):  # Gray
             return discord.ButtonStyle.secondary
@@ -425,13 +437,14 @@ class TicketPanelView(View):
             return
 
         guild_id = interaction.guild.id
-        ticket_service = self.bot.services.ticket
+        connectors = require_connectors(self.bot)
+        ticket_connector = connectors.tickets
         config_service = self.bot.services.config
 
         # --- Rate-limit check ---
-        allowed = await ticket_service.check_rate_limit(guild_id, interaction.user.id)
+        allowed = await ticket_connector.check_rate_limit(guild_id, interaction.user.id)
         if not allowed:
-            remaining = await ticket_service.get_cooldown_remaining(
+            remaining = await ticket_connector.get_cooldown_remaining(
                 guild_id, interaction.user.id
             )
             await interaction.response.send_message(
@@ -442,14 +455,16 @@ class TicketPanelView(View):
 
         # --- Max open tickets check ---
         max_open_raw = await config_service.get_guild_setting(
-            guild_id, "tickets.max_open_per_user", default=str(DEFAULT_MAX_OPEN_PER_USER)
+            guild_id,
+            "tickets.max_open_per_user",
+            default=str(DEFAULT_MAX_OPEN_PER_USER),
         )
         try:
             max_open = int(max_open_raw)
         except (ValueError, TypeError):
             max_open = DEFAULT_MAX_OPEN_PER_USER
 
-        can_open = await ticket_service.check_max_open_tickets(
+        can_open = await ticket_connector.check_max_open_tickets(
             guild_id, interaction.user.id, max_open
         )
         if not can_open:
@@ -462,13 +477,13 @@ class TicketPanelView(View):
 
         # --- Fetch categories for this channel ---
         panel_channel_id = interaction.channel_id or 0
-        categories = await ticket_service.get_categories_for_channel(
+        categories = await ticket_connector.list_categories_for_channel(
             guild_id, panel_channel_id
         )
 
         if not categories:
             # Fall back to all guild categories (legacy / unassigned)
-            categories = await ticket_service.get_categories(guild_id)
+            categories = await ticket_connector.list_categories(guild_id)
 
         if not categories:
             # No categories at all — go straight to description modal
@@ -579,12 +594,14 @@ class TicketCategorySelect(Select):
                 return
 
         # Check for dynamic form configuration
-        ticket_form_service = None
+        form_connector = None
+        guild_id_ctx = interaction.guild.id if interaction.guild else 0
         try:
-            ticket_form_service = self.bot.services.ticket_form
-            has_form = await ticket_form_service.has_form(category["id"])
+            connectors = require_connectors(self.bot)
+            form_connector = connectors.forms
+            has_form = await form_connector.has_form(guild_id_ctx, category["id"])
         except (RuntimeError, AttributeError):
-            # Service not available — fall back to legacy
+            # Connector not available — fall back to legacy
             has_form = False
 
         if not has_form:
@@ -601,8 +618,6 @@ class TicketCategorySelect(Select):
             self.bot,
             interaction,
             category,
-            ticket_form_service,
+            form_connector,
             is_public=self._is_public,
         )
-
-

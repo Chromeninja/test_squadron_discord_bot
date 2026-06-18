@@ -1,0 +1,56 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      network: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-in-production}
+      - BOT_API_KEY=${BOT_API_KEY:-dev-bot-key}
+      - ENV=${ENV:-development}
+      - INTERNAL_API_HOST=host.docker.internal
+      - INTERNAL_API_PORT=${INTERNAL_API_PORT:-8082}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-dev-internal-api-key}
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8000}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:8000}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
+      - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI:-http://localhost:8000/auth/discord/callback}
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+      network: host
+    network_mode: host
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - BOT_API_KEY=${BOT_API_KEY:-dev-bot-key}
+      - ENV=${ENV:-development}
+      - INTERNAL_API_HOST=${BOT_INTERNAL_API_HOST:-0.0.0.0}
+      - INTERNAL_API_PORT=${INTERNAL_API_PORT:-8082}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-dev-internal-api-key}
+      - BACKEND_URL=${BACKEND_URL:-http://127.0.0.1:8000}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+# data/ bind mount used instead of named volume — see ./data/

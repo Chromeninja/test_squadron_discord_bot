@@ -357,7 +357,7 @@ async def _refresh_authorized_guilds(  # noqa: PLR0912, PLR0915
             },
         )
 
-    if not authorized_map:
+    if not authorized_map and not current_user.is_bot_owner:
         clear_session_cookie(response)
         raise HTTPException(
             status_code=401,
@@ -454,7 +454,7 @@ async def require_any_guild_access(
         force_refresh=force_refresh,
     )
 
-    if not current_user.authorized_guilds:
+    if not current_user.authorized_guilds and not current_user.is_bot_owner:
         raise HTTPException(status_code=403, detail="No authorized guilds found")
 
     return current_user

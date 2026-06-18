@@ -159,6 +159,7 @@ class FeatureTargetView(View):
         else:  # 'role'
             if self.feature_name in ["permit", "reject"]:
                 from helpers.views_admin import TargetTypeSelectView
+
                 view = TargetTypeSelectView(self.bot, action=self.feature_name)
             else:
                 view = FeatureRoleSelectView(self.bot, self.feature_name, self.enable)

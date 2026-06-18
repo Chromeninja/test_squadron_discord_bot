@@ -38,18 +38,25 @@ def _bypass_permission_check():
 
 
 def _make_bot() -> MagicMock:
-    """Create a minimal mock bot for TicketCommands."""
+    """Create a minimal mock bot for TicketCommands.
+
+    The cog talks to the backend exclusively through ``bot.connectors``
+    (TicketsConnector / ConfigConnector / FormsConnector). The
+    ``bot.services.guild_config`` helper is still used for admin-role
+    mentions in the thread-health alert and is mocked separately.
+    """
     bot = MagicMock()
     bot.wait_until_ready = AsyncMock()
     bot.guilds = []
 
-    # TicketService mock
-    ts = AsyncMock()
-    ts.get_categories = AsyncMock(return_value=[])
-    ts.create_category = AsyncMock(return_value=1)
-    ts.delete_category = AsyncMock(return_value=True)
-    ts.get_ticket_stats = AsyncMock(return_value={"open": 2, "closed": 5, "total": 7})
-    ts.get_thread_health = AsyncMock(
+    # TicketsConnector mock
+    tickets = AsyncMock()
+    tickets.list_categories = AsyncMock(return_value=[])
+    tickets.get_channel_config = AsyncMock(return_value=None)
+    tickets.get_ticket_stats = AsyncMock(
+        return_value={"open": 2, "closed": 5, "total": 7}
+    )
+    tickets.get_thread_health = AsyncMock(
         return_value={
             "active": 2,
             "archived": 5,
@@ -60,27 +67,24 @@ def _make_bot() -> MagicMock:
             "status": "healthy",
         }
     )
-    ts.get_oldest_closed_tickets = AsyncMock(return_value=[])
-    ts.get_cleanup_candidates = AsyncMock(return_value=[])
-    ts.get_missing_open_tickets = AsyncMock(return_value=[])
-    ts.mark_thread_deleted = AsyncMock(return_value=True)
-    ts.reconcile_missing_open_tickets = AsyncMock(
-        return_value={
-            "checked": 0,
-            "missing": 0,
-            "reconciled": 0,
-            "failed": 0,
-        }
-    )
-    bot.services.ticket = ts
+    tickets.get_oldest_closed_tickets = AsyncMock(return_value=[])
+    tickets.get_cleanup_candidates = AsyncMock(return_value=[])
+    tickets.list_open_tickets = AsyncMock(return_value=[])
+    tickets.close_ticket_by_thread = AsyncMock(return_value=True)
+    tickets.mark_thread_deleted = AsyncMock(return_value=True)
+    bot.connectors.tickets = tickets
 
-    # ConfigService mock
-    cs = AsyncMock()
-    cs.get_guild_setting = AsyncMock(return_value=None)
-    cs.set_guild_setting = AsyncMock()
-    bot.services.config = cs
+    # ConfigConnector mock
+    config = AsyncMock()
+    config.get_guild_setting = AsyncMock(return_value=None)
+    bot.connectors.config = config
 
-    # GuildConfigHelper mock
+    # FormsConnector mock
+    forms = AsyncMock()
+    forms.cleanup_expired_sessions = AsyncMock(return_value=0)
+    bot.connectors.forms = forms
+
+    # GuildConfigHelper mock (still a bot service, used for admin role mentions)
     gc = AsyncMock()
     gc.get_admin_roles = AsyncMock(return_value=[])
     bot.services.guild_config = gc
@@ -211,7 +215,7 @@ class TestTicketCommandsCleanup:
     async def test_cleanup_dry_run_no_candidates(self) -> None:
         """Dry run with no candidates returns 'nothing to do'."""
         bot = _make_bot()
-        bot.services.ticket.get_cleanup_candidates = AsyncMock(return_value=[])
+        bot.connectors.tickets.get_cleanup_candidates = AsyncMock(return_value=[])
 
         with patch("cogs.tickets.commands.spawn"):
             from cogs.tickets.commands import TicketCommands
@@ -229,8 +233,8 @@ class TestTicketCommandsCleanup:
     async def test_cleanup_include_open_no_candidates_names_both_sets(self) -> None:
         """Dry run with open repair enabled names closed and stale-open checks."""
         bot = _make_bot()
-        bot.services.ticket.get_cleanup_candidates = AsyncMock(return_value=[])
-        bot.services.ticket.get_missing_open_tickets = AsyncMock(return_value=[])
+        bot.connectors.tickets.get_cleanup_candidates = AsyncMock(return_value=[])
+        bot.connectors.tickets.list_open_tickets = AsyncMock(return_value=[])
 
         with patch("cogs.tickets.commands.spawn"):
             from cogs.tickets.commands import TicketCommands
@@ -255,7 +259,7 @@ class TestTicketCommandsCleanup:
     async def test_cleanup_dry_run_with_candidates(self) -> None:
         """Dry run with candidates shows preview list."""
         bot = _make_bot()
-        bot.services.ticket.get_cleanup_candidates = AsyncMock(
+        bot.connectors.tickets.get_cleanup_candidates = AsyncMock(
             return_value=[
                 {
                     "thread_id": 50001,
@@ -286,7 +290,7 @@ class TestTicketCommandsCleanup:
         guild_mock = _interaction_with_guild().guild
         guild_mock.get_thread = MagicMock(return_value=mock_thread)
 
-        bot.services.ticket.get_cleanup_candidates = AsyncMock(
+        bot.connectors.tickets.get_cleanup_candidates = AsyncMock(
             return_value=[
                 {
                     "thread_id": 51001,
@@ -314,44 +318,46 @@ class TestTicketCommandsCleanup:
 
         embed = interaction.followup.send.call_args.kwargs["embed"]
         assert "Complete" in embed.title
-        bot.services.ticket.mark_thread_deleted.assert_awaited_once_with(51001)
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(123, 51001)
 
     @pytest.mark.asyncio
     async def test_cleanup_include_open_reconciles_missing_threads(self) -> None:
         """Cleanup can also repair stale open tickets when requested."""
         bot = _make_bot()
-        bot.services.ticket.get_cleanup_candidates = AsyncMock(return_value=[])
-        bot.services.ticket.get_missing_open_tickets = AsyncMock(
+        bot.connectors.tickets.get_cleanup_candidates = AsyncMock(return_value=[])
+        bot.connectors.tickets.list_open_tickets = AsyncMock(
             return_value=[{"thread_id": 52001, "created_at": int(time.time())}],
         )
-        bot.services.ticket.reconcile_missing_open_tickets = AsyncMock(
-            return_value={
-                "checked": 1,
-                "missing": 1,
-                "reconciled": 1,
-                "failed": 0,
-            }
-        )
+        bot.connectors.tickets.close_ticket_by_thread = AsyncMock(return_value=True)
+        bot.connectors.tickets.mark_thread_deleted = AsyncMock(return_value=True)
 
-        with patch("cogs.tickets.commands.spawn"):
+        with (
+            patch("cogs.tickets.commands.spawn"),
+            # Thread no longer exists in Discord, so the row is reconciled.
+            patch(
+                "cogs.tickets.commands.guild_thread_exists",
+                return_value=False,
+            ),
+        ):
             from cogs.tickets.commands import TicketCommands
 
             cog = TicketCommands(bot)
 
-        interaction = _interaction_with_guild()
-        cleanup_callback: Any = cog.cleanup.callback
-        await cleanup_callback(
-            cog,
-            interaction,
-            older_than=30,
-            dry_run=False,
-            include_open=True,
-        )
+            interaction = _interaction_with_guild()
+            cleanup_callback: Any = cog.cleanup.callback
+            await cleanup_callback(
+                cog,
+                interaction,
+                older_than=30,
+                dry_run=False,
+                include_open=True,
+            )
 
         embed = interaction.followup.send.call_args.kwargs["embed"]
         assert "Complete" in embed.title
         assert "Repaired" in embed.description
-        bot.services.ticket.reconcile_missing_open_tickets.assert_awaited_once()
+        bot.connectors.tickets.close_ticket_by_thread.assert_awaited_once()
+        bot.connectors.tickets.mark_thread_deleted.assert_awaited_once_with(123, 52001)
 
 
 class TestThreadHealthCheckTask:
@@ -376,15 +382,14 @@ class TestThreadHealthCheckTask:
 
         # No alert level should be stored
         assert guild.id not in cog._last_alert_level
-        bot.services.ticket.reconcile_missing_open_tickets.assert_awaited_once()
-        call_kwargs = bot.services.ticket.reconcile_missing_open_tickets.call_args.kwargs
-        assert call_kwargs["limit"] == 50
+        # Reconciliation now runs locally; it fetches open tickets per guild.
+        bot.connectors.tickets.list_open_tickets.assert_awaited_once_with(guild.id)
 
     @pytest.mark.asyncio
     async def test_warning_status_sends_alert(self) -> None:
         """Warning status triggers an alert to the leadership channel."""
         bot = _make_bot()
-        bot.services.ticket.get_thread_health = AsyncMock(
+        bot.connectors.tickets.get_thread_health = AsyncMock(
             return_value={
                 "active": 50,
                 "archived": 860,
@@ -422,7 +427,7 @@ class TestThreadHealthCheckTask:
     async def test_duplicate_alert_not_sent(self) -> None:
         """Same severity level does not trigger a second alert."""
         bot = _make_bot()
-        bot.services.ticket.get_thread_health = AsyncMock(
+        bot.connectors.tickets.get_thread_health = AsyncMock(
             return_value={
                 "active": 50,
                 "archived": 860,

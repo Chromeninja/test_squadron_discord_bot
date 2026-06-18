@@ -167,8 +167,7 @@ async def get_voice_leaderboard(
             [guild_id, cutoff_hour, *uid_params, limit],
         )
         return [
-            {"user_id": r[0], "total_seconds": r[1]}
-            for r in await cursor.fetchall()
+            {"user_id": r[0], "total_seconds": r[1]} for r in await cursor.fetchall()
         ]
 
 
@@ -199,8 +198,7 @@ async def get_message_leaderboard(
             [guild_id, cutoff_hour, *uid_params, limit],
         )
         return [
-            {"user_id": r[0], "total_messages": r[1]}
-            for r in await cursor.fetchall()
+            {"user_id": r[0], "total_messages": r[1]} for r in await cursor.fetchall()
         ]
 
 
@@ -530,9 +528,7 @@ async def get_user_metrics(
             "ORDER BY hour_bucket",
             (guild_id, user_id, cutoff),
         )
-        voice_by_hour: dict[int, int] = {
-            r[0]: r[1] for r in await cursor.fetchall()
-        }
+        voice_by_hour: dict[int, int] = {r[0]: r[1] for r in await cursor.fetchall()}
 
         # Game time per hour for this user
         cursor = await db.execute(
@@ -544,9 +540,7 @@ async def get_user_metrics(
             "ORDER BY hour_bucket",
             (guild_id, user_id, cutoff),
         )
-        game_by_hour: dict[int, int] = {
-            r[0]: r[1] for r in await cursor.fetchall()
-        }
+        game_by_hour: dict[int, int] = {r[0]: r[1] for r in await cursor.fetchall()}
 
         all_hours = sorted(set(msg_by_hour) | set(voice_by_hour) | set(game_by_hour))
         timeseries = [
@@ -571,8 +565,7 @@ async def get_user_metrics(
             (guild_id, user_id, cutoff),
         )
         top_games = [
-            {"game_name": r[0], "total_seconds": r[1]}
-            for r in await cursor.fetchall()
+            {"game_name": r[0], "total_seconds": r[1]} for r in await cursor.fetchall()
         ]
 
         avg_messages_per_day = round(total_messages / max(days, 1), 1)

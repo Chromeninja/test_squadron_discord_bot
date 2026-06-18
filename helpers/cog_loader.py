@@ -171,7 +171,6 @@ def validate_cog(
 # Service requirements for known cogs
 COG_SERVICE_REQUIREMENTS: dict[str, list[str]] = {
     "cogs.admin.role_delegation": ["role_delegation"],
-    "cogs.tickets.commands": ["ticket"],
     # Add other cogs with service dependencies here
 }
 

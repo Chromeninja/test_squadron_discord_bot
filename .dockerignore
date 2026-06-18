@@ -1,0 +1,26 @@
+.git
+.github
+.claude
+.worktrees
+# Secrets — never bake into the image
+.env
+.env.*
+!.env.example
+# Local SQLite databases (provided via volume at runtime)
+*.db
+*.db.bak_*
+*.sqlite
+*.sqlite3
+web/frontend/node_modules
+web/frontend/dist
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+coverage.xml
+*.log
+docs/
+documents/
+tests/

@@ -444,4 +444,3 @@ class VoiceReconcileMixin(VoiceServiceBase):
             self.logger.exception(
                 f"Error rehydrating channel management for {channel.id}", exc_info=e
             )
-

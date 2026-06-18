@@ -89,7 +89,7 @@ async def test_task_queue_workers_start_and_stop(monkeypatch):
     monkeypatch.setattr(
         db_mod, "Database", types.SimpleNamespace(initialize=async_noop)
     )
-    monkeypatch.setattr(bot_mod, "spawn", lambda coro: asyncio.create_task(coro))
+    monkeypatch.setattr(bot_mod, "spawn", asyncio.create_task)
 
     import bot_tasks as bt_mod
 

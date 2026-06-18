@@ -23,6 +23,11 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.db.repository.ticket_forms import TicketFormRepository
+    from backend.db.repository.tickets import TicketRepository
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +73,6 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from config.config_loader import ConfigLoader
 from services.config_service import ConfigService
 from services.db.database import Database
-from services.ticket_form_service import TicketFormService
-from services.ticket_service import TicketService
 from services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
@@ -81,8 +84,6 @@ logger = logging.getLogger(__name__)
 _config_service: ConfigService | None = None
 _config_loader: ConfigLoader | None = None
 _voice_service: VoiceService | None = None
-_ticket_service: TicketService | None = None
-_ticket_form_service: TicketFormService | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,22 +124,18 @@ async def get_voice_service() -> VoiceService:
     return _voice_service
 
 
-async def get_ticket_service() -> TicketService:
-    """Lazily initialize and return a TicketService for backend use."""
-    global _ticket_service
-    if _ticket_service is None:
-        _ticket_service = TicketService()
-        _ticket_service._initialized = True
-    return _ticket_service
+def get_ticket_repository() -> TicketRepository:
+    """Get a TicketRepository instance for the backend DB."""
+    from backend.db.repository.tickets import TicketRepository
+
+    return TicketRepository()
 
 
-async def get_ticket_form_service() -> TicketFormService:
-    """Lazily initialize and return a TicketFormService for backend use."""
-    global _ticket_form_service
-    if _ticket_form_service is None:
-        _ticket_form_service = TicketFormService()
-        _ticket_form_service._initialized = True
-    return _ticket_form_service
+def get_ticket_form_repository() -> TicketFormRepository:
+    """Get a TicketFormRepository instance for the backend DB."""
+    from backend.db.repository.ticket_forms import TicketFormRepository
+
+    return TicketFormRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +163,24 @@ async def initialize_services() -> None:
     if not Path(db_path).is_absolute():
         db_path = str(_PROJECT_ROOT / db_path)
 
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     await Database.initialize(db_path)
+
+    # Initialize metrics database
+    from services.db.metrics_db import MetricsDatabase
+
+    metrics_cfg = config_dict.get("metrics", {})
+    metrics_db_path = metrics_cfg.get("database_path", "metrics.db")
+    if not Path(metrics_db_path).is_absolute():
+        metrics_db_path = str(_PROJECT_ROOT / metrics_db_path)
+
+    Path(metrics_db_path).parent.mkdir(parents=True, exist_ok=True)
+    await MetricsDatabase.initialize(metrics_db_path)
+
+    logger.info(
+        "MetricsDatabase initialized",
+        extra={"metrics_db_path": metrics_db_path},
+    )
 
     _config_service = ConfigService(config_loader=_config_loader)
     await _config_service.initialize()
@@ -261,8 +275,8 @@ __all__ = [
     "get_current_user",
     "get_db",
     "get_internal_api_client",
-    "get_ticket_form_service",
-    "get_ticket_service",
+    "get_ticket_form_repository",
+    "get_ticket_repository",
     "get_user_authorized_guilds",
     "get_voice_service",
     "initialize_services",

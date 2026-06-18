@@ -17,7 +17,8 @@
   "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
   "python.testing.pytestArgs": [
     "tests",
-    "web/backend/tests"
+    "web/backend/tests",
+    "backend"
   ],
   "python.testing.autoTestDiscoverOnSaveEnabled": true,
   "python.testing.cwd": "${workspaceFolder}",
@@ -40,7 +41,8 @@
 
   // Add backend to analysis path so editor resolves imports for backend code
   "python.analysis.extraPaths": [
-    "web/backend"
+    "web/backend",
+    "."
   ],
 
   // Make terminals (and external agents) see the venv first on PATH for non-interactive runs

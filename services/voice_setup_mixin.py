@@ -18,11 +18,11 @@ import discord  # type: ignore[import-not-found]
 from helpers.task_queue import enqueue_task
 from services.db.database import Database
 from services.db.repository import BaseRepository
+from services.voice_base_mixin import VoiceServiceBase
 from services.voice_channel_helpers import (
     validate_jtc_permissions,
 )
 from utils.types import VoiceChannelResult
-from services.voice_base_mixin import VoiceServiceBase
 
 
 class VoiceSetupMixin(VoiceServiceBase):

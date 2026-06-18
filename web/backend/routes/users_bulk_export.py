@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -18,7 +19,6 @@ from core.dependencies import (
 from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
 from core.guild_settings import get_organization_settings
 from core.pagination import is_all_guilds_mode
-from core.schemas import UserProfile
 from core.user_enrichment import (
     _VERIFICATION_COLUMNS,
     ExportUsersRequest,
@@ -31,6 +31,9 @@ from core.user_enrichment import (
 )
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+
+if TYPE_CHECKING:
+    from core.schemas import UserProfile
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 logger = logging.getLogger(__name__)
@@ -102,7 +105,9 @@ async def resolve_filtered_ids(
     id_list = list(guild_member_ids)
     placeholders = ",".join("?" * len(id_list))
     member_filter = f"user_id IN ({placeholders})"
-    combined_where = f"{member_filter} AND {where_clause}" if where_clause else member_filter
+    combined_where = (
+        f"{member_filter} AND {where_clause}" if where_clause else member_filter
+    )
     query = (
         f"SELECT {_VERIFICATION_COLUMNS} FROM verification "
         f"WHERE {combined_where} ORDER BY last_updated DESC"
@@ -272,7 +277,9 @@ async def export_users(
             continue
 
         main_orgs_str = ";".join(main_orgs_list) if main_orgs_list else ""
-        affiliate_orgs_str = ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        affiliate_orgs_str = (
+            ";".join(affiliate_orgs_list) if affiliate_orgs_list else ""
+        )
 
         writer.writerow(
             [

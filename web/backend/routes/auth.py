@@ -209,7 +209,7 @@ async def callback(request: Request, code: str, state: str | None = None):
         )
 
         # Exchange code for access token
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
             token_data = {
                 "client_id": DISCORD_CLIENT_ID,
                 "client_secret": DISCORD_CLIENT_SECRET,
@@ -272,6 +272,31 @@ async def callback(request: Request, code: str, state: str | None = None):
             )
             bot_guild_ids = {row[0] for row in rows}
 
+            if not bot_guild_ids:
+                logger.warning(
+                    "No installed guilds found in guild_settings during OAuth; "
+                    "attempting internal API fallback"
+                )
+                try:
+                    fallback_client = InternalAPIClient()
+                    live_guilds = await fallback_client.get_guilds()
+                    await fallback_client.close()
+                    bot_guild_ids = {
+                        int(guild_id)
+                        for guild in live_guilds
+                        for guild_id in [_normalize_guild_id(guild.get("guild_id"))]
+                        if guild_id is not None
+                    }
+                    logger.info(
+                        "Resolved %d installed guild(s) via internal API fallback",
+                        len(bot_guild_ids),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to resolve installed guilds from internal API",
+                        exc_info=e,
+                    )
+
             logger.debug(
                 "Bot installation lookup completed for %d guild(s)",
                 len(bot_guild_ids),
@@ -302,7 +327,6 @@ async def callback(request: Request, code: str, state: str | None = None):
             from core.schemas import GuildPermission
 
             authorized_guilds: dict[str, GuildPermission] = {}
-            authorized_guild_id_set: set[str] = set()
 
             # Build a map of guild data for efficient lookup
             guild_data_map = {g["id"]: g for g in user_guilds}
@@ -314,7 +338,14 @@ async def callback(request: Request, code: str, state: str | None = None):
                     if not guild_data:
                         continue
 
-                    # Bot owner gets full access to ALL guilds
+                    guild_id_int = int(guild_id)
+                    if guild_id_int not in bot_guild_ids:
+                        logger.debug(
+                            "Skipping OAuth authorization for guild outside bot database"
+                        )
+                        continue
+
+                    # Bot owners keep full privileges, but only for installed guilds.
                     if is_bot_owner:
                         guild_id_str = str(guild_id)
                         authorized_guilds[guild_id_str] = GuildPermission(
@@ -322,7 +353,6 @@ async def callback(request: Request, code: str, state: str | None = None):
                             role_level="bot_owner",
                             source="bot_owner",
                         )
-                        authorized_guild_id_set.add(guild_id_str)
                         continue
 
                     # Check Discord-native permissions (owner or administrator)
@@ -342,10 +372,7 @@ async def callback(request: Request, code: str, state: str | None = None):
                             role_level="bot_admin",
                             source="discord_owner",
                         )
-                        authorized_guild_id_set.add(guild_id_str)
-                        logger.info(
-                            "Granted guild access via Discord owner status"
-                        )
+                        logger.info("Granted guild access via Discord owner status")
                         continue
 
                     # Discord administrator permission gets bot_admin level
@@ -356,16 +383,8 @@ async def callback(request: Request, code: str, state: str | None = None):
                             role_level="bot_admin",
                             source="discord_administrator",
                         )
-                        authorized_guild_id_set.add(guild_id_str)
                         logger.info(
                             "Granted guild access via Discord administrator permission"
-                        )
-                        continue
-
-                    # Only check role-based permissions if guild is in the database
-                    if int(guild_id) not in bot_guild_ids:
-                        logger.debug(
-                            "Skipping role-based access check for guild outside bot database"
                         )
                         continue
 
@@ -429,11 +448,12 @@ async def callback(request: Request, code: str, state: str | None = None):
                         authorized_guilds[guild_id_str] = GuildPermission(
                             guild_id=guild_id_str, role_level=role_level, source=source
                         )
-                        authorized_guild_id_set.add(guild_id_str)
                         logger.info("Granted guild access via configured role mapping")
 
                 except Exception:
-                    logger.exception("Error checking roles during OAuth role evaluation")
+                    logger.exception(
+                        "Error checking roles during OAuth role evaluation"
+                    )
                     continue
 
         # Extract user information
@@ -452,8 +472,10 @@ async def callback(request: Request, code: str, state: str | None = None):
         )
         logger.debug("Completed OAuth authorization mapping")
 
-        # Require at least one authorized guild
-        if not authorized_guilds:
+        # Require at least one authorized guild for non-owners.
+        # Bot owners may bootstrap with zero installed guilds so they can use
+        # the Add Bot flow from the select-server page.
+        if not authorized_guilds and not is_bot_owner:
             # Return unauthorized page
             return Response(
                 content="""
@@ -506,6 +528,14 @@ async def callback(request: Request, code: str, state: str | None = None):
 
     except HTTPException:
         raise
+    except httpx.TimeoutException:
+        logger.exception(
+            "Timed out connecting to Discord OAuth endpoint — check network connectivity"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication timed out contacting Discord. Please try again.",
+        )
     except Exception:
         logger.exception("Unhandled error in OAuth callback")
         raise HTTPException(
@@ -555,7 +585,9 @@ async def assume_role(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     session_payload = current_user.model_dump()
-    session_payload["authorized_guilds"][active_guild_id] = updated_permission.model_dump()
+    session_payload["authorized_guilds"][active_guild_id] = (
+        updated_permission.model_dump()
+    )
     session_payload = normalize_session_user_data(session_payload)
     await set_session_cookie(response, session_payload)
     await log_admin_action(
@@ -590,7 +622,9 @@ async def clear_assumed_role(
 
     updated_permission = clear_guild_assumed_role(permission, active_guild_id)
     session_payload = current_user.model_dump()
-    session_payload["authorized_guilds"][active_guild_id] = updated_permission.model_dump()
+    session_payload["authorized_guilds"][active_guild_id] = (
+        updated_permission.model_dump()
+    )
     session_payload = normalize_session_user_data(session_payload)
     await set_session_cookie(response, session_payload)
     await log_admin_action(
@@ -626,6 +660,13 @@ async def get_available_guilds(
             "Internal API guild fetch failed; falling back to session guilds",
             exc_info=exc,
         )
+        from services.db.repository import BaseRepository
+
+        rows = await BaseRepository.fetch_all(
+            "SELECT DISTINCT guild_id FROM guild_settings"
+        )
+        installed_guild_ids = {str(row[0]) for row in rows}
+
         guilds = [
             {
                 "guild_id": gid,
@@ -633,6 +674,7 @@ async def get_available_guilds(
                 "icon_url": None,
             }
             for gid in current_user.authorized_guilds
+            if gid in installed_guild_ids
         ]
 
         if not guilds:

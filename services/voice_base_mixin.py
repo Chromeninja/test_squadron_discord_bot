@@ -12,12 +12,13 @@ Do not import directly; import ``VoiceService`` from
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    import asyncio
+    import logging
+    from collections.abc import Coroutine
+
     import discord
 
     from services.config_service import ConfigService
@@ -105,10 +106,7 @@ class VoiceServiceBase:
 
         def _get_member_count(
             self,
-            channel_or_id: discord.VoiceChannel
-            | discord.StageChannel
-            | int
-            | None,
+            channel_or_id: discord.VoiceChannel | discord.StageChannel | int | None,
         ) -> int: ...
 
         def _classify_old_channel(self, member_count: int) -> str: ...

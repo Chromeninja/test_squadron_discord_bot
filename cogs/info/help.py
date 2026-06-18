@@ -60,12 +60,6 @@ ALL_COMMANDS = [
         category="Voice",
     ),
     BotCommand(
-        name="/voice help",
-        description="Show help for voice commands.",
-        permission_level=PermissionLevel.USER,
-        category="Voice",
-    ),
-    BotCommand(
         name="/voice owner",
         description="List all voice channels managed by the bot and their owners.",
         permission_level=PermissionLevel.USER,
@@ -307,7 +301,11 @@ class HelpCog(commands.Cog):
                 return
 
             # Defer before async operations
-            await interaction.response.defer(ephemeral=True)
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                # Interaction token expired (e.g., during Discord reconnect queuing)
+                return
 
             # Get user's permission level
             user_level = await get_permission_level(

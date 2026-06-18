@@ -72,6 +72,7 @@ class VoiceEvents(commands.Cog):
                 "Error handling channel deletion for %s", channel, exc_info=e
             )
 
+
 async def setup(bot: commands.Bot) -> None:
     """Set up the Voice Events cog."""
     await bot.add_cog(VoiceEvents(bot))

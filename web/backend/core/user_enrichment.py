@@ -1,14 +1,16 @@
 """User enrichment helpers: member cache, query builders, and list fetchers."""
+
 import asyncio
 import json
 import logging
 import time
 from collections import OrderedDict
 
+from pydantic import BaseModel
+
 from core.dependencies import InternalAPIClient
 from core.env_config import MEMBER_CACHE_MAX_ENTRIES, MEMBER_CACHE_TTL_SECONDS
 from core.guild_members import derive_status_from_orgs, fetch_guild_member_ids
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -393,6 +395,7 @@ async def _list_users_single_guild(
 
     # Get org settings for status derivation
     from core.guild_settings import get_organization_settings
+
     org_settings = await get_organization_settings(db, guild_id)
     organization_sid = org_settings.get("organization_sid") if org_settings else None
 

@@ -24,9 +24,9 @@ interface PanelPreviewProps {
 // Map hex colors to Discord button styles (background colors)
 const getButtonBgColor = (hexColor: string | null | undefined, defaultColor: string): string => {
   if (!hexColor) return defaultColor;
-  
+
   const normalized = hexColor.trim().toUpperCase().replace('#', '');
-  
+
   // Blue/Blurple (Primary)
   if (['5865F2', '5865F3', '5865F4', '0099FF', '3B88F3'].includes(normalized)) {
     return '#5865f2';
@@ -43,7 +43,7 @@ const getButtonBgColor = (hexColor: string | null | undefined, defaultColor: str
   if (['ED4245', 'F04747', 'D32F2F', 'E74C3C'].includes(normalized)) {
     return '#ed4245';
   }
-  
+
   return defaultColor;
 };
 
@@ -62,7 +62,7 @@ export const PanelPreview: React.FC<PanelPreviewProps> = ({
 }) => {
   // Convert hex color string to CSS color
   const borderColor = color.startsWith('#') ? color : `#${color}`;
-  
+
   // Get button background colors
   const privateBg = getButtonBgColor(privateButtonColor, '#5865f2');
   const publicBg = getButtonBgColor(publicButtonColor, '#4f545c');

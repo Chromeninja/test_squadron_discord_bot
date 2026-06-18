@@ -103,9 +103,7 @@ class EventSyncService(BaseService):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.logger.exception(
-                    "Event sync pass failed", exc_info=exc
-                )
+                self.logger.exception("Event sync pass failed", exc_info=exc)
 
             try:
                 await asyncio.wait_for(
@@ -125,17 +123,25 @@ class EventSyncService(BaseService):
                 ):
                     continue
 
-                result, _events = await EventService.manual_sync(
-                    guild_id=guild.id,
-                    direction="pull",
-                    projection_client=self.internal_api_client,
-                )
-                self.logger.info(
-                    "Event sync pull complete for guild %s: processed=%s updated=%s",
-                    guild.id,
-                    result.processed,
-                    result.updated,
-                )
+                try:
+                    result, _ = await EventService.manual_sync(
+                        guild_id=guild.id,
+                        direction="pull",
+                        projection_client=self.internal_api_client,
+                    )
+                    self.logger.info(
+                        "Event sync pull complete for guild %s: processed=%s updated=%s",
+                        guild.id,
+                        result.processed,
+                        result.updated,
+                    )
+                except Exception as exc:
+                    self.logger.exception(
+                        "Event sync pull failed for guild %s",
+                        guild.id,
+                        exc_info=exc,
+                    )
+                    raise
 
                 is_last_guild = index >= len(self.bot.guilds) - 1
                 if not is_last_guild and self._per_guild_delay_seconds > 0:

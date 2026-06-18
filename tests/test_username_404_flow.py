@@ -96,7 +96,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
-    bot.get_channel = lambda cid: guild.get_channel(cid)
+    bot.get_channel = guild.get_channel
 
     # Mock services for channel access
     bot.services = SimpleNamespace()
@@ -135,7 +135,7 @@ async def test_handle_username_404_idempotent(temp_db, monkeypatch) -> None:
     async def immediate(task_func) -> None:
         await task_func()
 
-    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.enqueue_task", immediate)
 
     # First call should flag + remove roles + unschedule
     changed = await handle_username_404(bot, member, "OldHandle")  # type: ignore[arg-type]
@@ -189,7 +189,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
-    bot.get_channel = lambda cid: guild.get_channel(cid)
+    bot.get_channel = guild.get_channel
 
     # Mock services for channel access
     bot.services = SimpleNamespace()
@@ -213,7 +213,7 @@ async def test_handle_username_404_new_handle_reflags(temp_db, monkeypatch) -> N
     async def immediate(task_func) -> None:
         await task_func()
 
-    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.enqueue_task", immediate)
 
     # First 404
     changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
@@ -289,7 +289,7 @@ async def test_admin_recheck_404_posts_leadership_log(temp_db, monkeypatch) -> N
     async def immediate(task_func) -> None:
         await task_func()
 
-    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.enqueue_task", immediate)
 
     # Patch leadership log channel send to be immediate (bypass task queue)
     async def leader_send_patch(channel, content, embed=None) -> None:
@@ -463,7 +463,7 @@ async def test_admin_recheck_404_leadership_changeset(temp_db, monkeypatch) -> N
     async def immediate(task_func) -> None:
         await task_func()
 
-    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.enqueue_task", immediate)
     monkeypatch.setattr("helpers.username_404.flush_tasks", lambda: None)
 
     # Patch leadership log send to capture message
@@ -622,7 +622,7 @@ async def test_handle_username_404_new_handle_triggers_again(
     guild = FakeGuild(member)
     member.guild = guild
     bot.guilds = [guild]
-    bot.get_channel = lambda cid: guild.get_channel(cid)
+    bot.get_channel = guild.get_channel
 
     # Mock services for channel access
     bot.services = SimpleNamespace()
@@ -646,7 +646,7 @@ async def test_handle_username_404_new_handle_triggers_again(
     async def immediate(task_func) -> None:
         await task_func()
 
-    monkeypatch.setattr("helpers.username_404.enqueue_task", lambda fn: immediate(fn))
+    monkeypatch.setattr("helpers.username_404.enqueue_task", immediate)
     # First 404 (FirstHandle)
     changed1 = await handle_username_404(bot, member, "FirstHandle")  # type: ignore[arg-type]
     assert changed1 is True

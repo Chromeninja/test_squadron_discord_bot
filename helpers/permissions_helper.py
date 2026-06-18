@@ -14,6 +14,7 @@ Behavior and signatures preserved for existing call sites.
 """
 
 import logging
+import time
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -24,6 +25,30 @@ from helpers.discord_api import edit_channel
 from services.db.repository import BaseRepository
 
 logger = logging.getLogger(__name__)
+
+_ROLE_ID_CACHE: dict[tuple[int, str], tuple[float, set[int]]] = {}
+_ROLE_ID_CACHE_TTL = 5.0  # short TTL — revocations honored within one check cycle
+
+
+def invalidate_role_id_cache(guild_id: int, key: str | None = None) -> None:
+    """Evict cached role-ID entries for a guild.
+
+    Call this whenever a ``roles.*`` guild setting is written so that
+    permission checks pick up the change within the next TTL window rather
+    than after the full 60-second expiry.
+
+    Args:
+        guild_id: Guild whose entries to evict.
+        key: Specific setting key to evict (e.g. ``"roles.bot_admins"``).
+             Pass ``None`` to evict all ``roles.*`` entries for the guild.
+    """
+    if key is not None:
+        _ROLE_ID_CACHE.pop((guild_id, key), None)
+    else:
+        for cache_key in list(_ROLE_ID_CACHE):
+            if cache_key[0] == guild_id:
+                del _ROLE_ID_CACHE[cache_key]
+
 
 FEATURE_CONFIG = {
     "ptt": {
@@ -413,15 +438,23 @@ def _normalize_role_ids(
 
 
 async def _get_configured_role_ids(bot, guild_id: int, key: str) -> set[int]:
+    now = time.monotonic()
+    cache_key = (guild_id, key)
+    cached = _ROLE_ID_CACHE.get(cache_key)
+    if cached is not None and now - cached[0] < _ROLE_ID_CACHE_TTL:
+        return cached[1]
+
     config_service = getattr(getattr(bot, "services", None), "config", None)
     if not config_service:
         return set()
     try:
         roles = await config_service.get_guild_setting(guild_id, key, [])
-        return cast(
+        result = cast(
             "set[int]",
             _normalize_role_ids(roles or [], guild_id=guild_id, key=key),
         )
+        _ROLE_ID_CACHE[cache_key] = (now, result)
+        return result
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("Error fetching %s for guild %s: %s", key, guild_id, exc)
         return set()

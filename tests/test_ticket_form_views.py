@@ -19,7 +19,7 @@ from helpers.ticket_form_views import (
     TicketContinueView,
     create_ticket_from_route,
 )
-from services.ticket_form_service import RouteExecutionContext
+from helpers.ticket_route_context import RouteExecutionContext
 from tests.factories.discord_factories import FakeInteraction
 
 # ---------------------------------------------------------------------------
@@ -69,16 +69,18 @@ def _make_step(
 def _make_questions(count: int = 2) -> list[dict]:
     questions = []
     for i in range(count):
-        questions.append({
-            "question_id": f"q{i + 1}",
-            "label": f"Question {i + 1}",
-            "placeholder": f"Enter Q{i + 1}",
-            "style": "short" if i % 2 == 0 else "paragraph",
-            "required": True,
-            "min_length": 0,
-            "max_length": 4000,
-            "sort_order": i,
-        })
+        questions.append(
+            {
+                "question_id": f"q{i + 1}",
+                "label": f"Question {i + 1}",
+                "placeholder": f"Enter Q{i + 1}",
+                "style": "short" if i % 2 == 0 else "paragraph",
+                "required": True,
+                "min_length": 0,
+                "max_length": 4000,
+                "sort_order": i,
+            }
+        )
     return questions
 
 
@@ -116,6 +118,42 @@ def _mock_bot_with_form_services(
     ts.get_open_tickets = AsyncMock(return_value=[])
     bot.services.ticket = ts
 
+    # Form connector (bot.connectors.forms) - all methods must be AsyncMock
+    forms_connector = MagicMock()
+    forms_connector.resolve_next_step = AsyncMock(return_value=next_step)
+    forms_connector.get_step_by_number = AsyncMock(return_value=step_config)
+    forms_connector.delete_session = AsyncMock(return_value=True)
+    forms_connector.update_session = AsyncMock(return_value=True)
+    # get_session/create_session return dict (not RouteExecutionContext)
+    session_dict = None
+    if session:
+        session_dict = {
+            "guild_id": str(session.guild_id),
+            "user_id": str(session.user_id),
+            "category_id": str(session.category_id),
+            "current_step": session.current_step,
+            "collected_answers": session.collected_answers,
+            "session_id": getattr(session, "session_id", None),
+            "interaction_token": getattr(session, "interaction_token", None),
+            "is_public": getattr(session, "is_public", False),
+        }
+    forms_connector.get_session = AsyncMock(return_value=session_dict)
+    forms_connector.create_session = AsyncMock(return_value=session_dict)
+    forms_connector.get_form_config = AsyncMock(return_value=form_config)
+    forms_connector.get_questions = AsyncMock(return_value=questions or [])
+    forms_connector.save_responses = AsyncMock(return_value=True)
+    forms_connector.has_form = AsyncMock(return_value=has_form)
+    bot.connectors.forms = forms_connector
+
+    # Ticket connector (bot.connectors.tickets) - all methods must be AsyncMock
+    tickets_connector = MagicMock()
+    tickets_connector.get_category = AsyncMock(
+        return_value=category or _make_category()
+    )
+    tickets_connector.create_ticket = AsyncMock(return_value=1)
+    tickets_connector.get_open_tickets = AsyncMock(return_value=[])
+    bot.connectors.tickets = tickets_connector
+
     bot.get_channel = MagicMock(return_value=None)
 
     return bot
@@ -143,7 +181,11 @@ class TestModalBuilder:
         bot = _mock_bot_with_form_services()
         ctx = _make_context()
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title="Info"), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title="Info"),
+            _make_questions(1),
+            ctx,
             total_steps=3,
         )
         assert "1/3" in modal.title
@@ -153,7 +195,11 @@ class TestModalBuilder:
         bot = _mock_bot_with_form_services()
         ctx = _make_context()
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title="Details"), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title="Details"),
+            _make_questions(1),
+            ctx,
             total_steps=1,
         )
         assert "/" not in modal.title
@@ -164,7 +210,11 @@ class TestModalBuilder:
         ctx = _make_context()
         long_title = "A" * 100
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(title=long_title), _make_questions(1), ctx,
+            bot,
+            _make_category(),
+            _make_step(title=long_title),
+            _make_questions(1),
+            ctx,
         )
         assert len(modal.title) <= 45
 
@@ -174,7 +224,11 @@ class TestModalBuilder:
         ctx = _make_context()
         questions = _make_questions(3)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         assert len(modal._inputs) == 3
 
@@ -185,7 +239,11 @@ class TestModalBuilder:
         ctx = _make_context()
         questions = _make_questions(7)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         assert len(modal._inputs) == 5
 
@@ -209,7 +267,11 @@ class TestModalBuilder:
             },
         ]
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
         _, _, text_input = modal._inputs[0]
         assert text_input.style == discord.TextStyle.paragraph
@@ -234,7 +296,11 @@ class TestDynamicTicketModal:
         )
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         # Simulate user typed values
@@ -250,7 +316,7 @@ class TestDynamicTicketModal:
             await modal.on_submit(interaction)  # type: ignore[arg-type]
 
             # Session should be deleted
-            bot.services.ticket_form.delete_session.assert_called_once_with(
+            bot.connectors.forms.delete_session.assert_called_once_with(
                 ctx.guild_id, ctx.user_id
             )
             # Ticket creation invoked
@@ -267,7 +333,11 @@ class TestDynamicTicketModal:
         )
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         for _, _, text_input in modal._inputs:
@@ -282,7 +352,7 @@ class TestDynamicTicketModal:
             await modal.on_submit(interaction)  # type: ignore[arg-type]
 
         # Session should be updated
-        bot.services.ticket_form.update_session.assert_called_once()
+        bot.connectors.forms.update_session.assert_called_once()
         # Response sent
         assert interaction.response._is_done
 
@@ -293,7 +363,11 @@ class TestDynamicTicketModal:
         bot = _mock_bot_with_form_services(session=ctx, next_step=None)
         questions = _make_questions(2)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         modal._inputs[0][2]._value = "Answer 1"
@@ -317,7 +391,11 @@ class TestDynamicTicketModal:
         bot = _mock_bot_with_form_services(session=ctx)
         questions = _make_questions(1)
         modal = ModalBuilder.build_modal(
-            bot, _make_category(), _make_step(), questions, ctx,
+            bot,
+            _make_category(),
+            _make_step(),
+            questions,
+            ctx,
         )
 
         interaction = FakeInteraction()
@@ -362,8 +440,12 @@ class TestTicketContinueView:
         interaction = FakeInteraction()
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
-        bot.services.ticket_form.delete_session.assert_called_once_with(
-            interaction.guild.id, interaction.user.id  # type: ignore[union-attr]
+        assert interaction.guild is not None
+        assert interaction.user is not None
+
+        bot.connectors.forms.delete_session.assert_called_once_with(
+            interaction.guild.id,
+            interaction.user.id,
         )
         assert interaction.response._is_done
 
@@ -378,7 +460,7 @@ class TestTicketContinueView:
         await view._on_cancel(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_not_called()
+        bot.connectors.forms.delete_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_continue_no_session_sends_expired(self) -> None:
@@ -413,7 +495,7 @@ class TestTicketContinueView:
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_no_questions(self) -> None:
@@ -422,7 +504,9 @@ class TestTicketContinueView:
         step = _make_step()
         step["questions"] = None
         bot = _mock_bot_with_form_services(
-            session=ctx, step_config=step, questions=[],
+            session=ctx,
+            step_config=step,
+            questions=[],
         )
         view = TicketContinueView(bot)
 
@@ -430,7 +514,7 @@ class TestTicketContinueView:
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_no_category(self) -> None:
@@ -440,13 +524,14 @@ class TestTicketContinueView:
         step["questions"] = _make_questions(1)
         bot = _mock_bot_with_form_services(session=ctx, step_config=step)
         bot.services.ticket.get_category = AsyncMock(return_value=None)
+        bot.connectors.tickets.get_category = AsyncMock(return_value=None)
         view = TicketContinueView(bot)
 
         interaction = FakeInteraction()
         await view._on_continue(interaction)  # type: ignore[arg-type]
 
         assert interaction.response._is_done
-        bot.services.ticket_form.delete_session.assert_called_once()
+        bot.connectors.forms.delete_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continue_success_shows_modal(self) -> None:
@@ -576,6 +661,11 @@ class TestCategorySelectFormRouting:
         ts.check_max_open_tickets = AsyncMock(return_value=True)
         bot.services.ticket = ts
 
+        # Mock form_connector with all methods as AsyncMock
+        forms_connector = MagicMock()
+        forms_connector.has_form = AsyncMock(return_value=False)
+        bot.connectors.forms = forms_connector
+
         select = TicketCategorySelect(bot, categories)
         select._values = ["10"]
         type(select).values = property(lambda self: self._values)  # type: ignore[assignment]
@@ -601,7 +691,12 @@ class TestCreateTicketFromRoute:
         ctx = _make_context()
         ctx.collected_answers = {
             "q1": {"answer": "Bug", "label": "Type", "step": 1, "sort_order": 0},
-            "q2": {"answer": "It crashes", "label": "Details", "step": 1, "sort_order": 1},
+            "q2": {
+                "answer": "It crashes",
+                "label": "Details",
+                "step": 1,
+                "sort_order": 1,
+            },
         }
         category = _make_category()
         bot = _mock_bot_with_form_services(category=category)
@@ -638,8 +733,8 @@ class TestCreateTicketFromRoute:
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 
-            bot.services.ticket_form.save_responses.assert_called_once_with(
-                42, ctx.collected_answers
+            bot.connectors.forms.save_responses.assert_called_once_with(
+                ctx.guild_id, 42, ctx.collected_answers
             )
 
     @pytest.mark.asyncio
@@ -660,4 +755,4 @@ class TestCreateTicketFromRoute:
         ):
             await create_ticket_from_route(bot, interaction, ctx)  # type: ignore[arg-type]
 
-            bot.services.ticket_form.save_responses.assert_not_called()
+            bot.connectors.forms.save_responses.assert_not_called()

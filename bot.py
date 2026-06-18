@@ -152,6 +152,9 @@ class MyBot(commands.Bot):
         self._background_tasks: set[asyncio.Task] = set()
         # Declare internal_api here so it's always available; assigned in setup_hook
         self.internal_api: InternalAPIServer | None = None
+        # Declare API connector attributes; assigned in setup_hook when env vars are set
+        self.api: Any = None
+        self.connectors: Any = None
 
     def _track_task(self, task: asyncio.Task, label: str | None = None) -> None:
         """Track a background task for clean shutdown and log exceptions."""
@@ -196,9 +199,17 @@ class MyBot(commands.Bot):
             self.owner_id = None
 
         # Initialize the database
+        from pathlib import Path
+
         from services.db.database import Database
 
-        await Database.initialize()
+        _db_cfg_path = (
+            (self.config or {}).get("database", {}).get("path", "TESTDatabase.db")
+        )
+        if not Path(_db_cfg_path).is_absolute():
+            _db_cfg_path = str(Path(__file__).resolve().parent / _db_cfg_path)
+        Path(_db_cfg_path).parent.mkdir(parents=True, exist_ok=True)
+        await Database.initialize(_db_cfg_path)
 
         # Initialize services container
         from services.service_container import ServiceContainer
@@ -206,6 +217,47 @@ class MyBot(commands.Bot):
         self.services = ServiceContainer(self)
         await self.services.initialize()
         logger.info("ServiceContainer initialized")
+
+        # Initialize bot API connector (optional — bot works without it)
+        backend_url = os.environ.get("BACKEND_URL", "")
+        bot_api_key = os.environ.get("BOT_API_KEY", "")
+
+        if backend_url and bot_api_key:
+            try:
+                from connectors.api_client import BotAPIConnector
+                from connectors.config import ConfigConnector
+                from connectors.events import EventsConnector
+                from connectors.forms import FormsConnector
+                from connectors.metrics import MetricsConnector
+                from connectors.registry import ConnectorRegistry
+                from connectors.tickets import TicketsConnector
+                from connectors.verification import VerificationConnector
+                from connectors.voice import VoiceConnector
+
+                self.api = BotAPIConnector(base_url=backend_url, api_key=bot_api_key)
+                await self.api.start()
+                self.connectors = ConnectorRegistry(
+                    events=EventsConnector(self.api),
+                    voice=VoiceConnector(self.api),
+                    tickets=TicketsConnector(self.api),
+                    forms=FormsConnector(self.api),
+                    verification=VerificationConnector(self.api),
+                    config=ConfigConnector(self.api),
+                    metrics=MetricsConnector(self.api),
+                )
+                logger.info(
+                    "Bot API connector initialized", extra={"backend_url": backend_url}
+                )
+            except Exception as e:
+                logger.exception("Failed to initialize bot API connector", exc_info=e)
+                self.api = None
+                self.connectors = None
+        else:
+            self.api = None
+            self.connectors = None
+            logger.info(
+                "BACKEND_URL/BOT_API_KEY not set — running without API connector"
+            )
 
         # Start internal API server for web dashboard
         try:
@@ -610,6 +662,14 @@ class MyBot(commands.Bot):
             except Exception as e:
                 logger.exception("Error stopping internal API server", exc_info=e)
 
+        # Close bot API connector if running
+        if hasattr(self, "api") and self.api:
+            try:
+                await self.api.close()
+                logger.info("Bot API connector closed")
+            except Exception as e:
+                logger.exception("Error closing bot API connector", exc_info=e)
+
         # Cleanup services
         if hasattr(self, "services") and self.services:
             try:
@@ -625,7 +685,9 @@ class MyBot(commands.Bot):
         for task in list(self._background_tasks):
             task.cancel()
         if self._background_tasks:
-            results = await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            results = await asyncio.gather(
+                *self._background_tasks, return_exceptions=True
+            )
             for result in results:
                 if isinstance(result, Exception):
                     logger.warning(

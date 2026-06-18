@@ -7,8 +7,8 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.logo_validator import LogoValidationError, validate_logo_url  # noqa: F401
 from services.db.repository import BaseRepository
-from core.logo_validator import LogoValidationError, validate_logo_url
 
 if TYPE_CHECKING:
     from aiosqlite import Connection
@@ -331,7 +331,7 @@ async def set_bot_role_settings(
                     seen.add(role_id)
             except (TypeError, ValueError):
                 continue
-        return sorted(normalized, key=lambda x: int(x))
+        return sorted(normalized, key=int)
 
     payloads = [
         (BOT_ADMINS_KEY, json.dumps(_normalize_role_ids(bot_admins))),
@@ -504,7 +504,7 @@ async def set_voice_selectable_roles(
                     seen.add(role_id)
             except (TypeError, ValueError):
                 continue
-        return sorted(normalized, key=lambda x: int(x))
+        return sorted(normalized, key=int)
 
     await db.execute(
         """
@@ -609,7 +609,7 @@ async def set_metrics_settings(
         seen.add(channel_id)
         normalized.append(channel_id)
 
-    normalized.sort(key=lambda x: int(x))
+    normalized.sort(key=int)
 
     await db.execute(
         """

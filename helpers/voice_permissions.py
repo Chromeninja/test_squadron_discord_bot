@@ -15,7 +15,9 @@ logger = get_logger(__name__)
 
 
 def _get_hierarchy_blocking_roles(
-    overwrites: dict[discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite],
+    overwrites: dict[
+        discord.Role | discord.Member | discord.Object, discord.PermissionOverwrite
+    ],
     bot_member: discord.Member,
     default_role: discord.Role,
 ) -> list[str]:

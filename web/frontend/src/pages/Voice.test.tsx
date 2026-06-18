@@ -56,7 +56,7 @@ describe('Voice Page Rendering', () => {
       count: 0,
       details: [],
     });
-    
+
     vi.mocked(voiceApi.getActive).mockResolvedValue({
       success: true,
       items: [],
@@ -66,7 +66,7 @@ describe('Voice Page Rendering', () => {
 
   it('renders the voice page without crashing', async () => {
     render(<Voice />);
-    
+
     // Should render the page with search functionality
     await waitFor(() => {
       // The page renders with some content
@@ -107,7 +107,7 @@ describe('Voice Page Permission Checks', () => {
       count: 0,
       details: [],
     });
-    
+
     vi.mocked(voiceApi.getActive).mockResolvedValue({
       success: true,
       items: [],

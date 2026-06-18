@@ -471,9 +471,13 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     )
             else:
                 # Deploy to all channels that have channel configs
-                ticket_svc = self.services.ticket
-                configs = await ticket_svc.get_channel_configs(guild_id)
-                channel_ids = [int(c["channel_id"]) for c in configs]
+                if self.bot and self.bot.connectors:
+                    configs = await self.bot.connectors.tickets.list_channel_configs(
+                        guild_id
+                    )
+                    channel_ids = [int(c["channel_id"]) for c in configs]
+                else:
+                    channel_ids = []
 
                 # Fall back to legacy single-channel setting
                 if not channel_ids:
@@ -498,27 +502,37 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     {"error": "No ticket channels configured"}, status=400
                 )
 
-            results: list[dict[str, str]] = []
+            results: list[dict[str, str | None]] = []
             for chan_id in channel_ids:
                 channel = guild.get_channel(chan_id)
                 if not isinstance(channel, discord.TextChannel):
-                    results.append(
-                        {"channel_id": str(chan_id), "status": "not_found"}
-                    )
+                    results.append({"channel_id": str(chan_id), "status": "not_found"})
                     continue
 
-                msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
-                if msg:
+                try:
+                    msg = await cog._send_panel(guild, channel)  # type: ignore[misc]
+                    if msg:
+                        results.append(
+                            {
+                                "channel_id": str(chan_id),
+                                "status": "deployed",
+                                "message_id": str(msg.id),
+                            }
+                        )
+                    else:
+                        results.append({"channel_id": str(chan_id), "status": "failed"})
+                except Exception as e:
+                    logger.exception(
+                        "Panel deploy failed for channel %s: %s",
+                        chan_id,
+                        e,
+                    )
                     results.append(
                         {
                             "channel_id": str(chan_id),
-                            "status": "deployed",
-                            "message_id": str(msg.id),
+                            "status": "error",
+                            "error": str(e),
                         }
-                    )
-                else:
-                    results.append(
-                        {"channel_id": str(chan_id), "status": "failed"}
                     )
 
             deployed = [r for r in results if r["status"] == "deployed"]
@@ -720,9 +734,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 guild_id,
                 exc_info=e,
             )
-            return web.json_response(
-                {"error": "Internal server error"}, status=500
-            )
+            return web.json_response({"error": "Internal server error"}, status=500)
 
         return web.json_response({"channels": channels_payload})
 
@@ -970,13 +982,17 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 raw_scheduled_events,
                 key=lambda item: str(item.get("scheduled_start_time") or ""),
             ):
-                events_payload.append(self._serialize_raw_scheduled_event(event_data, guild))
+                events_payload.append(
+                    self._serialize_raw_scheduled_event(event_data, guild)
+                )
         else:
             scheduled_events = await guild.fetch_scheduled_events()
             for event in sorted(
                 scheduled_events,
-                key=lambda item: getattr(item, "start_time", None)
-                or datetime.min.replace(tzinfo=UTC),
+                key=lambda item: (
+                    getattr(item, "start_time", None)
+                    or datetime.min.replace(tzinfo=UTC)
+                ),
             ):
                 events_payload.append(self._serialize_scheduled_event(event, guild))
 
@@ -1036,9 +1052,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             guild_id = int(request.match_info["guild_id"])
             event_id = int(request.match_info["event_id"])
         except (KeyError, ValueError):
-            return web.json_response(
-                {"error": "Invalid guild or event ID"}, status=400
-            )
+            return web.json_response({"error": "Invalid guild or event ID"}, status=400)
 
         guild = self.bot.get_guild(guild_id)
         if guild is None:
@@ -1061,9 +1075,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         try:
             scheduled_event = await guild.fetch_scheduled_event(event_id)
         except discord.NotFound:
-            return web.json_response(
-                {"error": "Scheduled event not found"}, status=404
-            )
+            return web.json_response({"error": "Scheduled event not found"}, status=404)
         except Exception as e:
             logger.exception(
                 "Failed to fetch scheduled event %s for guild %s",
@@ -1160,7 +1172,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             creator_id_raw = creator.get("id")
             creator_id = str(creator_id_raw) if creator_id_raw is not None else None
             creator_name_raw = creator.get("global_name") or creator.get("username")
-            creator_name = str(creator_name_raw) if creator_name_raw is not None else None
+            creator_name = (
+                str(creator_name_raw) if creator_name_raw is not None else None
+            )
 
         recurrence_payload = InternalAPIServer._serialize_recurrence_rule(
             event_data.get("recurrence_rule"),
@@ -1251,7 +1265,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 channel = guild.get_channel(channel_id)
 
         try:
-            cover_image_url = str(getattr(cover_image, "url", None)) if cover_image else None
+            cover_image_url = (
+                str(getattr(cover_image, "url", None)) if cover_image else None
+            )
         except Exception:
             cover_image_url = None
         if cover_image_url is None:
@@ -1348,7 +1364,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             )
             day_names: list[str] = []
             for weekday_raw in by_weekday_raw:
-                if isinstance(weekday_raw, int) and 0 <= weekday_raw < len(weekday_names):
+                if isinstance(weekday_raw, int) and 0 <= weekday_raw < len(
+                    weekday_names
+                ):
                     day_names.append(weekday_names[weekday_raw])
             if day_names:
                 return f"{frequency_label} on {', '.join(day_names)}"
@@ -1595,7 +1613,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             by_weekday: list[int] = []
             for day_raw in by_weekday_raw:
                 if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
-                    raise ValueError("recurrence_rule.by_weekday values must be integers")
+                    raise ValueError(
+                        "recurrence_rule.by_weekday values must be integers"
+                    )
                 day = int(day_raw)
                 if day < 0 or day > 6:
                     raise ValueError("recurrence_rule.by_weekday values must be 0-6")
@@ -1610,13 +1630,19 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             by_n_weekday: list[dict[str, int]] = []
             for item in by_n_weekday_raw:
                 if not isinstance(item, dict):
-                    raise TypeError("recurrence_rule.by_n_weekday values must be objects")
+                    raise TypeError(
+                        "recurrence_rule.by_n_weekday values must be objects"
+                    )
                 n_raw = item.get("n")
                 day_raw = item.get("day")
                 if not isinstance(n_raw, (int, str)) or not str(n_raw).strip():
-                    raise ValueError("recurrence_rule.by_n_weekday.n must be an integer")
+                    raise ValueError(
+                        "recurrence_rule.by_n_weekday.n must be an integer"
+                    )
                 if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
-                    raise ValueError("recurrence_rule.by_n_weekday.day must be an integer")
+                    raise ValueError(
+                        "recurrence_rule.by_n_weekday.day must be an integer"
+                    )
                 n_value = int(n_raw)
                 day_value = int(day_raw)
                 if n_value < 1 or n_value > 5:
@@ -1654,9 +1680,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     )
                 day = int(day_raw)
                 if day < 1 or day > 31:
-                    raise ValueError(
-                        "recurrence_rule.by_month_day values must be 1-31"
-                    )
+                    raise ValueError("recurrence_rule.by_month_day values must be 1-31")
                 by_month_day.append(day)
             if by_month_day:
                 normalized["by_month_day"] = by_month_day
@@ -1796,7 +1820,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         elif isinstance(location, str) and location.strip():
             embed.add_field(name="Location", value=location.strip(), inline=False)
 
-        embed.add_field(name="Event Link", value=f"[Open Event]({event_url})", inline=False)
+        embed.add_field(
+            name="Event Link", value=f"[Open Event]({event_url})", inline=False
+        )
         embed.set_footer(
             text=f"Created by {self._resolve_event_creator_name(event, created_by_name)}"
         )
@@ -1804,19 +1830,22 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
     async def _load_scheduled_event_request(
         self, request: web.Request
-    ) -> tuple[
-        discord.Guild,
-        dict[str, object],
-        str,
-        discord.EntityType,
-        datetime,
-        datetime | None,
-        discord.abc.GuildChannel | None,
-        str | None,
-        str | None,
-        dict[str, object] | None,
-        str | None,
-    ] | web.Response:
+    ) -> (
+        tuple[
+            discord.Guild,
+            dict[str, object],
+            str,
+            discord.EntityType,
+            datetime,
+            datetime | None,
+            discord.abc.GuildChannel | None,
+            str | None,
+            str | None,
+            dict[str, object] | None,
+            str | None,
+        ]
+        | web.Response
+    ):
         """Parse and validate a scheduled event request body."""
         try:
             guild_id = int(request.match_info["guild_id"])
@@ -1856,9 +1885,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
         end_time_raw = payload.get("scheduled_end_time")
         try:
-            end_time = (
-                self._parse_iso_datetime(end_time_raw) if end_time_raw else None
-            )
+            end_time = self._parse_iso_datetime(end_time_raw) if end_time_raw else None
         except ValueError as exc:
             return web.json_response({"error": str(exc)}, status=400)
 
@@ -1911,11 +1938,15 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 {"error": "Stage and voice events require a channel"}, status=400
             )
 
-        if entity_type is discord.EntityType.voice and not isinstance(channel, discord.VoiceChannel):
+        if entity_type is discord.EntityType.voice and not isinstance(
+            channel, discord.VoiceChannel
+        ):
             return web.json_response(
                 {"error": "Voice events require a voice channel"}, status=400
             )
-        if entity_type is discord.EntityType.stage_instance and not isinstance(channel, discord.StageChannel):
+        if entity_type is discord.EntityType.stage_instance and not isinstance(
+            channel, discord.StageChannel
+        ):
             return web.json_response(
                 {"error": "Stage events require a stage channel"}, status=400
             )
@@ -1989,7 +2020,10 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             if recurrence_rule is None and image_data is None:
                 event = await guild_any.create_scheduled_event(**create_kwargs)
             else:
-                event, raw_event_data = await self._create_scheduled_event_with_recurrence(
+                (
+                    event,
+                    raw_event_data,
+                ) = await self._create_scheduled_event_with_recurrence(
                     guild=guild,
                     name=name,
                     entity_type=entity_type,
@@ -2190,7 +2224,10 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             if recurrence_rule is None and image_data is None:
                 updated_event = await event_any.edit(**edit_kwargs)
             else:
-                updated_event, raw_event_data = await self._update_scheduled_event_with_recurrence(
+                (
+                    updated_event,
+                    raw_event_data,
+                ) = await self._update_scheduled_event_with_recurrence(
                     guild=guild,
                     event_id=event_id,
                     name=name,
@@ -2234,7 +2271,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
 
         self._invalidate_events_cache(guild.id)
         return web.json_response(
-            {"event": self._serialize_scheduled_event(updated_event, guild, raw_event_data)}
+            {
+                "event": self._serialize_scheduled_event(
+                    updated_event, guild, raw_event_data
+                )
+            }
         )
 
     async def delete_guild_scheduled_event(self, request: web.Request) -> web.Response:
@@ -2373,7 +2414,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             "name": name,
             "description": description,
             "scheduled_start_time": start_time.isoformat(),
-            "scheduled_end_time": end_time.isoformat() if end_time is not None else None,
+            "scheduled_end_time": end_time.isoformat()
+            if end_time is not None
+            else None,
             "entity_type": entity_type.value,
         }
         if channel is not None:
@@ -2694,7 +2737,9 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             admin_user_id = body.get("admin_user_id")
             log_leadership = body.get("log_leadership", True)
         except Exception:
-            logger.debug("No body or invalid JSON in recheck request, proceeding without admin_user_id")
+            logger.debug(
+                "No body or invalid JSON in recheck request, proceeding without admin_user_id"
+            )
 
         guild = self.bot.get_guild(guild_id)
         if guild is None:

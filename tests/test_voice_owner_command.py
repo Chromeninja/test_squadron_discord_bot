@@ -139,12 +139,8 @@ class TestVoiceOwnerCommand:
                 mock_members[owner_id] = member
 
             # Configure guild mocks
-            mock_guild.get_channel.side_effect = lambda channel_id: mock_channels.get(
-                channel_id
-            )
-            mock_guild.get_member.side_effect = lambda member_id: mock_members.get(
-                member_id
-            )
+            mock_guild.get_channel.side_effect = mock_channels.get
+            mock_guild.get_member.side_effect = mock_members.get
 
             # Call the command
             await voice_commands.list_owners.callback(voice_commands, mock_interaction)  # type: ignore[arg-type]
@@ -400,12 +396,8 @@ class TestVoiceOwnerCommand:
                     mock_members[owner_id] = member
 
                 # Configure guild mocks
-                mock_guild.get_channel.side_effect = (
-                    lambda channel_id: mock_channels.get(channel_id)
-                )
-                mock_guild.get_member.side_effect = lambda member_id: mock_members.get(
-                    member_id
-                )
+                mock_guild.get_channel.side_effect = mock_channels.get
+                mock_guild.get_member.side_effect = mock_members.get
 
                 # Call the command
                 await voice_commands.list_owners.callback(
