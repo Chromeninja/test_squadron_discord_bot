@@ -8,6 +8,12 @@ import {
   type ScheduledEventSummary,
 } from '../api/endpoints';
 import { Alert, Badge, Button, Card, CardBody, ConfirmationModal } from '../components/ui';
+import { EventSignupPanel } from '../components/events/EventSignupPanel';
+import { EventRoleManager } from '../components/events/EventRoleManager';
+import { EventRosterPanel } from '../components/events/EventRosterPanel';
+import { EventMessagePanel } from '../components/events/EventMessagePanel';
+import { EventSignupExportButton } from '../components/events/EventSignupExportButton';
+import { useAuth } from '../contexts/AuthContext';
 import { useRequestSequence } from '../hooks/useRequestSequence';
 import {
   formatEventDate,
@@ -45,6 +51,8 @@ function getEventConnectionLabel(
 
 function Events({ guildId, view = 'active' }: EventsProps) {
   const navigate = useNavigate();
+  const { userHasPermission } = useAuth();
+  const isCoordinator = userHasPermission('event_coordinator');
   const coreRequestSequence = useRequestSequence();
   const eventsRequestSequence = useRequestSequence();
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
@@ -215,21 +223,23 @@ function Events({ guildId, view = 'active' }: EventsProps) {
         eyebrow="Events"
         description={scheduledEventsSummary}
         actions={
-          <>
-            <Button onClick={() => navigate('/events/new')} variant="primary" size="sm">
-              New Event
-            </Button>
-            <Button
-              onClick={() => {
-                void handleSyncFromDiscord();
-              }}
-              loading={refreshing}
-              variant="secondary"
-              size="sm"
-            >
-              {refreshing ? 'Syncing...' : 'Sync From Discord'}
-            </Button>
-          </>
+          isCoordinator ? (
+            <>
+              <Button onClick={() => navigate('/events/new')} variant="primary" size="sm">
+                New Event
+              </Button>
+              <Button
+                onClick={() => {
+                  void handleSyncFromDiscord();
+                }}
+                loading={refreshing}
+                variant="secondary"
+                size="sm"
+              >
+                {refreshing ? 'Syncing...' : 'Sync From Discord'}
+              </Button>
+            </>
+          ) : undefined
         }
       />
 
@@ -255,9 +265,11 @@ function Events({ guildId, view = 'active' }: EventsProps) {
               <p className="max-w-2xl text-sm leading-6 text-slate-400">
                 {view === 'past'
                   ? 'Past events appear here after they end or move into a terminal status.'
-                  : 'Create an event or sync from Discord to bring the live schedule into this workspace.'}
+                  : isCoordinator
+                    ? 'Create an event or sync from Discord to bring the live schedule into this workspace.'
+                    : 'There are no active or upcoming events right now. Check back soon!'}
               </p>
-              {view === 'active' ? (
+              {view === 'active' && isCoordinator ? (
                 <div className="flex flex-wrap gap-3">
                   <Button variant="primary" onClick={() => navigate('/events/new')}>
                     Create Event
@@ -354,25 +366,59 @@ function Events({ guildId, view = 'active' }: EventsProps) {
                       ) : null}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        aria-label={`Edit ${event.name}`}
-                        onClick={() => navigate(`/events/${event.id}/edit`)}
-                      >
-                        Edit Event
-                      </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        aria-label={`Delete ${event.name}`}
-                        onClick={() => setEventPendingDelete(event)}
-                      >
-                        Delete Event
-                      </Button>
-                    </div>
+                    {isCoordinator ? (
+                      <div className="flex flex-wrap gap-2">
+                        <EventSignupExportButton guildId={guildId} eventId={event.id} />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          aria-label={`Edit ${event.name}`}
+                          onClick={() => navigate(`/events/${event.id}/edit`)}
+                        >
+                          Edit Event
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Delete ${event.name}`}
+                          onClick={() => setEventPendingDelete(event)}
+                        >
+                          Delete Event
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
+
+                  {/* Member signup controls (active/upcoming/recurring only) */}
+                  {!isPastEvent(event) ? (
+                    <EventSignupPanel
+                      guildId={guildId}
+                      event={event}
+                      canSignup
+                      onChanged={loadScheduledEvents}
+                    />
+                  ) : null}
+
+                  {/* Coordinator management panels */}
+                  {isCoordinator ? (
+                    <div className="space-y-4">
+                      <EventRoleManager
+                        guildId={guildId}
+                        eventId={event.id}
+                        onChanged={loadScheduledEvents}
+                      />
+                      <EventRosterPanel
+                        guildId={guildId}
+                        eventId={event.id}
+                        discordUserCount={event.user_count}
+                      />
+                      <EventMessagePanel
+                        guildId={guildId}
+                        eventId={event.id}
+                        channels={channels}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

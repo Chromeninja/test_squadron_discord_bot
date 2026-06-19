@@ -7,6 +7,9 @@ all table creation logic to ensure consistency and avoid duplication.
 
 import aiosqlite
 
+from services.db.migrations.event_signups_migration import (
+    _ensure_event_signup_columns,
+)
 from services.db.migrations.managed_events_migration import (
     _ensure_managed_event_columns,
 )
@@ -563,11 +566,16 @@ async def init_schema(db: aiosqlite.Connection) -> None:
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             deleted_at INTEGER DEFAULT NULL,
             recurrence_rule TEXT DEFAULT NULL,
-            recurrence_rule_payload TEXT DEFAULT NULL
+            recurrence_rule_payload TEXT DEFAULT NULL,
+            signups_enabled INTEGER NOT NULL DEFAULT 1,
+            signups_closed INTEGER NOT NULL DEFAULT 0,
+            allow_multiple_roles INTEGER NOT NULL DEFAULT 0,
+            signup_channel_id TEXT DEFAULT NULL
         )
         """
     )
     await _ensure_managed_event_columns(db)
+    await _ensure_event_signup_columns(db)
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_managed_events_guild ON managed_events(guild_id, deleted_at)"
     )
@@ -611,6 +619,81 @@ async def init_schema(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_managed_event_sync_audit_event ON managed_event_sync_audit(managed_event_id, created_at)"
+    )
+
+    # -------------------------------------------------------------------------
+    # Event web signups, roles, and role signups (dashboard-driven)
+    # -------------------------------------------------------------------------
+
+    # Whole-event interest signups (one row per user per event)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_signups (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id           INTEGER NOT NULL,
+            event_id           INTEGER NOT NULL,
+            user_id            TEXT    NOT NULL,
+            created_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            updated_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            created_by_user_id TEXT    DEFAULT NULL,
+            updated_by_user_id TEXT    DEFAULT NULL,
+            UNIQUE(guild_id, event_id, user_id),
+            FOREIGN KEY (event_id) REFERENCES managed_events(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_event_signups_event ON event_signups(guild_id, event_id)"
+    )
+
+    # Event-specific role slots created per event by coordinators
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_roles (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id           INTEGER NOT NULL,
+            event_id           INTEGER NOT NULL,
+            name               TEXT    NOT NULL,
+            emoji              TEXT    DEFAULT NULL,
+            description        TEXT    DEFAULT NULL,
+            capacity           INTEGER DEFAULT NULL,
+            sort_order         INTEGER NOT NULL DEFAULT 0,
+            locked             INTEGER NOT NULL DEFAULT 0,
+            created_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            updated_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            created_by_user_id TEXT    DEFAULT NULL,
+            updated_by_user_id TEXT    DEFAULT NULL,
+            FOREIGN KEY (event_id) REFERENCES managed_events(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_event_roles_event ON event_roles(guild_id, event_id)"
+    )
+
+    # Per-role signups
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_role_signups (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id           INTEGER NOT NULL,
+            event_id           INTEGER NOT NULL,
+            role_id            INTEGER NOT NULL,
+            user_id            TEXT    NOT NULL,
+            created_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            updated_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            created_by_user_id TEXT    DEFAULT NULL,
+            updated_by_user_id TEXT    DEFAULT NULL,
+            UNIQUE(guild_id, event_id, role_id, user_id),
+            FOREIGN KEY (role_id) REFERENCES event_roles(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_event_role_signups_event ON event_role_signups(guild_id, event_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_event_role_signups_role ON event_role_signups(guild_id, role_id)"
     )
 
     # Admin action audit log

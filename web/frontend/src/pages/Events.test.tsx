@@ -10,6 +10,20 @@ const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
     getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
+    getRoles: vi.fn(),
+    markInterest: vi.fn(),
+    withdrawInterest: vi.fn(),
+    signUpForRole: vi.fn(),
+    withdrawFromRole: vi.fn(),
+    getRoster: vi.fn(),
+    assignUser: vi.fn(),
+    removeUser: vi.fn(),
+    createRole: vi.fn(),
+    updateRole: vi.fn(),
+    deleteRole: vi.fn(),
+    updateEventSettings: vi.fn(),
+    sendMessage: vi.fn(),
+    exportSignups: vi.fn(),
   },
   guildApi: {
     getGuildInfo: vi.fn(),
@@ -68,6 +82,14 @@ describe('Events Page', () => {
     vi.mocked(useAuth).mockReturnValue({
       user: createUser(),
       getUserRoleLevel: () => 'event_coordinator',
+      userHasPermission: () => true,
+    });
+    vi.mocked(eventsApi.getRoles).mockResolvedValue({
+      success: true,
+      roles: [],
+      allow_multiple_roles: false,
+      signups_enabled: true,
+      signups_closed: false,
     });
     vi.mocked(guildApi.getGuildInfo).mockResolvedValue({
       success: true,

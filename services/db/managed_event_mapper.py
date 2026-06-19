@@ -9,6 +9,19 @@ if TYPE_CHECKING:
     import aiosqlite
 
 
+def _row_get(row: aiosqlite.Row, key: str, default: object | None = None) -> object | None:
+    """Safely read a column from a Row/dict, tolerating legacy rows.
+
+    aiosqlite.Row raises IndexError for unknown columns and dict raises
+    KeyError; both are treated as "column absent" so callers degrade to the
+    provided default (used for the signup setting columns on legacy rows).
+    """
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
+
+
 def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
     """Convert a managed event row into API-facing event payload fields."""
     recurrence_rule_payload_raw = row["recurrence_rule_payload"]
@@ -48,4 +61,10 @@ def managed_event_row_to_dict(row: aiosqlite.Row) -> dict[str, object | None]:
         "revision": int(row["revision"]),
         "recurrence_rule": row["recurrence_rule"],
         "recurrence_rule_payload": recurrence_rule_payload,
+        # Event-level web signup settings (defensive: legacy rows may predate
+        # these columns until the migration runs).
+        "signups_enabled": bool(_row_get(row, "signups_enabled", 1)),
+        "signups_closed": bool(_row_get(row, "signups_closed", 0)),
+        "allow_multiple_roles": bool(_row_get(row, "allow_multiple_roles", 0)),
+        "signup_channel_id": _row_get(row, "signup_channel_id", None),
     }

@@ -9,7 +9,77 @@ connections via the async context manager pattern.
 
 from __future__ import annotations
 
+import time
+from datetime import UTC, datetime
+
 from services.db.database import Database
+
+# Event statuses that mean the event is over and should never be shown to
+# regular guild members in the active/upcoming/recurring view.
+_TERMINAL_STATUSES = {"completed", "ended", "cancelled", "canceled"}
+# Statuses that keep an event visible even if its start time has passed.
+_EXPLICITLY_ACTIVE_STATUSES = {"active", "in_progress", "ongoing"}
+
+
+def _parse_iso_to_ts(value: object) -> float | None:
+    """Best-effort parse of an ISO 8601 datetime string to a unix timestamp."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
+
+
+def is_active_event(
+    event: dict[str, object | None], *, now: float | None = None
+) -> bool:
+    """Return True when an event is active/upcoming/recurring (not past).
+
+    This mirrors the frontend ``isPastEvent`` logic so backend enforcement and
+    UX filtering stay consistent:
+      - terminal statuses are always past
+      - recurring events (recurrence_rule set) are always active
+      - a one-off event whose end time has passed is past
+      - a one-off event whose start time has passed is past unless its status is
+        explicitly active
+
+    This function is the single choke point for event visibility decisions.
+
+    TODO(channel-visibility): a future pass can extend this to accept a user_id
+    and hide events whose attached Discord channel the user cannot view (hidden
+    or read-only channels). The guild_id and per-user request context are
+    intentionally available at the call sites so this can be added without a
+    schema change.
+    """
+    status = str(event.get("status") or "").lower()
+    if status in _TERMINAL_STATUSES:
+        return False
+
+    if event.get("recurrence_rule"):
+        return True
+
+    current = now if now is not None else time.time()
+
+    end_ts = _parse_iso_to_ts(event.get("scheduled_end_time"))
+    if end_ts is not None and end_ts < current:
+        return False
+
+    start_ts = _parse_iso_to_ts(event.get("scheduled_start_time"))
+    if (
+        start_ts is not None
+        and start_ts < current
+        and status not in _EXPLICITLY_ACTIVE_STATUSES
+    ):
+        return False
+
+    return True
 
 
 class EventRepository:
@@ -86,6 +156,72 @@ class EventRepository:
             updated_by_user_id=deleted_by_user_id,
             updated_by_name=deleted_by_name,
         )
+
+    async def list_active_events(self, guild_id: int) -> list[dict[str, object | None]]:
+        """Return active/upcoming/recurring events for a guild.
+
+        Regular guild members must only ever see these; past events are filtered
+        out here so visibility is enforced server-side rather than relying on the
+        frontend. See ``is_active_event`` for the filtering rules and the
+        channel-permission extension point.
+        """
+        events = await Database.list_managed_events_by_guild(guild_id)
+        return [event for event in events if is_active_event(event)]
+
+    async def update_settings(
+        self,
+        guild_id: int,
+        event_id: int,
+        settings: dict[str, object | None],
+        updated_by_user_id: str | None = None,
+        updated_by_name: str | None = None,
+    ) -> dict[str, object | None] | None:
+        """Update event-level signup settings without touching event content.
+
+        Recognized keys: signups_enabled, signups_closed, allow_multiple_roles,
+        signup_channel_id. Only keys present in ``settings`` are changed. Returns
+        the updated event dict, or None if the event does not exist.
+        """
+        allowed = {
+            "signups_enabled": bool,
+            "signups_closed": bool,
+            "allow_multiple_roles": bool,
+            "signup_channel_id": "raw",
+        }
+        set_clauses: list[str] = []
+        params: list[object | None] = []
+        for key, kind in allowed.items():
+            if key not in settings:
+                continue
+            value = settings[key]
+            if kind is bool:
+                value = 1 if value else 0
+            set_clauses.append(f"{key} = ?")
+            params.append(value)
+
+        if not set_clauses:
+            return await Database.get_managed_event(guild_id, event_id)
+
+        set_clauses.append("updated_at = ?")
+        params.append(int(time.time()))
+        if updated_by_user_id is not None:
+            set_clauses.append("updated_by_user_id = ?")
+            params.append(updated_by_user_id)
+        if updated_by_name is not None:
+            set_clauses.append("updated_by_name = ?")
+            params.append(updated_by_name)
+        params.extend([guild_id, event_id])
+
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                f"UPDATE managed_events SET {', '.join(set_clauses)} "
+                "WHERE guild_id = ? AND id = ? AND deleted_at IS NULL",
+                tuple(params),
+            )
+            await db.commit()
+            if cursor.rowcount <= 0:
+                return None
+        return await Database.get_managed_event(guild_id, event_id)
 
     async def get_pending_sync(self, guild_id: int) -> list[dict[str, object | None]]:
         """Return all non-deleted managed events for a guild that have pending sync status.

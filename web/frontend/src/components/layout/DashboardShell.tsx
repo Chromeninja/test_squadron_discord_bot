@@ -175,7 +175,10 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
   );
 
   const canViewMetrics = userHasPermission('discord_manager');
-  const canViewEvents = eventModuleEnabled && userHasPermission('event_coordinator');
+  // Any guild member may view the Events page; staff+ keep the rest of the nav.
+  const canViewDashboard = userHasPermission('staff');
+  const canViewEvents = eventModuleEnabled;
+  const canViewPastEvents = eventModuleEnabled && userHasPermission('event_coordinator');
   const dashboardBasePath =
     user.active_guild_id && user.active_guild_id !== ALL_GUILDS_SENTINEL
       ? `/dashboard/${encodeURIComponent(user.active_guild_id)}`
@@ -282,7 +285,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
             to: dashboardPath(),
             label: 'Dashboard',
             icon: <DashboardIcon />,
-            visible: true,
+            visible: canViewDashboard,
           },
           {
             to: dashboardPath('metrics'),
@@ -295,8 +298,18 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
       {
         title: 'Operations',
         items: [
-          { to: dashboardPath('users'), label: 'Users', icon: <UsersIcon />, visible: true },
-          { to: dashboardPath('voice'), label: 'Voice', icon: <VoiceIcon />, visible: true },
+          {
+            to: dashboardPath('users'),
+            label: 'Users',
+            icon: <UsersIcon />,
+            visible: userHasPermission('staff'),
+          },
+          {
+            to: dashboardPath('voice'),
+            label: 'Voice',
+            icon: <VoiceIcon />,
+            visible: userHasPermission('staff'),
+          },
           {
             to: dashboardPath('tickets'),
             label: 'Tickets',
@@ -318,7 +331,7 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
             to: dashboardPath('events/past'),
             label: 'Past Events',
             icon: <CalendarIcon />,
-            visible: canViewEvents,
+            visible: canViewPastEvents,
           },
         ],
       },
@@ -334,7 +347,14 @@ export function DashboardShell({ user, onUserChange, onRefreshProfile }: Dashboa
         ],
       },
     ],
-    [canViewEvents, canViewMetrics, dashboardPath, userHasPermission],
+    [
+      canViewDashboard,
+      canViewEvents,
+      canViewPastEvents,
+      canViewMetrics,
+      dashboardPath,
+      userHasPermission,
+    ],
   );
 
   const visibleSections = useMemo(

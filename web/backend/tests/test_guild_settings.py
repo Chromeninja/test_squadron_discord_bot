@@ -308,17 +308,23 @@ async def test_get_discord_scheduled_events_proxies_internal_api(
 
 
 @pytest.mark.asyncio
-async def test_get_discord_scheduled_events_requires_event_coordinator(
+async def test_get_discord_scheduled_events_allows_guild_members(
     client: AsyncClient,
     mock_staff_session: str,
 ) -> None:
-    """Staff users should not be allowed to access scheduled events."""
+    """Any authenticated guild member (incl. staff) may list scheduled events.
+
+    Visibility is now open to all members for the active/upcoming/recurring
+    view; coordinator-only actions remain gated elsewhere.
+    """
     response = await client.get(
         "/api/guilds/123/events/scheduled",
         cookies={"session": mock_staff_session},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert isinstance(response.json()["events"], list)
 
 
 @pytest.mark.asyncio

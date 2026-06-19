@@ -1,0 +1,339 @@
+"""Dashboard-facing event signup, roster, export, and messaging routes.
+
+Regular authenticated guild members may mark interest, sign up for roles, and
+view role state for active/upcoming/recurring events. Coordinator-only actions
+(roster, manual assignment, CSV export, channel messaging) require
+event_coordinator or higher. All permissions are enforced server-side; the
+EventSignupService is the single choke point for the business rules.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, TypeVar
+
+from core.dependencies import (
+    InternalAPIClient,
+    get_internal_api_client,
+    require_event_coordinator,
+    require_guild_permission,
+    translate_internal_api_error,
+)
+from core.event_signup_service import (
+    EventSignupService,
+    SignupError,
+    get_event_signup_service,
+)
+from core.role_utils import is_event_coordinator
+from core.schemas import (
+    EventMessageRequest,
+    EventMessageResponse,
+    EventRoleSignupRequest,
+    EventRolesResponse,
+    EventRosterResponse,
+    EventSignupResponse,
+    UserProfile,
+)
+from core.validation import ensure_guild_match
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+router = APIRouter(prefix="/api/guilds", tags=["guild-event-signups"])
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Shared alias so call sites read naturally.
+is_coordinator = is_event_coordinator
+
+
+async def _guard(awaitable: Awaitable[T]) -> T:
+    """Run a service coroutine, mapping SignupError to an HTTPException."""
+    try:
+        return await awaitable
+    except SignupError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+# ---------------------------------------------------------------------------
+# Regular member: whole-event interest
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{guild_id}/events/{event_id}/signup",
+    response_model=EventSignupResponse,
+    status_code=201,
+)
+async def mark_interest(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """Mark whole-event interest for the current user."""
+    ensure_guild_match(guild_id, current_user)
+    state = await _guard(
+        service.mark_interest(
+            guild_id,
+            event_id,
+            current_user.user_id,
+            is_coordinator=is_coordinator(current_user),
+        )
+    )
+    return EventSignupResponse(**state)
+
+
+@router.delete(
+    "/{guild_id}/events/{event_id}/signup",
+    response_model=EventSignupResponse,
+)
+async def withdraw_interest(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """Withdraw whole-event interest (hard delete) for the current user."""
+    ensure_guild_match(guild_id, current_user)
+    state = await _guard(
+        service.withdraw_interest(
+            guild_id,
+            event_id,
+            current_user.user_id,
+            is_coordinator=is_coordinator(current_user),
+        )
+    )
+    return EventSignupResponse(**state)
+
+
+# ---------------------------------------------------------------------------
+# Regular member: role list + role signup
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{guild_id}/events/{event_id}/roles",
+    response_model=EventRolesResponse,
+)
+async def list_event_roles(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """List roles for an event with counts and the current user's selections."""
+    ensure_guild_match(guild_id, current_user)
+    data = await _guard(
+        service.list_roles_with_state(
+            guild_id,
+            event_id,
+            current_user.user_id,
+            is_coordinator=is_coordinator(current_user),
+        )
+    )
+    return EventRolesResponse(**data)
+
+
+@router.post(
+    "/{guild_id}/events/{event_id}/role-signup",
+    response_model=EventRolesResponse,
+    status_code=201,
+)
+async def sign_up_for_role(
+    guild_id: int,
+    event_id: int,
+    payload: EventRoleSignupRequest,
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """Sign the current user up for a specific role."""
+    ensure_guild_match(guild_id, current_user)
+    coordinator = is_coordinator(current_user)
+    await _guard(
+        service.sign_up_for_role(
+            guild_id,
+            event_id,
+            payload.role_id,
+            current_user.user_id,
+            is_coordinator=coordinator,
+        )
+    )
+    data = await _guard(
+        service.list_roles_with_state(
+            guild_id,
+            event_id,
+            current_user.user_id,
+            is_coordinator=coordinator,
+        )
+    )
+    return EventRolesResponse(**data)
+
+
+@router.delete(
+    "/{guild_id}/events/{event_id}/role-signup/{role_id}",
+    response_model=EventRolesResponse,
+)
+async def withdraw_from_role(
+    guild_id: int,
+    event_id: int,
+    role_id: int,
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """Withdraw the current user from a specific role."""
+    ensure_guild_match(guild_id, current_user)
+    coordinator = is_coordinator(current_user)
+    await _guard(
+        service.withdraw_from_role(
+            guild_id,
+            event_id,
+            role_id,
+            current_user.user_id,
+            is_coordinator=coordinator,
+        )
+    )
+    data = await _guard(
+        service.list_roles_with_state(
+            guild_id,
+            event_id,
+            current_user.user_id,
+            is_coordinator=coordinator,
+        )
+    )
+    return EventRolesResponse(**data)
+
+
+# ---------------------------------------------------------------------------
+# Coordinator: roster, manual assignment, removal
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{guild_id}/events/{event_id}/roster",
+    response_model=EventRosterResponse,
+)
+async def get_event_roster(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    service: EventSignupService = Depends(get_event_signup_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Return the full coordinator roster (web signups + Discord RSVP count)."""
+    ensure_guild_match(guild_id, current_user)
+    data = await _guard(service.get_roster(guild_id, event_id, internal_api))
+    return EventRosterResponse(**data)
+
+
+@router.post(
+    "/{guild_id}/events/{event_id}/roster/assign",
+    response_model=EventRosterResponse,
+)
+async def assign_user_to_role(
+    guild_id: int,
+    event_id: int,
+    user_id: str = Body(..., embed=True),
+    role_id: int | None = Body(None, embed=True),
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    service: EventSignupService = Depends(get_event_signup_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Coordinator: assign a user to a role, or mark them interested (no role)."""
+    ensure_guild_match(guild_id, current_user)
+    if role_id is not None:
+        await _guard(
+            service.sign_up_for_role(
+                guild_id,
+                event_id,
+                role_id,
+                user_id,
+                is_coordinator=True,
+                acting_user_id=current_user.user_id,
+            )
+        )
+    else:
+        await _guard(
+            service.mark_interest(guild_id, event_id, user_id, is_coordinator=True)
+        )
+    data = await _guard(service.get_roster(guild_id, event_id, internal_api))
+    return EventRosterResponse(**data)
+
+
+@router.delete(
+    "/{guild_id}/events/{event_id}/roster/{user_id}",
+    response_model=EventRosterResponse,
+)
+async def remove_user_from_event(
+    guild_id: int,
+    event_id: int,
+    user_id: str,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    service: EventSignupService = Depends(get_event_signup_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Coordinator: fully remove a user from an event (interest + all roles)."""
+    ensure_guild_match(guild_id, current_user)
+    await _guard(service.remove_user_from_event(guild_id, event_id, user_id))
+    data = await _guard(service.get_roster(guild_id, event_id, internal_api))
+    return EventRosterResponse(**data)
+
+
+# ---------------------------------------------------------------------------
+# Coordinator: CSV export
+# ---------------------------------------------------------------------------
+@router.get("/{guild_id}/events/{event_id}/export")
+async def export_event_signups(
+    guild_id: int,
+    event_id: int,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    service: EventSignupService = Depends(get_event_signup_service),
+):
+    """Coordinator: export an event's web signups as CSV."""
+    ensure_guild_match(guild_id, current_user)
+    csv_text = await _guard(service.build_csv(guild_id, event_id))
+    filename = f"event_{event_id}_signups.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Coordinator: channel messaging
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{guild_id}/events/{event_id}/message",
+    response_model=EventMessageResponse,
+)
+async def send_event_message(
+    guild_id: int,
+    event_id: int,
+    payload: EventMessageRequest,
+    current_user: UserProfile = Depends(require_event_coordinator()),
+    service: EventSignupService = Depends(get_event_signup_service),
+    internal_api: InternalAPIClient = Depends(get_internal_api_client),
+):
+    """Coordinator: send a message to a signup segment in a chosen channel.
+
+    The bot validates it can send to the channel and posts the message with user
+    mentions. Messages are never sent as DMs.
+    """
+    ensure_guild_match(guild_id, current_user)
+    user_ids = await _guard(
+        service.resolve_message_targets(
+            guild_id, event_id, payload.target, payload.role_id
+        )
+    )
+    try:
+        channel_id = int(payload.channel_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid channel id") from exc
+
+    try:
+        result = await internal_api.send_channel_message(
+            guild_id, channel_id, payload.message, user_ids
+        )
+    except Exception as exc:
+        raise translate_internal_api_error(
+            exc, "Failed to send message to the selected channel"
+        ) from exc
+
+    return EventMessageResponse(recipients=int(result.get("recipients", len(user_ids))))

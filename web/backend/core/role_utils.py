@@ -193,3 +193,17 @@ def get_active_guild_permission(user: UserProfile) -> GuildPermission | None:
     if not user.active_guild_id:
         return None
     return user.authorized_guilds.get(user.active_guild_id)
+
+
+def is_event_coordinator(user: UserProfile) -> bool:
+    """Return True if the user is event_coordinator+ in their active guild.
+
+    Bot owners always qualify. Used to decide rule bypasses and which event set
+    (active-only vs. all) a request may see.
+    """
+    if getattr(user, "is_bot_owner", False):
+        return True
+    perm = get_active_guild_permission(user)
+    return perm is not None and _has_minimum_role(
+        perm.role_level, "event_coordinator"
+    )

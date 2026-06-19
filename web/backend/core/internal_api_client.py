@@ -505,6 +505,25 @@ class InternalAPIClient(MetricsMixin):
         response.raise_for_status()
         return response.json()
 
+    async def send_channel_message(
+        self,
+        guild_id: int,
+        channel_id: int,
+        message: str,
+        user_ids: list[str] | None = None,
+    ) -> dict:
+        """Ask the bot to send a message (with optional mentions) to a channel."""
+        client = await self._get_client()
+        payload: dict[str, object] = {"message": message, "user_ids": user_ids or []}
+        response = await self._retry_request(
+            lambda: client.post(
+                f"/guilds/{guild_id}/channels/{channel_id}/message",
+                json=payload,
+            )
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def leave_guild(self, guild_id: int) -> dict:
         """
         Make the bot leave a guild.

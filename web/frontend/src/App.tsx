@@ -61,6 +61,16 @@ function RequireGuild({ children }: { children: (guildId: string) => React.React
   return <>{children(activeGuildId)}</>;
 }
 
+/**
+ * Dashboard index: staff and above see the full Dashboard; regular members are
+ * sent straight to the Events page (the only area they may access).
+ */
+function DashboardIndexRoute() {
+  const { userHasPermission } = useAuth();
+  if (!userHasPermission('staff')) return <Navigate to="events" replace />;
+  return <Dashboard />;
+}
+
 function LegacyGuildRouteRedirect({ childPath }: { childPath: string }) {
   const { user } = useAuth();
 
@@ -269,8 +279,8 @@ function App() {
             </GuildScopeGate>
           }
         >
-          {/* Dashboard (index route) */}
-          <Route index element={<Dashboard />} />
+          {/* Dashboard (index route) — staff+ only; regular members land on Events */}
+          <Route index element={<DashboardIndexRoute />} />
 
           {/* Metrics — discord_manager+ */}
           <Route
@@ -282,17 +292,31 @@ function App() {
             }
           />
 
-          {/* Users */}
-          <Route path="users" element={<Users />} />
+          {/* Users — staff+ */}
+          <Route
+            path="users"
+            element={
+              <RequireRole minRole="staff">
+                <Users />
+              </RequireRole>
+            }
+          />
 
-          {/* Voice */}
-          <Route path="voice" element={<Voice />} />
+          {/* Voice — staff+ */}
+          <Route
+            path="voice"
+            element={
+              <RequireRole minRole="staff">
+                <Voice />
+              </RequireRole>
+            }
+          />
 
-          {/* Events - event_coordinator+ and needs guildId */}
+          {/* Events (active/upcoming/recurring) — any guild member */}
           <Route
             path="events"
             element={
-              <RequireRole minRole="event_coordinator">
+              <RequireRole minRole="user">
                 <RequireGuild>
                   {(guildId) => <Events guildId={guildId} view="active" />}
                 </RequireGuild>
