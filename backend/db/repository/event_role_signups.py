@@ -95,11 +95,17 @@ class EventRoleSignupRepository:
         role_id: int,
         user_id: str,
         created_by_user_id: str | None = None,
+        capacity: int | None = None,
     ) -> dict[str, object | None] | None:
-        """Insert a role signup. Returns the row, or None on duplicate.
+        """Insert a role signup. Returns the row, or None if not inserted.
 
-        Capacity, locked-role, and multiple-role rules are enforced by the
-        service layer before this is called.
+        Locked-role and multiple-role rules are enforced by the service layer.
+        Capacity is enforced here atomically: the conditional INSERT ... SELECT
+        counts existing signups in the same statement, so concurrent requests
+        cannot oversubscribe a role (pass capacity=None for no limit, e.g. for
+        coordinator manual assignment). A None return means either the user is
+        already signed up or the role is full — callers disambiguate via
+        get_role_signup.
         """
         now = int(time.time())
         async with Database.get_connection() as db:
@@ -108,7 +114,13 @@ class EventRoleSignupRepository:
                 INSERT OR IGNORE INTO event_role_signups (
                     guild_id, event_id, role_id, user_id,
                     created_at, updated_at, created_by_user_id, updated_by_user_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE ? IS NULL
+                   OR (
+                        SELECT COUNT(*) FROM event_role_signups
+                        WHERE guild_id = ? AND role_id = ?
+                      ) < ?
                 """,
                 (
                     guild_id,
@@ -119,6 +131,10 @@ class EventRoleSignupRepository:
                     now,
                     created_by_user_id,
                     created_by_user_id,
+                    capacity,
+                    guild_id,
+                    role_id,
+                    capacity,
                 ),
             )
             await db.commit()

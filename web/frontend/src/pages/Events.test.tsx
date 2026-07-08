@@ -343,7 +343,7 @@ describe('Events Page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New Event' }));
 
     await waitFor(() => {
-      expect(screen.getByText('New event')).toBeInTheDocument();
+      expect(screen.getByText('Create event')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Back to Events' })).toBeInTheDocument();
   });
@@ -357,6 +357,12 @@ describe('Events Page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Fleet Night' }));
 
+    await waitFor(() => {
+      expect(screen.getByText('Edit event')).toBeInTheDocument();
+    });
+    // Navigate to Event Info step to verify event data was loaded
+    fireEvent.click(screen.getByRole('button', { name: 'Event Info' }));
+    // Verify the event data was loaded by checking for the event topic input with the event name
     await waitFor(() => {
       expect(screen.getByDisplayValue('Fleet Night')).toBeInTheDocument();
     });

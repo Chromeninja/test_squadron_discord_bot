@@ -10,6 +10,8 @@ EventSignupService is the single choke point for the business rules.
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from typing import TYPE_CHECKING, TypeVar
 
 from core.dependencies import (
@@ -58,6 +60,44 @@ async def _guard(awaitable: Awaitable[T]) -> T:
 
 
 # ---------------------------------------------------------------------------
+# Per-user write rate limiting
+# ---------------------------------------------------------------------------
+# SQLite serializes writes, so member signup writes are kept bounded per user
+# to protect the DB (and Discord sync churn) from click-spam under high
+# concurrency. In-process sliding window: cheap, no new dependency, and with
+# multiple workers each process allows the full quota — acceptable slack for
+# an anti-abuse guard. Reads are never limited.
+_WRITE_RATE_LIMIT_MAX = 10
+_WRITE_RATE_LIMIT_WINDOW_SECONDS = 10.0
+_write_rate_buckets: dict[str, deque[float]] = {}
+
+
+def _enforce_signup_write_rate_limit(user_id: str) -> None:
+    """Raise 429 when a user exceeds the signup-write budget for the window."""
+    now = time.monotonic()
+    bucket = _write_rate_buckets.setdefault(user_id, deque())
+    while bucket and now - bucket[0] > _WRITE_RATE_LIMIT_WINDOW_SECONDS:
+        bucket.popleft()
+    if len(bucket) >= _WRITE_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many signup changes; wait a few seconds and try again.",
+        )
+    bucket.append(now)
+    # Keep the map from accumulating idle users indefinitely.
+    if len(_write_rate_buckets) > 50_000:
+        cutoff = now - _WRITE_RATE_LIMIT_WINDOW_SECONDS
+        stale = [u for u, b in _write_rate_buckets.items() if not b or b[-1] < cutoff]
+        for uid in stale:
+            _write_rate_buckets.pop(uid, None)
+
+
+def _reset_signup_write_rate_limits() -> None:
+    """Test hook: clear all rate-limit state."""
+    _write_rate_buckets.clear()
+
+
+# ---------------------------------------------------------------------------
 # Regular member: whole-event interest
 # ---------------------------------------------------------------------------
 @router.post(
@@ -73,6 +113,7 @@ async def mark_interest(
 ):
     """Mark whole-event interest for the current user."""
     ensure_guild_match(guild_id, current_user)
+    _enforce_signup_write_rate_limit(current_user.user_id)
     state = await _guard(
         service.mark_interest(
             guild_id,
@@ -96,6 +137,7 @@ async def withdraw_interest(
 ):
     """Withdraw whole-event interest (hard delete) for the current user."""
     ensure_guild_match(guild_id, current_user)
+    _enforce_signup_write_rate_limit(current_user.user_id)
     state = await _guard(
         service.withdraw_interest(
             guild_id,
@@ -147,6 +189,7 @@ async def sign_up_for_role(
 ):
     """Sign the current user up for a specific role."""
     ensure_guild_match(guild_id, current_user)
+    _enforce_signup_write_rate_limit(current_user.user_id)
     coordinator = is_coordinator(current_user)
     await _guard(
         service.sign_up_for_role(
@@ -181,6 +224,7 @@ async def withdraw_from_role(
 ):
     """Withdraw the current user from a specific role."""
     ensure_guild_match(guild_id, current_user)
+    _enforce_signup_write_rate_limit(current_user.user_id)
     coordinator = is_coordinator(current_user)
     await _guard(
         service.withdraw_from_role(

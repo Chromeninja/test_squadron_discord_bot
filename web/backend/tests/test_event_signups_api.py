@@ -432,3 +432,224 @@ async def test_coordinator_message_targets_signups(
     assert resp.json()["recipients"] == 1
     assert sent["user_ids"] == ["700000001"]
     assert sent["channel_id"] == 555000111
+
+
+@pytest.mark.asyncio
+async def test_message_target_group_resolution(
+    client, temp_db, sessions, fake_internal_api
+):
+    """no_role / role / all_roles targets resolve to the right user sets."""
+    eid = await _create_event("TargetEvent", start_days=1, end_days=2)
+    coord = sessions["coordinator"]
+    role_id = (await _create_role(client, coord, eid, capacity=4)).json()["id"]
+
+    # user1 joins the role; user2 marks interest only.
+    await client.post(
+        f"/api/guilds/{GUILD}/events/{eid}/role-signup",
+        cookies={"session": sessions["user"]},
+        json={"role_id": role_id},
+    )
+    await client.post(
+        f"/api/guilds/{GUILD}/events/{eid}/signup",
+        cookies={"session": sessions["user2"]},
+    )
+
+    sent_batches = []
+
+    async def _send(guild_id, channel_id, message, user_ids=None):
+        sent_batches.append(sorted(user_ids or []))
+        return {"success": True, "recipients": len(user_ids or [])}
+
+    fake_internal_api.send_channel_message = _send
+
+    async def _message(target, **extra):
+        return await client.post(
+            f"/api/guilds/{GUILD}/events/{eid}/message",
+            cookies={"session": coord},
+            json={
+                "channel_id": "555000111",
+                "message": "Hi",
+                "target": target,
+                **extra,
+            },
+        )
+
+    assert (await _message("no_role")).status_code == 200
+    assert sent_batches[-1] == ["700000002"]
+
+    assert (await _message("role", role_id=role_id)).status_code == 200
+    assert sent_batches[-1] == ["700000001"]
+
+    assert (await _message("all_roles")).status_code == 200
+    assert sent_batches[-1] == ["700000001"]
+
+    # target=role without role_id is a validation error.
+    missing = await _message("role")
+    assert missing.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Validation and visibility edge cases
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_role_field_validation(client, temp_db, sessions):
+    eid = await _create_event("ValidationEvent", start_days=1, end_days=2)
+    coord = sessions["coordinator"]
+
+    too_long = await _create_role(client, coord, eid, name="x" * 41)
+    assert too_long.status_code == 422
+
+    control_emoji = await _create_role(client, coord, eid, emoji="a\x00b")
+    assert control_emoji.status_code == 422
+
+    zero_capacity = await _create_role(client, coord, eid, capacity=0)
+    assert zero_capacity.status_code == 422
+
+    # Custom Discord emoji strings remain valid.
+    custom = await _create_role(client, coord, eid, emoji="<:medic:1234>")
+    assert custom.status_code == 201, custom.text
+
+
+@pytest.mark.asyncio
+async def test_recurring_event_visible_despite_past_start(client, temp_db, sessions):
+    """A recurring event stays visible to regular members after its start passes."""
+    from services.db.database import Database
+
+    eid = await _create_event("WeeklyOps", start_days=-3, end_days=-3)
+    async with Database.get_connection() as db:
+        await db.execute(
+            "UPDATE managed_events SET recurrence_rule = ? WHERE guild_id = ? AND id = ?",
+            ("Weekly on Friday", GUILD_INT, eid),
+        )
+        await db.commit()
+
+    listed = await client.get(
+        f"/api/guilds/{GUILD}/events/scheduled",
+        cookies={"session": sessions["user"]},
+    )
+    assert listed.status_code == 200, listed.text
+    assert "WeeklyOps" in {e["name"] for e in listed.json()["events"]}
+
+    detail = await client.get(
+        f"/api/guilds/{GUILD}/events/scheduled/{eid}",
+        cookies={"session": sessions["user"]},
+    )
+    assert detail.status_code == 200, detail.text
+
+
+# ---------------------------------------------------------------------------
+# Capacity: atomic enforcement + coordinator bypass
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_capacity_enforced_atomically_in_repository(client, temp_db, sessions):
+    """The conditional INSERT refuses once full, without a service-layer pre-check."""
+    from backend.db.repository.event_role_signups import EventRoleSignupRepository
+
+    eid = await _create_event("AtomicEvent", start_days=1, end_days=2)
+    role_id = (
+        await _create_role(client, sessions["coordinator"], eid, capacity=1)
+    ).json()["id"]
+    repo = EventRoleSignupRepository()
+
+    first = await repo.create_role_signup(GUILD_INT, eid, role_id, "800001", capacity=1)
+    assert first is not None
+    # Second insert hits the capacity condition inside the same SQL statement,
+    # so even interleaved requests cannot pass a stale count check.
+    second = await repo.create_role_signup(
+        GUILD_INT, eid, role_id, "800002", capacity=1
+    )
+    assert second is None
+    assert await repo.count_for_role(GUILD_INT, role_id) == 1
+
+    # capacity=None (coordinator path) bypasses the limit.
+    third = await repo.create_role_signup(
+        GUILD_INT, eid, role_id, "800003", capacity=None
+    )
+    assert third is not None
+    assert await repo.count_for_role(GUILD_INT, role_id) == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_role_signups_respect_capacity(client, temp_db, sessions):
+    """25 truly concurrent signups against capacity=5 admit exactly 5 users."""
+    import asyncio
+
+    from backend.db.repository.event_role_signups import EventRoleSignupRepository
+
+    eid = await _create_event("RaceEvent", start_days=1, end_days=2)
+    role_id = (
+        await _create_role(client, sessions["coordinator"], eid, capacity=5)
+    ).json()["id"]
+    repo = EventRoleSignupRepository()
+
+    results = await asyncio.gather(
+        *(
+            repo.create_role_signup(GUILD_INT, eid, role_id, f"90{i:04d}", capacity=5)
+            for i in range(25)
+        )
+    )
+    admitted = [r for r in results if r is not None]
+    assert len(admitted) == 5
+    assert await repo.count_for_role(GUILD_INT, role_id) == 5
+
+
+@pytest.mark.asyncio
+async def test_signup_write_rate_limit(client, temp_db, sessions):
+    """A burst of signup writes beyond the per-user budget returns 429."""
+    eid = await _create_event("BurstEvent", start_days=1, end_days=2)
+    cookies = {"session": sessions["user"]}
+
+    # Alternate signup/withdraw so every request is a valid write.
+    for i in range(10):
+        if i % 2 == 0:
+            resp = await client.post(
+                f"/api/guilds/{GUILD}/events/{eid}/signup", cookies=cookies
+            )
+            assert resp.status_code == 201, resp.text
+        else:
+            resp = await client.request(
+                "DELETE", f"/api/guilds/{GUILD}/events/{eid}/signup", cookies=cookies
+            )
+            assert resp.status_code == 200, resp.text
+
+    over = await client.post(
+        f"/api/guilds/{GUILD}/events/{eid}/signup", cookies=cookies
+    )
+    assert over.status_code == 429
+
+    # Reads are never rate limited.
+    listed = await client.get(f"/api/guilds/{GUILD}/events/scheduled", cookies=cookies)
+    assert listed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_coordinator_assign_bypasses_capacity_and_lock(
+    client, temp_db, sessions, fake_internal_api
+):
+    eid = await _create_event("AssignEvent", start_days=1, end_days=2)
+    coord = sessions["coordinator"]
+    role_id = (await _create_role(client, coord, eid, capacity=1, locked=True)).json()[
+        "id"
+    ]
+
+    async def _assign(user_id):
+        return await client.post(
+            f"/api/guilds/{GUILD}/events/{eid}/roster/assign",
+            cookies={"session": coord},
+            json={"user_id": user_id, "role_id": role_id},
+        )
+
+    # Locked role + capacity 1: coordinator can still place two users.
+    assert (await _assign("700000001")).status_code == 200
+    over = await _assign("700000002")
+    assert over.status_code == 200, over.text
+    role_block = next(r for r in over.json()["roles"] if r["role_id"] == role_id)
+    assert {u["user_id"] for u in role_block["users"]} == {"700000001", "700000002"}
+
+    # A regular member is still blocked by the lock.
+    blocked = await client.post(
+        f"/api/guilds/{GUILD}/events/{eid}/role-signup",
+        cookies={"session": sessions["user2"]},
+        json={"role_id": role_id},
+    )
+    assert blocked.status_code == 403

@@ -53,6 +53,13 @@ export function EventRoleManager({ guildId, eventId, onChanged }: EventRoleManag
       toast.error('Role name is required.');
       return;
     }
+    if (draft.capacity.trim()) {
+      const capacity = Number(draft.capacity);
+      if (!Number.isInteger(capacity) || capacity < 1) {
+        toast.error('Capacity must be a positive whole number.');
+        return;
+      }
+    }
     setCreating(true);
     try {
       await eventsApi.createRole(guildId, eventId, {

@@ -26,4 +26,8 @@ COPY --from=frontend --chown=app:app /build/dist /app/web/frontend/dist
 RUN mkdir -p /app/data && chown -R app:app /app
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# WEB_CONCURRENCY controls uvicorn worker processes. SQLite runs in WAL mode
+# (concurrent readers, single writer) and sessions live in the DB, so multiple
+# workers are safe; raise this with available cores for high-concurrency use.
+ENV WEB_CONCURRENCY=2
+CMD uvicorn app:app --host 0.0.0.0 --port 8000 --workers "${WEB_CONCURRENCY}"

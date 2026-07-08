@@ -204,6 +204,4 @@ def is_event_coordinator(user: UserProfile) -> bool:
     if getattr(user, "is_bot_owner", False):
         return True
     perm = get_active_guild_permission(user)
-    return perm is not None and _has_minimum_role(
-        perm.role_level, "event_coordinator"
-    )
+    return perm is not None and _has_minimum_role(perm.role_level, "event_coordinator")

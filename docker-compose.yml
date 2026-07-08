@@ -22,6 +22,7 @@ services:
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
       - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI:-http://localhost:8000/auth/discord/callback}
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2}
     volumes:
       - ./data:/app/data
     healthcheck:

@@ -334,13 +334,23 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
 - **Live Role-Based Access Control**: Access enforced based on Discord roles
   - **Bot Admin** & **Moderator**: Full administrative access (user recheck, voice reset, logs export)
   - **Discord Manager+**: Metrics dashboard access (leaderboards, time-series, per-user detail and deletion)
+  - **Event Coordinator & Higher**: Event management (create/edit/delete events, signup roles, rosters, CSV export, channel messaging)
   - **Staff & Higher**: Read-only dashboard access (statistics, user search, voice management — excludes metrics)
-  - **Regular Users**: No dashboard access
+  - **Regular Guild Members**: Events page only — after login they land on Events, see active/upcoming/recurring events, and can sign up; every other page and all past events remain gated server-side
 - **Live Role Validation**: Access immediately revoked if Discord roles change (TTL: 30 seconds)
 - **Dashboard Overview**: View verification statistics and active voice channels
 - **User Management**: Search, recheck, and export verification records by user ID, RSI handle, or community moniker
 - **Voice Channel Management**: View and search voice channels by user ID, with moderator-level reset capabilities
 - **Permission-Aware UI**: Buttons hidden for users without required permissions
+
+### Event Manager
+
+Events are stored DB-first in `managed_events` and projected to Discord scheduled events via a pending-sync loop (`sync_status` is visible per event in the dashboard).
+
+- **Member signups**: any guild member can mark "I'm Interested" on an active/upcoming/recurring event and withdraw at any time (withdrawals are hard-deleted)
+- **Signup roles**: coordinators define free-form role slots per event (name ≤ 40 chars, optional emoji and description, optional capacity, lockable) — during event creation/editing or from the Events page
+- **Rules enforced server-side**: role capacity (atomic, race-safe), locked roles, one-role vs multiple-role mode, and closed signups; a role signup always implies whole-event interest
+- **Coordinator tools**: full roster (interested + per-role), manual assign/remove (bypasses capacity/lock for roster management), CSV export, and messaging signup groups (`all` / `no_role` / specific role / `all_roles`) through a guild channel — never DMs; message content is not stored
 
 ### Quick Start
 

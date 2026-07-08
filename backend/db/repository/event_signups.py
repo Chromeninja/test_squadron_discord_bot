@@ -57,6 +57,40 @@ class EventSignupRepository:
             rows = await cursor.fetchall()
             return [_row_to_signup(row) for row in rows]
 
+    async def count_signups_by_event(self, guild_id: int) -> dict[int, int]:
+        """Return signup counts for every event in a guild in one query.
+
+        Used by the event list endpoint so per-request DB work stays constant
+        regardless of how many events a guild has.
+        """
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT event_id, COUNT(*) FROM event_signups
+                WHERE guild_id = ?
+                GROUP BY event_id
+                """,
+                (guild_id,),
+            )
+            rows = await cursor.fetchall()
+            return {int(row[0]): int(row[1]) for row in rows}
+
+    async def list_signups_for_user(
+        self, guild_id: int, user_id: str
+    ) -> dict[int, dict[str, object | None]]:
+        """Return the user's whole-event signups keyed by event_id (one query)."""
+        async with Database.get_connection() as db:
+            cursor = await db.execute(
+                """
+                SELECT * FROM event_signups
+                WHERE guild_id = ? AND user_id = ?
+                """,
+                (guild_id, str(user_id)),
+            )
+            rows = await cursor.fetchall()
+            signups = [_row_to_signup(row) for row in rows]
+            return {int(str(s["event_id"])): s for s in signups}
+
     async def count_signups(self, guild_id: int, event_id: int) -> int:
         """Return the number of whole-event signups for an event."""
         async with Database.get_connection() as db:

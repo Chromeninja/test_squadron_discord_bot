@@ -20,6 +20,35 @@ _TERMINAL_STATUSES = {"completed", "ended", "cancelled", "canceled"}
 # Statuses that keep an event visible even if its start time has passed.
 _EXPLICITLY_ACTIVE_STATUSES = {"active", "in_progress", "ongoing"}
 
+# Short-TTL per-guild cache for the managed-events list. The event list is the
+# hottest dashboard read (every user hits it on login) while events change
+# rarely, so a few seconds of staleness is invisible to users but collapses DB
+# load under high concurrency. Web-process writes invalidate immediately;
+# bot-process writes (Discord sync) become visible within the TTL. The cache
+# is per-process, which keeps it safe across multiple uvicorn workers.
+_EVENTS_CACHE_TTL_SECONDS = 5.0
+_events_cache: dict[int, tuple[float, list[dict[str, object | None]]]] = {}
+
+
+def invalidate_events_cache(guild_id: int) -> None:
+    """Drop the cached event list for a guild after any event write."""
+    _events_cache.pop(guild_id, None)
+
+
+async def _list_events_cached(guild_id: int) -> list[dict[str, object | None]]:
+    """Return the guild's managed events, cached for a few seconds.
+
+    Returns per-call dict copies because callers mutate the event payloads
+    (signup state attachment) — the cached originals must stay pristine.
+    """
+    now = time.monotonic()
+    cached = _events_cache.get(guild_id)
+    if cached is not None and now - cached[0] < _EVENTS_CACHE_TTL_SECONDS:
+        return [dict(event) for event in cached[1]]
+    events = await Database.list_managed_events_by_guild(guild_id)
+    _events_cache[guild_id] = (now, events)
+    return [dict(event) for event in events]
+
 
 def _parse_iso_to_ts(value: object) -> float | None:
     """Best-effort parse of an ISO 8601 datetime string to a unix timestamp."""
@@ -93,7 +122,7 @@ class EventRepository:
 
     async def get_managed_events(self, guild_id: int) -> list[dict[str, object | None]]:
         """Return all non-deleted managed events for a guild ordered by start time."""
-        return await Database.list_managed_events_by_guild(guild_id)
+        return await _list_events_cached(guild_id)
 
     async def get_managed_event(
         self, guild_id: int, event_id: int
@@ -105,6 +134,7 @@ class EventRepository:
         self, guild_id: int, event_data: dict[str, object | None]
     ) -> dict[str, object | None]:
         """Upsert a managed event from a Discord payload (uses discord_event_id as key)."""
+        invalidate_events_cache(guild_id)
         return await Database.upsert_managed_event_from_discord(guild_id, event_data)
 
     async def create(
@@ -115,6 +145,7 @@ class EventRepository:
         created_by_name: str | None = None,
     ) -> dict[str, object | None]:
         """Create a new managed event row with pending projection state."""
+        invalidate_events_cache(guild_id)
         return await Database.create_managed_event(
             guild_id=guild_id,
             payload=event_data,
@@ -134,6 +165,7 @@ class EventRepository:
 
         Returns the updated event dict, or None if the event was not found.
         """
+        invalidate_events_cache(guild_id)
         return await Database.update_managed_event(
             guild_id=guild_id,
             event_id=event_id,
@@ -150,6 +182,7 @@ class EventRepository:
         deleted_by_name: str | None = None,
     ) -> bool:
         """Soft-delete a managed event row. Returns True if a row was deleted."""
+        invalidate_events_cache(guild_id)
         return await Database.delete_managed_event(
             guild_id=guild_id,
             event_id=event_id,
@@ -165,7 +198,7 @@ class EventRepository:
         frontend. See ``is_active_event`` for the filtering rules and the
         channel-permission extension point.
         """
-        events = await Database.list_managed_events_by_guild(guild_id)
+        events = await _list_events_cached(guild_id)
         return [event for event in events if is_active_event(event)]
 
     async def update_settings(
@@ -221,6 +254,7 @@ class EventRepository:
             await db.commit()
             if cursor.rowcount <= 0:
                 return None
+        invalidate_events_cache(guild_id)
         return await Database.get_managed_event(guild_id, event_id)
 
     async def get_pending_sync(self, guild_id: int) -> list[dict[str, object | None]]:

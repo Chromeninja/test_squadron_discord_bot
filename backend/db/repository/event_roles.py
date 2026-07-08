@@ -96,8 +96,8 @@ class EventRoleRepository:
                     str(data.get("name") or ""),
                     data.get("emoji"),
                     data.get("description"),
-                    int(capacity) if capacity is not None else None,
-                    int(data.get("sort_order") or 0),
+                    int(str(capacity)) if capacity is not None else None,
+                    int(str(data.get("sort_order") or 0)),
                     1 if data.get("locked") else 0,
                     now,
                     now,
@@ -134,9 +134,9 @@ class EventRoleRepository:
             if field == "locked":
                 value = 1 if value else 0
             elif field == "capacity":
-                value = int(value) if value is not None else None
+                value = int(str(value)) if value is not None else None
             elif field == "sort_order":
-                value = int(value or 0)
+                value = int(str(value or 0))
             set_clauses.append(f"{field} = ?")
             params.append(value)
 

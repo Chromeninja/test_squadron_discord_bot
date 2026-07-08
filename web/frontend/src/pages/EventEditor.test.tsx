@@ -192,7 +192,7 @@ describe('EventEditor Page', () => {
     vi.mocked(eventsApi.createScheduledEvent).mockResolvedValue({
       success: true,
       event: {
-        id: '777',
+        id: '555',
         name: 'Created Event',
         description: null,
         scheduled_start_time: '2099-04-10T20:00:00+00:00',
@@ -229,6 +229,17 @@ describe('EventEditor Page', () => {
     });
     vi.mocked(eventsApi.deleteScheduledEvent).mockResolvedValue({
       success: true,
+    });
+    vi.mocked(eventsApi.createRole).mockResolvedValue({
+      id: 1,
+      event_id: 777,
+      name: 'Medic',
+      emoji: null,
+      description: null,
+      capacity: null,
+      signup_count: 0,
+      locked: false,
+      current_user_signed_up: false,
     });
   });
 
@@ -680,6 +691,98 @@ describe('EventEditor Page', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('Fleet Night')).not.toBeInTheDocument();
+    });
+  });
+
+  it('creates draft roles after event creation', async () => {
+    vi.mocked(eventsApi.createScheduledEvent).mockResolvedValue({
+      success: true,
+      event: {
+        id: '555',
+        name: 'New Event',
+        description: null,
+        scheduled_start_time: '2099-04-10T20:00:00+00:00',
+        scheduled_end_time: null,
+        status: 'scheduled',
+        entity_type: 'voice',
+        channel_id: '11',
+        channel_name: 'Event Voice',
+        location: null,
+        user_count: 0,
+        creator_id: '444333222',
+        creator_name: 'Coordinator',
+        image_url: null,
+      },
+    });
+
+    renderWithRouter('/events/new');
+
+    await waitFor(() => {
+      expect(guildApi.getGuildInfo).toHaveBeenCalledWith('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Event Topic'), {
+      target: { value: 'Event with Roles' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: '2026-04-10' },
+    });
+    fireEvent.change(screen.getByLabelText('Start Time'), {
+      target: { value: '20:00' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByPlaceholderText('Role name'), {
+      target: { value: 'Medic' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Role' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Medic')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Event' }));
+
+    await waitFor(() => {
+      expect(eventsApi.createScheduledEvent).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          name: 'Event with Roles',
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(eventsApi.createRole).toHaveBeenCalledWith(
+        '123',
+        '555',
+        expect.objectContaining({
+          name: 'Medic',
+        }),
+      );
+    });
+  });
+
+  it('shows live role manager in edit mode', async () => {
+    renderWithRouter('/events/555/edit');
+
+    await waitFor(() => {
+      expect(eventsApi.getScheduledEvent).toHaveBeenCalledWith('123', '555');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Manage roles')).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(eventsApi.getRoles).toHaveBeenCalledWith('123', '555');
     });
   });
 });

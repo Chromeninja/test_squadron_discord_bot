@@ -900,3 +900,25 @@ def fake_internal_api(monkeypatch):
     # Cleanup
     _member_cache.clear()
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_event_caches():
+    """Clear event-related process-level caches so tests stay isolated.
+
+    Each test gets a fresh temp DB, but the events-list/signup-count caches
+    and the signup write rate limiter live at module level and would leak
+    state (and stale rows from a previous test's DB) between tests.
+    """
+    from core import event_signup_service as signup_service
+    from routes import guild_event_signups as signup_routes
+
+    from backend.db.repository import events as events_repo
+
+    events_repo._events_cache.clear()
+    signup_service._signup_counts_cache.clear()
+    signup_routes._reset_signup_write_rate_limits()
+    yield
+    events_repo._events_cache.clear()
+    signup_service._signup_counts_cache.clear()
+    signup_routes._reset_signup_write_rate_limits()

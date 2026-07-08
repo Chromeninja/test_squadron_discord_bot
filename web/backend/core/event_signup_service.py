@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from backend.db.repository.event_role_signups import EventRoleSignupRepository
 from backend.db.repository.event_roles import EventRoleRepository
 from backend.db.repository.event_signups import EventSignupRepository
-from backend.db.repository.events import is_active_event
+from backend.db.repository.events import invalidate_events_cache, is_active_event
 from services.db.database import Database
 
 if TYPE_CHECKING:
@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 
 # Marker delimiting the bot-managed signup summary appended to event descriptions.
 SIGNUP_SUMMARY_MARKER = "--- TEST Event Signups ---"
+
+# Short-TTL per-guild cache of signup counts grouped by event, paired with the
+# events-list cache in backend/db/repository/events.py so the event list
+# endpoint costs ~zero DB work at steady state. Invalidated on every signup
+# write in this process (all writes funnel through _refresh_event_description);
+# a few seconds of count staleness is acceptable and self-heals.
+_SIGNUP_COUNTS_TTL_SECONDS = 5.0
+_signup_counts_cache: dict[int, tuple[float, dict[int, int]]] = {}
+
+
+def _invalidate_signup_caches(guild_id: int) -> None:
+    """Drop cached signup counts (and the events list) after a signup write."""
+    _signup_counts_cache.pop(guild_id, None)
+    invalidate_events_cache(guild_id)
 
 
 class SignupError(Exception):
@@ -204,21 +218,25 @@ class EventSignupService:
                     raise SignupError(
                         409, "Only one role signup is allowed for this event"
                     )
-            capacity = role["capacity"]
-            if capacity is not None:
-                current = await self.role_signups.count_for_role(guild_id, role_id)
-                if current >= int(capacity):
-                    raise SignupError(409, "This role is full")
 
+        # Capacity is enforced atomically inside the INSERT so concurrent
+        # signups cannot oversubscribe a role; coordinators bypass the limit.
+        capacity = None if is_coordinator else role["capacity"]
         created = await self.role_signups.create_role_signup(
             guild_id,
             event_id,
             role_id,
             user_id,
             created_by_user_id=acting_user_id or user_id,
+            capacity=int(capacity) if capacity is not None else None,
         )
         if created is None:
-            raise SignupError(409, "Already signed up for this role")
+            duplicate = await self.role_signups.get_role_signup(
+                guild_id, role_id, user_id
+            )
+            if duplicate is not None:
+                raise SignupError(409, "Already signed up for this role")
+            raise SignupError(409, "This role is full")
 
         # A role signup implies whole-event interest; ensure the row exists.
         await self.signups.create_signup(
@@ -260,19 +278,33 @@ class EventSignupService:
         events: list[dict[str, object | None]],
         user_id: str,
     ) -> list[dict[str, object | None]]:
-        """Augment each event dict with web signup count and current-user state."""
+        """Augment each event dict with web signup count and current-user state.
+
+        Uses two guild-wide batched queries (counts grouped by event, plus the
+        user's own signups) so the event list endpoint costs a constant number
+        of queries no matter how many events a guild has — this is the hottest
+        read path in the dashboard.
+        """
+        if not events:
+            return events
+        now = time.monotonic()
+        cached = _signup_counts_cache.get(guild_id)
+        if cached is not None and now - cached[0] < _SIGNUP_COUNTS_TTL_SECONDS:
+            counts = cached[1]
+        else:
+            counts = await self.signups.count_signups_by_event(guild_id)
+            _signup_counts_cache[guild_id] = (now, counts)
+        user_signups = await self.signups.list_signups_for_user(guild_id, user_id)
         for event in events:
             try:
                 event_id = int(str(event.get("id")))
             except (TypeError, ValueError):
                 continue
-            signup = await self.signups.get_signup(guild_id, event_id, user_id)
-            event["web_signup_count"] = await self.signups.count_signups(
-                guild_id, event_id
-            )
+            signup = user_signups.get(event_id)
+            event["web_signup_count"] = counts.get(event_id, 0)
             event["current_user_signed_up"] = signup is not None
             event["current_user_signup_id"] = (
-                int(signup["id"]) if signup is not None else None
+                int(str(signup["id"])) if signup is not None else None
             )
         return events
 
@@ -504,6 +536,9 @@ class EventSignupService:
         updates to a scheduled event description without a full event replace,
         push the summary directly here. For now we rely on the pending-sync loop.
         """
+        # Every signup mutation funnels through here, making it the single
+        # invalidation point for the signup-count and events-list caches.
+        _invalidate_signup_caches(guild_id)
         try:
             event = await Database.get_managed_event(guild_id, event_id)
             if event is None:

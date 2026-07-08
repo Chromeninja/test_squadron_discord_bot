@@ -1,8 +1,27 @@
 """Scheduled event and synchronization schemas."""
 
+import unicodedata
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _sanitize_role_emoji(value: str | None) -> str | None:
+    """Normalize a role emoji: trim, treat empty as None, reject control chars.
+
+    Kept permissive on purpose — unicode emoji and custom Discord emoji
+    strings like ``<:medic:1234>`` must both pass (including ZWJ-joined
+    compound emoji, which use Cf format characters); only Cc control
+    characters are rejected.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if any(unicodedata.category(ch) == "Cc" for ch in trimmed):
+        raise ValueError("emoji must not contain control characters")
+    return trimmed
 
 
 class ScheduledEventRecurrenceNWeekday(BaseModel):
@@ -95,6 +114,8 @@ class EventRoleCreateRequest(BaseModel):
     sort_order: int = 0
     locked: bool = False
 
+    _sanitize_emoji = field_validator("emoji")(_sanitize_role_emoji)
+
 
 class EventRoleUpdateRequest(BaseModel):
     """Coordinator request to update an event role slot (all fields optional)."""
@@ -105,6 +126,8 @@ class EventRoleUpdateRequest(BaseModel):
     capacity: int | None = Field(default=None, ge=1)
     sort_order: int | None = None
     locked: bool | None = None
+
+    _sanitize_emoji = field_validator("emoji")(_sanitize_role_emoji)
 
 
 class EventRoleSignupRequest(BaseModel):

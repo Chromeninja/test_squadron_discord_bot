@@ -9,7 +9,9 @@ if TYPE_CHECKING:
     import aiosqlite
 
 
-def _row_get(row: aiosqlite.Row, key: str, default: object | None = None) -> object | None:
+def _row_get(
+    row: aiosqlite.Row, key: str, default: object | None = None
+) -> object | None:
     """Safely read a column from a Row/dict, tolerating legacy rows.
 
     aiosqlite.Row raises IndexError for unknown columns and dict raises
