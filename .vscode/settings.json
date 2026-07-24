@@ -1,5 +1,8 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  // Point at the environment directory rather than a platform-specific
+  // executable. The Python extension resolves bin/python on POSIX and
+  // Scripts/python.exe on Windows.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
   "python.envFile": "${workspaceFolder}/.env",
 
   // Test configuration for the repository root.
@@ -14,7 +17,6 @@
   // Discover both bot and backend tests explicitly from the repository root.
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
   "python.testing.pytestArgs": [
     "tests",
     "web/backend/tests",
@@ -34,9 +36,7 @@
     "reportUnknownParameterType": "none",
     "reportUnknownVariableType": "none",
     "reportUnknownArgumentType": "none",
-    "reportUnknownLambdaType": "none",
-    "reportUnknownModuleType": "none",
-    "reportOverrideIsIncomplete": "none"
+    "reportUnknownLambdaType": "none"
   },
 
   // Add backend to analysis path so editor resolves imports for backend code
@@ -49,5 +49,9 @@
   "terminal.integrated.env.linux": {
     "VIRTUAL_ENV": ".venv",
     "PATH": ".venv/bin:${env:PATH}"
+  },
+  "terminal.integrated.env.windows": {
+    "VIRTUAL_ENV": ".venv",
+    "PATH": ".venv\\Scripts;${env:PATH}"
   }
 }

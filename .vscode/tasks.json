@@ -6,7 +6,7 @@
     {
       "label": "pytest: bot tests",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python",
+      "command": "${command:python.interpreterPath}",
       "args": ["-m", "pytest", "tests/", "-v"],
       "group": {
         "kind": "test",
@@ -22,7 +22,7 @@
     {
       "label": "pytest: backend tests",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python",
+      "command": "${command:python.interpreterPath}",
       "args": ["-m", "pytest", "web/backend/tests/", "-v"],
       "group": {
         "kind": "test",
@@ -38,8 +38,8 @@
     {
       "label": "pytest: all tests",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python",
-      "args": ["-m", "pytest", "tests/", "web/backend/tests/", "-v"],
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "pytest", "tests/", "web/backend/tests/", "backend/", "-v"],
       "group": {
         "kind": "test",
         "isDefault": false
@@ -49,12 +49,12 @@
         "panel": "shared"
       },
       "problemMatcher": [],
-      "detail": "Run ALL tests (bot + backend) using workspace virtual environment"
+      "detail": "Run ALL tests (bot + backend API + internal API) using workspace virtual environment"
     },
     {
       "label": "pytest: bot tests (quick)",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python",
+      "command": "${command:python.interpreterPath}",
       "args": ["-m", "pytest", "tests/", "-q"],
       "group": {
         "kind": "test",
@@ -70,7 +70,7 @@
     {
       "label": "pytest: backend tests (quick)",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python",
+      "command": "${command:python.interpreterPath}",
       "args": ["-m", "pytest", "web/backend/tests/", "-q"],
       "group": {
         "kind": "test",

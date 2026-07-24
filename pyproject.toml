@@ -39,7 +39,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
 show-fixes = true
 src = ["."]
@@ -192,7 +192,7 @@ exclude_dirs = [".venv", ".git", "__pycache__", "tests", "web/backend/tests", "w
 skips = ["B608", "B311", "B105", "B603", "B404"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 # bot.pyi is a stub file that clashes with bot.py as a duplicate module name.
 # Mypy can't type-check both simultaneously; the stub exists for IDE hints only.
 exclude = ["bot\\.pyi"]
@@ -209,6 +209,21 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+exclude = [
+    ".venv",
+    "web/frontend",
+]
+reportUnknownMemberType = "none"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
 
 [[tool.mypy.overrides]]
 module = [
