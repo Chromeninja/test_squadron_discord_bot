@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -22,17 +22,26 @@ from core.dependencies import (
     translate_internal_api_error,
 )
 from core.event_signup_service import (
+    EventRolesState,
+    EventRoleView,
+    EventRosterRoleState,
+    EventRosterState,
+    EventRosterUserState,
     EventSignupService,
     SignupError,
+    SignupState,
     get_event_signup_service,
 )
 from core.role_utils import is_event_coordinator
 from core.schemas import (
     EventMessageRequest,
     EventMessageResponse,
+    EventRoleSchema,
     EventRoleSignupRequest,
     EventRolesResponse,
     EventRosterResponse,
+    EventRosterRole,
+    EventRosterUser,
     EventSignupResponse,
     UserProfile,
 )
@@ -45,18 +54,85 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/api/guilds", tags=["guild-event-signups"])
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
-
 # Shared alias so call sites read naturally.
 is_coordinator = is_event_coordinator
 
 
-async def _guard(awaitable: Awaitable[T]) -> T:
+async def _guard[T](awaitable: Awaitable[T]) -> T:
     """Run a service coroutine, mapping SignupError to an HTTPException."""
     try:
         return await awaitable
     except SignupError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _signup_response(state: SignupState) -> EventSignupResponse:
+    """Map the service signup contract to the public API schema."""
+    return EventSignupResponse(
+        event_id=state["event_id"],
+        signed_up=state["signed_up"],
+        web_signup_count=state["web_signup_count"],
+    )
+
+
+def _role_schema(role: EventRoleView) -> EventRoleSchema:
+    """Map one service role record to the public API schema."""
+    return EventRoleSchema(
+        id=role["id"],
+        event_id=role["event_id"],
+        name=role["name"],
+        emoji=role["emoji"],
+        description=role["description"],
+        capacity=role["capacity"],
+        sort_order=role["sort_order"],
+        locked=role["locked"],
+        signup_count=role["signup_count"],
+        current_user_signed_up=role["current_user_signed_up"],
+    )
+
+
+def _roles_response(state: EventRolesState) -> EventRolesResponse:
+    """Map the service role-list contract to the public API schema."""
+    return EventRolesResponse(
+        roles=[_role_schema(role) for role in state["roles"]],
+        allow_multiple_roles=state["allow_multiple_roles"],
+        signups_enabled=state["signups_enabled"],
+        signups_closed=state["signups_closed"],
+    )
+
+
+def _roster_user_schema(user: EventRosterUserState) -> EventRosterUser:
+    """Map one service roster member to the public API schema."""
+    return EventRosterUser(
+        user_id=user["user_id"],
+        display_name=user["display_name"],
+        created_at=user["created_at"],
+    )
+
+
+def _roster_role_schema(role: EventRosterRoleState) -> EventRosterRole:
+    """Map one service roster role to the public API schema."""
+    return EventRosterRole(
+        role_id=role["role_id"],
+        name=role["name"],
+        emoji=role["emoji"],
+        capacity=role["capacity"],
+        locked=role["locked"],
+        users=[_roster_user_schema(user) for user in role["users"]],
+    )
+
+
+def _roster_response(state: EventRosterState) -> EventRosterResponse:
+    """Map the service roster contract to the public API schema."""
+    return EventRosterResponse(
+        event_id=state["event_id"],
+        total_web_signups=state["total_web_signups"],
+        no_role_users=[
+            _roster_user_schema(user) for user in state["no_role_users"]
+        ],
+        roles=[_roster_role_schema(role) for role in state["roles"]],
+        discord_user_count=state["discord_user_count"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +198,7 @@ async def mark_interest(
             is_coordinator=is_coordinator(current_user),
         )
     )
-    return EventSignupResponse(**state)
+    return _signup_response(state)
 
 
 @router.delete(
@@ -146,7 +222,7 @@ async def withdraw_interest(
             is_coordinator=is_coordinator(current_user),
         )
     )
-    return EventSignupResponse(**state)
+    return _signup_response(state)
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +248,7 @@ async def list_event_roles(
             is_coordinator=is_coordinator(current_user),
         )
     )
-    return EventRolesResponse(**data)
+    return _roles_response(data)
 
 
 @router.post(
@@ -208,7 +284,7 @@ async def sign_up_for_role(
             is_coordinator=coordinator,
         )
     )
-    return EventRolesResponse(**data)
+    return _roles_response(data)
 
 
 @router.delete(
@@ -243,7 +319,7 @@ async def withdraw_from_role(
             is_coordinator=coordinator,
         )
     )
-    return EventRolesResponse(**data)
+    return _roles_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +339,7 @@ async def get_event_roster(
     """Return the full coordinator roster (web signups + Discord RSVP count)."""
     ensure_guild_match(guild_id, current_user)
     data = await _guard(service.get_roster(guild_id, event_id, internal_api))
-    return EventRosterResponse(**data)
+    return _roster_response(data)
 
 
 @router.post(
@@ -297,7 +373,7 @@ async def assign_user_to_role(
             service.mark_interest(guild_id, event_id, user_id, is_coordinator=True)
         )
     data = await _guard(service.get_roster(guild_id, event_id, internal_api))
-    return EventRosterResponse(**data)
+    return _roster_response(data)
 
 
 @router.delete(
@@ -316,7 +392,7 @@ async def remove_user_from_event(
     ensure_guild_match(guild_id, current_user)
     await _guard(service.remove_user_from_event(guild_id, event_id, user_id))
     data = await _guard(service.get_roster(guild_id, event_id, internal_api))
-    return EventRosterResponse(**data)
+    return _roster_response(data)
 
 
 # ---------------------------------------------------------------------------

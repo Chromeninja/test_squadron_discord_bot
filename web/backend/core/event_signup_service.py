@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from backend.db.repository.event_role_signups import EventRoleSignupRepository
 from backend.db.repository.event_roles import EventRoleRepository
@@ -26,6 +26,11 @@ from backend.db.repository.events import invalidate_events_cache, is_active_even
 from services.db.database import Database
 
 if TYPE_CHECKING:
+    from backend.db.repository.types import (
+        EventRoleSignupRecord,
+        ManagedEventRecord,
+    )
+
     from .internal_api_client import InternalAPIClient
 
 logger = logging.getLogger(__name__)
@@ -40,6 +45,67 @@ SIGNUP_SUMMARY_MARKER = "--- TEST Event Signups ---"
 # a few seconds of count staleness is acceptable and self-heals.
 _SIGNUP_COUNTS_TTL_SECONDS = 5.0
 _signup_counts_cache: dict[int, tuple[float, dict[int, int]]] = {}
+
+
+class SignupState(TypedDict):
+    """Stable service contract for a member's whole-event signup state."""
+
+    event_id: int
+    signed_up: bool
+    web_signup_count: int
+
+
+class EventRoleView(TypedDict):
+    """Role state exposed by the signup service."""
+
+    id: int
+    event_id: int
+    name: str
+    emoji: str | None
+    description: str | None
+    capacity: int | None
+    sort_order: int
+    locked: bool
+    signup_count: int
+    current_user_signed_up: bool
+
+
+class EventRolesState(TypedDict):
+    """Stable service contract for role-list responses."""
+
+    roles: list[EventRoleView]
+    allow_multiple_roles: bool
+    signups_enabled: bool
+    signups_closed: bool
+
+
+class EventRosterUserState(TypedDict):
+    """Member entry in a coordinator roster."""
+
+    user_id: str
+    display_name: str | None
+    created_at: int | None
+
+
+class EventRosterRoleState(TypedDict):
+    """Role entry in a coordinator roster."""
+
+    role_id: int
+    name: str
+    emoji: str | None
+    capacity: int | None
+    locked: bool
+    users: list[EventRosterUserState]
+
+
+class EventRosterState(TypedDict):
+    """Stable service contract for coordinator roster responses."""
+
+    event_id: int
+    total_web_signups: int
+    no_role_users: list[EventRosterUserState]
+    roles: list[EventRosterRoleState]
+    discord_user_count: int
 
 
 def _invalidate_signup_caches(guild_id: int) -> None:
@@ -70,7 +136,7 @@ class EventSignupService:
     # ------------------------------------------------------------------
     async def load_event(
         self, guild_id: int, event_id: int, *, is_coordinator: bool
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Return a non-deleted event, enforcing visibility for regular users.
 
         Regular users (non-coordinator) may only ever load active/upcoming/
@@ -88,7 +154,7 @@ class EventSignupService:
         return event
 
     @staticmethod
-    def _require_signups_open(event: dict[str, object | None]) -> None:
+    def _require_signups_open(event: ManagedEventRecord) -> None:
         """Raise if signups are disabled or closed for regular users."""
         if not event.get("signups_enabled"):
             raise SignupError(403, "Signups are not enabled for this event")
@@ -100,7 +166,7 @@ class EventSignupService:
     # ------------------------------------------------------------------
     async def mark_interest(
         self, guild_id: int, event_id: int, user_id: str, *, is_coordinator: bool
-    ) -> dict[str, object | None]:
+    ) -> SignupState:
         """Mark whole-event interest. 409 if already interested."""
         event = await self.load_event(guild_id, event_id, is_coordinator=is_coordinator)
         if not is_coordinator:
@@ -117,7 +183,7 @@ class EventSignupService:
 
     async def withdraw_interest(
         self, guild_id: int, event_id: int, user_id: str, *, is_coordinator: bool
-    ) -> dict[str, object | None]:
+    ) -> SignupState:
         """Withdraw interest (hard delete) and drop all of the user's role signups."""
         await self.load_event(guild_id, event_id, is_coordinator=is_coordinator)
         await self.role_signups.delete_all_for_user_event(guild_id, event_id, user_id)
@@ -127,7 +193,7 @@ class EventSignupService:
 
     async def get_signup_state(
         self, guild_id: int, event_id: int, user_id: str
-    ) -> dict[str, object | None]:
+    ) -> SignupState:
         """Return current-user whole-event signup state and total count."""
         signup = await self.signups.get_signup(guild_id, event_id, user_id)
         count = await self.signups.count_signups(guild_id, event_id)
@@ -142,19 +208,19 @@ class EventSignupService:
     # ------------------------------------------------------------------
     async def list_roles_with_state(
         self, guild_id: int, event_id: int, user_id: str, *, is_coordinator: bool
-    ) -> dict[str, object]:
+    ) -> EventRolesState:
         """Return roles for an event with counts and the current user's selections."""
         event = await self.load_event(guild_id, event_id, is_coordinator=is_coordinator)
         roles = await self.roles.list_roles(guild_id, event_id)
         user_role_ids = {
-            int(rs["role_id"])
+            rs["role_id"]
             for rs in await self.role_signups.list_role_signups(guild_id, event_id)
-            if str(rs["user_id"]) == str(user_id)
+            if rs["user_id"] == user_id
         }
 
-        role_views: list[dict[str, object | None]] = []
+        role_views: list[EventRoleView] = []
         for role in roles:
-            rid = int(role["id"])
+            rid = role["id"]
             role_views.append(
                 {
                     "id": rid,
@@ -199,7 +265,7 @@ class EventSignupService:
         """
         event = await self.load_event(guild_id, event_id, is_coordinator=is_coordinator)
         role = await self.roles.get_role(guild_id, role_id)
-        if role is None or int(role["event_id"]) != event_id:
+        if role is None or role["event_id"] != event_id:
             raise SignupError(404, "Role not found for this event")
 
         if not is_coordinator:
@@ -228,7 +294,7 @@ class EventSignupService:
             role_id,
             user_id,
             created_by_user_id=acting_user_id or user_id,
-            capacity=int(capacity) if capacity is not None else None,
+            capacity=capacity,
         )
         if created is None:
             duplicate = await self.role_signups.get_role_signup(
@@ -275,9 +341,9 @@ class EventSignupService:
     async def attach_signup_state(
         self,
         guild_id: int,
-        events: list[dict[str, object | None]],
+        events: list[ManagedEventRecord],
         user_id: str,
-    ) -> list[dict[str, object | None]]:
+    ) -> list[ManagedEventRecord]:
         """Augment each event dict with web signup count and current-user state.
 
         Uses two guild-wide batched queries (counts grouped by event, plus the
@@ -316,7 +382,7 @@ class EventSignupService:
         guild_id: int,
         event_id: int,
         internal_api: InternalAPIClient | None = None,
-    ) -> dict[str, object]:
+    ) -> EventRosterState:
         """Build the full coordinator roster (web signups + Discord RSVP count)."""
         event = await self.load_event(guild_id, event_id, is_coordinator=True)
 
@@ -340,11 +406,11 @@ class EventSignupService:
             name_cache[uid] = resolved
             return resolved
 
-        users_in_roles: set[str] = {str(rs["user_id"]) for rs in role_signups}
+        users_in_roles = {rs["user_id"] for rs in role_signups}
 
-        no_role_users = []
+        no_role_users: list[EventRosterUserState] = []
         for s in signups:
-            uid = str(s["user_id"])
+            uid = s["user_id"]
             if uid in users_in_roles:
                 continue
             no_role_users.append(
@@ -355,16 +421,16 @@ class EventSignupService:
                 }
             )
 
-        signups_by_role: dict[int, list[dict[str, object | None]]] = {}
+        signups_by_role: dict[int, list[EventRoleSignupRecord]] = {}
         for rs in role_signups:
-            signups_by_role.setdefault(int(rs["role_id"]), []).append(rs)
+            signups_by_role.setdefault(rs["role_id"], []).append(rs)
 
-        roles_out = []
+        roles_out: list[EventRosterRoleState] = []
         for role in role_rows:
-            rid = int(role["id"])
-            members = []
+            rid = role["id"]
+            members: list[EventRosterUserState] = []
             for rs in signups_by_role.get(rid, []):
-                uid = str(rs["user_id"])
+                uid = rs["user_id"]
                 members.append(
                     {
                         "user_id": uid,
@@ -383,7 +449,7 @@ class EventSignupService:
                 }
             )
 
-        discord_user_count = int(event.get("user_count") or 0)
+        discord_user_count = event["user_count"]
 
         return {
             "event_id": event_id,
@@ -406,13 +472,13 @@ class EventSignupService:
 
         signups = await self.signups.list_signups(guild_id, event_id)
         role_rows = {
-            int(r["id"]): r for r in await self.roles.list_roles(guild_id, event_id)
+            r["id"]: r for r in await self.roles.list_roles(guild_id, event_id)
         }
         role_signups = await self.role_signups.list_role_signups(guild_id, event_id)
 
         roles_by_user: dict[str, list[int]] = {}
         for rs in role_signups:
-            roles_by_user.setdefault(str(rs["user_id"]), []).append(int(rs["role_id"]))
+            roles_by_user.setdefault(rs["user_id"], []).append(rs["role_id"])
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
@@ -487,7 +553,7 @@ class EventSignupService:
             return [
                 str(rs["user_id"])
                 for rs in role_signups
-                if int(rs["role_id"]) == int(role_id)
+                if rs["role_id"] == role_id
             ]
         raise SignupError(400, "Unknown message target")
 
@@ -502,7 +568,7 @@ class EventSignupService:
         if roles:
             lines.append("Roles:")
             for role in roles:
-                rid = int(role["id"])
+                rid = role["id"]
                 count = await self.role_signups.count_for_role(guild_id, rid)
                 emoji = f"{role['emoji']} " if role.get("emoji") else ""
                 capacity = role["capacity"]
@@ -543,10 +609,9 @@ class EventSignupService:
             event = await Database.get_managed_event(guild_id, event_id)
             if event is None:
                 return
+            description = event.get("description")
             base = self._strip_summary_block(
-                event.get("description")
-                if isinstance(event.get("description"), str)
-                else ""
+                description if isinstance(description, str) else ""
             )
             block = await self.build_summary_block(guild_id, event_id)
             new_description = f"{base}\n\n{block}".strip() if base else block

@@ -7,19 +7,25 @@ signup data isolated per guild. Withdrawals are hard deletes (rows removed).
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from services.db.database import Database
 
+if TYPE_CHECKING:
+    import aiosqlite
 
-def _row_to_signup(row: object) -> dict[str, object | None]:
+    from .types import EventSignupRecord
+
+
+def _row_to_signup(row: aiosqlite.Row) -> EventSignupRecord:
     """Convert an event_signups row into an API-facing dict."""
     return {
-        "id": int(row["id"]),  # type: ignore[index]
-        "guild_id": int(row["guild_id"]),  # type: ignore[index]
-        "event_id": int(row["event_id"]),  # type: ignore[index]
-        "user_id": str(row["user_id"]),  # type: ignore[index]
-        "created_at": int(row["created_at"]),  # type: ignore[index]
-        "updated_at": int(row["updated_at"]),  # type: ignore[index]
+        "id": int(row["id"]),
+        "guild_id": int(row["guild_id"]),
+        "event_id": int(row["event_id"]),
+        "user_id": str(row["user_id"]),
+        "created_at": int(row["created_at"]),
+        "updated_at": int(row["updated_at"]),
     }
 
 
@@ -28,7 +34,7 @@ class EventSignupRepository:
 
     async def get_signup(
         self, guild_id: int, event_id: int, user_id: str
-    ) -> dict[str, object | None] | None:
+    ) -> EventSignupRecord | None:
         """Return a single whole-event signup, or None if absent."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -43,7 +49,7 @@ class EventSignupRepository:
 
     async def list_signups(
         self, guild_id: int, event_id: int
-    ) -> list[dict[str, object | None]]:
+    ) -> list[EventSignupRecord]:
         """Return all whole-event signups for an event ordered by created_at."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -77,7 +83,7 @@ class EventSignupRepository:
 
     async def list_signups_for_user(
         self, guild_id: int, user_id: str
-    ) -> dict[int, dict[str, object | None]]:
+    ) -> dict[int, EventSignupRecord]:
         """Return the user's whole-event signups keyed by event_id (one query)."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -89,7 +95,7 @@ class EventSignupRepository:
             )
             rows = await cursor.fetchall()
             signups = [_row_to_signup(row) for row in rows]
-            return {int(str(s["event_id"])): s for s in signups}
+            return {signup["event_id"]: signup for signup in signups}
 
     async def count_signups(self, guild_id: int, event_id: int) -> int:
         """Return the number of whole-event signups for an event."""
@@ -110,7 +116,7 @@ class EventSignupRepository:
         event_id: int,
         user_id: str,
         created_by_user_id: str | None = None,
-    ) -> dict[str, object | None] | None:
+    ) -> EventSignupRecord | None:
         """Insert a whole-event signup. Returns the row, or None on duplicate.
 
         Uses INSERT OR IGNORE against the UNIQUE(guild_id, event_id, user_id)

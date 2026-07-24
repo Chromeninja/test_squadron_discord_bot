@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from services.db.database import Database
+
+if TYPE_CHECKING:
+    from .types import ManagedEventRecord
 
 # Event statuses that mean the event is over and should never be shown to
 # regular guild members in the active/upcoming/recurring view.
@@ -27,7 +31,7 @@ _EXPLICITLY_ACTIVE_STATUSES = {"active", "in_progress", "ongoing"}
 # bot-process writes (Discord sync) become visible within the TTL. The cache
 # is per-process, which keeps it safe across multiple uvicorn workers.
 _EVENTS_CACHE_TTL_SECONDS = 5.0
-_events_cache: dict[int, tuple[float, list[dict[str, object | None]]]] = {}
+_events_cache: dict[int, tuple[float, list[ManagedEventRecord]]] = {}
 
 
 def invalidate_events_cache(guild_id: int) -> None:
@@ -35,7 +39,7 @@ def invalidate_events_cache(guild_id: int) -> None:
     _events_cache.pop(guild_id, None)
 
 
-async def _list_events_cached(guild_id: int) -> list[dict[str, object | None]]:
+async def _list_events_cached(guild_id: int) -> list[ManagedEventRecord]:
     """Return the guild's managed events, cached for a few seconds.
 
     Returns per-call dict copies because callers mutate the event payloads
@@ -44,10 +48,10 @@ async def _list_events_cached(guild_id: int) -> list[dict[str, object | None]]:
     now = time.monotonic()
     cached = _events_cache.get(guild_id)
     if cached is not None and now - cached[0] < _EVENTS_CACHE_TTL_SECONDS:
-        return [dict(event) for event in cached[1]]
+        return [event.copy() for event in cached[1]]
     events = await Database.list_managed_events_by_guild(guild_id)
     _events_cache[guild_id] = (now, events)
-    return [dict(event) for event in events]
+    return [event.copy() for event in events]
 
 
 def _parse_iso_to_ts(value: object) -> float | None:
@@ -66,9 +70,7 @@ def _parse_iso_to_ts(value: object) -> float | None:
     return parsed.timestamp()
 
 
-def is_active_event(
-    event: dict[str, object | None], *, now: float | None = None
-) -> bool:
+def is_active_event(event: ManagedEventRecord, *, now: float | None = None) -> bool:
     """Return True when an event is active/upcoming/recurring (not past).
 
     This mirrors the frontend ``isPastEvent`` logic so backend enforcement and
@@ -120,19 +122,19 @@ class EventRepository:
     are properly scoped to a single guild.
     """
 
-    async def get_managed_events(self, guild_id: int) -> list[dict[str, object | None]]:
+    async def get_managed_events(self, guild_id: int) -> list[ManagedEventRecord]:
         """Return all non-deleted managed events for a guild ordered by start time."""
         return await _list_events_cached(guild_id)
 
     async def get_managed_event(
         self, guild_id: int, event_id: int
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Return one non-deleted managed event by local DB ID, or None if not found."""
         return await Database.get_managed_event(guild_id, event_id)
 
     async def upsert_from_discord(
         self, guild_id: int, event_data: dict[str, object | None]
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Upsert a managed event from a Discord payload (uses discord_event_id as key)."""
         invalidate_events_cache(guild_id)
         return await Database.upsert_managed_event_from_discord(guild_id, event_data)
@@ -143,7 +145,7 @@ class EventRepository:
         event_data: dict[str, object | None],
         created_by_user_id: str | None = None,
         created_by_name: str | None = None,
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Create a new managed event row with pending projection state."""
         invalidate_events_cache(guild_id)
         return await Database.create_managed_event(
@@ -160,7 +162,7 @@ class EventRepository:
         event_data: dict[str, object | None],
         updated_by_user_id: str | None = None,
         updated_by_name: str | None = None,
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Update managed event fields and mark as pending projection.
 
         Returns the updated event dict, or None if the event was not found.
@@ -190,7 +192,7 @@ class EventRepository:
             updated_by_name=deleted_by_name,
         )
 
-    async def list_active_events(self, guild_id: int) -> list[dict[str, object | None]]:
+    async def list_active_events(self, guild_id: int) -> list[ManagedEventRecord]:
         """Return active/upcoming/recurring events for a guild.
 
         Regular guild members must only ever see these; past events are filtered
@@ -208,7 +210,7 @@ class EventRepository:
         settings: dict[str, object | None],
         updated_by_user_id: str | None = None,
         updated_by_name: str | None = None,
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Update event-level signup settings without touching event content.
 
         Recognized keys: signups_enabled, signups_closed, allow_multiple_roles,
@@ -257,7 +259,7 @@ class EventRepository:
         invalidate_events_cache(guild_id)
         return await Database.get_managed_event(guild_id, event_id)
 
-    async def get_pending_sync(self, guild_id: int) -> list[dict[str, object | None]]:
+    async def get_pending_sync(self, guild_id: int) -> list[ManagedEventRecord]:
         """Return all non-deleted managed events for a guild that have pending sync status.
 
         These are events created or updated in the DB that have not yet been

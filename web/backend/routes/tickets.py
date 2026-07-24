@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -52,6 +52,30 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+def _parse_ticket_user_id(raw_user_id: object) -> int | None:
+    """Best-effort conversion for optional Discord user IDs from ticket rows."""
+    if raw_user_id is None or not isinstance(raw_user_id, (int, str)):
+        return None
+    try:
+        return int(raw_user_id)
+    except ValueError:
+        return None
+
+
+def _required_ticket_int(value: object) -> int:
+    """Convert a required integer DB value without weakening its type."""
+    if not isinstance(value, (int, str)):
+        raise TypeError(f"Expected an integer-compatible value, got {type(value)}")
+    return int(value)
+
+
+def _optional_ticket_int(value: object) -> int | None:
+    """Convert a nullable integer DB value without accepting arbitrary objects."""
+    if value is None:
+        return None
+    return _required_ticket_int(value)
 
 
 async def _resolve_ticket_creators(
@@ -447,14 +471,6 @@ async def list_tickets(
     """List tickets for the active guild with optional status filter."""
     guild_id = ensure_active_guild(current_user)
 
-    def _parse_ticket_user_id(raw_user_id: Any) -> int | None:
-        if raw_user_id is None:
-            return None
-        try:
-            return int(raw_user_id)
-        except (TypeError, ValueError):
-            return None
-
     offset = (page - 1) * page_size
     tickets = await repo.get_tickets(
         guild_id, status=status, limit=page_size, offset=offset
@@ -482,7 +498,7 @@ async def list_tickets(
         raw_cat_id = t.get("category_id")
         items.append(
             TicketInfo(
-                id=int(t["id"]),  # type: ignore[arg-type]
+                id=_required_ticket_int(t["id"]),
                 guild_id=str(t["guild_id"]),
                 channel_id=str(t["channel_id"]),
                 thread_id=str(t["thread_id"]),
@@ -491,26 +507,20 @@ async def list_tickets(
                 creator_global_name=creator_data.get("creator_global_name"),
                 creator_discriminator=creator_data.get("creator_discriminator"),
                 creator_avatar_url=creator_data.get("creator_avatar_url"),
-                category_id=int(raw_cat_id) if raw_cat_id is not None else None,  # type: ignore[arg-type]
+                category_id=_optional_ticket_int(raw_cat_id),
                 status=str(t["status"]),
                 closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
-                created_at=int(t.get("created_at") or 0),  # type: ignore[arg-type]
-                closed_at=int(t["closed_at"])
-                if t.get("closed_at") is not None
-                else None,  # type: ignore[arg-type]
+                created_at=_required_ticket_int(t.get("created_at") or 0),
+                closed_at=_optional_ticket_int(t.get("closed_at")),
                 claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
-                claimed_at=int(t["claimed_at"])
-                if t.get("claimed_at") is not None
-                else None,  # type: ignore[arg-type]
+                claimed_at=_optional_ticket_int(t.get("claimed_at")),
                 close_reason=str(t["close_reason"])
                 if t.get("close_reason") is not None
                 else None,
                 initial_description=str(t["initial_description"])
                 if t.get("initial_description") is not None
                 else None,
-                reopened_at=int(t["reopened_at"])
-                if t.get("reopened_at") is not None
-                else None,  # type: ignore[arg-type]
+                reopened_at=_optional_ticket_int(t.get("reopened_at")),
                 reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
             )
         )

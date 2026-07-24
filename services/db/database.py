@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 import aiosqlite
 
+from backend.db.repository.types import ManagedEventRecord
 from utils.logging import get_logger
 
 from .managed_event_mapper import managed_event_row_to_dict
@@ -436,7 +437,7 @@ class Database:
     @classmethod
     async def list_managed_events_by_guild(
         cls, guild_id: int
-    ) -> list[dict[str, object | None]]:
+    ) -> list[ManagedEventRecord]:
         """List non-deleted managed events for a guild ordered by start time."""
         async with cls.get_connection() as db:
             cursor = await db.execute(
@@ -454,7 +455,7 @@ class Database:
     @classmethod
     async def get_managed_event(
         cls, guild_id: int, event_id: int
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Get one non-deleted managed event for a guild by local DB event ID."""
         async with cls.get_connection() as db:
             cursor = await db.execute(
@@ -477,7 +478,7 @@ class Database:
         payload: dict[str, object | None],
         created_by_user_id: str | None,
         created_by_name: str | None,
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Create a managed event row with pending projection state."""
         now = int(time.time())
         recurrence_payload = payload.get("recurrence_rule")
@@ -556,7 +557,7 @@ class Database:
         payload: dict[str, object | None],
         updated_by_user_id: str | None,
         updated_by_name: str | None,
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Update managed event fields and mark as pending projection."""
         now = int(time.time())
         recurrence_payload = payload.get("recurrence_rule")
@@ -661,7 +662,7 @@ class Database:
         cls,
         guild_id: int,
         payload: dict[str, object | None],
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Upsert a managed event from Discord payload using discord_event_id as key."""
         discord_event_id = str(payload.get("id") or "").strip()
         if not discord_event_id:

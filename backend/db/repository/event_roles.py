@@ -7,25 +7,36 @@ Deletes are hard deletes; the event_role_signups FK cascades on delete.
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from services.db.database import Database
 
+if TYPE_CHECKING:
+    import aiosqlite
 
-def _row_to_role(row: object) -> dict[str, object | None]:
+    from .types import EventRoleRecord
+
+
+def _optional_str(value: object | None) -> str | None:
+    """Normalize an optional SQLite text value."""
+    return str(value) if value is not None else None
+
+
+def _row_to_role(row: aiosqlite.Row) -> EventRoleRecord:
     """Convert an event_roles row into an API-facing dict."""
-    capacity = row["capacity"]  # type: ignore[index]
+    capacity = row["capacity"]
     return {
-        "id": int(row["id"]),  # type: ignore[index]
-        "guild_id": int(row["guild_id"]),  # type: ignore[index]
-        "event_id": int(row["event_id"]),  # type: ignore[index]
-        "name": str(row["name"]),  # type: ignore[index]
-        "emoji": row["emoji"],  # type: ignore[index]
-        "description": row["description"],  # type: ignore[index]
+        "id": int(row["id"]),
+        "guild_id": int(row["guild_id"]),
+        "event_id": int(row["event_id"]),
+        "name": str(row["name"]),
+        "emoji": _optional_str(row["emoji"]),
+        "description": _optional_str(row["description"]),
         "capacity": int(capacity) if capacity is not None else None,
-        "sort_order": int(row["sort_order"]),  # type: ignore[index]
-        "locked": bool(row["locked"]),  # type: ignore[index]
-        "created_at": int(row["created_at"]),  # type: ignore[index]
-        "updated_at": int(row["updated_at"]),  # type: ignore[index]
+        "sort_order": int(row["sort_order"]),
+        "locked": bool(row["locked"]),
+        "created_at": int(row["created_at"]),
+        "updated_at": int(row["updated_at"]),
     }
 
 
@@ -45,7 +56,7 @@ class EventRoleRepository:
 
     async def list_roles(
         self, guild_id: int, event_id: int
-    ) -> list[dict[str, object | None]]:
+    ) -> list[EventRoleRecord]:
         """Return all roles for an event ordered by sort_order, then created_at."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -61,7 +72,7 @@ class EventRoleRepository:
 
     async def get_role(
         self, guild_id: int, role_id: int
-    ) -> dict[str, object | None] | None:
+    ) -> EventRoleRecord | None:
         """Return a single role by ID scoped to a guild, or None if absent."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -77,7 +88,7 @@ class EventRoleRepository:
         event_id: int,
         data: dict[str, object | None],
         created_by_user_id: str | None = None,
-    ) -> dict[str, object | None]:
+    ) -> EventRoleRecord:
         """Insert a new role slot for an event and return it."""
         now = int(time.time())
         capacity = data.get("capacity")
@@ -120,7 +131,7 @@ class EventRoleRepository:
         role_id: int,
         data: dict[str, object | None],
         updated_by_user_id: str | None = None,
-    ) -> dict[str, object | None] | None:
+    ) -> EventRoleRecord | None:
         """Update mutable fields on a role. Only keys present in data are changed.
 
         Returns the updated role, or None if no matching role exists.

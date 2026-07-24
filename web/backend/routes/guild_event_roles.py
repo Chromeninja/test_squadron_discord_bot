@@ -8,6 +8,7 @@ event-level signup settings.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from core.dependencies import require_event_coordinator
 from core.event_signup_service import (
@@ -29,25 +30,26 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.db.repository.event_roles import EventRoleRepository
 from backend.db.repository.events import EventRepository
 
+if TYPE_CHECKING:
+    from backend.db.repository.types import EventRoleRecord
+
 router = APIRouter(prefix="/api/guilds", tags=["guild-event-roles"])
 logger = logging.getLogger(__name__)
 
 
 def _role_to_schema(
-    role: dict[str, object | None], signup_count: int = 0
+    role: EventRoleRecord, signup_count: int = 0
 ) -> EventRoleSchema:
     """Convert a repository role dict into an EventRoleSchema."""
     return EventRoleSchema(
-        id=int(role["id"]),
-        event_id=int(role["event_id"]),
-        name=str(role["name"]),
-        emoji=role["emoji"] if isinstance(role.get("emoji"), str) else None,
-        description=(
-            role["description"] if isinstance(role.get("description"), str) else None
-        ),
-        capacity=int(role["capacity"]) if role.get("capacity") is not None else None,
-        sort_order=int(role.get("sort_order") or 0),
-        locked=bool(role.get("locked")),
+        id=role["id"],
+        event_id=role["event_id"],
+        name=role["name"],
+        emoji=role["emoji"],
+        description=role["description"],
+        capacity=role["capacity"],
+        sort_order=role["sort_order"],
+        locked=role["locked"],
         signup_count=signup_count,
     )
 
@@ -105,7 +107,7 @@ async def update_event_role(
     ensure_guild_match(guild_id, current_user)
     await _ensure_event_in_guild(service, guild_id, event_id)
     existing = await roles.get_role(guild_id, role_id)
-    if existing is None or int(existing["event_id"]) != event_id:
+    if existing is None or existing["event_id"] != event_id:
         raise HTTPException(status_code=404, detail="Role not found for this event")
     updated = await roles.update_role(
         guild_id,
@@ -132,7 +134,7 @@ async def delete_event_role(
     ensure_guild_match(guild_id, current_user)
     await _ensure_event_in_guild(service, guild_id, event_id)
     existing = await roles.get_role(guild_id, role_id)
-    if existing is None or int(existing["event_id"]) != event_id:
+    if existing is None or existing["event_id"] != event_id:
         raise HTTPException(status_code=404, detail="Role not found for this event")
     await roles.delete_role(guild_id, role_id)
     await service.refresh_event_summary(guild_id, event_id)

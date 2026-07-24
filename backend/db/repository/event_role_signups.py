@@ -9,20 +9,26 @@ layer (it depends on the event's allow_multiple_roles flag).
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from services.db.database import Database
 
+if TYPE_CHECKING:
+    import aiosqlite
 
-def _row_to_role_signup(row: object) -> dict[str, object | None]:
+    from .types import EventRoleSignupRecord
+
+
+def _row_to_role_signup(row: aiosqlite.Row) -> EventRoleSignupRecord:
     """Convert an event_role_signups row into an API-facing dict."""
     return {
-        "id": int(row["id"]),  # type: ignore[index]
-        "guild_id": int(row["guild_id"]),  # type: ignore[index]
-        "event_id": int(row["event_id"]),  # type: ignore[index]
-        "role_id": int(row["role_id"]),  # type: ignore[index]
-        "user_id": str(row["user_id"]),  # type: ignore[index]
-        "created_at": int(row["created_at"]),  # type: ignore[index]
-        "updated_at": int(row["updated_at"]),  # type: ignore[index]
+        "id": int(row["id"]),
+        "guild_id": int(row["guild_id"]),
+        "event_id": int(row["event_id"]),
+        "role_id": int(row["role_id"]),
+        "user_id": str(row["user_id"]),
+        "created_at": int(row["created_at"]),
+        "updated_at": int(row["updated_at"]),
     }
 
 
@@ -31,7 +37,7 @@ class EventRoleSignupRepository:
 
     async def list_role_signups(
         self, guild_id: int, event_id: int
-    ) -> list[dict[str, object | None]]:
+    ) -> list[EventRoleSignupRecord]:
         """Return all role signups for an event ordered by created_at."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -47,7 +53,7 @@ class EventRoleSignupRepository:
 
     async def get_role_signup(
         self, guild_id: int, role_id: int, user_id: str
-    ) -> dict[str, object | None] | None:
+    ) -> EventRoleSignupRecord | None:
         """Return a single role signup, or None if absent."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -96,7 +102,7 @@ class EventRoleSignupRepository:
         user_id: str,
         created_by_user_id: str | None = None,
         capacity: int | None = None,
-    ) -> dict[str, object | None] | None:
+    ) -> EventRoleSignupRecord | None:
         """Insert a role signup. Returns the row, or None if not inserted.
 
         Locked-role and multiple-role rules are enforced by the service layer.
