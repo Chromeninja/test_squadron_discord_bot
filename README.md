@@ -34,7 +34,7 @@ Future clients  ──────────────────→  ┘  
 | `backend/` | Authoritative data layer: repositories, internal API routes, middleware, auth |
 | `web/backend/` | FastAPI app entrypoint: mounts all routers, handles OAuth2 for the dashboard |
 | `web/frontend/` | React + TypeScript dashboard (Vite) |
-| `services/` | Legacy in-process services (being migrated to `backend/` incrementally) |
+| `services/` | Bot-side gateway and orchestration services |
 
 ### backend/ package
 
@@ -54,11 +54,11 @@ The bot accesses the backend through typed HTTP connectors. All connector instan
 - **`connectors/registry.py`** — `ConnectorRegistry` dataclass; typed handle for all domain connectors.
 - **`connectors/events.py`**, **`voice.py`**, **`tickets.py`**, **`verification.py`**, **`config.py`**, **`metrics.py`** — per-domain connector classes.
 
-### Legacy components (services/)
+### Gateway components (services/)
 
 - **`services/service_container.py`** — All service singletons; injected into cogs. Access via `bot.service_container.<service>`.
 - **`services/db/`** — Legacy DB access layer (being replaced by `backend/db/repository/`).
-- **`services/internal_api.py`** — Embedded HTTP server (being absorbed into `backend/api/internal/`).
+- **`services/internal_api.py`** — Permanent gateway RPC server for dashboard operations that require the live Discord connection.
 
 ### Auth
 
@@ -322,7 +322,7 @@ All repository documentation lives in the [`documents/`](documents/) folder:
 
 ## Developer Scripts
 
-Tools in `scripts/` are optional utilities for debugging and maintenance. They are not used during normal bot or backend operation, and runtime modules should not import them.
+Python dependency metadata lives in `pyproject.toml`; the requirements files are generated installation entrypoints for bot, backend, and development environments.
 
 ## 🌐 Web Admin Dashboard
 

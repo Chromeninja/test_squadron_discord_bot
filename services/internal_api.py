@@ -481,24 +481,6 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 else:
                     channel_ids = []
 
-                # Fall back to legacy single-channel setting
-                if not channel_ids:
-                    config_svc = self.services.config
-                    legacy_id = await config_svc.get_guild_setting(
-                        guild_id, "tickets.channel_id"
-                    )
-                    if legacy_id:
-                        try:
-                            channel_ids = [int(legacy_id)]
-                        except ValueError:
-                            logger.warning(
-                                "Invalid legacy tickets.channel_id for guild %s: %s",
-                                guild_id,
-                                legacy_id,
-                            )
-                            # Fail gracefully—proceed with no fallback channels
-                            channel_ids = []
-
             if not channel_ids:
                 return web.json_response(
                     {"error": "No ticket channels configured"}, status=400

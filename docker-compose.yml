@@ -17,11 +17,9 @@ services:
       - INTERNAL_API_PORT=${INTERNAL_API_PORT:-8082}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-dev-internal-api-key}
       - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8000}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:8000}
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
-      - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI:-http://localhost:8000/auth/discord/callback}
       - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2}
     volumes:
       - ./data:/app/data

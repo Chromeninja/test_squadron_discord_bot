@@ -127,15 +127,6 @@ def require_bot_admin() -> Callable[[F], F]:
     return require_permission_level(PermissionLevel.BOT_ADMIN)
 
 
-def require_admin() -> Callable[[F], F]:
-    """Decorator that limits a command to moderators or higher.
-
-    Deprecated alias retained for backward compatibility with older cogs.
-    """
-
-    return require_permission_level(PermissionLevel.MODERATOR)
-
-
 def require_bot_owner() -> Callable[[F], F]:
     """Decorator that limits a command to the bot owner only."""
     return require_permission_level(PermissionLevel.BOT_OWNER)
@@ -162,7 +153,6 @@ def require_staff() -> Callable[[F], F]:
 
 
 __all__ = [
-    "require_admin",
     "require_bot_admin",
     "require_bot_owner",
     "require_discord_manager",

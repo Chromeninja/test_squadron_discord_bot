@@ -83,12 +83,9 @@ def _normalize_status(value: str | None) -> str | None:
 
 def _build_status_filters(
     list_values: list[str] | None = None,
-    single_value: str | None = None,
 ) -> list[str]:
     """Normalize membership status filters while preserving order."""
     raw_values = []
-    if single_value:
-        raw_values.append(single_value)
     if list_values:
         raw_values.extend(list_values)
 
@@ -229,7 +226,6 @@ class UserDetailsResponse(BaseModel):
 class ExportUsersRequest(BaseModel):
     """Request payload for CSV export."""
 
-    membership_status: str | None = None
     membership_statuses: list[str] | None = None
     role_ids: list[int] | None = None
     selected_ids: list[str] | None = None

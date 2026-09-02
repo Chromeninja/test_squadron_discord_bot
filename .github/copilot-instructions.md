@@ -4,7 +4,7 @@
 
 A Discord bot for managing TEST Squadron Star Citizen community — RSI profile verification, voice channels, role management, metrics tracking. Built with discord.py, aiosqlite, aiohttp, FastAPI (web dashboard).
 
-**Python 3.11+ required.** Always target 3.11 syntax and features.
+**Python 3.12+ required.** Always target 3.12 syntax and features.
 
 ## Architecture
 

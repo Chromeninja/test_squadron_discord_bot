@@ -56,7 +56,7 @@ async def test_bot_role_settings_set_and_roundtrip_delegation(
     assert policy["target_role_id"] == "42"
     assert policy["prerequisite_role_ids_all"] == ["7"]
     assert policy["prerequisite_role_ids_any"] == ["8"]
-    assert policy["prerequisite_role_ids"] == ["7"]
+    assert "prerequisite_role_ids" not in policy
     assert policy["enabled"] is False
     assert policy["note"] == "test delegation"
 

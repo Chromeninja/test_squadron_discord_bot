@@ -59,3 +59,16 @@ updates:
       - "ci"
     commit-message:
       prefix: "ci"
+
+  # Dashboard frontend dependencies
+  - package-ecosystem: "npm"
+    directory: "/web/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "deps(frontend)"

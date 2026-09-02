@@ -321,7 +321,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
         }
       }
 
-      navigate('/events');
+      navigate(`/dashboard/${encodeURIComponent(guildId)}/events`);
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.response?.data?.error;
       setBuilderError(typeof detail === 'string' ? detail : 'Failed to save event.');
@@ -345,7 +345,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
           <p className="text-sm font-medium text-[#c8c9d0]">{guildInfo?.guild_name || 'Current guild'}</p>
           <h1 className="text-2xl font-bold text-[#fff4cc]">{isEditing ? 'Edit event' : 'Create event'}</h1>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => navigate('/events')}>
+        <Button variant="secondary" size="sm" onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events`)}>
           Back to Events
         </Button>
       </div>
@@ -417,7 +417,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                   Back
                 </Button>
               ) : null}
-              <Button variant="secondary" onClick={() => navigate('/events')}>
+              <Button variant="secondary" onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events`)}>
                 Cancel
               </Button>
               {builderStep === 'review' ? (

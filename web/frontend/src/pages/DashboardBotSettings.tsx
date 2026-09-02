@@ -116,7 +116,6 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         target_role_id: '',
         prerequisite_role_ids_all: [],
         prerequisite_role_ids_any: [],
-        prerequisite_role_ids: [],
         enabled: true,
         note: '',
       },
@@ -190,10 +189,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         setNonmemberRole(settingsResponse.nonmember_role || []);
         const normalizedPolicies = (settingsResponse.delegation_policies || []).map((p) => ({
           ...p,
-          prerequisite_role_ids_all:
-            p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+          prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? [],
           prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
-          prerequisite_role_ids: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
         }));
         setDelegationPolicies(normalizedPolicies);
         setVoiceSelectableRoles(voiceSelectableResponse.selectable_roles || []);
@@ -264,7 +261,7 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
         .filter((p) => p.target_role_id)
         .map((p) => ({
           ...p,
-          prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+          prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? [],
           prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
         }));
 
@@ -324,10 +321,8 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
       setNonmemberRole(updated.roles.nonmember_role || []);
       const normalizedUpdated = (updated.roles.delegation_policies || []).map((p) => ({
         ...p,
-        prerequisite_role_ids_all:
-          p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
+        prerequisite_role_ids_all: p.prerequisite_role_ids_all ?? [],
         prerequisite_role_ids_any: p.prerequisite_role_ids_any ?? [],
-        prerequisite_role_ids: p.prerequisite_role_ids_all ?? p.prerequisite_role_ids ?? [],
       }));
       setDelegationPolicies(normalizedUpdated);
 
@@ -964,7 +959,6 @@ const DashboardBotSettings = ({ guildId }: DashboardBotSettingsProps) => {
                       onChange={(val) =>
                         updateDelegationPolicy(index, {
                           prerequisite_role_ids_all: val,
-                          prerequisite_role_ids: val,
                         })
                       }
                       placeholder="Select required roles (all)"

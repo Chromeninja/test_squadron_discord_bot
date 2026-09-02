@@ -17,8 +17,6 @@ class EventType(StrEnum):
     RECHECK = "RECHECK"  # User initiated re-check via button
     AUTO_CHECK = "AUTO_CHECK"  # Scheduled automatic re-check
     ADMIN_ACTION = "ADMIN_ACTION"  # Admin initiated action (check, role grant, etc)
-    # Backward compatibility alias for persisted data using the old name
-    ADMIN_CHECK = "ADMIN_CHECK"  # @deprecated: use ADMIN_ACTION for new code
 
 
 class InitiatorKind(StrEnum):
@@ -42,7 +40,6 @@ VALID_COMBINATIONS: dict[EventType, set[InitiatorKind]] = {
     EventType.RECHECK: {InitiatorKind.USER, InitiatorKind.ADMIN, InitiatorKind.AUTO},
     EventType.AUTO_CHECK: {InitiatorKind.AUTO},
     EventType.ADMIN_ACTION: {InitiatorKind.ADMIN},
-    EventType.ADMIN_CHECK: {InitiatorKind.ADMIN},  # Backward compatibility
 }
 
 
@@ -79,11 +76,14 @@ class ChangeSet:
 
     def __post_init__(self):
         if isinstance(self.event, str):
-            try:
-                self.event = EventType(self.event)
-            except ValueError:
-                # Unknown event string; keep raw but avoid attribute errors
-                pass
+            if self.event == "ADMIN_CHECK":
+                self.event = EventType.ADMIN_ACTION
+            else:
+                try:
+                    self.event = EventType(self.event)
+                except ValueError:
+                    # Unknown event string; keep raw but avoid attribute errors
+                    pass
         if isinstance(self.initiator_kind, str):
             self.initiator_kind = InitiatorKind(self.initiator_kind)
         if self.initiator_source and isinstance(self.initiator_source, str):

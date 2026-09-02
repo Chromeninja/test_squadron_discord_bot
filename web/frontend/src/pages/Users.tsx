@@ -668,9 +668,6 @@ function Users() {
   const buildExportFilters = (): ExportUsersRequest => {
     const payload: ExportUsersRequest = {};
 
-    if (normalizedStatusFilters.length === 1) {
-      payload.membership_status = normalizedStatusFilters[0];
-    }
     if (normalizedStatusFilters.length > 0) {
       payload.membership_statuses = normalizedStatusFilters;
     }

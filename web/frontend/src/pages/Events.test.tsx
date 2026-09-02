@@ -72,6 +72,8 @@ describe('Events Page', () => {
           <Route path="/events/past" element={<Events guildId="123" view="past" />} />
           <Route path="/events/new" element={<EventEditor guildId="123" mode="create" />} />
           <Route path="/events/:eventId/edit" element={<EventEditor guildId="123" mode="edit" />} />
+          <Route path="/dashboard/123/events/new" element={<EventEditor guildId="123" mode="create" />} />
+          <Route path="/dashboard/123/events/:eventId/edit" element={<EventEditor guildId="123" mode="edit" />} />
         </Routes>
       </MemoryRouter>,
     );

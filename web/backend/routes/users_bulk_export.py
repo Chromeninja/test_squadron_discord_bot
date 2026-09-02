@@ -177,10 +177,7 @@ async def export_users(
         )
 
     guild_id = int(current_user.active_guild_id)
-    status_filters = _build_status_filters(
-        list_values=request.membership_statuses,
-        single_value=request.membership_status,
-    )
+    status_filters = _build_status_filters(request.membership_statuses)
     search_text = request.search.strip() if request.search else None
     org_sids = request.orgs or []
     where_clause, where_params = _build_search_where(search_text, org_sids)

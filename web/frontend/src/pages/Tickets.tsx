@@ -183,7 +183,7 @@ export default function Tickets({ guildId }: TicketsProps) {
 
       if (!isMountedRef.current) return;
 
-      const s = settingsRes.settings;
+      const s = settingsRes;
       setLogChannelId(s.log_channel_id);
       setCloseMessage(s.close_message ?? '');
       setStaffRoles(s.staff_roles);

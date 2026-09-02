@@ -71,21 +71,6 @@ function DashboardIndexRoute() {
   return <Dashboard />;
 }
 
-function LegacyGuildRouteRedirect({ childPath }: { childPath: string }) {
-  const { user } = useAuth();
-
-  if (!user?.active_guild_id || user.active_guild_id === '*') {
-    return <Navigate to="/select-server" replace />;
-  }
-
-  return <Navigate to={buildDashboardPath(user.active_guild_id, childPath)} replace />;
-}
-
-function LegacyEventEditorRedirect() {
-  const { eventId } = useParams();
-  return <LegacyGuildRouteRedirect childPath={`events/${eventId ?? ''}/edit`} />;
-}
-
 function AuthenticatedLandingRoute({ user }: { user: UserProfile }) {
   const dashboardHref =
     user.active_guild_id && user.active_guild_id !== '*'
@@ -384,17 +369,6 @@ function App() {
           {/* Catch-all → redirect to dashboard */}
           <Route path="*" element={<Navigate to="." replace />} />
         </Route>
-
-        {/* Legacy flat routes kept for backwards compatibility */}
-        <Route path="/metrics" element={<LegacyGuildRouteRedirect childPath="metrics" />} />
-        <Route path="/users" element={<LegacyGuildRouteRedirect childPath="users" />} />
-        <Route path="/voice" element={<LegacyGuildRouteRedirect childPath="voice" />} />
-        <Route path="/events" element={<LegacyGuildRouteRedirect childPath="events" />} />
-        <Route path="/events/past" element={<LegacyGuildRouteRedirect childPath="events/past" />} />
-        <Route path="/events/new" element={<LegacyGuildRouteRedirect childPath="events/new" />} />
-        <Route path="/events/:eventId/edit" element={<LegacyEventEditorRedirect />} />
-        <Route path="/tickets" element={<LegacyGuildRouteRedirect childPath="tickets" />} />
-        <Route path="/settings" element={<LegacyGuildRouteRedirect childPath="settings" />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

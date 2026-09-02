@@ -31,8 +31,6 @@ from core.schemas import (
     TicketChannelConfigUpdate,
     TicketInfo,
     TicketListResponse,
-    TicketSettings,
-    TicketSettingsResponse,
     TicketSettingsUpdate,
     TicketStatsResponse,
     UserProfile,
@@ -547,61 +545,46 @@ async def ticket_stats(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/settings", response_model=TicketSettingsResponse)
+@router.get("/settings", response_model=TicketSettingsUpdate)
 async def get_settings(
     current_user: UserProfile = Depends(require_discord_manager()),
     config: ConfigService = Depends(get_config_service),
-) -> TicketSettingsResponse:
-    """Retrieve ticket settings for the active guild."""
+) -> TicketSettingsUpdate:
+    """Retrieve canonical guild-level ticket settings."""
     guild_id = ensure_active_guild(current_user)
-
-    # Fetch all settings in one batch
-    _keys = [
-        "tickets.channel_id",
-        "tickets.panel_message_id",
-        "tickets.log_channel_id",
-        "tickets.close_message",
-        "tickets.default_welcome_message",
-    ]
-    raw: dict[str, str | None] = {}
-    for key in _keys:
-        raw[key] = await config.get_guild_setting(guild_id, key)
-    max_open_per_user = await config.get_guild_setting(
-        guild_id, "tickets.max_open_per_user", default="5"
-    )
-    reopen_window_hours = await config.get_guild_setting(
-        guild_id, "tickets.reopen_window_hours", default="48"
-    )
-
+    values = {
+        key: await config.get_guild_setting(guild_id, key)
+        for key in (
+            "tickets.log_channel_id",
+            "tickets.close_message",
+            "tickets.default_welcome_message",
+        )
+    }
     raw_roles = await config.get_guild_setting(
         guild_id, "tickets.staff_roles", default="[]"
     )
     try:
-        parsed = raw_roles
-        for _ in range(2):
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-                continue
-            break
-        staff_roles: list[int] = [int(r) for r in (parsed or [])]
-    except (json.JSONDecodeError, TypeError, ValueError):
+        staff_roles = [str(role) for role in json.loads(raw_roles or "[]")]
+    except (TypeError, json.JSONDecodeError):
         staff_roles = []
-
-    def _str_or_none(key: str) -> str | None:
-        v = raw[key]
-        return str(v) if v else None
-
-    settings = TicketSettings(
-        channel_id=_str_or_none("tickets.channel_id"),
-        panel_message_id=_str_or_none("tickets.panel_message_id"),
-        log_channel_id=_str_or_none("tickets.log_channel_id"),
-        close_message=raw["tickets.close_message"],
-        staff_roles=[str(r) for r in staff_roles],
-        default_welcome_message=raw["tickets.default_welcome_message"],
-        max_open_per_user=int(max_open_per_user) if max_open_per_user else 5,
-        reopen_window_hours=int(reopen_window_hours) if reopen_window_hours else 48,
+    return TicketSettingsUpdate(
+        log_channel_id=values["tickets.log_channel_id"],
+        close_message=values["tickets.close_message"],
+        default_welcome_message=values["tickets.default_welcome_message"],
+        staff_roles=staff_roles,
+        max_open_per_user=int(
+            await config.get_guild_setting(
+                guild_id, "tickets.max_open_per_user", default="5"
+            )
+            or 5
+        ),
+        reopen_window_hours=int(
+            await config.get_guild_setting(
+                guild_id, "tickets.reopen_window_hours", default="48"
+            )
+            or 48
+        ),
     )
-    return TicketSettingsResponse(settings=settings)
 
 
 @router.put("/settings")
@@ -615,7 +598,6 @@ async def update_settings(
 
     # Simple string settings — write directly if set
     _simple: dict[str, str | None] = {
-        "tickets.channel_id": body.channel_id,
         "tickets.log_channel_id": body.log_channel_id,
         "tickets.close_message": body.close_message,
         "tickets.default_welcome_message": body.default_welcome_message,

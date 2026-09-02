@@ -83,7 +83,7 @@ One pass, behind a release boundary:
       coverage; file deletion is deferred to Stage 3 clean-up pass.
 - [x] Deployment: `docker compose up` is now the canonical method (bot waits on backend
       healthcheck via `depends_on: service_healthy`). The two-process requirement and the
-      SQLite-in-volume persistence model are documented in `documents/SETUP.md`. The backend
+      SQLite bind-mount persistence model is documented in `documents/SETUP.md`. The backend
       image now builds and serves the frontend SPA so full-stack testing works in Docker.
 
 > **`services/internal_api.py` stays permanently** — it is the bot's live-Discord RPC surface
@@ -104,7 +104,7 @@ The repository seam makes these single-layer swaps:
 ## Deployment impact
 
 Stage 2 has landed: **the bot now requires the backend process to be reachable**.
-`docker compose up --build` (backend + bot, shared `sqlite-data` volume mounted at
+`docker compose up --build` (backend + bot, shared `./data` bind mount at
 `/app/data`, bot gated on the backend healthcheck) is the supported method. The SQLite
 databases live inside the named volume (`config/config.yaml` → `database.path:
 "data/TESTDatabase.db"`, `metrics.database_path: "data/metrics.db"`), so data persists

@@ -58,7 +58,6 @@ export interface RoleDelegationPolicyPayload {
   target_role_id: string;
   prerequisite_role_ids_all: string[];
   prerequisite_role_ids_any: string[];
-  prerequisite_role_ids?: string[];
   enabled: boolean;
   note?: string | null;
 }
@@ -517,7 +516,6 @@ export interface UserDetailsResponse {
 }
 
 export interface ExportUsersRequest {
-  membership_status?: string | null;
   membership_statuses?: string[] | null;
   role_ids?: number[] | null;
   selected_ids?: string[] | null;
@@ -921,9 +919,6 @@ export const usersApi = {
     if (membershipStatuses && membershipStatuses.length > 0) {
       const filtered = membershipStatuses.filter(s => s && s !== 'all');
       if (filtered.length > 0) {
-        if (filtered.length === 1) {
-          params.membership_status = filtered[0];
-        }
         params.membership_statuses = filtered.join(',');
       }
     }
@@ -1514,8 +1509,6 @@ export interface TicketInfo {
 }
 
 export interface TicketSettings {
-  channel_id: string | null;
-  panel_message_id: string | null;
   log_channel_id: string | null;
   close_message: string | null;
   staff_roles: string[];
@@ -1525,7 +1518,6 @@ export interface TicketSettings {
 }
 
 export interface TicketSettingsUpdate {
-  channel_id?: string | null;
   log_channel_id?: string | null;
   close_message?: string | null;
   staff_roles?: string[];
@@ -1622,9 +1614,7 @@ export interface TicketFormValidation {
 
 export const ticketsApi = {
   getSettings: async () => {
-    const response = await apiClient.get<{ success: boolean; settings: TicketSettings }>(
-      '/api/tickets/settings'
-    );
+    const response = await apiClient.get<TicketSettings>('/api/tickets/settings');
     return response.data;
   },
 

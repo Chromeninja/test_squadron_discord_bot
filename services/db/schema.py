@@ -5,6 +5,8 @@ Schema definitions for the Discord bot's database. This module centralizes
 all table creation logic to ensure consistency and avoid duplication.
 """
 
+import json
+
 import aiosqlite
 
 from services.db.migrations.event_signups_migration import (
@@ -147,6 +149,98 @@ async def _ensure_ticket_channel_config_columns(db: aiosqlite.Connection) -> Non
         )
 
 
+async def _backfill_legacy_ticket_settings(db: aiosqlite.Connection) -> None:
+    """Move the retired single-channel ticket settings into per-channel data.
+
+    A valid ``tickets.channel_id`` creates its channel configuration before the
+    retired setting is deleted.  Categories that predate ``channel_id`` are
+    assigned to that channel, and a legacy unsuffixed panel message key is
+    rewritten to the channel-specific key.
+    """
+    cursor = await db.execute(
+        "SELECT guild_id, value FROM guild_settings WHERE key = 'tickets.channel_id'"
+    )
+    rows = await cursor.fetchall()
+    for guild_id_raw, channel_id_raw in rows:
+        try:
+            guild_id = int(guild_id_raw)
+            channel_id = int(channel_id_raw)
+            if channel_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            logger.warning(
+                "Leaving invalid legacy ticket channel setting in place",
+                extra={"guild_id": guild_id_raw, "value": channel_id_raw},
+            )
+            continue
+
+        await db.execute(
+            "INSERT OR IGNORE INTO ticket_channel_configs (guild_id, channel_id) "
+            "VALUES (?, ?)",
+            (guild_id, channel_id),
+        )
+        await db.execute(
+            "UPDATE ticket_categories SET channel_id = ? "
+            "WHERE guild_id = ? AND channel_id = 0",
+            (channel_id, guild_id),
+        )
+
+        panel = await db.execute(
+            "SELECT value FROM guild_settings "
+            "WHERE guild_id = ? AND key = 'tickets.panel_message_id'",
+            (guild_id,),
+        )
+        panel_row = await panel.fetchone()
+        if panel_row:
+            await db.execute(
+                "INSERT OR IGNORE INTO guild_settings (guild_id, key, value) "
+                "VALUES (?, ?, ?)",
+                (guild_id, f"tickets.panel_message_id.{channel_id}", panel_row[0]),
+            )
+            await db.execute(
+                "DELETE FROM guild_settings "
+                "WHERE guild_id = ? AND key = 'tickets.panel_message_id'",
+                (guild_id,),
+            )
+
+        await db.execute(
+            "DELETE FROM guild_settings WHERE guild_id = ? AND key = 'tickets.channel_id'",
+            (guild_id,),
+        )
+
+
+async def _backfill_legacy_role_delegation_settings(
+    db: aiosqlite.Connection,
+) -> None:
+    """Rewrite retired delegation prerequisite keys to their canonical form."""
+    cursor = await db.execute(
+        "SELECT guild_id, value FROM guild_settings "
+        "WHERE key = 'roles.delegation_policies'"
+    )
+    for guild_id, raw_value in await cursor.fetchall():
+        try:
+            policies = json.loads(raw_value)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(policies, list):
+            continue
+
+        changed = False
+        for policy in policies:
+            if not isinstance(policy, dict) or "prerequisite_role_ids" not in policy:
+                continue
+            if "prerequisite_role_ids_all" not in policy:
+                policy["prerequisite_role_ids_all"] = policy["prerequisite_role_ids"]
+            del policy["prerequisite_role_ids"]
+            changed = True
+        if changed:
+            await db.execute(
+                "UPDATE guild_settings SET value = ? "
+                "WHERE guild_id = ? AND key = 'roles.delegation_policies'",
+                (json.dumps(policies), guild_id),
+            )
+
+
 async def _ensure_verification_columns(db: aiosqlite.Connection) -> None:
     """Ensure verification compatibility columns exist on legacy databases."""
     cursor = await db.execute("PRAGMA table_info(verification)")
@@ -176,6 +270,7 @@ async def ensure_ticket_schema_compatibility(db: aiosqlite.Connection) -> None:
     """Ensure ticket schema compatibility columns exist on legacy databases."""
     await _ensure_ticket_categories_columns(db)
     await _ensure_ticket_channel_config_columns(db)
+    await _backfill_legacy_ticket_settings(db)
     await _ensure_managed_event_columns(db)
 
 
@@ -299,6 +394,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    await _backfill_legacy_role_delegation_settings(db)
 
     # Voice channels (authoritative table)
     await db.execute(
@@ -829,6 +925,7 @@ async def init_schema(db: aiosqlite.Connection) -> None:
         """
     )
     await _ensure_ticket_channel_config_columns(db)
+    await _backfill_legacy_ticket_settings(db)
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ticket_channel_configs_guild ON ticket_channel_configs(guild_id)"
     )

@@ -75,7 +75,7 @@ The venv is **not** used to run the bot or backend — Docker handles that. Set 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements.txt -r web/backend/requirements.txt -r requirements-dev.txt
 pre-commit install
 ```
 
@@ -138,7 +138,7 @@ Command Palette → Tasks: Run Task:
 
 ## 7. Common Tips
 
-- If debugpy complains about missing modules, ensure the venv is active and `pip install -r requirements.txt -r requirements-dev.txt` has been run.
+- If debugpy complains about missing modules, ensure the venv is active and the canonical dependency install command above has been run.
 - If the Testing view shows discovery errors, reload the window (`Developer: Reload Window`) after installing deps.
 - Keep `.env` up to date — it is read by both Docker Compose and the native launch configs.
 - The Docker stack and the native launch configs share the same `.env` file — you do not need separate configs for each.

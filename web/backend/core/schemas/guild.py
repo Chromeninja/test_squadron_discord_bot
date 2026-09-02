@@ -55,8 +55,6 @@ class RoleDelegationPolicy(BaseModel):
     target_role_id: str
     prerequisite_role_ids_all: list[str] = Field(default_factory=list)
     prerequisite_role_ids_any: list[str] = Field(default_factory=list)
-    # Compatibility field; populated from *_all for older clients when present.
-    prerequisite_role_ids: list[str] = Field(default_factory=list)
     enabled: bool = True
     note: str | None = None
 

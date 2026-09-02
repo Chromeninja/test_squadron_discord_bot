@@ -169,38 +169,17 @@ class TicketStatsResponse(BaseModel):
     total: int = 0
 
 
-class TicketSettings(BaseModel):
-    """Current ticket settings for a guild."""
-
-    channel_id: str | None = None
-    panel_message_id: str | None = None
-    log_channel_id: str | None = None
-    close_message: str | None = None
-    staff_roles: list[str] = Field(default_factory=list)
-    default_welcome_message: str | None = None
-    max_open_per_user: int = 5
-    reopen_window_hours: int = 48
-
-
 class TicketSettingsUpdate(BaseModel):
     """Request payload for updating ticket settings."""
 
     model_config = ConfigDict(extra="forbid")
 
-    channel_id: str | None = None
     log_channel_id: str | None = None
     close_message: str | None = None
     staff_roles: list[str] | None = None
     default_welcome_message: str | None = None
     max_open_per_user: int | None = None
     reopen_window_hours: int | None = None
-
-
-class TicketSettingsResponse(BaseModel):
-    """Response for ticket settings retrieval."""
-
-    success: bool = True
-    settings: TicketSettings
 
 
 class TicketFormQuestion(BaseModel):

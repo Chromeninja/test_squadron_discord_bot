@@ -225,7 +225,7 @@ function Events({ guildId, view = 'active' }: EventsProps) {
         actions={
           isCoordinator ? (
             <>
-              <Button onClick={() => navigate('/events/new')} variant="primary" size="sm">
+              <Button onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events/new`)} variant="primary" size="sm">
                 New Event
               </Button>
               <Button
@@ -271,7 +271,7 @@ function Events({ guildId, view = 'active' }: EventsProps) {
               </p>
               {view === 'active' && isCoordinator ? (
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="primary" onClick={() => navigate('/events/new')}>
+                  <Button variant="primary" onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events/new`)}>
                     Create Event
                   </Button>
                   <Button
@@ -373,7 +373,7 @@ function Events({ guildId, view = 'active' }: EventsProps) {
                           variant="secondary"
                           size="sm"
                           aria-label={`Edit ${event.name}`}
-                          onClick={() => navigate(`/events/${event.id}/edit`)}
+                          onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events/${event.id}/edit`)}
                         >
                           Edit Event
                         </Button>

@@ -119,7 +119,7 @@ def _track_daily_activity(
     tracker.record_check(guild_id, changed=changed)
 
     # Category classification — admin-triggered rechecks count in both buckets
-    is_admin = event in (EventType.ADMIN_ACTION, EventType.ADMIN_CHECK) or kind in (
+    is_admin = event == EventType.ADMIN_ACTION or kind in (
         InitiatorKind.ADMIN,
         "Admin",
     )

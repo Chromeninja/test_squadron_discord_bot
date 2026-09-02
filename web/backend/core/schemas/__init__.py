@@ -111,8 +111,6 @@ from .tickets import (
     TicketFormValidation,
     TicketInfo,
     TicketListResponse,
-    TicketSettings,
-    TicketSettingsResponse,
     TicketSettingsUpdate,
     TicketStatsResponse,
 )
@@ -253,8 +251,6 @@ __all__ = [  # noqa: RUF022 - grouped by schema module for readability
     "TicketFormValidation",
     "TicketInfo",
     "TicketListResponse",
-    "TicketSettings",
-    "TicketSettingsResponse",
     "TicketSettingsUpdate",
     "TicketStatsResponse",
     # users
