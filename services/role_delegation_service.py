@@ -469,7 +469,7 @@ def _role_id_list(values: Any) -> list[int]:
     seen: set[int] = set()
 
     def _iter(val: Any) -> Iterable[Any]:
-        if isinstance(val, (list, tuple, set)):
+        if isinstance(val, list | tuple | set):
             for item in val:
                 yield from _iter(item)
         else:

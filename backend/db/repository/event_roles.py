@@ -54,9 +54,7 @@ _UPDATABLE_FIELDS = (
 class EventRoleRepository:
     """Repository for the event_roles table."""
 
-    async def list_roles(
-        self, guild_id: int, event_id: int
-    ) -> list[EventRoleRecord]:
+    async def list_roles(self, guild_id: int, event_id: int) -> list[EventRoleRecord]:
         """Return all roles for an event ordered by sort_order, then created_at."""
         async with Database.get_connection() as db:
             cursor = await db.execute(
@@ -70,9 +68,7 @@ class EventRoleRepository:
             rows = await cursor.fetchall()
             return [_row_to_role(row) for row in rows]
 
-    async def get_role(
-        self, guild_id: int, role_id: int
-    ) -> EventRoleRecord | None:
+    async def get_role(self, guild_id: int, role_id: int) -> EventRoleRecord | None:
         """Return a single role by ID scoped to a guild, or None if absent."""
         async with Database.get_connection() as db:
             cursor = await db.execute(

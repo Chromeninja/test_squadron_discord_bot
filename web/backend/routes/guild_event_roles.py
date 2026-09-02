@@ -37,9 +37,7 @@ router = APIRouter(prefix="/api/guilds", tags=["guild-event-roles"])
 logger = logging.getLogger(__name__)
 
 
-def _role_to_schema(
-    role: EventRoleRecord, signup_count: int = 0
-) -> EventRoleSchema:
+def _role_to_schema(role: EventRoleRecord, signup_count: int = 0) -> EventRoleSchema:
     """Convert a repository role dict into an EventRoleSchema."""
     return EventRoleSchema(
         id=role["id"],

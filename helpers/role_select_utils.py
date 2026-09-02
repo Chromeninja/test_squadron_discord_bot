@@ -18,7 +18,7 @@ def _normalize_role_ids(raw_roles: Any, guild_id: int | None, key: str) -> list[
     def _walk(value: Any) -> list[Any]:
         if value is None:
             return []
-        if isinstance(value, (list, tuple, set)):  # cover typical iterables
+        if isinstance(value, list | tuple | set):  # cover typical iterables
             flattened: list[Any] = []
             for item in value:
                 flattened.extend(_walk(item))

@@ -56,7 +56,7 @@ router = APIRouter()
 
 def _parse_ticket_user_id(raw_user_id: object) -> int | None:
     """Best-effort conversion for optional Discord user IDs from ticket rows."""
-    if raw_user_id is None or not isinstance(raw_user_id, (int, str)):
+    if raw_user_id is None or not isinstance(raw_user_id, int | str):
         return None
     try:
         return int(raw_user_id)
@@ -66,7 +66,7 @@ def _parse_ticket_user_id(raw_user_id: object) -> int | None:
 
 def _required_ticket_int(value: object) -> int:
     """Convert a required integer DB value without weakening its type."""
-    if not isinstance(value, (int, str)):
+    if not isinstance(value, int | str):
         raise TypeError(f"Expected an integer-compatible value, got {type(value)}")
     return int(value)
 

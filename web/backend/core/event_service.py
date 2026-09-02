@@ -52,9 +52,7 @@ class EventService:
         return await Database.list_managed_events_by_guild(guild_id)
 
     @staticmethod
-    async def get_event(
-        guild_id: int, event_id: int
-    ) -> ManagedEventRecord | None:
+    async def get_event(guild_id: int, event_id: int) -> ManagedEventRecord | None:
         """Return one managed event from DB for a guild."""
         return await Database.get_managed_event(guild_id, event_id)
 

@@ -209,7 +209,7 @@ class ConfigRepository:
 
         for channel_key in channel_keys:
             channel_id = await self.get_setting(guild_id, f"channels.{channel_key}")
-            if isinstance(channel_id, (int, str)):
+            if isinstance(channel_id, int | str):
                 try:
                     channels[channel_key] = int(channel_id)
                 except (TypeError, ValueError):
@@ -255,7 +255,7 @@ class ConfigRepository:
         Replicates ConfigService._safe_int parsing logic.
         """
         value = await self.get_setting(guild_id, key)
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             return None
         try:
             return int(value)

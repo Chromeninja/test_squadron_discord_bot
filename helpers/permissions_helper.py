@@ -398,7 +398,7 @@ def _normalize_role_ids(
     def _iter_values(item: Any) -> Iterable[Any]:
         if item is None:
             return []
-        if isinstance(item, (str, bytes)):
+        if isinstance(item, str | bytes):
             return [item]
         if isinstance(item, Iterable):
             flattened: list[Any] = []

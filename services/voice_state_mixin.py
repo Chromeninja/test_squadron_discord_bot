@@ -302,12 +302,10 @@ class VoiceStateMixin(VoiceServiceBase):
                 delete_method = getattr(channel, "delete", None)
                 if isinstance(
                     channel,
-                    (
-                        discord.VoiceChannel,
-                        discord.StageChannel,
-                        discord.TextChannel,
-                        discord.CategoryChannel,
-                    ),
+                    discord.VoiceChannel
+                    | discord.StageChannel
+                    | discord.TextChannel
+                    | discord.CategoryChannel,
                 ) and callable(delete_method):
                     delete_result = delete_method(
                         reason="Empty managed voice channel cleanup"

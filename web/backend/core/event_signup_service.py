@@ -551,9 +551,7 @@ class EventSignupService:
             if role_id is None:
                 raise SignupError(400, "role_id is required for role target")
             return [
-                str(rs["user_id"])
-                for rs in role_signups
-                if rs["role_id"] == role_id
+                str(rs["user_id"]) for rs in role_signups if rs["role_id"] == role_id
             ]
         raise SignupError(400, "Unknown message target")
 

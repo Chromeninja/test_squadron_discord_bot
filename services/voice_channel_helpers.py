@@ -27,7 +27,7 @@ def get_member_count(
     if isinstance(channel_or_id, int):
         channel_id = channel_or_id
         channel_candidate = bot.get_channel(channel_id) if bot else None
-        if isinstance(channel_candidate, (discord.VoiceChannel, discord.StageChannel)):
+        if isinstance(channel_candidate, discord.VoiceChannel | discord.StageChannel):
             channel = channel_candidate
         else:
             channel = None

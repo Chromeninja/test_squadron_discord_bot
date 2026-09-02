@@ -70,7 +70,7 @@ async def handle_send_channel_message(
     import discord
 
     channel = guild.get_channel(channel_id)
-    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+    if not isinstance(channel, discord.TextChannel | discord.Thread):
         return web.json_response(
             {"error": "Channel not found or not a text channel"}, status=404
         )

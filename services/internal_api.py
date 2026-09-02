@@ -1513,7 +1513,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
         interval_raw = getattr(rule, "interval", 1)
         interval = (
             int(interval_raw)
-            if isinstance(interval_raw, (int, str)) and str(interval_raw).strip()
+            if isinstance(interval_raw, int | str) and str(interval_raw).strip()
             else 1
         )
 
@@ -1589,14 +1589,14 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             start = start_raw.strip()
 
         frequency_raw = recurrence_rule_raw.get("frequency")
-        if not isinstance(frequency_raw, (int, str)) or not str(frequency_raw).strip():
+        if not isinstance(frequency_raw, int | str) or not str(frequency_raw).strip():
             raise ValueError("recurrence_rule.frequency is required")
         frequency = int(frequency_raw)
         if frequency not in {0, 1, 2, 3}:
             raise ValueError("recurrence_rule.frequency must be one of 0, 1, 2, 3")
 
         interval_raw = recurrence_rule_raw.get("interval", 1)
-        if not isinstance(interval_raw, (int, str)) or not str(interval_raw).strip():
+        if not isinstance(interval_raw, int | str) or not str(interval_raw).strip():
             raise ValueError("recurrence_rule.interval must be an integer")
         interval = int(interval_raw)
         if interval <= 0:
@@ -1614,7 +1614,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 raise ValueError("recurrence_rule.by_weekday must be an array")
             by_weekday: list[int] = []
             for day_raw in by_weekday_raw:
-                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                if not isinstance(day_raw, int | str) or not str(day_raw).strip():
                     raise ValueError(
                         "recurrence_rule.by_weekday values must be integers"
                     )
@@ -1637,11 +1637,11 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                     )
                 n_raw = item.get("n")
                 day_raw = item.get("day")
-                if not isinstance(n_raw, (int, str)) or not str(n_raw).strip():
+                if not isinstance(n_raw, int | str) or not str(n_raw).strip():
                     raise ValueError(
                         "recurrence_rule.by_n_weekday.n must be an integer"
                     )
-                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                if not isinstance(day_raw, int | str) or not str(day_raw).strip():
                     raise ValueError(
                         "recurrence_rule.by_n_weekday.day must be an integer"
                     )
@@ -1661,7 +1661,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 raise ValueError("recurrence_rule.by_month must be an array")
             by_month: list[int] = []
             for month_raw in by_month_raw:
-                if not isinstance(month_raw, (int, str)) or not str(month_raw).strip():
+                if not isinstance(month_raw, int | str) or not str(month_raw).strip():
                     raise ValueError("recurrence_rule.by_month values must be integers")
                 month = int(month_raw)
                 if month < 1 or month > 12:
@@ -1676,7 +1676,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                 raise ValueError("recurrence_rule.by_month_day must be an array")
             by_month_day: list[int] = []
             for day_raw in by_month_day_raw:
-                if not isinstance(day_raw, (int, str)) or not str(day_raw).strip():
+                if not isinstance(day_raw, int | str) or not str(day_raw).strip():
                     raise ValueError(
                         "recurrence_rule.by_month_day values must be integers"
                     )
@@ -2084,7 +2084,7 @@ class InternalAPIServer(InternalAPIMetricsMixin):
             try:
                 announcement_channel_raw = (
                     str(announcement_channel_id)
-                    if isinstance(announcement_channel_id, (str, int))
+                    if isinstance(announcement_channel_id, str | int)
                     else ""
                 )
                 announcement_channel_int = int(announcement_channel_raw)

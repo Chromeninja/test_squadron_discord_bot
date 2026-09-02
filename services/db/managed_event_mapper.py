@@ -86,7 +86,5 @@ def managed_event_row_to_dict(row: aiosqlite.Row) -> ManagedEventRecord:
         "signups_enabled": bool(_row_get(row, "signups_enabled", 1)),
         "signups_closed": bool(_row_get(row, "signups_closed", 0)),
         "allow_multiple_roles": bool(_row_get(row, "allow_multiple_roles", 0)),
-        "signup_channel_id": _optional_str(
-            _row_get(row, "signup_channel_id", None)
-        ),
+        "signup_channel_id": _optional_str(_row_get(row, "signup_channel_id", None)),
     }

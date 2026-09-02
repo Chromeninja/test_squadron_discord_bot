@@ -112,6 +112,7 @@ ignore = [
     "E402",   # module-import-not-at-top-of-file - path manipulation needed first
     "S603",   # subprocess-without-shell-equals-true - shell=False is intentional
     "S105",   # hardcoded-password-string - false positive on URL variable names
+    "UP040",  # type-alias-statement requires Python 3.12; project supports Python 3.11
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -264,7 +264,7 @@ class VoiceService(
                             discord.VoiceChannel | discord.StageChannel | None
                         ) = None
                         if isinstance(
-                            channel, (discord.VoiceChannel, discord.StageChannel)
+                            channel, discord.VoiceChannel | discord.StageChannel
                         ):
                             voice_like = channel
                         elif hasattr(channel, "members") and hasattr(channel, "delete"):
@@ -517,7 +517,7 @@ class VoiceService(
             channel_id = channel_or_id
             if self.bot:
                 ch = self.bot.get_channel(channel_id)
-                if isinstance(ch, (discord.VoiceChannel, discord.StageChannel)):
+                if isinstance(ch, discord.VoiceChannel | discord.StageChannel):
                     channel = ch
         else:
             channel = channel_or_id

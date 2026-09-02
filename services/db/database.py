@@ -36,7 +36,7 @@ def _format_recurrence_label_from_payload(
     interval_raw = recurrence_payload.get("interval")
     interval = (
         int(interval_raw)
-        if isinstance(interval_raw, (int, str)) and str(interval_raw).strip()
+        if isinstance(interval_raw, int | str) and str(interval_raw).strip()
         else 1
     )
 
@@ -47,7 +47,7 @@ def _format_recurrence_label_from_payload(
         3: "Daily",
     }.get(
         int(frequency_raw)
-        if isinstance(frequency_raw, (int, str)) and str(frequency_raw).strip()
+        if isinstance(frequency_raw, int | str) and str(frequency_raw).strip()
         else -1,
         "Recurring",
     )
@@ -75,7 +75,7 @@ def _format_recurrence_label_from_payload(
         )
         names: list[str] = []
         for day_raw in weekdays_raw:
-            if isinstance(day_raw, (int, str)) and str(day_raw).strip():
+            if isinstance(day_raw, int | str) and str(day_raw).strip():
                 day_index = int(day_raw)
                 if 0 <= day_index < len(weekday_names):
                     names.append(weekday_names[day_index])
@@ -672,7 +672,7 @@ class Database:
         user_count_raw = payload.get("user_count")
         user_count = (
             int(user_count_raw)
-            if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
+            if isinstance(user_count_raw, int | str) and str(user_count_raw).strip()
             else 0
         )
         previous_user_count: int | None = None

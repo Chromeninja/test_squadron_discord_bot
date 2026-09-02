@@ -127,9 +127,7 @@ def _roster_response(state: EventRosterState) -> EventRosterResponse:
     return EventRosterResponse(
         event_id=state["event_id"],
         total_web_signups=state["total_web_signups"],
-        no_role_users=[
-            _roster_user_schema(user) for user in state["no_role_users"]
-        ],
+        no_role_users=[_roster_user_schema(user) for user in state["no_role_users"]],
         roles=[_roster_role_schema(role) for role in state["roles"]],
         discord_user_count=state["discord_user_count"],
     )

@@ -55,20 +55,19 @@ def _coerce_scheduled_event_summary(
     last_synced_at_raw = event_data.get("last_synced_at")
     last_synced_at = (
         int(last_synced_at_raw)
-        if isinstance(last_synced_at_raw, (int, str))
-        and str(last_synced_at_raw).strip()
+        if isinstance(last_synced_at_raw, int | str) and str(last_synced_at_raw).strip()
         else None
     )
     user_count_raw = event_data.get("user_count")
     user_count = (
         int(user_count_raw)
-        if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
+        if isinstance(user_count_raw, int | str) and str(user_count_raw).strip()
         else 0
     )
     web_signup_count_raw = event_data.get("web_signup_count")
     web_signup_count = (
         int(web_signup_count_raw)
-        if isinstance(web_signup_count_raw, (int, str))
+        if isinstance(web_signup_count_raw, int | str)
         and str(web_signup_count_raw).strip()
         else 0
     )

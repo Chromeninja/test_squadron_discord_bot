@@ -69,7 +69,7 @@ async def run_task(task) -> None:
                         should_retry = True
                         # Parse Retry-After from the Discord response
                         retry_after = getattr(e, "retry_after", None)
-                        if isinstance(retry_after, (int, float)) and retry_after > 0:
+                        if isinstance(retry_after, int | float) and retry_after > 0:
                             retry_delay = min(float(retry_after), 60.0)
 
             if should_retry and attempt < MAX_RETRIES:
