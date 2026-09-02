@@ -434,12 +434,8 @@ class RoleDelegationService(BaseService):
                 policy.get("target_role_id") or policy.get("granted_role")
             )
 
-            required_roles = _role_id_list(
-                policy.get("prerequisite_role_ids_all")
-            )
-            any_roles = _role_id_list(
-                policy.get("prerequisite_role_ids_any")
-            )
+            required_roles = _role_id_list(policy.get("prerequisite_role_ids_all"))
+            any_roles = _role_id_list(policy.get("prerequisite_role_ids_any"))
             forbidden_roles: list[int] = []
 
             normalized.append(

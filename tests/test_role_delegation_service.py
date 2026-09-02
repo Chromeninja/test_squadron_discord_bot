@@ -459,7 +459,9 @@ async def test_apply_revoke_succeeds_even_when_target_lost_prerequisites(monkeyp
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids_all": [444],  # Target must have 444 to be granted 333
+            "prerequisite_role_ids_all": [
+                444
+            ],  # Target must have 444 to be granted 333
         }
     ]
     called = {}

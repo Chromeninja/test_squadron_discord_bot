@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from services.internal_api import InternalAPIServer
@@ -30,8 +30,8 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # Type alias for prefix (list of strings or the when_mentioned callable)
-PrefixCallable: TypeAlias = Callable[[commands.Bot, discord.Message], list[str]]
-PrefixType: TypeAlias = list[str] | PrefixCallable
+type PrefixCallable = Callable[[commands.Bot, discord.Message], list[str]]
+type PrefixType = list[str] | PrefixCallable
 
 # Module-level cache for lazy-loaded values
 _config: dict | None = None

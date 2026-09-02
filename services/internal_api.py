@@ -471,15 +471,14 @@ class InternalAPIServer(InternalAPIMetricsMixin):
                         {"error": "Invalid channel_id — must be numeric"},
                         status=400,
                     )
+            elif self.bot and self.bot.connectors:
+                # Deploy to all channels that have channel configs.
+                configs = await self.bot.connectors.tickets.list_channel_configs(
+                    guild_id
+                )
+                channel_ids = [int(c["channel_id"]) for c in configs]
             else:
-                # Deploy to all channels that have channel configs
-                if self.bot and self.bot.connectors:
-                    configs = await self.bot.connectors.tickets.list_channel_configs(
-                        guild_id
-                    )
-                    channel_ids = [int(c["channel_id"]) for c in configs]
-                else:
-                    channel_ids = []
+                channel_ids = []
 
             if not channel_ids:
                 return web.json_response(

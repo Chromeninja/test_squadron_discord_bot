@@ -100,7 +100,8 @@ async def test_init_schema_migrates_legacy_ticket_settings_idempotently() -> Non
         )
         assert [row[0] for row in await cursor.fetchall()] == [456]
         cursor = await db.execute(
-            "SELECT key, value FROM guild_settings WHERE guild_id = ? ORDER BY key", (123,)
+            "SELECT key, value FROM guild_settings WHERE guild_id = ? ORDER BY key",
+            (123,),
         )
         assert await cursor.fetchall() == [("tickets.panel_message_id.456", "789")]
 
