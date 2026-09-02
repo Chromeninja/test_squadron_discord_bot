@@ -462,7 +462,14 @@ function Users() {
     return () => {
       cancelled = true;
     };
-  }, [showUserModal, selectedUser?.discord_id, modalRefreshSequence]);
+  }, [
+    showUserModal,
+    selectedUser?.discord_id,
+    selectedUser?.roles.length,
+    selectedUser?.joined_at,
+    selectedUser?.created_at,
+    modalRefreshSequence,
+  ]);
 
   const isCrossGuild = activeGuildId === ALL_GUILDS_SENTINEL;
 

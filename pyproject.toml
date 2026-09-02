@@ -2,6 +2,12 @@
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# This repository is an application, not a distributable Python package.  The
+# requirements files install its optional dependency groups, so disable
+# setuptools' automatic multi-package discovery when resolving `.[...]`.
+packages = []
+
 [project]
 name = "test-squadron-discord-bot"
 version = "1.0.0"
