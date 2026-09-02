@@ -169,10 +169,6 @@ async def search_users(
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=200, description="Items per page (max 200)"),
-    membership_status: str | None = Query(
-        None,
-        description="Single membership status filter (deprecated in favor of membership_statuses)",
-    ),
     membership_statuses: str | None = Query(
         None,
         description="Comma-separated membership statuses (e.g., main,affiliate)",
@@ -219,10 +215,7 @@ async def list_users(
         return empty_response
 
     # Parse filters
-    status_filters = _build_status_filters(
-        list_values=_split_comma_param(membership_statuses),
-        single_value=membership_status,
-    )
+    status_filters = _build_status_filters(_split_comma_param(membership_statuses))
     search_text = search.strip() if search else None
     org_sids = _split_comma_param(orgs)
 

@@ -523,12 +523,17 @@ async def test_select_guild_uses_session_guilds_when_internal_api_unavailable(
 
 
 @pytest.mark.asyncio
-async def test_get_guilds_revokes_access_on_role_mismatch(
+async def test_get_guilds_downgrades_to_user_on_role_mismatch(
     client: AsyncClient,
     mock_admin_session: str,
     fake_internal_api: Any,
 ) -> None:
-    """Live role mismatches should still revoke stale session access."""
+    """A member who lost an elevated role is downgraded to ``user``, not revoked.
+
+    Regular guild members must keep dashboard access (Events page), so a live
+    role mismatch for someone still in the guild downgrades their base role to
+    ``user`` rather than removing the guild from their session.
+    """
 
     async def mismatched_member(guild_id: int, user_id: int) -> dict:
         return {
@@ -538,6 +543,31 @@ async def test_get_guilds_revokes_access_on_role_mismatch(
         }
 
     fake_internal_api.get_guild_member = mismatched_member
+
+    response: httpx.Response = await client.get(
+        "/api/auth/guilds?force_refresh=1",
+        cookies={"session": mock_admin_session},
+    )
+
+    # Access is retained (still a member), not revoked.
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_guilds_revokes_access_when_not_in_guild(
+    client: AsyncClient,
+    mock_admin_session: str,
+    fake_internal_api: Any,
+) -> None:
+    """Users no longer in a guild (404 on member lookup) are still revoked."""
+    import httpx as _httpx
+
+    async def missing_member(guild_id: int, user_id: int) -> dict:
+        request = _httpx.Request("GET", "http://internal/member")
+        response = _httpx.Response(404, request=request)
+        raise _httpx.HTTPStatusError("not found", request=request, response=response)
+
+    fake_internal_api.get_guild_member = missing_member
 
     response: httpx.Response = await client.get(
         "/api/auth/guilds?force_refresh=1",

@@ -250,7 +250,7 @@ async def enforce_permission_changes(
                 existing = channel.overwrites.get(target)
                 if existing == overwrite:
                     continue
-                if not isinstance(target, (discord.Member, discord.Role)):
+                if not isinstance(target, discord.Member | discord.Role):
                     continue
                 try:
                     await channel.set_permissions(target, overwrite=overwrite)

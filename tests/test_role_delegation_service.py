@@ -60,7 +60,7 @@ async def test_can_grant_allows_when_requirements_met():
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [444],
+            "prerequisite_role_ids_all": [444],
             "enabled": True,
         }
     ]
@@ -87,7 +87,7 @@ async def test_can_grant_blocks_missing_required():
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [444],
+            "prerequisite_role_ids_all": [444],
         }
     ]
     svc = RoleDelegationService(DummyConfig(policies), bot=None)
@@ -149,7 +149,7 @@ async def test_can_grant_ignores_disabled_policy():
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
             "enabled": False,
         }
     ]
@@ -176,7 +176,7 @@ async def test_apply_grant_invokes_discord_add_roles(monkeypatch):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
     called = {}
@@ -222,7 +222,7 @@ async def test_apply_grant_logs_leadership_change(monkeypatch):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 
@@ -285,7 +285,7 @@ async def test_apply_grant_logs_error_when_leadership_log_fails(monkeypatch, cap
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 
@@ -332,7 +332,7 @@ async def test_apply_revoke_fails_when_remove_roles_raises(monkeypatch, caplog):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 
@@ -375,7 +375,7 @@ async def test_apply_revoke_success(monkeypatch):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
     called = {}
@@ -418,7 +418,7 @@ async def test_apply_revoke_fails_when_target_lacks_role(monkeypatch):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 
@@ -459,7 +459,9 @@ async def test_apply_revoke_succeeds_even_when_target_lost_prerequisites(monkeyp
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [444],  # Target must have 444 to be granted 333
+            "prerequisite_role_ids_all": [
+                444
+            ],  # Target must have 444 to be granted 333
         }
     ]
     called = {}
@@ -500,7 +502,7 @@ async def test_apply_revoke_fails_when_revoker_lacks_permission():
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 
@@ -536,7 +538,7 @@ async def test_apply_revoke_logs_leadership_change(monkeypatch):
         {
             "grantor_role_ids": [111],
             "target_role_id": 333,
-            "prerequisite_role_ids": [],
+            "prerequisite_role_ids_all": [],
         }
     ]
 

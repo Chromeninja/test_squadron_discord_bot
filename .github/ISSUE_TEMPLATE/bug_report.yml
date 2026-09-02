@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug]: "
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe actual and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove tokens, keys, IDs, and private user data.

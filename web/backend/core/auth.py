@@ -199,11 +199,16 @@ async def _validate_guild_membership(
         computed_level = "staff"
 
     if not computed_level:
-        logger.warning(
-            "role validation failed - role mismatch",
-            extra={**log_context, "cause": "role_mismatch"},
+        # Member exists in the guild (live member lookup succeeded) but holds
+        # no configured elevated role. They remain a valid guild member with
+        # baseline "user" access rather than being revoked, so regular members
+        # keep access to the Events page. True non-members are handled by the
+        # 404 branch above (returns "revoked").
+        logger.info(
+            "role validation resolved to baseline user access",
+            extra={**log_context, "cause": "no_elevated_role"},
         )
-        return "revoked", None
+        return "valid", "user"
 
     logger.info(
         "role validation refreshed",

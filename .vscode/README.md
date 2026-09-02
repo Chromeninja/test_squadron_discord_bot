@@ -4,7 +4,7 @@ This folder contains VS Code workspace settings tuned for automated test runs an
 
 ## Python Environment
 
-- **Virtual Environment**: `${workspaceFolder}/.venv/bin/python`
+- **Virtual Environment**: `${workspaceFolder}/.venv`
 - All tests and tools use this venv to ensure consistency
 - The venv is automatically added to PATH in integrated terminals
 
@@ -14,11 +14,14 @@ This folder contains VS Code workspace settings tuned for automated test runs an
 
 **CORRECT ways to run tests:**
 ```bash
-# From workspace root (recommended)
-cd /home/chrome/test_squadron_discord_bot
-.venv/bin/python -m pytest tests/                    # Bot tests
-.venv/bin/python -m pytest web/backend/tests/        # Backend API tests
-.venv/bin/python -m pytest tests/ web/backend/tests/ # All tests
+# From workspace root (Linux/macOS)
+.venv/bin/python -m pytest tests/
+
+# From workspace root (Windows PowerShell)
+.\.venv\Scripts\python.exe -m pytest tests/
+
+# Or activate the environment first, then use the portable form
+python -m pytest tests/ web/backend/tests/ backend/
 ```
 
 **Or use VS Code tasks:**
@@ -50,7 +53,7 @@ pytest tests/
 - **pytest enabled**: Discovers tests automatically on save
 - **Test discovery**: Looks for `test_*.py` and `*_test.py` files
 - **Default working directory**: Workspace root
-- **pytest binary**: `${workspaceFolder}/.venv/bin/pytest`
+- **pytest runner**: the Python interpreter selected by the Python extension
 
 ## Why This Matters
 
@@ -58,7 +61,5 @@ The bot and backend have separate `conftest.py` files that conflict if pytest's 
 
 ## Environment Setup
 
-If your venv is named differently, update:
-1. `.vscode/settings.json` - `python.defaultInterpreterPath`
-2. `.vscode/tasks.json` - All task `command` paths
-3. `.env` - Any environment-specific paths
+The checked-in configuration expects an environment named `.venv`. It resolves
+`.venv/bin/python` on Linux/macOS and `.venv\Scripts\python.exe` on Windows.

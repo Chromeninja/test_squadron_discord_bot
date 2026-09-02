@@ -100,7 +100,7 @@ def _extract_oauth_state_timestamp(state_value: float | dict[str, object]) -> fl
     """Extract a creation timestamp from an OAuth state store value."""
     if isinstance(state_value, dict):
         raw_created_at = state_value.get("created_at")
-        if isinstance(raw_created_at, (int, float)):
+        if isinstance(raw_created_at, int | float):
             return float(raw_created_at)
         return 0.0
 

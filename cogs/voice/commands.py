@@ -726,7 +726,7 @@ class AdminCommands(app_commands.Group):
             if self.bot:
                 channel = self.bot.get_channel(channel_id)
                 if channel and isinstance(
-                    channel, (discord.VoiceChannel, discord.StageChannel)
+                    channel, discord.VoiceChannel | discord.StageChannel
                 ):
                     try:
                         await channel.delete(

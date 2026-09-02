@@ -30,7 +30,7 @@ docker compose up --build
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements.txt -r web/backend/requirements.txt -r requirements-dev.txt
 pre-commit install
 ```
 
@@ -108,7 +108,7 @@ mypy backend/ connectors/ --ignore-missing-imports --no-strict-optional \
 
 ## Code Style Quick Reference
 
-- **Python 3.11+** syntax (use `X | Y` unions, not `Union[X, Y]`)
+- **Python 3.12+** syntax (use `X | Y` unions and modern type aliases)
 - **Ruff** for linting and formatting (config in `pyproject.toml`)
 - **mypy strict** for type checking (config in `pyproject.toml`)
 - **Docstrings** with `AI Notes:` section for non-obvious logic

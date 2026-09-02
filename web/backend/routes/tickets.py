@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
@@ -31,8 +31,6 @@ from core.schemas import (
     TicketChannelConfigUpdate,
     TicketInfo,
     TicketListResponse,
-    TicketSettings,
-    TicketSettingsResponse,
     TicketSettingsUpdate,
     TicketStatsResponse,
     UserProfile,
@@ -52,6 +50,30 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+def _parse_ticket_user_id(raw_user_id: object) -> int | None:
+    """Best-effort conversion for optional Discord user IDs from ticket rows."""
+    if raw_user_id is None or not isinstance(raw_user_id, int | str):
+        return None
+    try:
+        return int(raw_user_id)
+    except ValueError:
+        return None
+
+
+def _required_ticket_int(value: object) -> int:
+    """Convert a required integer DB value without weakening its type."""
+    if not isinstance(value, int | str):
+        raise TypeError(f"Expected an integer-compatible value, got {type(value)}")
+    return int(value)
+
+
+def _optional_ticket_int(value: object) -> int | None:
+    """Convert a nullable integer DB value without accepting arbitrary objects."""
+    if value is None:
+        return None
+    return _required_ticket_int(value)
 
 
 async def _resolve_ticket_creators(
@@ -447,14 +469,6 @@ async def list_tickets(
     """List tickets for the active guild with optional status filter."""
     guild_id = ensure_active_guild(current_user)
 
-    def _parse_ticket_user_id(raw_user_id: Any) -> int | None:
-        if raw_user_id is None:
-            return None
-        try:
-            return int(raw_user_id)
-        except (TypeError, ValueError):
-            return None
-
     offset = (page - 1) * page_size
     tickets = await repo.get_tickets(
         guild_id, status=status, limit=page_size, offset=offset
@@ -482,7 +496,7 @@ async def list_tickets(
         raw_cat_id = t.get("category_id")
         items.append(
             TicketInfo(
-                id=int(t["id"]),  # type: ignore[arg-type]
+                id=_required_ticket_int(t["id"]),
                 guild_id=str(t["guild_id"]),
                 channel_id=str(t["channel_id"]),
                 thread_id=str(t["thread_id"]),
@@ -491,26 +505,20 @@ async def list_tickets(
                 creator_global_name=creator_data.get("creator_global_name"),
                 creator_discriminator=creator_data.get("creator_discriminator"),
                 creator_avatar_url=creator_data.get("creator_avatar_url"),
-                category_id=int(raw_cat_id) if raw_cat_id is not None else None,  # type: ignore[arg-type]
+                category_id=_optional_ticket_int(raw_cat_id),
                 status=str(t["status"]),
                 closed_by=str(t["closed_by"]) if t.get("closed_by") else None,
-                created_at=int(t.get("created_at") or 0),  # type: ignore[arg-type]
-                closed_at=int(t["closed_at"])
-                if t.get("closed_at") is not None
-                else None,  # type: ignore[arg-type]
+                created_at=_required_ticket_int(t.get("created_at") or 0),
+                closed_at=_optional_ticket_int(t.get("closed_at")),
                 claimed_by=str(t["claimed_by"]) if t.get("claimed_by") else None,
-                claimed_at=int(t["claimed_at"])
-                if t.get("claimed_at") is not None
-                else None,  # type: ignore[arg-type]
+                claimed_at=_optional_ticket_int(t.get("claimed_at")),
                 close_reason=str(t["close_reason"])
                 if t.get("close_reason") is not None
                 else None,
                 initial_description=str(t["initial_description"])
                 if t.get("initial_description") is not None
                 else None,
-                reopened_at=int(t["reopened_at"])
-                if t.get("reopened_at") is not None
-                else None,  # type: ignore[arg-type]
+                reopened_at=_optional_ticket_int(t.get("reopened_at")),
                 reopened_by=str(t["reopened_by"]) if t.get("reopened_by") else None,
             )
         )
@@ -537,61 +545,46 @@ async def ticket_stats(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/settings", response_model=TicketSettingsResponse)
+@router.get("/settings", response_model=TicketSettingsUpdate)
 async def get_settings(
     current_user: UserProfile = Depends(require_discord_manager()),
     config: ConfigService = Depends(get_config_service),
-) -> TicketSettingsResponse:
-    """Retrieve ticket settings for the active guild."""
+) -> TicketSettingsUpdate:
+    """Retrieve canonical guild-level ticket settings."""
     guild_id = ensure_active_guild(current_user)
-
-    # Fetch all settings in one batch
-    _keys = [
-        "tickets.channel_id",
-        "tickets.panel_message_id",
-        "tickets.log_channel_id",
-        "tickets.close_message",
-        "tickets.default_welcome_message",
-    ]
-    raw: dict[str, str | None] = {}
-    for key in _keys:
-        raw[key] = await config.get_guild_setting(guild_id, key)
-    max_open_per_user = await config.get_guild_setting(
-        guild_id, "tickets.max_open_per_user", default="5"
-    )
-    reopen_window_hours = await config.get_guild_setting(
-        guild_id, "tickets.reopen_window_hours", default="48"
-    )
-
+    values = {
+        key: await config.get_guild_setting(guild_id, key)
+        for key in (
+            "tickets.log_channel_id",
+            "tickets.close_message",
+            "tickets.default_welcome_message",
+        )
+    }
     raw_roles = await config.get_guild_setting(
         guild_id, "tickets.staff_roles", default="[]"
     )
     try:
-        parsed = raw_roles
-        for _ in range(2):
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-                continue
-            break
-        staff_roles: list[int] = [int(r) for r in (parsed or [])]
-    except (json.JSONDecodeError, TypeError, ValueError):
+        staff_roles = [str(role) for role in json.loads(raw_roles or "[]")]
+    except (TypeError, json.JSONDecodeError):
         staff_roles = []
-
-    def _str_or_none(key: str) -> str | None:
-        v = raw[key]
-        return str(v) if v else None
-
-    settings = TicketSettings(
-        channel_id=_str_or_none("tickets.channel_id"),
-        panel_message_id=_str_or_none("tickets.panel_message_id"),
-        log_channel_id=_str_or_none("tickets.log_channel_id"),
-        close_message=raw["tickets.close_message"],
-        staff_roles=[str(r) for r in staff_roles],
-        default_welcome_message=raw["tickets.default_welcome_message"],
-        max_open_per_user=int(max_open_per_user) if max_open_per_user else 5,
-        reopen_window_hours=int(reopen_window_hours) if reopen_window_hours else 48,
+    return TicketSettingsUpdate(
+        log_channel_id=values["tickets.log_channel_id"],
+        close_message=values["tickets.close_message"],
+        default_welcome_message=values["tickets.default_welcome_message"],
+        staff_roles=staff_roles,
+        max_open_per_user=int(
+            await config.get_guild_setting(
+                guild_id, "tickets.max_open_per_user", default="5"
+            )
+            or 5
+        ),
+        reopen_window_hours=int(
+            await config.get_guild_setting(
+                guild_id, "tickets.reopen_window_hours", default="48"
+            )
+            or 48
+        ),
     )
-    return TicketSettingsResponse(settings=settings)
 
 
 @router.put("/settings")
@@ -605,7 +598,6 @@ async def update_settings(
 
     # Simple string settings — write directly if set
     _simple: dict[str, str | None] = {
-        "tickets.channel_id": body.channel_id,
         "tickets.log_channel_id": body.log_channel_id,
         "tickets.close_message": body.close_message,
         "tickets.default_welcome_message": body.default_welcome_message,

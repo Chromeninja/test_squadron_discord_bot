@@ -41,8 +41,6 @@ logger = get_logger(__name__)
 
 # Panel message IDs are stored per (guild, channel) pair using the key
 # pattern ``tickets.panel_message_id.<channel_id>`` in guild_settings.
-# The legacy key ``tickets.panel_message_id`` (no channel suffix) is also
-# loaded for backward compatibility.
 
 _PANEL_KEY_PREFIX = "tickets.panel_message_id"
 
@@ -64,11 +62,9 @@ async def _load_panel_message_ids() -> dict[tuple[int, int], int]:
                 guild_id = int(row[0])
                 key = str(row[1])
                 msg_id = int(row[2])
-                # Parse channel_id from key suffix
-                if key == _PANEL_KEY_PREFIX:
+                # Parse channel_id from the canonical key suffix.
+                if key.startswith(f"{_PANEL_KEY_PREFIX}."):
                     # Legacy key — channel_id unknown, use 0 as placeholder
-                    channel_id = 0
-                elif key.startswith(f"{_PANEL_KEY_PREFIX}."):
                     channel_id = int(key.rsplit(".", maxsplit=1)[-1])
                 else:
                     continue
@@ -382,16 +378,8 @@ class TicketCommands(commands.GroupCog, name="tickets"):
 
         for guild in targets:
             try:
-                # Discover all channels that have ticket categories
-                channel_ids = await self._get_ticket_channel_ids(guild.id)
-
-                # Fall back to legacy single-channel setting
-                if not channel_ids:
-                    legacy_id = await self.config_api.get_guild_setting(
-                        guild.id, "tickets.channel_id"
-                    )
-                    if legacy_id:
-                        channel_ids = [int(legacy_id)]  # type: ignore[arg-type]
+                configs = await self.tickets_api.list_channel_configs(guild.id)
+                channel_ids = [int(config["channel_id"]) for config in configs]
 
                 if not channel_ids:
                     continue

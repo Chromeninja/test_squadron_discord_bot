@@ -18,7 +18,7 @@ description: "Python coding standards for this Discord bot project. Applied when
 
 ## Type Hints — Required on ALL functions
 
-Every function and method MUST have full type annotations (parameters + return type). Use `str | None` union syntax (Python 3.11+), not `Optional[str]`.
+Every function and method MUST have full type annotations (parameters + return type). Use `str | None` union syntax (Python 3.12+), not `Optional[str]`.
 
 ```python
 async def get_member(user_id: int, guild_id: int) -> str | None: ...
@@ -53,7 +53,7 @@ logger.exception("Failed for %s", member_id, exc_info=e)
 # Concurrent I/O
 results = await asyncio.gather(fetch_a(), fetch_b(), fetch_c())
 
-# TaskGroup (Python 3.11+)
+# TaskGroup (Python 3.12+)
 async with asyncio.TaskGroup() as tg:
     task1 = tg.create_task(fetch_a())
     task2 = tg.create_task(fetch_b())

@@ -355,6 +355,17 @@ async def callback(request: Request, code: str, state: str | None = None):
                         )
                         continue
 
+                    # Baseline access: any member of an installed guild gets
+                    # "user" level so regular members can reach the Events page.
+                    # Elevation checks below overwrite this with a higher role
+                    # when the member holds a configured/Discord-native role.
+                    guild_id_str = str(guild_id)
+                    authorized_guilds[guild_id_str] = GuildPermission(
+                        guild_id=guild_id_str,
+                        role_level="user",
+                        source="guild_member",
+                    )
+
                     # Check Discord-native permissions (owner or administrator)
                     is_owner = guild_data.get("owner", False)
                     permissions_str = guild_data.get("permissions")

@@ -1,3 +1,5 @@
+import json
+
 import aiosqlite
 import pytest
 
@@ -67,6 +69,66 @@ async def test_init_schema_backfills_legacy_ticket_categories_channel_id() -> No
         )
         index_columns = [row[2] for row in await cursor.fetchall()]
         assert index_columns == ["guild_id", "channel_id"]
+
+
+@pytest.mark.asyncio
+async def test_init_schema_migrates_legacy_ticket_settings_idempotently() -> None:
+    async with aiosqlite.connect(":memory:") as db:
+        await init_schema(db)
+        await db.executemany(
+            "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+            [
+                (123, "tickets.channel_id", "456"),
+                (123, "tickets.panel_message_id", "789"),
+            ],
+        )
+        await db.execute(
+            "INSERT INTO ticket_categories (guild_id, channel_id, name) VALUES (?, ?, ?)",
+            (123, 0, "Support"),
+        )
+        await db.commit()
+
+        await init_schema(db)
+        await init_schema(db)
+
+        cursor = await db.execute(
+            "SELECT channel_id FROM ticket_channel_configs WHERE guild_id = ?", (123,)
+        )
+        assert [row[0] for row in await cursor.fetchall()] == [456]
+        cursor = await db.execute(
+            "SELECT channel_id FROM ticket_categories WHERE guild_id = ?", (123,)
+        )
+        assert [row[0] for row in await cursor.fetchall()] == [456]
+        cursor = await db.execute(
+            "SELECT key, value FROM guild_settings WHERE guild_id = ? ORDER BY key",
+            (123,),
+        )
+        assert await cursor.fetchall() == [("tickets.panel_message_id.456", "789")]
+
+
+@pytest.mark.asyncio
+async def test_init_schema_migrates_legacy_delegation_prerequisites() -> None:
+    async with aiosqlite.connect(":memory:") as db:
+        await init_schema(db)
+        await db.execute(
+            "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+            (
+                123,
+                "roles.delegation_policies",
+                '[{"target_role_id": "2", "prerequisite_role_ids": ["1"]}]',
+            ),
+        )
+        await db.commit()
+
+        await init_schema(db)
+        cursor = await db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 123 "
+            "AND key = 'roles.delegation_policies'"
+        )
+        value = (await cursor.fetchone())[0]
+        assert json.loads(value) == [
+            {"target_role_id": "2", "prerequisite_role_ids_all": ["1"]}
+        ]
 
 
 @pytest.mark.asyncio

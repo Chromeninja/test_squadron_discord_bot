@@ -30,8 +30,8 @@ This map provides a quick view of how the repository is organized, with each maj
 - `discord-bot.code-workspace` — VS Code workspace config.
 - `pyproject.toml` — Python tooling/lint/type config.
 - `pytest.ini` — Pytest configuration.
-- `requirements-dev.txt` — Development dependencies.
-- `requirements.txt` — Runtime dependencies.
+- `pyproject.toml` — Canonical Python dependency metadata.
+- `requirements-dev.txt` and `requirements.txt` — Installation entrypoints derived from project extras.
 - `start_bot.py` — Startup wrapper for bot run flow.
 
 ## Top-level directories
@@ -152,6 +152,9 @@ Centralized repository documentation.
 - `VS_CODE_SETUP.md` — VS Code local development and Docker testing setup.
 - `backend-first-migration.md` — Backend-first architecture migration roadmap.
 - `file-map.md` — This repository map.
+- `MAINTAINERS.md` — Review, release, and incident-response guidance.
+- `architecture/` — System, request-flow, security, and deployment diagrams.
+- `features/` — Behavior and ownership guides for verification, voice, metrics, tickets/events, and dashboard features.
 
 ### `helpers/`
 Reusable utility modules used across bot domains.
@@ -763,7 +766,6 @@ test_squadron_discord_bot/
 │       │   │   │   ├── OrgBadgeList.tsx — React TypeScript component module.
 │       │   │   │   └── UserDetailsModal.tsx — React TypeScript component module.
 │       │   │   ├── AccordionSection.tsx — React TypeScript component module.
-│       │   │   ├── BulkRecheckIntegrationExample.tsx — React TypeScript component module.
 │       │   │   ├── BulkRecheckResultsModal.tsx — React TypeScript component module.
 │       │   │   ├── DiscordMarkdownEditor.test.tsx — React TypeScript component module.
 │       │   │   ├── DiscordMarkdownEditor.tsx — React TypeScript component module.
@@ -855,8 +857,9 @@ test_squadron_discord_bot/
 ├── pyproject.toml — Python tooling, lint, and type-check configuration.
 ├── pytest.ini — Pytest execution configuration.
 ├── README.md — Primary project overview and navigation.
-├── requirements-dev.txt — Development dependency locklist.
-├── requirements.txt — Runtime dependency list.
+├── pyproject.toml — Canonical Python dependency metadata.
+├── requirements-dev.txt — Development installation entrypoint.
+├── requirements.txt — Bot runtime installation entrypoint.
 ├── SECURITY.md — Security policy and disclosure process.
 └── start_bot.py — Startup wrapper for launching the bot.
 ```

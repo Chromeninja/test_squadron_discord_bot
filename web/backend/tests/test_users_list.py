@@ -79,7 +79,7 @@ async def test_list_users_with_filter(
     """Test users list filters by membership status."""
     _use_fixture(fake_internal_api)
     response = await client.get(
-        "/api/users?page=1&page_size=25&membership_status=main",
+        "/api/users?page=1&page_size=25&membership_statuses=main",
         cookies={"session": mock_admin_session},
     )
 

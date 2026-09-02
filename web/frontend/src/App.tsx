@@ -61,19 +61,14 @@ function RequireGuild({ children }: { children: (guildId: string) => React.React
   return <>{children(activeGuildId)}</>;
 }
 
-function LegacyGuildRouteRedirect({ childPath }: { childPath: string }) {
-  const { user } = useAuth();
-
-  if (!user?.active_guild_id || user.active_guild_id === '*') {
-    return <Navigate to="/select-server" replace />;
-  }
-
-  return <Navigate to={buildDashboardPath(user.active_guild_id, childPath)} replace />;
-}
-
-function LegacyEventEditorRedirect() {
-  const { eventId } = useParams();
-  return <LegacyGuildRouteRedirect childPath={`events/${eventId ?? ''}/edit`} />;
+/**
+ * Dashboard index: staff and above see the full Dashboard; regular members are
+ * sent straight to the Events page (the only area they may access).
+ */
+function DashboardIndexRoute() {
+  const { userHasPermission } = useAuth();
+  if (!userHasPermission('staff')) return <Navigate to="events" replace />;
+  return <Dashboard />;
 }
 
 function AuthenticatedLandingRoute({ user }: { user: UserProfile }) {
@@ -269,8 +264,8 @@ function App() {
             </GuildScopeGate>
           }
         >
-          {/* Dashboard (index route) */}
-          <Route index element={<Dashboard />} />
+          {/* Dashboard (index route) — staff+ only; regular members land on Events */}
+          <Route index element={<DashboardIndexRoute />} />
 
           {/* Metrics — discord_manager+ */}
           <Route
@@ -282,17 +277,31 @@ function App() {
             }
           />
 
-          {/* Users */}
-          <Route path="users" element={<Users />} />
+          {/* Users — staff+ */}
+          <Route
+            path="users"
+            element={
+              <RequireRole minRole="staff">
+                <Users />
+              </RequireRole>
+            }
+          />
 
-          {/* Voice */}
-          <Route path="voice" element={<Voice />} />
+          {/* Voice — staff+ */}
+          <Route
+            path="voice"
+            element={
+              <RequireRole minRole="staff">
+                <Voice />
+              </RequireRole>
+            }
+          />
 
-          {/* Events - event_coordinator+ and needs guildId */}
+          {/* Events (active/upcoming/recurring) — any guild member */}
           <Route
             path="events"
             element={
-              <RequireRole minRole="event_coordinator">
+              <RequireRole minRole="user">
                 <RequireGuild>
                   {(guildId) => <Events guildId={guildId} view="active" />}
                 </RequireGuild>
@@ -360,17 +369,6 @@ function App() {
           {/* Catch-all → redirect to dashboard */}
           <Route path="*" element={<Navigate to="." replace />} />
         </Route>
-
-        {/* Legacy flat routes kept for backwards compatibility */}
-        <Route path="/metrics" element={<LegacyGuildRouteRedirect childPath="metrics" />} />
-        <Route path="/users" element={<LegacyGuildRouteRedirect childPath="users" />} />
-        <Route path="/voice" element={<LegacyGuildRouteRedirect childPath="voice" />} />
-        <Route path="/events" element={<LegacyGuildRouteRedirect childPath="events" />} />
-        <Route path="/events/past" element={<LegacyGuildRouteRedirect childPath="events/past" />} />
-        <Route path="/events/new" element={<LegacyGuildRouteRedirect childPath="events/new" />} />
-        <Route path="/events/:eventId/edit" element={<LegacyEventEditorRedirect />} />
-        <Route path="/tickets" element={<LegacyGuildRouteRedirect childPath="tickets" />} />
-        <Route path="/settings" element={<LegacyGuildRouteRedirect childPath="settings" />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

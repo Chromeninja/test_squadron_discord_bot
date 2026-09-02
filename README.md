@@ -34,7 +34,7 @@ Future clients  ──────────────────→  ┘  
 | `backend/` | Authoritative data layer: repositories, internal API routes, middleware, auth |
 | `web/backend/` | FastAPI app entrypoint: mounts all routers, handles OAuth2 for the dashboard |
 | `web/frontend/` | React + TypeScript dashboard (Vite) |
-| `services/` | Legacy in-process services (being migrated to `backend/` incrementally) |
+| `services/` | Bot-side gateway and orchestration services |
 
 ### backend/ package
 
@@ -54,11 +54,11 @@ The bot accesses the backend through typed HTTP connectors. All connector instan
 - **`connectors/registry.py`** — `ConnectorRegistry` dataclass; typed handle for all domain connectors.
 - **`connectors/events.py`**, **`voice.py`**, **`tickets.py`**, **`verification.py`**, **`config.py`**, **`metrics.py`** — per-domain connector classes.
 
-### Legacy components (services/)
+### Gateway components (services/)
 
 - **`services/service_container.py`** — All service singletons; injected into cogs. Access via `bot.service_container.<service>`.
 - **`services/db/`** — Legacy DB access layer (being replaced by `backend/db/repository/`).
-- **`services/internal_api.py`** — Embedded HTTP server (being absorbed into `backend/api/internal/`).
+- **`services/internal_api.py`** — Permanent gateway RPC server for dashboard operations that require the live Discord connection.
 
 ### Auth
 
@@ -75,6 +75,8 @@ The bot accesses the backend through typed HTTP connectors. All connector instan
 - **`documents/VS_CODE_SETUP.md`** — Local development & Docker testing setup guide.
 
 ## 🛠️ Getting Started
+
+For project policies and collaboration guidance, see [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`SUPPORT.md`](SUPPORT.md), [`SECURITY.md`](SECURITY.md), and [`PRIVACY.md`](PRIVACY.md). Maintainers can find release guidance in [`documents/MAINTAINERS.md`](documents/MAINTAINERS.md).
 
 ### Discord Bot Permissions
 
@@ -322,7 +324,7 @@ All repository documentation lives in the [`documents/`](documents/) folder:
 
 ## Developer Scripts
 
-Tools in `scripts/` are optional utilities for debugging and maintenance. They are not used during normal bot or backend operation, and runtime modules should not import them.
+Python dependency metadata lives in `pyproject.toml`; the requirements files are generated installation entrypoints for bot, backend, and development environments.
 
 ## 🌐 Web Admin Dashboard
 
@@ -334,13 +336,23 @@ The bot includes a comprehensive web admin dashboard for managing and monitoring
 - **Live Role-Based Access Control**: Access enforced based on Discord roles
   - **Bot Admin** & **Moderator**: Full administrative access (user recheck, voice reset, logs export)
   - **Discord Manager+**: Metrics dashboard access (leaderboards, time-series, per-user detail and deletion)
+  - **Event Coordinator & Higher**: Event management (create/edit/delete events, signup roles, rosters, CSV export, channel messaging)
   - **Staff & Higher**: Read-only dashboard access (statistics, user search, voice management — excludes metrics)
-  - **Regular Users**: No dashboard access
+  - **Regular Guild Members**: Events page only — after login they land on Events, see active/upcoming/recurring events, and can sign up; every other page and all past events remain gated server-side
 - **Live Role Validation**: Access immediately revoked if Discord roles change (TTL: 30 seconds)
 - **Dashboard Overview**: View verification statistics and active voice channels
 - **User Management**: Search, recheck, and export verification records by user ID, RSI handle, or community moniker
 - **Voice Channel Management**: View and search voice channels by user ID, with moderator-level reset capabilities
 - **Permission-Aware UI**: Buttons hidden for users without required permissions
+
+### Event Manager
+
+Events are stored DB-first in `managed_events` and projected to Discord scheduled events via a pending-sync loop (`sync_status` is visible per event in the dashboard).
+
+- **Member signups**: any guild member can mark "I'm Interested" on an active/upcoming/recurring event and withdraw at any time (withdrawals are hard-deleted)
+- **Signup roles**: coordinators define free-form role slots per event (name ≤ 40 chars, optional emoji and description, optional capacity, lockable) — during event creation/editing or from the Events page
+- **Rules enforced server-side**: role capacity (atomic, race-safe), locked roles, one-role vs multiple-role mode, and closed signups; a role signup always implies whole-event interest
+- **Coordinator tools**: full roster (interested + per-role), manual assign/remove (bypasses capacity/lock for roster management), CSV export, and messaging signup groups (`all` / `no_role` / specific role / `all_roles`) through a guild channel — never DMs; message content is not stored
 
 ### Quick Start
 

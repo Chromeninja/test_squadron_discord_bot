@@ -48,7 +48,7 @@ import {
   MAX_TOTAL_FOLLOW_UP_QUESTIONS,
   TICKET_PAGE_SIZE,
   normalizeStepsForSave,
-} from './tickets';
+} from './tickets/index';
 
 interface TicketsProps {
   guildId: string;
@@ -183,7 +183,7 @@ export default function Tickets({ guildId }: TicketsProps) {
 
       if (!isMountedRef.current) return;
 
-      const s = settingsRes.settings;
+      const s = settingsRes;
       setLogChannelId(s.log_channel_id);
       setCloseMessage(s.close_message ?? '');
       setStaffRoles(s.staff_roles);

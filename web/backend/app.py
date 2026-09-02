@@ -63,6 +63,8 @@ from routes import (
     admin_users,
     auth,
     errors,
+    guild_event_roles,
+    guild_event_signups,
     guild_events,
     guilds,
     guilds_discord,
@@ -173,6 +175,8 @@ app.include_router(guilds.router)
 app.include_router(guilds_discord.router)
 app.include_router(guilds_organization.router)
 app.include_router(guild_events.router)
+app.include_router(guild_event_signups.router)
+app.include_router(guild_event_roles.router)
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])

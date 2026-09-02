@@ -10,6 +10,20 @@ const { eventsApi, guildApi, useAuth } = vi.hoisted(() => ({
     getScheduledEvent: vi.fn(),
     createScheduledEvent: vi.fn(),
     updateScheduledEvent: vi.fn(),
+    getRoles: vi.fn(),
+    markInterest: vi.fn(),
+    withdrawInterest: vi.fn(),
+    signUpForRole: vi.fn(),
+    withdrawFromRole: vi.fn(),
+    getRoster: vi.fn(),
+    assignUser: vi.fn(),
+    removeUser: vi.fn(),
+    createRole: vi.fn(),
+    updateRole: vi.fn(),
+    deleteRole: vi.fn(),
+    updateEventSettings: vi.fn(),
+    sendMessage: vi.fn(),
+    exportSignups: vi.fn(),
   },
   guildApi: {
     getGuildInfo: vi.fn(),
@@ -58,6 +72,8 @@ describe('Events Page', () => {
           <Route path="/events/past" element={<Events guildId="123" view="past" />} />
           <Route path="/events/new" element={<EventEditor guildId="123" mode="create" />} />
           <Route path="/events/:eventId/edit" element={<EventEditor guildId="123" mode="edit" />} />
+          <Route path="/dashboard/123/events/new" element={<EventEditor guildId="123" mode="create" />} />
+          <Route path="/dashboard/123/events/:eventId/edit" element={<EventEditor guildId="123" mode="edit" />} />
         </Routes>
       </MemoryRouter>,
     );
@@ -68,6 +84,14 @@ describe('Events Page', () => {
     vi.mocked(useAuth).mockReturnValue({
       user: createUser(),
       getUserRoleLevel: () => 'event_coordinator',
+      userHasPermission: () => true,
+    });
+    vi.mocked(eventsApi.getRoles).mockResolvedValue({
+      success: true,
+      roles: [],
+      allow_multiple_roles: false,
+      signups_enabled: true,
+      signups_closed: false,
     });
     vi.mocked(guildApi.getGuildInfo).mockResolvedValue({
       success: true,
@@ -321,7 +345,7 @@ describe('Events Page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New Event' }));
 
     await waitFor(() => {
-      expect(screen.getByText('New event')).toBeInTheDocument();
+      expect(screen.getByText('Create event')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Back to Events' })).toBeInTheDocument();
   });
@@ -335,6 +359,12 @@ describe('Events Page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Fleet Night' }));
 
+    await waitFor(() => {
+      expect(screen.getByText('Edit event')).toBeInTheDocument();
+    });
+    // Navigate to Event Info step to verify event data was loaded
+    fireEvent.click(screen.getByRole('button', { name: 'Event Info' }));
+    // Verify the event data was loaded by checking for the event topic input with the event name
     await waitFor(() => {
       expect(screen.getByDisplayValue('Fleet Night')).toBeInTheDocument();
     });

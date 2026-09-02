@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 import aiosqlite
 
+from backend.db.repository.types import ManagedEventRecord
 from utils.logging import get_logger
 
 from .managed_event_mapper import managed_event_row_to_dict
@@ -35,7 +36,7 @@ def _format_recurrence_label_from_payload(
     interval_raw = recurrence_payload.get("interval")
     interval = (
         int(interval_raw)
-        if isinstance(interval_raw, (int, str)) and str(interval_raw).strip()
+        if isinstance(interval_raw, int | str) and str(interval_raw).strip()
         else 1
     )
 
@@ -46,7 +47,7 @@ def _format_recurrence_label_from_payload(
         3: "Daily",
     }.get(
         int(frequency_raw)
-        if isinstance(frequency_raw, (int, str)) and str(frequency_raw).strip()
+        if isinstance(frequency_raw, int | str) and str(frequency_raw).strip()
         else -1,
         "Recurring",
     )
@@ -74,7 +75,7 @@ def _format_recurrence_label_from_payload(
         )
         names: list[str] = []
         for day_raw in weekdays_raw:
-            if isinstance(day_raw, (int, str)) and str(day_raw).strip():
+            if isinstance(day_raw, int | str) and str(day_raw).strip():
                 day_index = int(day_raw)
                 if 0 <= day_index < len(weekday_names):
                     names.append(weekday_names[day_index])
@@ -436,7 +437,7 @@ class Database:
     @classmethod
     async def list_managed_events_by_guild(
         cls, guild_id: int
-    ) -> list[dict[str, object | None]]:
+    ) -> list[ManagedEventRecord]:
         """List non-deleted managed events for a guild ordered by start time."""
         async with cls.get_connection() as db:
             cursor = await db.execute(
@@ -454,7 +455,7 @@ class Database:
     @classmethod
     async def get_managed_event(
         cls, guild_id: int, event_id: int
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Get one non-deleted managed event for a guild by local DB event ID."""
         async with cls.get_connection() as db:
             cursor = await db.execute(
@@ -477,7 +478,7 @@ class Database:
         payload: dict[str, object | None],
         created_by_user_id: str | None,
         created_by_name: str | None,
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Create a managed event row with pending projection state."""
         now = int(time.time())
         recurrence_payload = payload.get("recurrence_rule")
@@ -556,7 +557,7 @@ class Database:
         payload: dict[str, object | None],
         updated_by_user_id: str | None,
         updated_by_name: str | None,
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Update managed event fields and mark as pending projection."""
         now = int(time.time())
         recurrence_payload = payload.get("recurrence_rule")
@@ -661,7 +662,7 @@ class Database:
         cls,
         guild_id: int,
         payload: dict[str, object | None],
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Upsert a managed event from Discord payload using discord_event_id as key."""
         discord_event_id = str(payload.get("id") or "").strip()
         if not discord_event_id:
@@ -671,7 +672,7 @@ class Database:
         user_count_raw = payload.get("user_count")
         user_count = (
             int(user_count_raw)
-            if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
+            if isinstance(user_count_raw, int | str) and str(user_count_raw).strip()
             else 0
         )
         previous_user_count: int | None = None

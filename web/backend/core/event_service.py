@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
 from services.db.database import Database
+
+if TYPE_CHECKING:
+    from backend.db.repository.types import ManagedEventRecord
 
 
 class InternalEventProjectionClient(Protocol):
@@ -44,14 +47,12 @@ class EventService:
     """Application service for DB-first event management and sync orchestration."""
 
     @staticmethod
-    async def list_events(guild_id: int) -> list[dict[str, object | None]]:
+    async def list_events(guild_id: int) -> list[ManagedEventRecord]:
         """Return all managed events from DB for a guild."""
         return await Database.list_managed_events_by_guild(guild_id)
 
     @staticmethod
-    async def get_event(
-        guild_id: int, event_id: int
-    ) -> dict[str, object | None] | None:
+    async def get_event(guild_id: int, event_id: int) -> ManagedEventRecord | None:
         """Return one managed event from DB for a guild."""
         return await Database.get_managed_event(guild_id, event_id)
 
@@ -61,7 +62,7 @@ class EventService:
         payload: dict[str, object | None],
         created_by_user_id: str | None,
         created_by_name: str | None,
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Create event in DB first (source of truth)."""
         return await Database.create_managed_event(
             guild_id=guild_id,
@@ -77,7 +78,7 @@ class EventService:
         payload: dict[str, object | None],
         updated_by_user_id: str | None,
         updated_by_name: str | None,
-    ) -> dict[str, object | None] | None:
+    ) -> ManagedEventRecord | None:
         """Update event in DB first and mark pending projection."""
         return await Database.update_managed_event(
             guild_id=guild_id,
@@ -145,7 +146,7 @@ class EventService:
 
     @staticmethod
     def _to_projection_payload(
-        event: dict[str, object | None],
+        event: ManagedEventRecord,
     ) -> dict[str, object | None]:
         """Convert DB event fields to internal API payload format."""
         return {
@@ -166,9 +167,9 @@ class EventService:
     @staticmethod
     async def sync_db_event_to_discord(
         guild_id: int,
-        event: dict[str, object | None],
+        event: ManagedEventRecord,
         projection_client: InternalEventProjectionClient,
-    ) -> dict[str, object | None]:
+    ) -> ManagedEventRecord:
         """Project one DB event to Discord and update sync state."""
         local_event_id = int(str(event["id"]))
         payload = EventService._to_projection_payload(event)
@@ -238,7 +239,7 @@ class EventService:
         direction: str,
         projection_client: InternalEventProjectionClient,
         event_id: int | None = None,
-    ) -> tuple[SyncResult, list[dict[str, object | None]]]:
+    ) -> tuple[SyncResult, list[ManagedEventRecord]]:
         """Run manual sync in requested direction and return latest event states."""
         result = SyncResult()
 

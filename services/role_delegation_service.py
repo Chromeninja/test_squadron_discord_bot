@@ -434,16 +434,9 @@ class RoleDelegationService(BaseService):
                 policy.get("target_role_id") or policy.get("granted_role")
             )
 
-            requirements = policy.get("requirements") or {}
-            required_roles = _role_id_list(
-                policy.get("prerequisite_role_ids")
-                or policy.get("prerequisite_role_ids_all")
-                or requirements.get("required_roles")
-            )
-            any_roles = _role_id_list(
-                policy.get("prerequisite_role_ids_any") or requirements.get("any_roles")
-            )
-            forbidden_roles = _role_id_list(requirements.get("forbidden_roles"))
+            required_roles = _role_id_list(policy.get("prerequisite_role_ids_all"))
+            any_roles = _role_id_list(policy.get("prerequisite_role_ids_any"))
+            forbidden_roles: list[int] = []
 
             normalized.append(
                 {
@@ -469,7 +462,7 @@ def _role_id_list(values: Any) -> list[int]:
     seen: set[int] = set()
 
     def _iter(val: Any) -> Iterable[Any]:
-        if isinstance(val, (list, tuple, set)):
+        if isinstance(val, list | tuple | set):
             for item in val:
                 yield from _iter(item)
         else:

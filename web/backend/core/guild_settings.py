@@ -117,9 +117,7 @@ def _normalize_delegation_policies(
 ) -> list[dict]:
     """Normalize delegation policies to the new schema shape with string snowflakes.
 
-    Supports older keys (grantor_roles/granted_role/requirements.required_roles)
-    and new keys (grantor_role_ids/target_role_id/prerequisite_role_ids_all/
-    prerequisite_role_ids_any).
+    Uses the canonical role-delegation fields and normalizes role IDs.
 
     If ``strict`` is True, a ``ValueError`` is raised when a policy is missing a
     usable ``target_role_id`` instead of silently dropping it. This prevents the
@@ -142,12 +140,7 @@ def _normalize_delegation_policies(
         grantor_roles = data.get("grantor_role_ids") or data.get("grantor_roles")
         target_role_raw = data.get("target_role_id") or data.get("granted_role")
 
-        requirements = data.get("requirements") or {}
-        prereq_all = (
-            data.get("prerequisite_role_ids_all")
-            or data.get("prerequisite_role_ids")
-            or requirements.get("required_roles")
-        )
+        prereq_all = data.get("prerequisite_role_ids_all")
         prereq_any = data.get("prerequisite_role_ids_any")
 
         try:
@@ -166,7 +159,6 @@ def _normalize_delegation_policies(
                 "grantor_role_ids": _normalize_policy_roles(grantor_roles),
                 "target_role_id": target_role_id,
                 "prerequisite_role_ids_all": _normalize_policy_roles(prereq_all),
-                "prerequisite_role_ids": _normalize_policy_roles(prereq_all),
                 "prerequisite_role_ids_any": _normalize_policy_roles(prereq_any),
                 "enabled": bool(data.get("enabled", True)),
                 "note": data.get("note") or data.get("notes"),

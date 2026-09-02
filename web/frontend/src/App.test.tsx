@@ -109,26 +109,6 @@ describe('App routing', () => {
     );
   });
 
-  it('redirects legacy metrics route to guild-scoped metrics route', async () => {
-    vi.mocked(useAuth).mockReturnValue({
-      user: buildUser('123'),
-      loading: false,
-      setUser: vi.fn(),
-      refreshProfile: vi.fn(async () => {}),
-      activeGuildId: '123',
-      userHasPermission: vi.fn(() => true),
-      getUserRoleLevel: vi.fn(() => 'discord_manager'),
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/metrics']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Metrics Page')).toBeInTheDocument();
-  });
-
   it('auto-selects requested guild when opening guild-scoped deep link', async () => {
     let currentUser = buildUser(null);
     const refreshProfile = vi.fn(async () => {

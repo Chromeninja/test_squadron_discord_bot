@@ -18,7 +18,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-hot-toast": "2.6.0",
-    "react-router-dom": "7.18.0",
+    "react-router-dom": "^7.18.3",
     "recharts": "3.7.0"
   },
   "devDependencies": {
@@ -34,8 +34,7 @@
     "eslint-plugin-react": "7.37.2",
     "eslint-plugin-react-hooks": "4.6.2",
     "happy-dom": "20.10.5",
-    "jsdom": "27.3.0",
-    "postcss": "8.5.15",
+    "postcss": "^8.5.26",
     "prettier": "3.3.3",
     "tailwindcss": "3.4.17",
     "typescript": "5.7.2",

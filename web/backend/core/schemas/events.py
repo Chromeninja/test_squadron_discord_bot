@@ -1,8 +1,27 @@
 """Scheduled event and synchronization schemas."""
 
+import unicodedata
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _sanitize_role_emoji(value: str | None) -> str | None:
+    """Normalize a role emoji: trim, treat empty as None, reject control chars.
+
+    Kept permissive on purpose — unicode emoji and custom Discord emoji
+    strings like ``<:medic:1234>`` must both pass (including ZWJ-joined
+    compound emoji, which use Cf format characters); only Cc control
+    characters are rejected.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if any(unicodedata.category(ch) == "Cc" for ch in trimmed):
+        raise ValueError("emoji must not contain control characters")
+    return trimmed
 
 
 class ScheduledEventRecurrenceNWeekday(BaseModel):
@@ -50,6 +69,144 @@ class ScheduledEventSummary(BaseModel):
     last_synced_at: int | None = None
     recurrence_rule: str | None = None
     recurrence_rule_payload: ScheduledEventRecurrenceRule | None = None
+    # Web signup state (DB-backed; separate from Discord's native user_count)
+    signups_enabled: bool = True
+    signups_closed: bool = False
+    allow_multiple_roles: bool = False
+    signup_channel_id: str | None = None
+    web_signup_count: int = 0
+    current_user_signed_up: bool = False
+    current_user_signup_id: int | None = None
+
+
+class EventRoleSchema(BaseModel):
+    """A per-event role slot with its current signup count."""
+
+    id: int
+    event_id: int
+    name: str
+    emoji: str | None = None
+    description: str | None = None
+    capacity: int | None = None
+    sort_order: int = 0
+    locked: bool = False
+    signup_count: int = 0
+    current_user_signed_up: bool = False
+
+
+class EventRolesResponse(BaseModel):
+    """Response listing the roles for an event plus current-user state."""
+
+    success: bool = True
+    roles: list[EventRoleSchema] = Field(default_factory=list)
+    allow_multiple_roles: bool = False
+    signups_enabled: bool = True
+    signups_closed: bool = False
+
+
+class EventRoleCreateRequest(BaseModel):
+    """Coordinator request to create an event role slot."""
+
+    name: str = Field(min_length=1, max_length=40)
+    emoji: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=280)
+    capacity: int | None = Field(default=None, ge=1)
+    sort_order: int = 0
+    locked: bool = False
+
+    _sanitize_emoji = field_validator("emoji")(_sanitize_role_emoji)
+
+
+class EventRoleUpdateRequest(BaseModel):
+    """Coordinator request to update an event role slot (all fields optional)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    emoji: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=280)
+    capacity: int | None = Field(default=None, ge=1)
+    sort_order: int | None = None
+    locked: bool | None = None
+
+    _sanitize_emoji = field_validator("emoji")(_sanitize_role_emoji)
+
+
+class EventRoleSignupRequest(BaseModel):
+    """Request to sign up for (or be assigned to) a specific event role."""
+
+    role_id: int
+
+
+class EventSettingsUpdateRequest(BaseModel):
+    """Coordinator request to update event-level signup settings."""
+
+    signups_enabled: bool | None = None
+    signups_closed: bool | None = None
+    allow_multiple_roles: bool | None = None
+    signup_channel_id: str | None = None
+
+
+class EventRosterUser(BaseModel):
+    """A user appearing in the coordinator roster."""
+
+    user_id: str
+    display_name: str | None = None
+    created_at: int | None = None
+
+
+class EventRosterRole(BaseModel):
+    """Roster breakdown for a single role."""
+
+    role_id: int
+    name: str
+    emoji: str | None = None
+    capacity: int | None = None
+    locked: bool = False
+    users: list[EventRosterUser] = Field(default_factory=list)
+
+
+class EventRosterResponse(BaseModel):
+    """Full coordinator roster: web signups separated from Discord RSVP."""
+
+    success: bool = True
+    event_id: int
+    total_web_signups: int = 0
+    # Web-interested users who have not selected any role.
+    no_role_users: list[EventRosterUser] = Field(default_factory=list)
+    roles: list[EventRosterRole] = Field(default_factory=list)
+    # Discord-native RSVP/interest count, kept separate from web signups.
+    discord_user_count: int = 0
+
+
+class EventMessageRequest(BaseModel):
+    """Coordinator request to send a message to a signup segment."""
+
+    channel_id: str
+    message: str = Field(min_length=1, max_length=2000)
+    target: Literal["all", "no_role", "role", "all_roles"] = "all"
+    role_id: int | None = None
+
+    @model_validator(mode="after")
+    def validate_role_target(self) -> "EventMessageRequest":
+        """Require role_id when targeting a single role."""
+        if self.target == "role" and self.role_id is None:
+            raise ValueError("role_id is required when target is 'role'")
+        return self
+
+
+class EventMessageResponse(BaseModel):
+    """Result of sending a coordinator message."""
+
+    success: bool = True
+    recipients: int = 0
+
+
+class EventSignupResponse(BaseModel):
+    """Whole-event interest signup state response."""
+
+    success: bool = True
+    event_id: int
+    signed_up: bool = False
+    web_signup_count: int = 0
 
 
 class ScheduledEventsResponse(BaseModel):

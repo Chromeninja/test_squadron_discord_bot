@@ -1,0 +1,6 @@
+# Replace this handle if project ownership changes.
+* @Chromeninja
+/backend/ @Chromeninja
+/connectors/ @Chromeninja
+/web/ @Chromeninja
+/.github/ @Chromeninja

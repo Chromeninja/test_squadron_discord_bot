@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from core.dependencies import (
     InternalAPIClient,
     get_internal_api_client,
     require_event_coordinator,
     require_fresh_guild_access,
+    require_guild_permission,
     translate_internal_api_error,
 )
 from core.event_service import EventService
+from core.event_signup_service import (
+    EventSignupService,
+    SignupError,
+    get_event_signup_service,
+)
+from core.role_utils import is_event_coordinator
 from core.schemas import (
     EventSyncRequest,
     EventSyncResponse,
@@ -30,28 +38,44 @@ from core.validation import (
 )
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.db.repository.events import EventRepository
 from helpers.discord_image_data import validate_discord_event_image_data
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 router = APIRouter(prefix="/api/guilds", tags=["guild-events"])
 logger = logging.getLogger(__name__)
 
 
 def _coerce_scheduled_event_summary(
-    event_data: dict[str, object | None],
+    event_data: Mapping[str, object | None],
 ) -> ScheduledEventSummary:
     """Coerce event payload values into strict ScheduledEventSummary types."""
     last_synced_at_raw = event_data.get("last_synced_at")
     last_synced_at = (
         int(last_synced_at_raw)
-        if isinstance(last_synced_at_raw, (int, str))
-        and str(last_synced_at_raw).strip()
+        if isinstance(last_synced_at_raw, int | str) and str(last_synced_at_raw).strip()
         else None
     )
     user_count_raw = event_data.get("user_count")
     user_count = (
         int(user_count_raw)
-        if isinstance(user_count_raw, (int, str)) and str(user_count_raw).strip()
+        if isinstance(user_count_raw, int | str) and str(user_count_raw).strip()
         else 0
+    )
+    web_signup_count_raw = event_data.get("web_signup_count")
+    web_signup_count = (
+        int(web_signup_count_raw)
+        if isinstance(web_signup_count_raw, int | str)
+        and str(web_signup_count_raw).strip()
+        else 0
+    )
+    current_user_signup_id_raw = event_data.get("current_user_signup_id")
+    current_user_signup_id = (
+        current_user_signup_id_raw
+        if isinstance(current_user_signup_id_raw, int)
+        else None
     )
     recurrence_rule_payload_raw = event_data.get("recurrence_rule_payload")
     recurrence_rule_payload: ScheduledEventRecurrenceRule | None = None
@@ -143,21 +167,46 @@ def _coerce_scheduled_event_summary(
             else None
         ),
         recurrence_rule_payload=recurrence_rule_payload,
+        signups_enabled=bool(event_data.get("signups_enabled", True)),
+        signups_closed=bool(event_data.get("signups_closed", False)),
+        allow_multiple_roles=bool(event_data.get("allow_multiple_roles", False)),
+        signup_channel_id=(
+            str(event_data["signup_channel_id"])
+            if isinstance(event_data.get("signup_channel_id"), str)
+            else None
+        ),
+        web_signup_count=web_signup_count,
+        current_user_signed_up=bool(event_data.get("current_user_signed_up", False)),
+        current_user_signup_id=current_user_signup_id,
     )
 
 
 @router.get(
     "/{guild_id}/events/scheduled",
     response_model=ScheduledEventsResponse,
-    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def get_discord_scheduled_events(
     guild_id: int,
-    current_user: UserProfile = Depends(require_event_coordinator()),
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    signup_service: EventSignupService = Depends(get_event_signup_service),
 ):
-    """Return DB-backed scheduled events for a guild (DB is source of truth)."""
+    """Return DB-backed scheduled events for a guild (DB is source of truth).
+
+    Any authenticated guild member may call this. Regular (non-coordinator)
+    members only ever receive active/upcoming/recurring events — past events are
+    filtered out server-side so visibility cannot be bypassed from the frontend.
+    Each event is augmented with the caller's web signup state.
+    """
     ensure_guild_match(guild_id, current_user)
-    events_payload = await EventService.list_events(guild_id)
+
+    if is_event_coordinator(current_user):
+        events_payload = await EventService.list_events(guild_id)
+    else:
+        events_payload = await EventRepository().list_active_events(guild_id)
+
+    events_payload = await signup_service.attach_signup_state(
+        guild_id, events_payload, current_user.user_id
+    )
 
     return ScheduledEventsResponse(
         events=[_coerce_scheduled_event_summary(event) for event in events_payload]
@@ -167,20 +216,31 @@ async def get_discord_scheduled_events(
 @router.get(
     "/{guild_id}/events/scheduled/{event_id}",
     response_model=ScheduledEventResponse,
-    dependencies=[Depends(require_fresh_guild_access)],
 )
 async def get_discord_scheduled_event(
     guild_id: int,
     event_id: int,
-    current_user: UserProfile = Depends(require_event_coordinator()),
+    current_user: UserProfile = Depends(require_guild_permission("user")),
+    signup_service: EventSignupService = Depends(get_event_signup_service),
 ):
-    """Return a single DB-backed scheduled event by local ID."""
-    ensure_guild_match(guild_id, current_user)
-    event_payload = await EventService.get_event(guild_id, event_id)
-    if event_payload is None:
-        raise HTTPException(status_code=404, detail="Scheduled event not found")
+    """Return a single DB-backed scheduled event by local ID.
 
-    return ScheduledEventResponse(event=_coerce_scheduled_event_summary(event_payload))
+    Regular members may only view active/upcoming/recurring events; requesting a
+    past event returns 404 for them (enforced in the signup service).
+    """
+    ensure_guild_match(guild_id, current_user)
+    coordinator = is_event_coordinator(current_user)
+    try:
+        event_payload = await signup_service.load_event(
+            guild_id, event_id, is_coordinator=coordinator
+        )
+    except SignupError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    enriched = await signup_service.attach_signup_state(
+        guild_id, [event_payload], current_user.user_id
+    )
+    return ScheduledEventResponse(event=_coerce_scheduled_event_summary(enriched[0]))
 
 
 @router.post(
@@ -229,7 +289,7 @@ async def create_discord_scheduled_event(
     )
 
     try:
-        event_for_projection = dict(created_event)
+        event_for_projection = created_event.copy()
         if image_data is not None:
             event_for_projection["image_data"] = image_data
         projected_event = await EventService.sync_db_event_to_discord(
@@ -307,7 +367,7 @@ async def update_discord_scheduled_event(
         raise HTTPException(status_code=404, detail="Scheduled event not found")
 
     try:
-        event_for_projection = dict(updated_event)
+        event_for_projection = updated_event.copy()
         if image_data is not None:
             event_for_projection["image_data"] = image_data
         projected_event = await EventService.sync_db_event_to_discord(

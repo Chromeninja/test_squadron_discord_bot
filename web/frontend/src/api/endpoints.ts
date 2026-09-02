@@ -58,7 +58,6 @@ export interface RoleDelegationPolicyPayload {
   target_role_id: string;
   prerequisite_role_ids_all: string[];
   prerequisite_role_ids_any: string[];
-  prerequisite_role_ids?: string[];
   enabled: boolean;
   note?: string | null;
 }
@@ -146,6 +145,91 @@ export interface ScheduledEventSummary {
     by_month?: number[];
     by_month_day?: number[];
   } | null;
+  // Web signup state (separate from Discord's native user_count).
+  signups_enabled: boolean;
+  signups_closed: boolean;
+  allow_multiple_roles: boolean;
+  signup_channel_id: string | null;
+  web_signup_count: number;
+  current_user_signed_up: boolean;
+  current_user_signup_id: number | null;
+}
+
+export interface EventRole {
+  id: number;
+  event_id: number;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  capacity: number | null;
+  sort_order: number;
+  locked: boolean;
+  signup_count: number;
+  current_user_signed_up: boolean;
+}
+
+export interface EventRolesResponse {
+  success: boolean;
+  roles: EventRole[];
+  allow_multiple_roles: boolean;
+  signups_enabled: boolean;
+  signups_closed: boolean;
+}
+
+export interface EventSignupState {
+  success: boolean;
+  event_id: number;
+  signed_up: boolean;
+  web_signup_count: number;
+}
+
+export interface EventRosterUser {
+  user_id: string;
+  display_name: string | null;
+  created_at: number | null;
+}
+
+export interface EventRosterRole {
+  role_id: number;
+  name: string;
+  emoji: string | null;
+  capacity: number | null;
+  locked: boolean;
+  users: EventRosterUser[];
+}
+
+export interface EventRoster {
+  success: boolean;
+  event_id: number;
+  total_web_signups: number;
+  no_role_users: EventRosterUser[];
+  roles: EventRosterRole[];
+  discord_user_count: number;
+}
+
+export interface EventRoleInput {
+  name: string;
+  emoji?: string | null;
+  description?: string | null;
+  capacity?: number | null;
+  sort_order?: number;
+  locked?: boolean;
+}
+
+export interface EventSettingsInput {
+  signups_enabled?: boolean;
+  signups_closed?: boolean;
+  allow_multiple_roles?: boolean;
+  signup_channel_id?: string | null;
+}
+
+export type EventMessageTarget = 'all' | 'no_role' | 'role' | 'all_roles';
+
+export interface EventMessageInput {
+  channel_id: string;
+  message: string;
+  target: EventMessageTarget;
+  role_id?: number | null;
 }
 
 export interface ScheduledEventCreateRequest {
@@ -432,7 +516,6 @@ export interface UserDetailsResponse {
 }
 
 export interface ExportUsersRequest {
-  membership_status?: string | null;
   membership_statuses?: string[] | null;
   role_ids?: number[] | null;
   selected_ids?: string[] | null;
@@ -836,9 +919,6 @@ export const usersApi = {
     if (membershipStatuses && membershipStatuses.length > 0) {
       const filtered = membershipStatuses.filter(s => s && s !== 'all');
       if (filtered.length > 0) {
-        if (filtered.length === 1) {
-          params.membership_status = filtered[0];
-        }
         params.membership_statuses = filtered.join(',');
       }
     }
@@ -1254,6 +1334,119 @@ export const eventsApi = {
     );
     return response.data;
   },
+
+  // --- Web signup flows (regular guild members) ---
+  markInterest: async (guildId: string, eventId: string) => {
+    const response = await apiClient.post<EventSignupState>(
+      `/api/guilds/${guildId}/events/${eventId}/signup`,
+    );
+    return response.data;
+  },
+  withdrawInterest: async (guildId: string, eventId: string) => {
+    const response = await apiClient.delete<EventSignupState>(
+      `/api/guilds/${guildId}/events/${eventId}/signup`,
+    );
+    return response.data;
+  },
+  getRoles: async (guildId: string, eventId: string) => {
+    const response = await apiClient.get<EventRolesResponse>(
+      `/api/guilds/${guildId}/events/${eventId}/roles`,
+    );
+    return response.data;
+  },
+  signUpForRole: async (guildId: string, eventId: string, roleId: number) => {
+    const response = await apiClient.post<EventRolesResponse>(
+      `/api/guilds/${guildId}/events/${eventId}/role-signup`,
+      { role_id: roleId },
+    );
+    return response.data;
+  },
+  withdrawFromRole: async (guildId: string, eventId: string, roleId: number) => {
+    const response = await apiClient.delete<EventRolesResponse>(
+      `/api/guilds/${guildId}/events/${eventId}/role-signup/${roleId}`,
+    );
+    return response.data;
+  },
+
+  // --- Coordinator-only flows ---
+  getRoster: async (guildId: string, eventId: string) => {
+    const response = await apiClient.get<EventRoster>(
+      `/api/guilds/${guildId}/events/${eventId}/roster`,
+    );
+    return response.data;
+  },
+  assignUser: async (
+    guildId: string,
+    eventId: string,
+    userId: string,
+    roleId?: number | null,
+  ) => {
+    const response = await apiClient.post<EventRoster>(
+      `/api/guilds/${guildId}/events/${eventId}/roster/assign`,
+      { user_id: userId, role_id: roleId ?? null },
+    );
+    return response.data;
+  },
+  removeUser: async (guildId: string, eventId: string, userId: string) => {
+    const response = await apiClient.delete<EventRoster>(
+      `/api/guilds/${guildId}/events/${eventId}/roster/${userId}`,
+    );
+    return response.data;
+  },
+  createRole: async (guildId: string, eventId: string, payload: EventRoleInput) => {
+    const response = await apiClient.post<EventRole>(
+      `/api/guilds/${guildId}/events/${eventId}/roles`,
+      payload,
+    );
+    return response.data;
+  },
+  updateRole: async (
+    guildId: string,
+    eventId: string,
+    roleId: number,
+    payload: Partial<EventRoleInput>,
+  ) => {
+    const response = await apiClient.patch<EventRole>(
+      `/api/guilds/${guildId}/events/${eventId}/roles/${roleId}`,
+      payload,
+    );
+    return response.data;
+  },
+  deleteRole: async (guildId: string, eventId: string, roleId: number) => {
+    const response = await apiClient.delete<{ success: boolean }>(
+      `/api/guilds/${guildId}/events/${eventId}/roles/${roleId}`,
+    );
+    return response.data;
+  },
+  updateEventSettings: async (
+    guildId: string,
+    eventId: string,
+    payload: EventSettingsInput,
+  ) => {
+    const response = await apiClient.patch<{ success: boolean; event: ScheduledEventSummary }>(
+      `/api/guilds/${guildId}/events/${eventId}/settings`,
+      payload,
+    );
+    return response.data;
+  },
+  sendMessage: async (guildId: string, eventId: string, payload: EventMessageInput) => {
+    const response = await apiClient.post<{ success: boolean; recipients: number }>(
+      `/api/guilds/${guildId}/events/${eventId}/message`,
+      payload,
+    );
+    return response.data;
+  },
+  exportSignups: async (guildId: string, eventId: string): Promise<void> => {
+    const response = await apiClient.get(
+      `/api/guilds/${guildId}/events/${eventId}/export`,
+      { responseType: 'blob' },
+    );
+    const filename = extractFilename(
+      response.headers['content-disposition'],
+      `event_${eventId}_signups.csv`,
+    );
+    triggerBlobDownload(response.data, filename);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1316,8 +1509,6 @@ export interface TicketInfo {
 }
 
 export interface TicketSettings {
-  channel_id: string | null;
-  panel_message_id: string | null;
   log_channel_id: string | null;
   close_message: string | null;
   staff_roles: string[];
@@ -1327,7 +1518,6 @@ export interface TicketSettings {
 }
 
 export interface TicketSettingsUpdate {
-  channel_id?: string | null;
   log_channel_id?: string | null;
   close_message?: string | null;
   staff_roles?: string[];
@@ -1424,9 +1614,7 @@ export interface TicketFormValidation {
 
 export const ticketsApi = {
   getSettings: async () => {
-    const response = await apiClient.get<{ success: boolean; settings: TicketSettings }>(
-      '/api/tickets/settings'
-    );
+    const response = await apiClient.get<TicketSettings>('/api/tickets/settings');
     return response.data;
   },
 

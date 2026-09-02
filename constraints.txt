@@ -1,0 +1,5 @@
+# Security floors applied to every generated requirements entrypoint.
+urllib3>=2.6.3,<3.0.0
+cryptography>=49.0.0,<50.0.0
+pyasn1>=0.6.2,<0.7.0
+filelock>=3.20.3,<4.0.0

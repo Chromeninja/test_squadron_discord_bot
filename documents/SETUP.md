@@ -62,7 +62,7 @@ DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
 SESSION_SECRET=generate-with-openssl-rand-hex-32-or-python-secrets
 BOT_API_KEY=generate-with-python-secrets-token-hex-32
-DISCORD_REDIRECT_URI=http://localhost:8000/auth/callback
+PUBLIC_URL=http://localhost:8000
 ```
 
 To generate secure secrets:
@@ -88,7 +88,7 @@ This builds and starts two containers:
 - **backend**: FastAPI server on port 8000, with health check at `GET /api/v1/health`
 - **bot**: Discord bot process (no exposed ports)
 
-Both services share a named volume `sqlite-data` for persistent SQLite databases. The databases are created at:
+Both services share the repository's `./data` bind mount for persistent SQLite databases. The databases are created at:
 - `/app/data/TESTDatabase.db` (main database)
 - `/app/data/metrics.db` (metrics database)
 
@@ -112,15 +112,11 @@ docker compose logs -f bot
 
 ### Data Persistence
 
-Database files are stored in the `sqlite-data` named Docker volume. This volume:
-- **Persists** across `docker compose up/down` cycles
-- **Is NOT deleted** by `docker compose down` (safe operation)
-- **Is ONLY deleted** by explicitly running `docker compose down -v`
+Database files are stored in the `./data` bind mount. This directory persists across `docker compose down`, rebuilds, and host restarts; back it up or remove it deliberately when resetting an environment.
 
 To backup your databases before major changes:
 ```bash
-docker run --rm -v sqlite-data:/data -v $(pwd):/backup \
-  busybox cp -r /data /backup/sqlite-data-backup
+cp -a ./data ./data-backup-$(date +%F)
 ```
 
 ### Stopping and Restarting
@@ -191,8 +187,7 @@ cd test_squadron_discord_bot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -r requirements.txt
-pip install -r web/backend/requirements.txt
+pip install -r requirements.txt -r web/backend/requirements.txt
 ```
 
 ### 4. Frontend Build
@@ -200,7 +195,7 @@ pip install -r web/backend/requirements.txt
 ```bash
 cd web/frontend
 npm install
-VITE_API_BASE=http://YOUR_PUBLIC_IP npm run build
+npm run build
 cd ../..
 
 # Fix permissions so nginx (www-data) can serve frontend files
@@ -475,13 +470,13 @@ If login redirects to `http://YOUR_IP:5173/` instead of `http://YOUR_IP/`, the b
 
 1. **Set `ENV=production`** in `.env`. Without this, the default is `development`, which redirects to port 5173.
 2. **PUBLIC_URL mismatch**: Ensure `PUBLIC_URL` in `.env` matches your external URL (e.g. `http://155.138.227.187` or `https://your-domain.com`).
-3. **FRONTEND_URL override**: If you need an explicit override, set `FRONTEND_URL` in `.env` to your public URL. This takes priority over automatic derivation.
+3. **Same-origin build**: the backend serves the built dashboard, so no frontend API-base override is needed.
 4. **Discord Portal redirects**: Register both redirect URIs using `PUBLIC_URL`: `/auth/callback` and `/auth/bot-callback`.
 5. **Restart backend**: `sudo systemctl restart test_squadron_backend` after changing `.env`.
 
 Verify:
 ```bash
-grep -E 'ENV|PUBLIC_URL|FRONTEND_URL' .env
+grep -E 'ENV|PUBLIC_URL' .env
 sudo journalctl -u test_squadron_backend -n 20 | grep -i frontend_url
 ```
 

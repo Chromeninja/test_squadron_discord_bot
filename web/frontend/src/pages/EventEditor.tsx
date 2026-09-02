@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   eventsApi,
   guildApi,
@@ -8,6 +9,8 @@ import {
   type GuildInfo,
 } from '../api/endpoints';
 import { Alert, Button, Card, CardBody } from '../components/ui';
+import { EventDraftRoleList, type DraftRole } from '../components/events/EventDraftRoleList';
+import EventRoleManager from '../components/events/EventRoleManager';
 import {
   BUILDER_STEPS,
   buildRecurrenceRule,
@@ -101,6 +104,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
   const [builderSaving, setBuilderSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [draftRoles, setDraftRoles] = useState<DraftRole[]>([]);
 
   const isEditing = mode === 'edit';
   const channelNameById = useMemo(
@@ -290,10 +294,34 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
       if (isEditing && eventId) {
         await eventsApi.updateScheduledEvent(guildId, eventId, payload);
       } else {
-        await eventsApi.createScheduledEvent(guildId, payload);
+        const created = await eventsApi.createScheduledEvent(guildId, payload);
+
+        if (draftRoles.length > 0 && created.event?.id) {
+          const failedRoles: string[] = [];
+          for (let index = 0; index < draftRoles.length; index++) {
+            const role = draftRoles[index];
+            try {
+              await eventsApi.createRole(guildId, created.event.id, {
+                name: role.name.trim(),
+                emoji: role.emoji.trim() || null,
+                description: role.description.trim() || null,
+                capacity: role.capacity.trim() ? Number(role.capacity) : null,
+                sort_order: index,
+                locked: role.locked,
+              });
+            } catch {
+              failedRoles.push(role.name);
+            }
+          }
+          if (failedRoles.length > 0) {
+            toast.error(
+              `Event created, but these roles could not be added: ${failedRoles.join(', ')}. Add them from the Events page.`,
+            );
+          }
+        }
       }
 
-      navigate('/events');
+      navigate(`/dashboard/${encodeURIComponent(guildId)}/events`);
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.response?.data?.error;
       setBuilderError(typeof detail === 'string' ? detail : 'Failed to save event.');
@@ -317,7 +345,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
           <p className="text-sm font-medium text-[#c8c9d0]">{guildInfo?.guild_name || 'Current guild'}</p>
           <h1 className="text-2xl font-bold text-[#fff4cc]">{isEditing ? 'Edit event' : 'Create event'}</h1>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => navigate('/events')}>
+        <Button variant="secondary" size="sm" onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events`)}>
           Back to Events
         </Button>
       </div>
@@ -350,11 +378,18 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
           ) : null}
 
           {builderStep === 'custom' ? (
-            <CustomStep
-              draft={draft}
-              updateDraft={updateDraft}
-              announcementChannelOptions={announcementChannelOptions}
-            />
+            <>
+              <CustomStep
+                draft={draft}
+                updateDraft={updateDraft}
+                announcementChannelOptions={announcementChannelOptions}
+              />
+              {isEditing && eventId ? (
+                <EventRoleManager guildId={guildId} eventId={eventId} onChanged={() => {}} />
+              ) : (
+                <EventDraftRoleList roles={draftRoles} onChange={setDraftRoles} />
+              )}
+            </>
           ) : null}
 
           {builderStep === 'review' ? (
@@ -382,7 +417,7 @@ function EventEditor({ guildId, mode }: EventEditorProps) {
                   Back
                 </Button>
               ) : null}
-              <Button variant="secondary" onClick={() => navigate('/events')}>
+              <Button variant="secondary" onClick={() => navigate(`/dashboard/${encodeURIComponent(guildId)}/events`)}>
                 Cancel
               </Button>
               {builderStep === 'review' ? (
