@@ -29,7 +29,7 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
           pip install -r web/backend/requirements.txt
-          pip install ruff mypy types-PyYAML types-beautifulsoup4 types-requests
+          pip install ruff==0.12.5 mypy types-PyYAML types-beautifulsoup4 types-requests
 
       - name: Ruff lint and format check
         run: |
