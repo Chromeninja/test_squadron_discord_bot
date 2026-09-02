@@ -152,6 +152,9 @@ Centralized repository documentation.
 - `VS_CODE_SETUP.md` — VS Code local development and Docker testing setup.
 - `backend-first-migration.md` — Backend-first architecture migration roadmap.
 - `file-map.md` — This repository map.
+- `MAINTAINERS.md` — Review, release, and incident-response guidance.
+- `architecture/` — System, request-flow, security, and deployment diagrams.
+- `features/` — Behavior and ownership guides for verification, voice, metrics, tickets/events, and dashboard features.
 
 ### `helpers/`
 Reusable utility modules used across bot domains.

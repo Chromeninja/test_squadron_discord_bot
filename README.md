@@ -76,6 +76,8 @@ The bot accesses the backend through typed HTTP connectors. All connector instan
 
 ## 🛠️ Getting Started
 
+For project policies and collaboration guidance, see [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`SUPPORT.md`](SUPPORT.md), [`SECURITY.md`](SECURITY.md), and [`PRIVACY.md`](PRIVACY.md). Maintainers can find release guidance in [`documents/MAINTAINERS.md`](documents/MAINTAINERS.md).
+
 ### Discord Bot Permissions
 
 The bot requires specific Discord permissions to function properly. **Do not grant Administrator permissions** - instead, grant only these specific permissions for security:

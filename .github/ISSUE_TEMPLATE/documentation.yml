@@ -1,0 +1,18 @@
+name: Documentation improvement
+description: Report missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels: ["type:documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      placeholder: README.md or documents/SETUP.md
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What should change?
+    validations:
+      required: true
