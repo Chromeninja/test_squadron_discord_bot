@@ -48,7 +48,7 @@ import {
   MAX_TOTAL_FOLLOW_UP_QUESTIONS,
   TICKET_PAGE_SIZE,
   normalizeStepsForSave,
-} from './tickets';
+} from './tickets/index';
 
 interface TicketsProps {
   guildId: string;

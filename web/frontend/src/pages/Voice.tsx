@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { voiceApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, GuildVoiceGroup, GuildUserSettingsGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
+import { voiceApi, usersApi, ActiveVoiceChannel, VoiceChannelMember, UserJTCSettings, JTCChannelSettings, VoiceSettingsResetResponse, GuildVoiceGroup, EnrichedUser, ALL_GUILDS_SENTINEL } from '../api/endpoints';
 import { useAuth } from '../contexts/AuthContext';
 import { useRequestSequence } from '../hooks/useRequestSequence';
 import { hasPermission } from '../utils/permissions';
@@ -49,7 +49,6 @@ function Voice() {
 
   // Cross-guild mode state - for grouping data by guild
   const [activeGuildGroups, setActiveGuildGroups] = useState<GuildVoiceGroup[] | null>(null);
-  const [_searchGuildGroups, setSearchGuildGroups] = useState<GuildUserSettingsGroup[] | null>(null);
 
   // Reset confirmation modal state
   const [showResetModal, setShowResetModal] = useState(false);
@@ -171,7 +170,6 @@ function Voice() {
       }
       setSearchResults(data.items);
       setTotalResults(data.total);
-      setSearchGuildGroups(data.guild_groups || null);
       if (data.message) {
         setSearchError(data.message);
       }
@@ -182,7 +180,6 @@ function Voice() {
       setSearchError('Failed to search user voice settings');
       setSearchResults([]);
       setTotalResults(0);
-      setSearchGuildGroups(null);
     } finally {
       if (searchRequestSequence.isCurrent(requestId)) {
         setSearchLoading(false);
