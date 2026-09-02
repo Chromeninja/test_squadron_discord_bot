@@ -33,7 +33,8 @@ jobs:
 
       - name: Audit dependencies for known vulnerabilities
         run: |
-          pip-audit --strict --desc on -r requirements.txt -r web/backend/requirements.txt
+          pip install --constraint constraints.txt -e ".[bot,backend]"
+          pip-audit --skip-editable --desc on
 
   test-native:
     name: Python 3.12 tests

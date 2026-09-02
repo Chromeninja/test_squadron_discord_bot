@@ -365,8 +365,8 @@ async def test_get_settings_default(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["success"] is True
-    assert "settings" in data
+    assert data["log_channel_id"] is None
+    assert data["max_open_per_user"] == 5
 
 
 @pytest.mark.asyncio
@@ -376,7 +376,7 @@ async def test_update_settings(
     """Updating settings stores the values."""
     _set_session(client, mock_discord_manager_session)
     payload = {
-        "channel_id": "111222333",
+        "log_channel_id": "111222333",
         "close_message": "Thanks!",
     }
     response = await client.put(
@@ -390,8 +390,8 @@ async def test_update_settings(
     get_resp = await client.get(
         "/api/tickets/settings",
     )
-    settings = get_resp.json()["settings"]
-    assert settings["channel_id"] == "111222333"
+    settings = get_resp.json()
+    assert settings["log_channel_id"] == "111222333"
     assert settings["close_message"] == "Thanks!"
 
 
